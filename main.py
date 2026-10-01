@@ -5158,7 +5158,7 @@ async def economy_shop_cmd(interaction: discord.Interaction):
 @app_commands.autocomplete(item=economy_item_autocomplete)
 @app_commands.describe(item="Item ID or item name from /economy shop", quantity="How many to buy")
 @app_commands.guild_only()
-async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity: app_int = 1):
+async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity: app_commands.Range[int, 1, 99] = 1):
     guild_id, user_id = interaction.guild.id, interaction.user.id
     item_id = item.lower().strip()
     if item_id not in ECONOMY_ITEMS:
@@ -5268,7 +5268,7 @@ async def economy_quest_cmd(interaction: discord.Interaction):
 @app_commands.describe(item="Item to give Cinnamon", quantity="How many to give")
 @app_commands.choices(item=[app_commands.Choice(name=v["name"], value=k) for k, v in ECONOMY_ITEMS.items()])
 @app_commands.guild_only()
-async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.Choice[str], quantity: app_int = 1):
+async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.Choice[str], quantity: app_commands.Range[int, 1, 99] = 1):
     guild_id, user_id = interaction.guild.id, interaction.user.id
     item_id = item.value
     inv = economy_inventory_for(guild_id, user_id)
