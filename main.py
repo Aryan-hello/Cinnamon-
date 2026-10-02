@@ -930,7 +930,7 @@ async def unban(interaction: discord.Interaction, user_id: str):
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(moderate_members=True)
 @app_commands.checks.bot_has_permissions(moderate_members=True)
-async def mute(interaction: discord.Interaction, member: discord.Member, minutes: app_int = 10,
+async def mute(interaction: discord.Interaction, member: discord.Member, minutes: int = 10,
                reason: app_commands.Range[str, 1, 300] = "No reason given"):
     await member.timeout(datetime.timedelta(minutes=minutes), reason=reason)
     case_id = next_case(interaction.guild.id)
@@ -965,7 +965,7 @@ async def unmute(interaction: discord.Interaction, member: discord.Member):
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_messages=True)
 @app_commands.checks.bot_has_permissions(manage_messages=True)
-async def purge(interaction: discord.Interaction, amount: app_int):
+async def purge(interaction: discord.Interaction, amount: int):
     await interaction.response.defer(ephemeral=True)
     deleted = await interaction.channel.purge(limit=amount)
     await interaction.followup.send(f"*sweeps up {len(deleted)} messages with her tail* All tidy now!", ephemeral=True)
@@ -983,7 +983,7 @@ async def purge(interaction: discord.Interaction, amount: app_int):
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_channels=True)
 @app_commands.checks.bot_has_permissions(manage_channels=True)
-async def slowmode(interaction: discord.Interaction, seconds: app_int,
+async def slowmode(interaction: discord.Interaction, seconds: int,
                     channel: discord.TextChannel = None):
     target = channel or interaction.channel
     await target.edit(slowmode_delay=seconds)
@@ -1989,7 +1989,7 @@ levelrole_group = app_commands.Group(name="levelrole", description="Give roles a
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 @app_commands.guild_only()
-async def levelrole_add(interaction: discord.Interaction, level: app_int, role: discord.Role):
+async def levelrole_add(interaction: discord.Interaction, level: int, role: discord.Role):
     if role.is_default() or role.managed:
         return await interaction.response.send_message("That role can't be assigned by a bot.", ephemeral=True)
     if role >= interaction.guild.me.top_role:
@@ -2014,7 +2014,7 @@ async def levelrole_add(interaction: discord.Interaction, level: app_int, role: 
 @app_commands.describe(level="The level to remove the reward from")
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
-async def levelrole_remove(interaction: discord.Interaction, level: app_int):
+async def levelrole_remove(interaction: discord.Interaction, level: int):
     cfg = level_roles.get(interaction.guild.id, {})
     if cfg.pop(level, None) is None:
         return await interaction.response.send_message(f"No level role is set for level {level}.", ephemeral=True)
@@ -2151,8 +2151,8 @@ giveaway_group = app_commands.Group(name="giveaway", description="Run a simple p
 @app_commands.describe(duration_minutes="How long the giveaway runs", winners="Number of winners", prize="What's being given away")
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
-async def giveaway_start(interaction: discord.Interaction, duration_minutes: app_int,
-                          winners: app_int, prize: app_commands.Range[str, 1, 200]):
+async def giveaway_start(interaction: discord.Interaction, duration_minutes: int,
+                          winners: int, prize: app_commands.Range[str, 1, 200]):
     gw = {
         "guild_id": interaction.guild.id, "channel_id": interaction.channel.id, "host_id": interaction.user.id,
         "winners": winners, "prize": prize, "ends_at": time.time() + duration_minutes * 60, "entrants": [],
@@ -2273,7 +2273,7 @@ async def finish_poll(mid: int):
 async def poll(interaction: discord.Interaction, question: app_commands.Range[str, 1, 200],
                option1: app_commands.Range[str, 1, 60], option2: app_commands.Range[str, 1, 60],
                option3: app_commands.Range[str, 1, 60] = None, option4: app_commands.Range[str, 1, 60] = None,
-               duration_minutes: app_int = 1440):
+               duration_minutes: int = 1440):
     options = [o for o in (option1, option2, option3, option4) if o]
     p = {
         "guild_id": interaction.guild.id, "channel_id": interaction.channel.id,
@@ -3028,7 +3028,7 @@ async def economy_shop_cmd(interaction: discord.Interaction):
 @economy_group.command(name="buy", description="Buy an item with Catnip")
 @app_commands.describe(item="Item ID or item name from /economy shop", quantity="How many to buy")
 @app_commands.guild_only()
-async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity: app_int = 1):
+async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity: int = 1):
     guild_id, user_id = interaction.guild.id, interaction.user.id
     item_id = item.lower().strip()
     if item_id not in ECONOMY_ITEMS:
@@ -3081,7 +3081,7 @@ async def economy_work_cmd(interaction: discord.Interaction):
 
 @economy_group.command(name="give", description="Give Catnip to another member")
 @app_commands.guild_only()
-async def economy_give_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_int):
+async def economy_give_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     guild_id = interaction.guild.id
     if member.bot:
         await interaction.response.send_message("❌ Bot accounts can't receive Catnip.", ephemeral=True)
@@ -3132,7 +3132,7 @@ async def economy_quest_cmd(interaction: discord.Interaction):
 @app_commands.describe(item="Item to give Cinnamon", quantity="How many to give")
 @app_commands.choices(item=[app_commands.Choice(name=v["name"], value=k) for k, v in ECONOMY_ITEMS.items()])
 @app_commands.guild_only()
-async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.Choice[str], quantity: app_int = 1):
+async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.Choice[str], quantity: int = 1):
     guild_id, user_id = interaction.guild.id, interaction.user.id
     item_id = item.value
     inv = economy_inventory_for(guild_id, user_id)
@@ -3296,7 +3296,7 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000)
 @economy_group.command(name="addcatnip", description="Admin: add Catnip to a member")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_int):
+async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     guild_id = interaction.guild.id
     economy_balances[(guild_id, member.id)] = economy_balance(guild_id, member.id) + amount
     await bd_save_data()
@@ -3307,7 +3307,7 @@ async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discor
 @economy_group.command(name="removecatnip", description="Admin: remove Catnip from a member")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def economy_removecatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_int):
+async def economy_removecatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     guild_id = interaction.guild.id
     current = economy_balance(guild_id, member.id)
     removed = min(current, amount)
@@ -3322,7 +3322,7 @@ async def economy_removecatnip_cmd(interaction: discord.Interaction, member: dis
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(action="add, remove, or list", role="Role that earns Catnip", amount="Catnip paid each collection", minutes="Cooldown in minutes")
 @app_commands.choices(action=[app_commands.Choice(name="add", value="add"), app_commands.Choice(name="remove", value="remove"), app_commands.Choice(name="list", value="list")])
-async def economy_income_cmd(interaction: discord.Interaction, action: app_commands.Choice[str], role: discord.Role | None = None, amount: app_int | None = None, minutes: app_int | None = None):
+async def economy_income_cmd(interaction: discord.Interaction, action: app_commands.Choice[str], role: discord.Role | None = None, amount: int | None = None, minutes: int | None = None):
     guild_id = interaction.guild.id
     cfg = economy_income_roles.setdefault(guild_id, {})
     if action.value == "list":
@@ -3395,7 +3395,7 @@ async def collect_cmd(interaction: discord.Interaction):
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(member="Member receiving the item", item="Item ID or item name", quantity="Number of items to add")
-async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_int = 1):
+async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: int = 1):
     item_id = item.lower().strip()
     if item_id not in ECONOMY_ITEMS:
         matches = [k for k, v in ECONOMY_ITEMS.items() if v["name"].lower() == item_id]
@@ -3421,7 +3421,7 @@ async def economy_item_add_cmd(interaction: discord.Interaction, member: discord
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(member="Member losing the item", item="Item ID or item name", quantity="Number of items to remove")
-async def economy_item_remove_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_int = 1):
+async def economy_item_remove_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: int = 1):
     item_id = item.lower().strip()
     if item_id not in ECONOMY_ITEMS:
         matches = [k for k, v in ECONOMY_ITEMS.items() if v["name"].lower() == item_id]
@@ -3449,7 +3449,7 @@ async def economy_item_remove_cmd(interaction: discord.Interaction, member: disc
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(item_id="Unique shop ID", name="Item name", price="Price in Catnip", description="Optional item description", per_person_limit="Optional maximum quantity one member can own", emoji="Optional emoji")
-async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: str, name: str, price: app_int, description: str | None = None, per_person_limit: app_int | None = None, emoji: str = "🐾"):
+async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: str, name: str, price: int, description: str | None = None, per_person_limit: int | None = None, emoji: str = "🐾"):
     item_id = re.sub(r"[^a-z0-9_-]", "", item_id.lower())[:32]
     if not item_id or item_id in ECONOMY_ITEMS:
         await interaction.response.send_message("❌ That item ID is invalid or already exists.", ephemeral=True)
@@ -3464,7 +3464,7 @@ async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: s
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(item_id="Item ID to edit", name="New name", price="New price", description="New description", per_person_limit="New per-person limit; 0 means unlimited", emoji="New emoji")
-async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: str, name: str | None = None, price: app_int | None = None, description: str | None = None, per_person_limit: app_int | None = None, emoji: str | None = None):
+async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: str, name: str | None = None, price: int | None = None, description: str | None = None, per_person_limit: int | None = None, emoji: str | None = None):
     item_id = item_id.lower().strip()
     item = ECONOMY_ITEMS.get(item_id)
     if item is None:
@@ -3510,7 +3510,7 @@ async def economy_remove_item_shop_cmd(interaction: discord.Interaction, item_id
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(role="Role receiving the income", amount="Catnip earned each collection", interval="How many time units between collections", unit="Time unit")
 @app_commands.choices(unit=[app_commands.Choice(name="Minutes", value="minute"), app_commands.Choice(name="Hours", value="hour"), app_commands.Choice(name="Days", value="day"), app_commands.Choice(name="Weeks", value="week")])
-async def economy_add_role_income_cmd(interaction: discord.Interaction, role: discord.Role, amount: app_int, interval: app_int, unit: app_commands.Choice[str]):
+async def economy_add_role_income_cmd(interaction: discord.Interaction, role: discord.Role, amount: int, interval: int, unit: app_commands.Choice[str]):
     multipliers = {"minute": 60, "hour": 3600, "day": 86400, "week": 604800}
     cooldown = int(interval) * multipliers[unit.value]
     economy_income_roles.setdefault(interaction.guild.id, {})[role.id] = {"amount": int(amount), "cooldown": cooldown, "interval": int(interval), "unit": unit.value}
