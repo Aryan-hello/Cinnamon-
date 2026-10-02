@@ -410,11 +410,13 @@ def _system(guild,state):
     channels="<div class='field'><label>Economy logs</label>"+_channel_select(guild,"economy_log",elog)+"</div>"
     logsform=_form(gid,"special_logs",channels,"Save log channel")
     logitems=[]
-    for label,cid in [("Main logs",state.get("log_channels",{}).get(gid)),("Economy logs",elog),("Hangry Games logs",hg.hg_log_channels.get(gid) if hg else None)]:
+    for label,cid in [("Main moderation logs",state.get("log_channels",{}).get(gid)),("Economy logs",elog),("Hangry Games logs",hg.hg_log_channels.get(gid) if hg else None)]:
         logitems.append(f"<div class='toggle'><b>{label}</b><span>{current(cid)}</span></div>")
+    recall_form=("<p class='muted'>Scan configured log channels to rebuild recoverable warnings, Hangry Games totals and—only if no live economy accounts exist—the latest economy snapshot.</p>"
+                 + _form(gid,"recall","<p class='muted'>This does not overwrite existing economy accounts.</p>","Run recovery scan"))
     status=bool(_bot and _bot.is_ready())
     storage="Upstash Redis" if state.get("BD_UPSTASH_URL") and state.get("BD_UPSTASH_TOKEN") else "Local JSON file (may not survive redeploys)"
-    return f"<h1>Settings & system</h1><p class='muted'>Channel routing, persistence status and recovery guidance.</p><div class='grid'><article class='card half'><h2>Dedicated log channels</h2>{logsform}</article><article class='card half'><h2>Current system status</h2><div class='toggle'><b>Bot Gateway</b><span class='pill {'good' if status else 'warn'}'>{'Connected' if status else 'Not ready'}</span></div><div class='toggle'><b>Storage backend</b><span>{storage}</span></div><div class='toggle'><b>Guild ID</b><span>{gid}</span></div><div class='toggle'><b>Bot permissions</b><span>Use <b>/diagnostics</b> in Discord for the detailed check.</span></div></article><article class='card full'><h2>Channel configuration</h2>{''.join(logitems)}<div class='rule'></div><p class='muted'>The dashboard saves settings through Cinnamon's existing persistence function. For backup and recovery, use <b>/backup</b> and <b>/recall</b> in Discord. Restoring backups from a browser is intentionally not enabled.</p><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=overview'>Back to overview</a></article></div>"
+    return f"<h1>Settings & system</h1><p class='muted'>Channel routing, persistence status and recovery guidance.</p><div class='grid'><article class='card half'><h2>Dedicated log channels</h2>{logsform}</article><article class='card half'><h2>Current system status</h2><div class='toggle'><b>Bot Gateway</b><span class='pill {'good' if status else 'warn'}'>{'Connected' if status else 'Not ready'}</span></div><div class='toggle'><b>Storage backend</b><span>{storage}</span></div><div class='toggle'><b>Guild ID</b><span>{gid}</span></div><div class='toggle'><b>Bot permissions</b><span>Use <b>/diagnostics</b> in Discord for the detailed check.</span></div></article><article class='card half'><h2>Log recovery</h2>{recall_form}<p class='muted'>Recovery is best-effort: it cannot recreate information that was never logged or has been deleted/removed from the channel history.</p></article><article class='card half'><h2>Channel configuration</h2>{''.join(logitems)}<div class='rule'></div><p class='muted'>Keep log channels available to Cinnamon with View Channel, Read Message History and, for posting future logs, Send Messages and Embed Links.</p><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=overview'>Back to overview</a></article></div>"
 
 
 def _moderate(guild, actor_id, form):
@@ -520,7 +522,7 @@ def dashboard_action():
         guild,_=_get_access(sid,guilds,guild_id)
         gid=guild.id; state=_state(); action=request.form.get("action","")
         actor=_tokens[sid]["user"].get("username","dashboard user")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_quest_add","economy_quest_save","economy_quest_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","hangry_logs"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_quest_add","economy_quest_save","economy_quest_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","hangry_logs","recall"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action in {"welcome","goodbye"}:
             channel_id=request.form.get("channel_id","").strip(); message=request.form.get("message","")
@@ -688,13 +690,23 @@ def dashboard_action():
                 await cog._save()
             _run_bot(save_hangry()); _audit(gid,actor,"Dashboard: Hangry Games logging updated",f"Channel {value or 'disabled'}; enabled={enabled_now}")
             session["dashboard_notice"]="Hangry Games log settings saved."
+        elif action=="recall":
+            recall_fn=state.get("recall_guild_data")
+            if not callable(recall_fn): raise RuntimeError("Recovery service is not connected to the dashboard.")
+            result=_run_bot(recall_fn(guild),timeout=120)
+            _audit(gid,actor,"Dashboard: log recovery scan completed",
+                   f"Warnings={result.get('warnings',0)}; Hangry games=#{result.get('hangry_game_count',0)}; "
+                   f"wins seen={result.get('hangry_wins_seen',0)}; economy accounts={result.get('economy_accounts',0)}")
+            session["dashboard_notice"]=(f"Recovery scan complete — {result.get('warnings',0)} new warning(s), "
+                f"Hangry Games #{result.get('hangry_game_count',0)}, {result.get('hangry_wins_seen',0)} win(s) seen, "
+                f"{result.get('economy_accounts',0)} economy account(s) restored. Check channel history limitations.")
         elif action=="moderate":
             target,mod_action=_moderate(guild,_tokens[sid]["user"]["id"],request.form)
             _audit(gid,actor,f"Dashboard moderation: {mod_action}",f"Target {target}; reason: {request.form.get('reason','No reason provided')[:350]}")
             session["dashboard_notice"]=f"{mod_action.title()} action completed for {target}."
         else:
             raise ValueError("Unknown dashboard action.")
-        tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_quest_add":"economy","economy_quest_save":"economy","economy_quest_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement"}.get(action,"overview")
+        tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_quest_add":"economy","economy_quest_save":"economy","economy_quest_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","recall":"system"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice"]=str(exc)[:300]

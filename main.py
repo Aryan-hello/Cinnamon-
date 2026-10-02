@@ -18,7 +18,7 @@ Setup:
      BOTH "MESSAGE CONTENT INTENT" and "SERVER MEMBERS INTENT"
      (Bot tab -> Privileged Gateway Intents). The members intent is needed
      for /role add-all, welcome/goodbye messages, and recognizing the owner
-     by username; message content is needed for the AI chat and auto-mod.
+     by username; message content is needed for ? prefix commands, AI chat, and auto-mod.
   4. When generating your bot's invite link, grant at least: Kick Members,
      Ban Members, Moderate Members (timeouts), Manage Messages, Manage Roles,
      Manage Channels, Send Messages, Embed Links, Add Reactions, Read Message
@@ -246,7 +246,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True  # needed for /role add-all and for finding the owner by username
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="?", intents=intents, case_insensitive=True)
 
 
 # --- "Who's your owner / favorite person" ------------------------------------
@@ -431,16 +431,194 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
     )
 
 
+
+# Main prefix commands. Hangry Games, quests, and achievements stay slash-only.
+@bot.command(name="help", aliases=["commands"])
+async def prefix_help(ctx):
+    e=discord.Embed(title="🐾 Cinnamon — Help",description="Use ? before a command. Mention or ID works for member arguments.",color=discord.Color.blurple())
+    e.add_field(name="Moderation",value="`?kick`, `?ban`, `?unban`, `?mute`, `?unmute`, `?warn`, `?warnings`, `?clearwarnings`, `?purge`, `?slowmode`",inline=False)
+    e.add_field(name="AI",value="`?ask <message>` (`?ai`, `?chat`)",inline=False)
+    e.add_field(name="Normal",value="`?ping`, `?botstatus`, `?userinfo [member]`, `?serverinfo`, `?afk [reason]`, `?rank [member]`, `?leaderboard`",inline=False)
+    e.add_field(name="Economy",value="`?balance` (`?bal`, `?wallet`), `?inventory` (`?inv`), `?shop`, `?buy <item> [qty]`, `?daily`, `?work`, `?give <member> <amount>` (`?pay`), `?econlb`",inline=False)
+    await ctx.reply(embed=e,mention_author=False)
+
+@bot.command(name="ping")
+async def prefix_ping(ctx): await ctx.reply(f"🐾 Pong! {round(bot.latency*1000)} ms",mention_author=False)
+
+@bot.command(name="ask",aliases=["ai","chat"])
+@commands.guild_only()
+async def prefix_ask(ctx,*,prompt:str):
+    if ctx.channel.id in disabled_channels[ctx.guild.id]: return
+    async with ctx.typing():
+        try: result=await asyncio.to_thread(ask_gemini,ctx.channel.id,ctx.author.display_name,prompt,ctx.guild); reply=result.get("reply") or "*paws at the screen* Try again?"
+        except Exception: log.exception("Prefix AI failed"); reply="*paws at the screen, confused* I couldn't answer just now. Try again soon?"
+    channel_memories[ctx.channel.id].append((ctx.author.display_name,prompt)); channel_memories[ctx.channel.id].append(("Cinnamon",reply))
+    await ctx.reply(reply[:1900],mention_author=False,allowed_mentions=discord.AllowedMentions.none())
+
+@bot.command(name="userinfo",aliases=["whois"])
+@commands.guild_only()
+async def prefix_userinfo(ctx,member:discord.Member=None):
+    m=member or ctx.author; e=discord.Embed(title=f"👤 {m}",color=discord.Color.blurple()); e.add_field(name="ID",value=m.id); e.add_field(name="Joined",value=discord.utils.format_dt(m.joined_at,style="R") if m.joined_at else "Unknown"); e.add_field(name="Created",value=discord.utils.format_dt(m.created_at,style="R")); e.add_field(name="Top role",value=m.top_role.mention); await ctx.reply(embed=e,mention_author=False)
+
+@bot.command(name="serverinfo")
+@commands.guild_only()
+async def prefix_serverinfo(ctx):
+    g=ctx.guild; e=discord.Embed(title=f"🏡 {g.name}",color=discord.Color.blurple()); e.add_field(name="Members",value=str(g.member_count or "Unknown")); e.add_field(name="Created",value=discord.utils.format_dt(g.created_at,style="D")); e.add_field(name="Owner",value=str(g.owner or "Unknown")); e.add_field(name="Channels",value=str(len(g.channels))); await ctx.reply(embed=e,mention_author=False)
+
+@bot.command(name="afk")
+@commands.guild_only()
+async def prefix_afk(ctx,*,reason="AFK"):
+    afk_users[(ctx.guild.id,ctx.author.id)]=reason[:200]; await ctx.reply(f"🐾 Marked AFK: {reason[:200]}",mention_author=False)
+
+@bot.command(name="mute",aliases=["timeout"])
+@commands.guild_only()
+@commands.has_guild_permissions(moderate_members=True)
+@commands.bot_has_guild_permissions(moderate_members=True)
+async def prefix_mute(ctx,member:discord.Member,minutes:int=10,*,reason="No reason given"):
+    if not 1 <= minutes <= 40320: return await ctx.reply("❌ Minutes must be between 1 and 40,320.",mention_author=False)
+    if member==ctx.author or member==ctx.guild.owner or (member.top_role>=ctx.author.top_role and ctx.author.id!=ctx.guild.owner_id) or member.top_role>=ctx.guild.me.top_role: return await ctx.reply("❌ Role hierarchy prevents this action.",mention_author=False)
+    await member.timeout(datetime.timedelta(minutes=minutes),reason=reason[:300]); case=next_case(ctx.guild.id); await bd_save_data(); await ctx.reply(f"🔇 {member.mention} timed out for {minutes} minute(s). Case #{case}.",mention_author=False); await send_log(ctx.guild.id,title="🔇 Member muted",color=discord.Color.orange(),fields=[("Case",f"#{case}"),("Member",f"{member} ({member.id})"),("Duration",f"{minutes} min"),("Reason",reason[:300])])
+
+@bot.command(name="unmute",aliases=["untimeout"])
+@commands.guild_only()
+@commands.has_guild_permissions(moderate_members=True)
+@commands.bot_has_guild_permissions(moderate_members=True)
+async def prefix_unmute(ctx,member:discord.Member):
+    if member.top_role>=ctx.guild.me.top_role: return await ctx.reply("❌ Cinnamon's role must be above the target's role.",mention_author=False)
+    await member.timeout(None,reason=f"Unmuted by {ctx.author}"); case=next_case(ctx.guild.id); await bd_save_data(); await ctx.reply(f"🔊 {member.mention} can talk again. Case #{case}.",mention_author=False); await send_log(ctx.guild.id,title="🔊 Member unmuted",color=discord.Color.green(),fields=[("Case",f"#{case}"),("Member",f"{member} ({member.id})")])
+
+@bot.command(name="warn")
+@commands.guild_only()
+@commands.has_guild_permissions(kick_members=True)
+async def prefix_warn(ctx,member:discord.Member,*,reason:str):
+    count=add_warning(ctx.guild.id,member.id,reason[:300],ctx.author); case=next_case(ctx.guild.id); await bd_save_data(); await ctx.reply(f"⚠️ {member.mention} warned — {count} warning(s). Case #{case}.",mention_author=False,allowed_mentions=discord.AllowedMentions(users=True)); await send_log(ctx.guild.id,title="⚠️ Member warned",color=discord.Color.orange(),fields=[("Case",f"#{case}"),("Member",f"{member} ({member.id})"),("Reason",reason[:300]),("Total warnings",str(count))])
+
+@bot.command(name="warnings",aliases=["warns"])
+@commands.guild_only()
+@commands.has_guild_permissions(kick_members=True)
+async def prefix_warnings(ctx,member:discord.Member):
+    ws=warnings_data.get((ctx.guild.id,member.id),[])
+    if not ws: return await ctx.reply(f"{member.display_name} has no warnings.",mention_author=False)
+    e=discord.Embed(title=f"⚠️ Warnings for {member.display_name}",color=discord.Color.orange())
+    for i,w in enumerate(ws[-10:],1): e.add_field(name=f"Warning #{i}",value=f"{w.get('reason','No reason')} — {w.get('ts','')[:10]}",inline=False)
+    await ctx.reply(embed=e,mention_author=False)
+
+@bot.command(name="clearwarnings",aliases=["clearwarns"])
+@commands.guild_only()
+@commands.has_guild_permissions(kick_members=True)
+async def prefix_clearwarnings(ctx,member:discord.Member):
+    warnings_data.pop((ctx.guild.id,member.id),None); await bd_save_data(); await ctx.reply(f"🧹 Cleared warnings for {member.mention}.",mention_author=False)
+
+@bot.command(name="kick")
+@commands.guild_only()
+@commands.has_guild_permissions(kick_members=True)
+@commands.bot_has_guild_permissions(kick_members=True)
+async def prefix_kick(ctx,member:discord.Member,*,reason="No reason given"):
+    if member==ctx.author or member==ctx.guild.owner or (member.top_role>=ctx.author.top_role and ctx.author.id!=ctx.guild.owner_id) or member.top_role>=ctx.guild.me.top_role: return await ctx.reply("❌ Role hierarchy prevents this action.",mention_author=False)
+    await member.kick(reason=reason[:300]); case=next_case(ctx.guild.id); await bd_save_data(); await ctx.reply(f"👢 Kicked {member}. Case #{case}.",mention_author=False); await send_log(ctx.guild.id,title="👢 Member kicked",color=discord.Color.orange(),fields=[("Case",f"#{case}"),("Member",f"{member} ({member.id})"),("Reason",reason[:300])])
+
+@bot.command(name="ban")
+@commands.guild_only()
+@commands.has_guild_permissions(ban_members=True)
+@commands.bot_has_guild_permissions(ban_members=True)
+async def prefix_ban(ctx,member:discord.Member,*,reason="No reason given"):
+    if member==ctx.author or member==ctx.guild.owner or (member.top_role>=ctx.author.top_role and ctx.author.id!=ctx.guild.owner_id) or member.top_role>=ctx.guild.me.top_role: return await ctx.reply("❌ Role hierarchy prevents this action.",mention_author=False)
+    await member.ban(reason=reason[:300],delete_message_seconds=0); case=next_case(ctx.guild.id); await bd_save_data(); await ctx.reply(f"🔨 Banned {member}. Case #{case}.",mention_author=False); await send_log(ctx.guild.id,title="🔨 Member banned",color=discord.Color.red(),fields=[("Case",f"#{case}"),("Member",f"{member} ({member.id})"),("Reason",reason[:300])])
+
+@bot.command(name="unban")
+@commands.guild_only()
+@commands.has_guild_permissions(ban_members=True)
+@commands.bot_has_guild_permissions(ban_members=True)
+async def prefix_unban(ctx,user_id:int):
+    await ctx.guild.unban(discord.Object(id=user_id)); temp_bans.pop((ctx.guild.id,user_id),None); case=next_case(ctx.guild.id); await bd_save_data(); await ctx.reply(f"🔓 Unbanned user `{user_id}`. Case #{case}.",mention_author=False)
+
+@bot.command(name="purge",aliases=["clear"])
+@commands.guild_only()
+@commands.has_guild_permissions(manage_messages=True)
+@commands.bot_has_guild_permissions(manage_messages=True)
+async def prefix_purge(ctx,amount:int):
+    if not 1 <= amount <= 100: return await ctx.reply("❌ Amount must be between 1 and 100.",mention_author=False)
+    deleted=await ctx.channel.purge(limit=amount+1); await ctx.send(f"🧹 Removed {max(0,len(deleted)-1)} messages.",delete_after=4)
+
+@bot.command(name="slowmode")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_channels=True)
+@commands.bot_has_guild_permissions(manage_channels=True)
+async def prefix_slowmode(ctx,seconds:int):
+    if not 0 <= seconds <= 21600: return await ctx.reply("❌ Seconds must be between 0 and 21,600.",mention_author=False)
+    await ctx.channel.edit(slowmode_delay=seconds); await ctx.reply(f"🐌 Slowmode set to {seconds} second(s).",mention_author=False)
+
+@bot.command(name="balance",aliases=["bal","wallet"])
+@commands.guild_only()
+async def prefix_balance(ctx,member:discord.Member=None):
+    m=member or ctx.author; gid=ctx.guild.id; bal=economy_balance(gid,m.id); inv=economy_inventory_for(gid,m.id); await ctx.reply(f"👛 **{m.display_name}'s wallet**\n🌿 Catnip: **{bal:,}**\n🎒 Items: **{sum(int(v) for v in inv.values())}**",mention_author=False); await bd_save_data()
+
+@bot.command(name="inventory",aliases=["inv","bag"])
+@commands.guild_only()
+async def prefix_inventory(ctx,member:discord.Member=None):
+    m=member or ctx.author; inv=economy_inventory_for(ctx.guild.id,m.id); lines=[f"{ECONOMY_ITEMS[k]['emoji']} **{ECONOMY_ITEMS[k]['name']}** × {v}" for k,v in inv.items() if k in ECONOMY_ITEMS and int(v)>0]; await ctx.reply("\n".join(lines) if lines else "🎒 Inventory is empty. Use `?shop`.",mention_author=False)
+
+@bot.command(name="shop")
+@commands.guild_only()
+async def prefix_shop(ctx): await ctx.reply(embed=discord.Embed(title="🐟 Cinnamon's Catnip Shop",description=economy_item_lines(),color=discord.Color.gold()))
+
+@bot.command(name="daily")
+@commands.guild_only()
+async def prefix_daily(ctx):
+    gid,uid=ctx.guild.id,ctx.author.id; rem=economy_cooldown_remaining(gid,uid,"daily")
+    if rem: return await ctx.reply(f"🐾 Daily ready in {rem//3600}h {(rem%3600)//60}m.",mention_author=False)
+    economy_cooldowns[(gid,uid,"daily")]=time.time()+86400; economy_balances[(gid,uid)]=economy_balance(gid,uid)+ECONOMY_DAILY_REWARD; await bd_save_data(); await economy_log(gid,title="🌿 Daily Catnip",fields=[("User",str(ctx.author)),("Amount",f"+{ECONOMY_DAILY_REWARD}")]); await ctx.reply(f"🌿 +{ECONOMY_DAILY_REWARD} Catnip!",mention_author=False)
+
+@bot.command(name="work")
+@commands.guild_only()
+async def prefix_work(ctx):
+    _,_,msg=await economy_do_work(ctx.guild.id,ctx.author); await ctx.reply(msg,mention_author=False)
+
+@bot.command(name="buy")
+@commands.guild_only()
+async def prefix_buy(ctx,item:str,quantity:int=1):
+    if not 1 <= quantity <= 99: return await ctx.reply("❌ Quantity must be between 1 and 99.",mention_author=False)
+    gid,uid=ctx.guild.id,ctx.author.id; item=item.lower().strip(); item=next((k for k,v in ECONOMY_ITEMS.items() if k==item or v["name"].lower()==item),item); data=ECONOMY_ITEMS.get(item)
+    if not data: return await ctx.reply("❌ Item not found. Use `?shop`.",mention_author=False)
+    bal=economy_balance(gid,uid); cost=data["price"]*quantity
+    if bal<cost: return await ctx.reply(f"❌ Need {cost:,} Catnip; you have {bal:,}.",mention_author=False)
+    inv=economy_inventory_for(gid,uid); inv[item]=int(inv.get(item,0))+quantity; economy_balances[(gid,uid)]=bal-cost; await bd_save_data(); await economy_log(gid,title="🛒 Economy purchase",fields=[("User",str(ctx.author)),("Item",data["name"]),("Quantity",quantity),("Cost",f"{cost:,}")]); await ctx.reply(f"🛒 Bought {quantity}× {data['name']} for {cost:,} Catnip. Balance: {bal-cost:,}.",mention_author=False)
+
+@bot.command(name="give",aliases=["pay","transfer"])
+@commands.guild_only()
+async def prefix_give(ctx,member:discord.Member,amount:int):
+    if not 1 <= amount <= 1000000: return await ctx.reply("❌ Amount must be between 1 and 1,000,000.",mention_author=False)
+    if member.bot or member.id==ctx.author.id: return await ctx.reply("❌ Choose another human member.",mention_author=False)
+    gid=ctx.guild.id; bal=economy_balance(gid,ctx.author.id)
+    if bal<amount: return await ctx.reply("❌ You don't have enough Catnip.",mention_author=False)
+    economy_balances[(gid,ctx.author.id)]=bal-amount; economy_balances[(gid,member.id)]=economy_balance(gid,member.id)+amount; await bd_save_data(); await economy_log(gid,title="💸 Catnip transfer",fields=[("From",str(ctx.author)),("To",str(member)),("Amount",f"{amount:,}")]); await ctx.reply(f"💸 Sent {amount:,} Catnip to {member.mention}.",mention_author=False)
+
+@bot.command(name="econlb",aliases=["economylb"])
+@commands.guild_only()
+async def prefix_econlb(ctx):
+    rows=sorted(((uid,b) for (gid,uid),b in economy_balances.items() if gid==ctx.guild.id),key=lambda x:x[1],reverse=True)[:10]; lines=[f"**{i}.** {ctx.guild.get_member(uid) or f'User {uid}'} — {bal:,} Catnip" for i,(uid,bal) in enumerate(rows,1)]; await ctx.reply("\n".join(lines) if lines else "No economy balances yet.",mention_author=False)
+
+@bot.command(name="rank")
+@commands.guild_only()
+async def prefix_rank(ctx,member:discord.Member=None):
+    m=member or ctx.author; xp=int(xp_data.get((ctx.guild.id,m.id),0)); level=max(0,int(math.sqrt(max(0,xp)//100))); await ctx.reply(f"🏅 **{m.display_name}** — Level **{level}**, **{xp:,} XP**",mention_author=False)
+
+@bot.command(name="leaderboard",aliases=["lb"])
+@commands.guild_only()
+async def prefix_leaderboard(ctx):
+    rows=sorted(((uid,xp) for (gid,uid),xp in xp_data.items() if gid==ctx.guild.id),key=lambda x:x[1],reverse=True)[:10]; lines=[f"**{i}.** {ctx.guild.get_member(uid) or f'User {uid}'} — {xp:,} XP" for i,(uid,xp) in enumerate(rows,1)]; await ctx.reply("\n".join(lines) if lines else "No XP data yet.",mention_author=False)
+
+@bot.command(name="botstatus",aliases=["status"])
+async def prefix_botstatus(ctx): await ctx.reply(f"🐾 Cinnamon is online. Latency: {round(bot.latency*1000)} ms.",mention_author=False)
+
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
-
-    # Lightweight prefix shortcut requested for economy: ?work (no prefix-command
-    # framework is needed, so it keeps the existing message/AI pipeline intact).
-    if message.guild and message.content.strip().lower() == "?work":
-        ok, amount, work_message = await economy_do_work(message.guild.id, message.author)
-        await message.channel.send(work_message)
+    # Dispatch ? commands before the regular AI/XP chat pipeline.
+    ctx = await bot.get_context(message)
+    if ctx.valid:
+        await bot.invoke(ctx)
         return
 
     if message.guild:
@@ -752,7 +930,7 @@ async def unban(interaction: discord.Interaction, user_id: str):
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(moderate_members=True)
 @app_commands.checks.bot_has_permissions(moderate_members=True)
-async def mute(interaction: discord.Interaction, member: discord.Member, minutes: app_commands.Range[int, 1, 40320] = 10,
+async def mute(interaction: discord.Interaction, member: discord.Member, minutes: app_int = 10,
                reason: app_commands.Range[str, 1, 300] = "No reason given"):
     await member.timeout(datetime.timedelta(minutes=minutes), reason=reason)
     case_id = next_case(interaction.guild.id)
@@ -787,7 +965,7 @@ async def unmute(interaction: discord.Interaction, member: discord.Member):
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_messages=True)
 @app_commands.checks.bot_has_permissions(manage_messages=True)
-async def purge(interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100]):
+async def purge(interaction: discord.Interaction, amount: app_int):
     await interaction.response.defer(ephemeral=True)
     deleted = await interaction.channel.purge(limit=amount)
     await interaction.followup.send(f"*sweeps up {len(deleted)} messages with her tail* All tidy now!", ephemeral=True)
@@ -805,7 +983,7 @@ async def purge(interaction: discord.Interaction, amount: app_commands.Range[int
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_channels=True)
 @app_commands.checks.bot_has_permissions(manage_channels=True)
-async def slowmode(interaction: discord.Interaction, seconds: app_commands.Range[int, 0, 21600],
+async def slowmode(interaction: discord.Interaction, seconds: app_int,
                     channel: discord.TextChannel = None):
     target = channel or interaction.channel
     await target.edit(slowmode_delay=seconds)
@@ -1123,6 +1301,7 @@ def dashboard_state_provider() -> dict:
         "ai_channels": ai_channels, "log_channels": log_channels,
         "BD_UPSTASH_URL": BD_UPSTASH_URL, "BD_UPSTASH_TOKEN": BD_UPSTASH_TOKEN,
         "bd_save_data": bd_save_data, "send_log": send_log,
+        "recall_guild_data": recall_guild_data,
         "level_from_xp": level_from_xp, "giveaway_embed": _giveaway_embed,
         "giveaway_view": GiveawayView, "finish_giveaway": finish_giveaway,
         "cancel_giveaway": cancel_giveaway,
@@ -1257,10 +1436,17 @@ async def recover_warnings_from_log(guild: discord.Guild, limit: int = 2000) -> 
     if not found:
         return 0
     found.sort(key=lambda pair: pair[1]["ts"])  # oldest first, matching normal append order
+    recovered_count = 0
     for member_id, warning in found:
-        warnings_data[(guild.id, member_id)].append(warning)
-    await bd_save_data()
-    return len(found)
+        existing = warnings_data[(guild.id, member_id)]
+        signature = (warning.get("ts"), warning.get("reason"), warning.get("mod_name"))
+        if any((item.get("ts"), item.get("reason"), item.get("mod_name")) == signature for item in existing):
+            continue
+        existing.append(warning)
+        recovered_count += 1
+    if recovered_count or max_case > case_counters.get(guild.id, 0):
+        await bd_save_data()
+    return recovered_count
 
 
 @bot.tree.command(name="warn", description="Warn a member and log it")
@@ -1803,7 +1989,7 @@ levelrole_group = app_commands.Group(name="levelrole", description="Give roles a
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 @app_commands.guild_only()
-async def levelrole_add(interaction: discord.Interaction, level: app_commands.Range[int, 1, 100], role: discord.Role):
+async def levelrole_add(interaction: discord.Interaction, level: app_int, role: discord.Role):
     if role.is_default() or role.managed:
         return await interaction.response.send_message("That role can't be assigned by a bot.", ephemeral=True)
     if role >= interaction.guild.me.top_role:
@@ -1828,7 +2014,7 @@ async def levelrole_add(interaction: discord.Interaction, level: app_commands.Ra
 @app_commands.describe(level="The level to remove the reward from")
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
-async def levelrole_remove(interaction: discord.Interaction, level: app_commands.Range[int, 1, 100]):
+async def levelrole_remove(interaction: discord.Interaction, level: app_int):
     cfg = level_roles.get(interaction.guild.id, {})
     if cfg.pop(level, None) is None:
         return await interaction.response.send_message(f"No level role is set for level {level}.", ephemeral=True)
@@ -1965,8 +2151,8 @@ giveaway_group = app_commands.Group(name="giveaway", description="Run a simple p
 @app_commands.describe(duration_minutes="How long the giveaway runs", winners="Number of winners", prize="What's being given away")
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
-async def giveaway_start(interaction: discord.Interaction, duration_minutes: app_commands.Range[int, 1, 43200],
-                          winners: app_commands.Range[int, 1, 20], prize: app_commands.Range[str, 1, 200]):
+async def giveaway_start(interaction: discord.Interaction, duration_minutes: app_int,
+                          winners: app_int, prize: app_commands.Range[str, 1, 200]):
     gw = {
         "guild_id": interaction.guild.id, "channel_id": interaction.channel.id, "host_id": interaction.user.id,
         "winners": winners, "prize": prize, "ends_at": time.time() + duration_minutes * 60, "entrants": [],
@@ -2087,7 +2273,7 @@ async def finish_poll(mid: int):
 async def poll(interaction: discord.Interaction, question: app_commands.Range[str, 1, 200],
                option1: app_commands.Range[str, 1, 60], option2: app_commands.Range[str, 1, 60],
                option3: app_commands.Range[str, 1, 60] = None, option4: app_commands.Range[str, 1, 60] = None,
-               duration_minutes: app_commands.Range[int, 1, 10080] = 1440):
+               duration_minutes: app_int = 1440):
     options = [o for o in (option1, option2, option3, option4) if o]
     p = {
         "guild_id": interaction.guild.id, "channel_id": interaction.channel.id,
@@ -2505,7 +2691,7 @@ _HELP_MODS = (
 )
 _HELP_ADMINS = (
     "`/logchannel` · `/disablelogchannel` — mod log\n"
-    "`/datastatus check` `recover` — storage health and data recovery\n"
+    "`/datastatus check` `recover` · `/recall` — storage health and log recovery scan\n"
     "`/welcome` · `/goodbye` — `set` or `disable` join/leave messages\n"
     "`/automod` — `word add/remove/list`, `spam`, `mentions`, `invites`\n"
     "`/antiraid enable` `disable` — join-spike alerts\n"
@@ -2602,20 +2788,63 @@ async def datastatus_check(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-@datastatus_group.command(name="recover", description="Force a rebuild of this server's warnings/Hangry Games data from the log channels' history")
+async def recall_guild_data(guild: discord.Guild) -> dict:
+    """Best-effort recovery from configured Discord log channels.
+
+    Warnings are merged idempotently, Hangry Games counters are rebuilt without
+    incrementing the same winners on every scan, and economy snapshots are used
+    only when this guild currently has no economy accounts (avoids overwriting
+    newer live balances with an older backup).
+    """
+    warnings_restored = await recover_warnings_from_log(guild)
+    hg_cog = bot.get_cog("HangryGamesCog")
+    game_num, wins = await hg_cog.recover_from_log(guild) if hg_cog else (0, 0)
+    economy_present = any(gid == guild.id for gid, _uid in economy_balances)
+    economy_restored = 0
+    snapshot_detail = "Skipped: live economy data already exists."
+    if not economy_present and economy_log_channels.get(guild.id):
+        economy_restored, snapshot_detail = await economy_restore_from_snapshot(guild)
+    await bd_save_data()
+    return {
+        "warnings": warnings_restored,
+        "hangry_game_count": game_num,
+        "hangry_wins_seen": wins,
+        "economy_accounts": economy_restored,
+        "economy_detail": snapshot_detail,
+        "economy_skipped_existing": economy_present,
+    }
+
+
+@bot.tree.command(name="recall", description="Recover recorded data from Cinnamon's configured log channels")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def recall_cmd(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    result = await recall_guild_data(interaction.guild)
+    await interaction.followup.send(
+        "🩹 **Cinnamon's log recovery scan is complete.**\n"
+        f"• New warnings reconstructed: **{result['warnings']}**\n"
+        f"• Hangry Games count found: **#{result['hangry_game_count']}**; wins found in history: **{result['hangry_wins_seen']}**\n"
+        f"• Economy accounts restored: **{result['economy_accounts']}**\n"
+        f"• Economy snapshot: {result['economy_detail']}\n\n"
+        "Recovery is best-effort and limited to messages/files still available in configured log channels. "
+        "XP, active AI conversation memory, and events never logged cannot be reconstructed from channel history. "
+        "Use `/datastatus check` to inspect persistent storage.",
+        ephemeral=True,
+    )
+
+
+@datastatus_group.command(name="recover", description="Recover recorded data from this server's configured log channels")
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
 async def datastatus_recover(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    warn_recovered = await recover_warnings_from_log(interaction.guild)
-    hg_cog = bot.get_cog("HangryGamesCog")
-    game_num, wins = (await hg_cog.recover_from_log(interaction.guild)) if hg_cog else (0, 0)
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    result = await recall_guild_data(interaction.guild)
     await interaction.followup.send(
-        f"🩹 Recovery scan complete.\n"
-        f"• Warnings reconstructed: **{warn_recovered}**\n"
-        f"• Hangry Games: game count restored to **#{game_num}**, **{wins}** win(s) reconstructed\n\n"
-        f"This only rebuilds from what's still visible in the log channels' message history — "
-        f"it can't recover anything older than that or anything never logged (like XP).",
+        f"🩹 Recovery scan complete. Warnings reconstructed: **{result['warnings']}**; "
+        f"Hangry Games count: **#{result['hangry_game_count']}**; wins found: **{result['hangry_wins_seen']}**; "
+        f"economy accounts restored: **{result['economy_accounts']}**.\n"
+        "Only recoverable records still available in configured log channels can be rebuilt.",
         ephemeral=True,
     )
 
@@ -2799,7 +3028,7 @@ async def economy_shop_cmd(interaction: discord.Interaction):
 @economy_group.command(name="buy", description="Buy an item with Catnip")
 @app_commands.describe(item="Item ID or item name from /economy shop", quantity="How many to buy")
 @app_commands.guild_only()
-async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity: app_commands.Range[int, 1, 99] = 1):
+async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity: app_int = 1):
     guild_id, user_id = interaction.guild.id, interaction.user.id
     item_id = item.lower().strip()
     if item_id not in ECONOMY_ITEMS:
@@ -2852,7 +3081,7 @@ async def economy_work_cmd(interaction: discord.Interaction):
 
 @economy_group.command(name="give", description="Give Catnip to another member")
 @app_commands.guild_only()
-async def economy_give_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, 1000000]):
+async def economy_give_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_int):
     guild_id = interaction.guild.id
     if member.bot:
         await interaction.response.send_message("❌ Bot accounts can't receive Catnip.", ephemeral=True)
@@ -2903,7 +3132,7 @@ async def economy_quest_cmd(interaction: discord.Interaction):
 @app_commands.describe(item="Item to give Cinnamon", quantity="How many to give")
 @app_commands.choices(item=[app_commands.Choice(name=v["name"], value=k) for k, v in ECONOMY_ITEMS.items()])
 @app_commands.guild_only()
-async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.Choice[str], quantity: app_commands.Range[int, 1, 99] = 1):
+async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.Choice[str], quantity: app_int = 1):
     guild_id, user_id = interaction.guild.id, interaction.user.id
     item_id = item.value
     inv = economy_inventory_for(guild_id, user_id)
@@ -3067,7 +3296,7 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000)
 @economy_group.command(name="addcatnip", description="Admin: add Catnip to a member")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, 10000000]):
+async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_int):
     guild_id = interaction.guild.id
     economy_balances[(guild_id, member.id)] = economy_balance(guild_id, member.id) + amount
     await bd_save_data()
@@ -3078,7 +3307,7 @@ async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discor
 @economy_group.command(name="removecatnip", description="Admin: remove Catnip from a member")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def economy_removecatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, 10000000]):
+async def economy_removecatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_int):
     guild_id = interaction.guild.id
     current = economy_balance(guild_id, member.id)
     removed = min(current, amount)
@@ -3093,7 +3322,7 @@ async def economy_removecatnip_cmd(interaction: discord.Interaction, member: dis
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(action="add, remove, or list", role="Role that earns Catnip", amount="Catnip paid each collection", minutes="Cooldown in minutes")
 @app_commands.choices(action=[app_commands.Choice(name="add", value="add"), app_commands.Choice(name="remove", value="remove"), app_commands.Choice(name="list", value="list")])
-async def economy_income_cmd(interaction: discord.Interaction, action: app_commands.Choice[str], role: discord.Role | None = None, amount: app_commands.Range[int, 1, 10000000] | None = None, minutes: app_commands.Range[int, 1, 10080] | None = None):
+async def economy_income_cmd(interaction: discord.Interaction, action: app_commands.Choice[str], role: discord.Role | None = None, amount: app_int | None = None, minutes: app_int | None = None):
     guild_id = interaction.guild.id
     cfg = economy_income_roles.setdefault(guild_id, {})
     if action.value == "list":
@@ -3166,7 +3395,7 @@ async def collect_cmd(interaction: discord.Interaction):
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(member="Member receiving the item", item="Item ID or item name", quantity="Number of items to add")
-async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_commands.Range[int, 1, 999] = 1):
+async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_int = 1):
     item_id = item.lower().strip()
     if item_id not in ECONOMY_ITEMS:
         matches = [k for k, v in ECONOMY_ITEMS.items() if v["name"].lower() == item_id]
@@ -3192,7 +3421,7 @@ async def economy_item_add_cmd(interaction: discord.Interaction, member: discord
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(member="Member losing the item", item="Item ID or item name", quantity="Number of items to remove")
-async def economy_item_remove_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_commands.Range[int, 1, 999] = 1):
+async def economy_item_remove_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_int = 1):
     item_id = item.lower().strip()
     if item_id not in ECONOMY_ITEMS:
         matches = [k for k, v in ECONOMY_ITEMS.items() if v["name"].lower() == item_id]
@@ -3220,7 +3449,7 @@ async def economy_item_remove_cmd(interaction: discord.Interaction, member: disc
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(item_id="Unique shop ID", name="Item name", price="Price in Catnip", description="Optional item description", per_person_limit="Optional maximum quantity one member can own", emoji="Optional emoji")
-async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: str, name: str, price: app_commands.Range[int, 1, 10000000], description: str | None = None, per_person_limit: app_commands.Range[int, 0, 999999] | None = None, emoji: str = "🐾"):
+async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: str, name: str, price: app_int, description: str | None = None, per_person_limit: app_int | None = None, emoji: str = "🐾"):
     item_id = re.sub(r"[^a-z0-9_-]", "", item_id.lower())[:32]
     if not item_id or item_id in ECONOMY_ITEMS:
         await interaction.response.send_message("❌ That item ID is invalid or already exists.", ephemeral=True)
@@ -3235,7 +3464,7 @@ async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: s
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(item_id="Item ID to edit", name="New name", price="New price", description="New description", per_person_limit="New per-person limit; 0 means unlimited", emoji="New emoji")
-async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: str, name: str | None = None, price: app_commands.Range[int, 1, 10000000] | None = None, description: str | None = None, per_person_limit: app_commands.Range[int, 0, 999999] | None = None, emoji: str | None = None):
+async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: str, name: str | None = None, price: app_int | None = None, description: str | None = None, per_person_limit: app_int | None = None, emoji: str | None = None):
     item_id = item_id.lower().strip()
     item = ECONOMY_ITEMS.get(item_id)
     if item is None:
@@ -3281,7 +3510,7 @@ async def economy_remove_item_shop_cmd(interaction: discord.Interaction, item_id
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(role="Role receiving the income", amount="Catnip earned each collection", interval="How many time units between collections", unit="Time unit")
 @app_commands.choices(unit=[app_commands.Choice(name="Minutes", value="minute"), app_commands.Choice(name="Hours", value="hour"), app_commands.Choice(name="Days", value="day"), app_commands.Choice(name="Weeks", value="week")])
-async def economy_add_role_income_cmd(interaction: discord.Interaction, role: discord.Role, amount: app_commands.Range[int, 1, 10000000], interval: app_commands.Range[int, 1, 10080], unit: app_commands.Choice[str]):
+async def economy_add_role_income_cmd(interaction: discord.Interaction, role: discord.Role, amount: app_int, interval: app_int, unit: app_commands.Choice[str]):
     multipliers = {"minute": 60, "hour": 3600, "day": 86400, "week": 604800}
     cooldown = int(interval) * multipliers[unit.value]
     economy_income_roles.setdefault(interaction.guild.id, {})[role.id] = {"amount": int(amount), "cooldown": cooldown, "interval": int(interval), "unit": unit.value}
@@ -3776,9 +4005,12 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
 
         if max_game_num:
             self.game_counts[guild.id] = max_game_num
+        wins_by_member = defaultdict(int)
         for winner_id in wins:
+            wins_by_member[winner_id] += 1
+        for winner_id, recovered_total in wins_by_member.items():
             key = (guild.id, winner_id)
-            self.win_counts[key] = self.win_counts.get(key, 0) + 1
+            self.win_counts[key] = max(self.win_counts.get(key, 0), recovered_total)
         if max_game_num or wins:
             await self._save()
         return (max_game_num, len(wins))
