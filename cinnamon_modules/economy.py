@@ -269,7 +269,7 @@ async def economy_leaderboard_cmd(interaction: discord.Interaction):
 
 
 
-@economy_group.command(name="feed", description="Give Cinnamon an item and progress matching quests")
+@economy_group.command(name="feed", description="Give Cinnamon an item")
 @app_commands.describe(item="Item to give Cinnamon", quantity="How many to give")
 @app_commands.choices(item=[app_commands.Choice(name=v["name"], value=k) for k, v in ECONOMY_ITEMS.items()])
 @app_commands.guild_only()
