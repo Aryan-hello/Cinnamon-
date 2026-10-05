@@ -453,7 +453,7 @@ _HELP_ECONOMY = (
     "`/economy balance` · `/economy inventory` — your Catnip and items\n"
     "`/economy daily` · `/economy work` · `?work` — earn Catnip\n"
     "`/economy shop` · `/economy buy` · `/economy iteminfo` — view, buy, and inspect items\n"
-    "`/economy quest` · `/economy feed` — see quests and give Cinnamon items\n"
+    "`/quests` · `/economy feed` — see quests and give Cinnamon items\n"
     "`/economy give` — give Catnip to another member\n"
     "`/collect` — collect income from your income roles\n"
     "`/economy leaderboard` — richest members\n"
@@ -585,6 +585,11 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
         if channel_id:
             channel_map.setdefault(int(channel_id), set()).add(label)
 
+    # Prefer persisted Cinnamon configuration, but also discover Cinnamon's
+    # managed log channels by name. This matters on Render when local JSON
+    # storage was wiped after a redeploy and Upstash was not configured: the
+    # historical Discord log messages still exist, so recovery should not
+    # report zero channels merely because the setting was lost.
     add_channel(log_channels.get(guild.id), "moderation")
     for category, channel_id in category_log_channels.get(guild.id, {}).items():
         add_channel(channel_id, str(category))
@@ -593,8 +598,33 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
     if hg:
         add_channel(hg.hg_log_channels.get(guild.id), "hangry")
 
+    known_log_names = {
+        "cinnamon-logs", "cinnamon-economy", "cinnamon-hangry",
+        "economy-logs", "hangry-logs", "moderation-logs", "xp-logs",
+        "levels-logs", "ai-logs", "setup-logs", "general-logs",
+        "roles-logs", "community-logs", "giveaways-logs",
+    }
+    discovered = 0
+    for text_channel in guild.text_channels:
+        name = text_channel.name.casefold()
+        topic = (text_channel.topic or "").casefold()
+        is_cinnamon_named_log = (
+            name in known_log_names
+            or ("cinnamon" in name and "log" in name)
+            or name.endswith("-logs")
+            or name.endswith("_logs")
+            or ("cinnamon" in topic and "log" in topic)
+        )
+        if not is_cinnamon_named_log:
+            continue
+        before = len(channel_map)
+        add_channel(text_channel.id, "discovered")
+        if len(channel_map) > before:
+            discovered += 1
+    result_discovered = discovered
+
     result = {
-        "channels_configured": len(channel_map), "channels_scanned": 0,
+        "channels_configured": len(channel_map), "channels_auto_discovered": result_discovered, "channels_scanned": 0,
         "messages_scanned": 0, "embeds_scanned": 0,
         "title_counts": defaultdict(int), "category_counts": defaultdict(int),
         "scan_errors": [], "xp_users_restored": 0, "achievements_restored": 0,
