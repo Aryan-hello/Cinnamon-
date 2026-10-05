@@ -2914,7 +2914,7 @@ async def setup_cmd(interaction: discord.Interaction):
         value=(
             "Use `/help` to see every command and what it does. "
             "Use `/economy snapshot` before a reset. "
-            "Use `/economy restore` after a reset if needed."
+            "Use `/economy restore-snapshot` after a reset if needed."
         ),
         inline=False,
     )
@@ -3003,7 +3003,7 @@ _HELP_ADMINS = (
     "`/hangrygames logchannel` `disablelogchannel` `log` — its own log channel\n"
     "`/economy logs` — choose the economy transaction log channel\n"
     "`/economy snapshot` — create a complete pre-reset backup\n"
-    "`/economy restore` — restore the latest backup from economy logs\n"
+    "`/economy restore-snapshot` — restore the latest backup from economy logs\n"
     "`/economy addcatnip` · `removecatnip` — admin balance controls\n"
     "`/economy income` — admin income-role management\n"
     "`/economy item-add` · `/economy item-remove` — admin inventory controls\n`/economy add-item-shop` · `/economy edit-shop-item` · `/economy remove-item-shop` — admin shop controls\n`/economy add-role-income` · `/economy remove-role-income` — admin role income controls\n`/economy iteminfo` — detailed item information"
@@ -3057,7 +3057,7 @@ async def help_cmd(interaction: discord.Interaction):
             "**New server?** Run `/setup` first. It creates and configures the standard log/welcome/AI channels.\n\n"
             "**Looking for something?** Discord's slash-command search also filters these commands as you type.\n\n"
             "**Admin tools:** Most moderation, setup, logging, recovery, and configuration commands require the appropriate Discord permission.\n\n"
-            "**Reset protection:** Run `/economy snapshot` before a reset, then `/economy restore` afterward.\n\n"
+            "**Reset protection:** Run `/economy snapshot` before a reset, then `/economy restore-snapshot` afterward.\n\n"
             "**AI:** Mention Cinnamon or reply to her, or use the configured AI channel."
         ),
         color=discord.Color.blurple(),
@@ -3648,12 +3648,12 @@ async def economy_snapshot_cmd(interaction: discord.Interaction):
     embed.add_field(name="🛒 Item information", value=item_text, inline=False)
     quest_text = "\n".join(f"{q['name']} — {q['amount']}× {ECONOMY_ITEMS[q['item']]['name']} → {q['reward']} Catnip" for q in ECONOMY_QUESTS.values())
     embed.add_field(name="📜 Quest information", value=quest_text, inline=False)
-    embed.add_field(name="How to restore", value="After the reset, run `/economy restore` in this server. The bot will scan this log channel for the newest snapshot.", inline=False)
+    embed.add_field(name="How to restore", value="After the reset, run `/economy restore-snapshot` in this server. The bot will scan this log channel for the newest snapshot.", inline=False)
     await interaction.response.defer(ephemeral=True)
     await channel.send(embed=embed, file=file)
     await bd_save_data()
     await economy_log(guild_id, title="💾 Economy snapshot created", fields=[("Created by", f"{interaction.user} ({interaction.user.id})"), ("Users backed up", str(user_count)), ("Items", str(len(ECONOMY_ITEMS))), ("Channel", channel.mention)])
-    await interaction.followup.send(f"✅ Snapshot saved to {channel.mention}. **{user_count}** users are included. You can reset the bot and later run `/economy restore`.", ephemeral=True)
+    await interaction.followup.send(f"✅ Snapshot saved to {channel.mention}. **{user_count}** users are included. You can reset the bot and later run `/economy restore-snapshot`.", ephemeral=True)
 
 
 async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000) -> tuple[int, str]:
@@ -3975,7 +3975,7 @@ async def economy_iteminfo_cmd(interaction: discord.Interaction, item: str):
     await economy_log(interaction.guild.id, title="🔎 Economy item info viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{item['name']} (`{item_id}`)")])
 
 
-@economy_group.command(name="restore", description="Restore the latest complete economy snapshot from the economy log channel")
+@economy_group.command(name="restore-snapshot", description="Restore the latest complete economy snapshot from the economy log channel")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 async def economy_restore_cmd(interaction: discord.Interaction):
