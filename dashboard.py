@@ -112,11 +112,38 @@ def _audit(guild_id, actor, title, detail):
     send_log = _state().get("send_log")
     if callable(send_log):
         try:
-            _run_bot(send_log(
-                guild_id, title=title,
-                description=detail[:900],
-                fields=[("Dashboard actor", str(actor)[:100])],
-            ))
+            text = f"{title} {detail}".lower()
+            if any(x in text for x in ("economy", "shop item", "catnip", "quest")):
+                category = "economy"
+            elif any(x in text for x in ("giveaway", "poll")):
+                category = "community"
+            elif any(x in text for x in ("hangry", "hangry games")):
+                category = "hangrygames"
+            elif any(x in text for x in ("level reward", "level role", "xp")):
+                category = "levels"
+            elif any(x in text for x in ("role", "reaction")):
+                category = "roles"
+            elif any(x in text for x in ("welcome", "goodbye", "channel setting", "log channel", "recovery", "setup")):
+                category = "setup"
+            elif any(x in text for x in ("ai", "gemini")):
+                category = "ai"
+            elif any(x in text for x in ("moderation", "moderate", "automod", "anti-raid")):
+                category = "moderation"
+            else:
+                category = "general"
+            if category == "hangrygames":
+                hg = _state().get("hg_cog")
+                if hg is not None:
+                    _run_bot(hg._log(guild_id, title=title, fields=[("Dashboard actor", str(actor)[:100]), ("Detail", detail[:800])]))
+                else:
+                    _run_bot(send_log(guild_id, title=title, description=detail[:900], fields=[("Dashboard actor", str(actor)[:100])], category="moderation"))
+            else:
+                _run_bot(send_log(
+                    guild_id, title=title,
+                    description=detail[:900],
+                    fields=[("Dashboard actor", str(actor)[:100])],
+                    category=category,
+                ))
         except Exception:
             log.exception("Dashboard audit log failed for guild %s", guild_id)
 
@@ -410,7 +437,13 @@ def _system(guild,state):
     channels="<div class='field'><label>Economy logs</label>"+_channel_select(guild,"economy_log",elog)+"</div>"
     logsform=_form(gid,"special_logs",channels,"Save log channel")
     logitems=[]
-    for label,cid in [("Main moderation logs",state.get("log_channels",{}).get(gid)),("Economy logs",elog),("Hangry Games logs",hg.hg_log_channels.get(gid) if hg else None)]:
+    category_channels=state.get("category_log_channels",{}).get(gid,{})
+    configured=[("Main moderation logs",state.get("log_channels",{}).get(gid)),("Economy logs",elog),
+        ("AI logs",category_channels.get("ai")),("Levels & XP logs",category_channels.get("levels")),
+        ("Giveaways & polls logs",category_channels.get("community")),("Role management logs",category_channels.get("roles")),
+        ("Server setup logs",category_channels.get("setup")),("General utility logs",category_channels.get("general")),
+        ("Hangry Games logs",hg.hg_log_channels.get(gid) if hg else None)]
+    for label,cid in configured:
         logitems.append(f"<div class='toggle'><b>{label}</b><span>{current(cid)}</span></div>")
     recall_form=("<p class='muted'>Scan configured log channels to rebuild recoverable warnings, Hangry Games totals and—only if no live economy accounts exist—the latest economy snapshot.</p>"
                  + _form(gid,"recall","<p class='muted'>This does not overwrite existing economy accounts.</p>","Run recovery scan"))

@@ -116,6 +116,7 @@ disabled_channels = defaultdict(set)
 
 # guild_id -> channel_id where Cinnamon posts mod-action logs and error reports
 log_channels = {}
+category_log_channels = {}  # guild_id -> {category: channel_id}
 
 # NOTE: ai_channels, disabled_channels, and log_channels live only in memory —
 # they reset whenever the bot restarts or redeploys. Fine for now; swap in a
@@ -163,6 +164,15 @@ ECONOMY_QUESTS = {
     "royal_snack": {"name": "Royal Snack", "item": "churu", "amount": 2, "reward": 130, "description": "Give Cinnamon 2 Churus."},
     "zoomies": {"name": "Zoomies", "item": "catnip_ball", "amount": 2, "reward": 180, "description": "Give Cinnamon 2 catnip balls."},
 }
+ECONOMY_ACHIEVEMENTS = {
+    "first_feed": {"name": "First Snack", "description": "Feed Cinnamon an item for the first time.", "reward": 50},
+    "quest_complete": {"name": "Quest Paw-sitive", "description": "Complete your first economy quest.", "reward": 100},
+    "catnip_1000": {"name": "Catnip Hoarder", "description": "Reach 1,000 Catnip in your balance.", "reward": 150},
+    "collector_10": {"name": "Snack Collector", "description": "Own at least 10 total economy items at once.", "reward": 100},
+    "all_quests": {"name": "Cinnamon's Favorite", "description": "Complete every currently defined economy quest.", "reward": 300},
+}
+economy_achievements = {}             # (guild_id, user_id) -> set/list of unlocked achievement ids
+
 ECONOMY_STARTING_BALANCE = 100
 ECONOMY_DAILY_REWARD = 150
 ECONOMY_WORK_MIN = 50
@@ -294,15 +304,53 @@ async def add_reaction_safely(message: discord.Message, reaction: str):
         log.warning(f"Couldn't add reaction {reaction!r}: {e}")
 
 
+async def secure_log_channel(channel: discord.TextChannel):
+    """Restrict audit channels from @everyone while allowing Cinnamon to post.
+
+    Server Administrators retain access through Discord's Administrator bypass.
+    Other moderator roles can be granted View Channel manually in channel permissions.
+    """
+    guild = channel.guild
+    await channel.set_permissions(guild.default_role, view_channel=False, reason="Protect Cinnamon audit logs")
+    if guild.me is not None:
+        await channel.set_permissions(
+            guild.me, view_channel=True, send_messages=True, embed_links=True,
+            read_message_history=True, reason="Allow Cinnamon to write audit logs",
+        )
+
+
 async def send_log(guild_id: int | None, *, title: str, description: str = "",
                     color: discord.Color = discord.Color.blurple(),
                     interaction: discord.Interaction | None = None,
-                    fields: list[tuple[str, str]] | None = None):
+                    fields: list[tuple[str, str]] | None = None,
+                    category: str | None = None):
     """Post an embed to the guild's configured log channel, if any. Never raises —
     logging should never be the thing that breaks a command."""
     if guild_id is None:
         return
-    channel_id = log_channels.get(guild_id)
+    # Route events to a category-specific channel, falling back to the legacy
+    # main log channel when that category has not been configured.
+    if category is None:
+        lowered = (title + " " + description).lower()
+        if any(x in lowered for x in ("economy", "catnip", "shop item", "income role", "cinnamon fed", "tuna")):
+            category = "economy"
+        elif any(x in lowered for x in ("ai ", " ai", "gemini", "channel re-enabled for ai", "ai channel")):
+            category = "ai"
+        elif any(x in lowered for x in ("level", "xp", "rank")):
+            category = "levels"
+        elif any(x in lowered for x in ("giveaway", "poll")):
+            category = "community"
+        elif any(x in lowered for x in ("role added", "role removed", "reaction role", "role income")):
+            category = "roles"
+        elif any(x in lowered for x in ("welcome", "goodbye", "setup", "configuration", "log channel")):
+            category = "setup"
+        elif any(x in lowered for x in ("userinfo", "serverinfo", "afk", "ping", "status", "help")):
+            category = "general"
+        else:
+            category = "moderation"
+    channel_id = category_log_channels.get(guild_id, {}).get(category)
+    if channel_id is None:
+        channel_id = log_channels.get(guild_id)
     if channel_id is None:
         return
     channel = bot.get_channel(channel_id)
@@ -324,6 +372,89 @@ async def send_log(guild_id: int | None, *, title: str, description: str = "",
         await channel.send(embed=embed)
     except discord.HTTPException as e:
         log.error(f"Failed to send log message to channel {channel_id}: {e}")
+
+
+def _command_log_category(command_name: str) -> str:
+    name = (command_name or "").lower().replace("/", " ").strip()
+    root = name.split()[0] if name else ""
+    if root in {"economy", "collect"} or "economy" in name:
+        return "economy"
+    if root in {"ask", "ai", "chat", "aichannel", "disableaichannel", "disableai", "enableai"}:
+        return "ai"
+    if root in {"rank", "leaderboard", "levelrole"}:
+        return "levels"
+    if root in {"giveaway", "poll"}:
+        return "community"
+    if root in {"role", "reactionrole"}:
+        return "roles"
+    if root in {"setup", "setupstatus", "welcome", "goodbye", "categorylogs", "logchannel", "disablelogchannel"}:
+        return "setup"
+    if root in {"help", "ping", "botstatus", "userinfo", "serverinfo", "afk"}:
+        return "general"
+    if root == "hangrygames":
+        return "hangrygames"
+    return "moderation"
+
+
+@bot.event
+async def on_app_command_completion(interaction: discord.Interaction, command):
+    """Audit successful slash command use without storing arguments or AI text."""
+    if interaction.guild is None:
+        return
+    category = _command_log_category(getattr(command, "qualified_name", getattr(command, "name", "")))
+    if category == "hangrygames":
+        return  # Hangry Games has its own detailed logger/channel.
+    await send_log(
+        interaction.guild.id, title="📌 Slash command used", interaction=interaction,
+        fields=[("Command", "/" + getattr(command, "qualified_name", getattr(command, "name", "unknown"))),
+                ("User", f"{interaction.user} ({interaction.user.id})"),
+                ("Channel", getattr(interaction.channel, "mention", "Unknown"))],
+        category=category,
+    )
+
+
+@bot.event
+async def on_command_completion(ctx: commands.Context):
+    """Audit successful prefix command use without storing arguments or AI text."""
+    if ctx.guild is None:
+        return
+    category = _command_log_category(getattr(ctx.command, "qualified_name", ""))
+    if category == "hangrygames":
+        return
+    await send_log(
+        ctx.guild.id, title="📌 Prefix command used", fields=[("Command", "?" + getattr(ctx.command, "qualified_name", "unknown")),
+            ("User", f"{ctx.author} ({ctx.author.id})"), ("Channel", getattr(ctx.channel, "mention", "Unknown"))],
+        category=category,
+    )
+
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    """Log failed prefix invocations without capturing command arguments."""
+    if isinstance(error, commands.CommandNotFound):
+        return
+    if isinstance(error, commands.CommandOnCooldown):
+        message = f"⏳ Try again in {error.retry_after:.1f} seconds."
+    elif isinstance(error, commands.MissingPermissions):
+        message = "❌ You don't have permission to use that command."
+    elif isinstance(error, commands.BotMissingPermissions):
+        message = "❌ Cinnamon is missing a required permission."
+    elif isinstance(error, commands.UserInputError):
+        message = f"❌ Invalid or missing command argument. Use `?help` for command names and syntax."
+    else:
+        log.exception("Prefix command failed", exc_info=error)
+        message = "❌ That command failed. The issue has been recorded for the bot owner."
+    if ctx.guild:
+        await send_log(ctx.guild.id, title="⚠️ Prefix command failed", fields=[
+            ("Command", "?" + (ctx.command.qualified_name if ctx.command else "unknown")),
+            ("User", f"{ctx.author} ({ctx.author.id})"),
+            ("Channel", getattr(ctx.channel, "mention", "Unknown")),
+            ("Error type", type(error).__name__),
+        ], category=_command_log_category(ctx.command.qualified_name if ctx.command else ""))
+    try:
+        await ctx.reply(message, mention_author=False)
+    except discord.HTTPException:
+        pass
 
 
 @bot.event
@@ -393,6 +524,7 @@ async def on_member_join(member: discord.Member):
             except discord.HTTPException:
                 pass
     await check_antiraid(member)
+    await send_log(member.guild.id, title="👋 Member joined", fields=[("Member", f"{member} ({member.id})"), ("Account created", discord.utils.format_dt(member.created_at, style="R"))], category="setup")
 
 
 @bot.event
@@ -406,6 +538,7 @@ async def on_member_remove(member: discord.Member):
                 await channel.send(text)
             except discord.HTTPException:
                 pass
+    await send_log(member.guild.id, title="🚪 Member left", fields=[("Member", f"{member} ({member.id})")], category="setup")
 
 
 @bot.event
@@ -468,7 +601,9 @@ async def prefix_serverinfo(ctx):
 @bot.command(name="afk")
 @commands.guild_only()
 async def prefix_afk(ctx,*,reason="AFK"):
-    afk_users[(ctx.guild.id,ctx.author.id)]=reason[:200]; await ctx.reply(f"🐾 Marked AFK: {reason[:200]}",mention_author=False)
+    afk_users[(ctx.guild.id,ctx.author.id)]=reason[:200]
+    await ctx.reply(f"🐾 Marked AFK: {reason[:200]}",mention_author=False)
+    await send_log(ctx.guild.id,title="💤 AFK status set",fields=[("User",f"{ctx.author} ({ctx.author.id})"),("Reason",reason[:200])],category="general")
 
 @bot.command(name="mute",aliases=["timeout"])
 @commands.guild_only()
@@ -507,7 +642,7 @@ async def prefix_warnings(ctx,member:discord.Member):
 @commands.guild_only()
 @commands.has_guild_permissions(kick_members=True)
 async def prefix_clearwarnings(ctx,member:discord.Member):
-    warnings_data.pop((ctx.guild.id,member.id),None); await bd_save_data(); await ctx.reply(f"🧹 Cleared warnings for {member.mention}.",mention_author=False)
+    removed=len(warnings_data.pop((ctx.guild.id,member.id),[])); await bd_save_data(); await ctx.reply(f"🧹 Cleared {removed} warning(s) for {member.mention}.",mention_author=False); await send_log(ctx.guild.id,title="🧹 Warnings cleared",fields=[("Member",f"{member} ({member.id})"),("Cleared",str(removed))])
 
 @bot.command(name="kick")
 @commands.guild_only()
@@ -530,7 +665,7 @@ async def prefix_ban(ctx,member:discord.Member,*,reason="No reason given"):
 @commands.has_guild_permissions(ban_members=True)
 @commands.bot_has_guild_permissions(ban_members=True)
 async def prefix_unban(ctx,user_id:int):
-    await ctx.guild.unban(discord.Object(id=user_id)); temp_bans.pop((ctx.guild.id,user_id),None); case=next_case(ctx.guild.id); await bd_save_data(); await ctx.reply(f"🔓 Unbanned user `{user_id}`. Case #{case}.",mention_author=False)
+    await ctx.guild.unban(discord.Object(id=user_id)); temp_bans.pop((ctx.guild.id,user_id),None); case=next_case(ctx.guild.id); await bd_save_data(); await ctx.reply(f"🔓 Unbanned user `{user_id}`. Case #{case}.",mention_author=False); await send_log(ctx.guild.id,title="🔓 Member unbanned",color=discord.Color.green(),fields=[("Case",f"#{case}"),("User ID",str(user_id)),("Moderator",f"{ctx.author} ({ctx.author.id})")])
 
 @bot.command(name="purge",aliases=["clear"])
 @commands.guild_only()
@@ -538,7 +673,7 @@ async def prefix_unban(ctx,user_id:int):
 @commands.bot_has_guild_permissions(manage_messages=True)
 async def prefix_purge(ctx,amount:int):
     if not 1 <= amount <= 100: return await ctx.reply("❌ Amount must be between 1 and 100.",mention_author=False)
-    deleted=await ctx.channel.purge(limit=amount+1); await ctx.send(f"🧹 Removed {max(0,len(deleted)-1)} messages.",delete_after=4)
+    deleted=await ctx.channel.purge(limit=amount+1); removed=max(0,len(deleted)-1); await ctx.send(f"🧹 Removed {removed} messages.",delete_after=4); await send_log(ctx.guild.id,title="🧹 Messages purged",color=discord.Color.light_grey(),fields=[("Moderator",f"{ctx.author} ({ctx.author.id})"),("Channel",ctx.channel.mention),("Deleted",str(removed))])
 
 @bot.command(name="slowmode")
 @commands.guild_only()
@@ -546,17 +681,17 @@ async def prefix_purge(ctx,amount:int):
 @commands.bot_has_guild_permissions(manage_channels=True)
 async def prefix_slowmode(ctx,seconds:int):
     if not 0 <= seconds <= 21600: return await ctx.reply("❌ Seconds must be between 0 and 21,600.",mention_author=False)
-    await ctx.channel.edit(slowmode_delay=seconds); await ctx.reply(f"🐌 Slowmode set to {seconds} second(s).",mention_author=False)
+    await ctx.channel.edit(slowmode_delay=seconds); await ctx.reply(f"🐌 Slowmode set to {seconds} second(s).",mention_author=False); await send_log(ctx.guild.id,title="🐌 Slowmode changed",fields=[("Moderator",f"{ctx.author} ({ctx.author.id})"),("Channel",ctx.channel.mention),("Seconds",str(seconds))])
 
 @bot.command(name="balance",aliases=["bal","wallet"])
 @commands.guild_only()
 async def prefix_balance(ctx,member:discord.Member=None):
-    m=member or ctx.author; gid=ctx.guild.id; bal=economy_balance(gid,m.id); inv=economy_inventory_for(gid,m.id); await ctx.reply(f"👛 **{m.display_name}'s wallet**\n🌿 Catnip: **{bal:,}**\n🎒 Items: **{sum(int(v) for v in inv.values())}**",mention_author=False); await bd_save_data()
+    m=member or ctx.author; gid=ctx.guild.id; bal=economy_balance(gid,m.id); inv=economy_inventory_for(gid,m.id); total_items=sum(int(v) for v in inv.values()); await ctx.reply(f"👛 **{m.display_name}'s wallet**\n🌿 Catnip: **{bal:,}**\n🎒 Items: **{total_items}**",mention_author=False); await economy_log(gid,title="👛 Economy balance viewed",fields=[("Viewer",f"{ctx.author} ({ctx.author.id})"),("Member",f"{m} ({m.id})"),("Balance",f"{bal:,} Catnip"),("Total items",total_items)]); await bd_save_data()
 
 @bot.command(name="inventory",aliases=["inv","bag"])
 @commands.guild_only()
 async def prefix_inventory(ctx,member:discord.Member=None):
-    m=member or ctx.author; inv=economy_inventory_for(ctx.guild.id,m.id); lines=[f"{ECONOMY_ITEMS[k]['emoji']} **{ECONOMY_ITEMS[k]['name']}** × {v}" for k,v in inv.items() if k in ECONOMY_ITEMS and int(v)>0]; await ctx.reply("\n".join(lines) if lines else "🎒 Inventory is empty. Use `?shop`.",mention_author=False)
+    m=member or ctx.author; gid=ctx.guild.id; inv=economy_inventory_for(gid,m.id); lines=[f"{ECONOMY_ITEMS[k]['emoji']} **{ECONOMY_ITEMS[k]['name']}** × {v}" for k,v in inv.items() if k in ECONOMY_ITEMS and int(v)>0]; summary="\n".join(f"{ECONOMY_ITEMS[k]['name']}: {int(v)}" for k,v in inv.items() if k in ECONOMY_ITEMS and int(v)>0) or "Empty"; await ctx.reply("\n".join(lines) if lines else "🎒 Inventory is empty. Use `?shop`.",mention_author=False); await economy_log(gid,title="🎒 Economy inventory viewed",fields=[("Viewer",f"{ctx.author} ({ctx.author.id})"),("Member",f"{m} ({m.id})"),("Inventory",summary[:1000]),("Total items",sum(int(v) for v in inv.values())),("Catnip balance",economy_balance(gid,m.id))])
 
 @bot.command(name="shop")
 @commands.guild_only()
@@ -582,7 +717,7 @@ async def prefix_buy(ctx,item:str,quantity:int=1):
     if not data: return await ctx.reply("❌ Item not found. Use `?shop`.",mention_author=False)
     bal=economy_balance(gid,uid); cost=data["price"]*quantity
     if bal<cost: return await ctx.reply(f"❌ Need {cost:,} Catnip; you have {bal:,}.",mention_author=False)
-    inv=economy_inventory_for(gid,uid); inv[item]=int(inv.get(item,0))+quantity; economy_balances[(gid,uid)]=bal-cost; await bd_save_data(); await economy_log(gid,title="🛒 Economy purchase",fields=[("User",str(ctx.author)),("Item",data["name"]),("Quantity",quantity),("Cost",f"{cost:,}")]); await ctx.reply(f"🛒 Bought {quantity}× {data['name']} for {cost:,} Catnip. Balance: {bal-cost:,}.",mention_author=False)
+    inv=economy_inventory_for(gid,uid); inv[item]=int(inv.get(item,0))+quantity; economy_balances[(gid,uid)]=bal-cost; await bd_save_data(); await economy_log(gid,title="🛒 Economy purchase",fields=[("User",f"{ctx.author} ({uid})"),("Item",f"{data['name']} (`{item}`)"),("Quantity",quantity),("Unit price",data["price"]),("Deducted",f"-{cost:,} Catnip"),("Balance before",bal),("Balance after",bal-cost),("Item quantity after",inv[item])]); await ctx.reply(f"🛒 Bought {quantity}× {data['name']} for {cost:,} Catnip. Balance: {bal-cost:,}.",mention_author=False)
 
 @bot.command(name="give",aliases=["pay","transfer"])
 @commands.guild_only()
@@ -591,7 +726,7 @@ async def prefix_give(ctx,member:discord.Member,amount:int):
     if member.bot or member.id==ctx.author.id: return await ctx.reply("❌ Choose another human member.",mention_author=False)
     gid=ctx.guild.id; bal=economy_balance(gid,ctx.author.id)
     if bal<amount: return await ctx.reply("❌ You don't have enough Catnip.",mention_author=False)
-    economy_balances[(gid,ctx.author.id)]=bal-amount; economy_balances[(gid,member.id)]=economy_balance(gid,member.id)+amount; await bd_save_data(); await economy_log(gid,title="💸 Catnip transfer",fields=[("From",str(ctx.author)),("To",str(member)),("Amount",f"{amount:,}")]); await ctx.reply(f"💸 Sent {amount:,} Catnip to {member.mention}.",mention_author=False)
+    recipient_before=economy_balance(gid,member.id); economy_balances[(gid,ctx.author.id)]=bal-amount; economy_balances[(gid,member.id)]=recipient_before+amount; await bd_save_data(); await economy_log(gid,title="💸 Catnip transfer",fields=[("From",f"{ctx.author} ({ctx.author.id})"),("To",f"{member} ({member.id})"),("Amount",f"{amount:,} Catnip"),("Sender before",bal),("Sender after",bal-amount),("Recipient before",recipient_before),("Recipient after",recipient_before+amount)]); await ctx.reply(f"💸 Sent {amount:,} Catnip to {member.mention}.",mention_author=False)
 
 @bot.command(name="econlb",aliases=["economylb"])
 @commands.guild_only()
@@ -625,7 +760,9 @@ async def on_message(message: discord.Message):
         # --- AFK: clear the sender's own status, and flag anyone AFK they pinged ---
         afk_key = (message.guild.id, message.author.id)
         if afk_key in afk_users:
-            del afk_users[afk_key]
+            old_reason = afk_users.pop(afk_key)
+            await send_log(message.guild.id, title="💤 AFK status cleared", category="general",
+                           fields=[("User", f"{message.author} ({message.author.id})"), ("Previous reason", str(old_reason)[:300])])
             try:
                 await message.channel.send(
                     f"🐾 Welcome back, {message.author.mention}! I've cleared your AFK status.",
@@ -833,6 +970,7 @@ async def enableai(interaction: discord.Interaction):
 @app_commands.checks.has_permissions(manage_guild=True)
 async def logchannel(interaction: discord.Interaction):
     log_channels[interaction.guild.id] = interaction.channel.id
+    await secure_log_channel(interaction.channel)
     await bd_save_data()
     status = await storage_status()
     icon = "✅" if status["connected"] else "⚠️"
@@ -859,6 +997,8 @@ async def disablelogchannel(interaction: discord.Interaction):
     await bd_save_data()
     if removed:
         await interaction.response.send_message("*closes the logbook* Stopped logging actions for this server.")
+        await send_log(interaction.guild.id, title="📋 Main log channel disabled", interaction=interaction, category="setup",
+                       fields=[("Previous channel ID", str(removed))])
     else:
         await interaction.response.send_message(
             "*blinks* There wasn't a log channel set for this server.", ephemeral=True
@@ -1109,6 +1249,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         ),
         color=discord.Color.red(),
         interaction=interaction,
+        category=_command_log_category(interaction.command.qualified_name if interaction.command else ""),
     )
 
 
@@ -1166,21 +1307,23 @@ def _bd_encode() -> dict:
         "economy_log_channels": {str(k): v for k, v in economy_log_channels.items()},
         "economy_level_rewards_claimed": {f"{g}:{u}": list(levels) for (g, u), levels in economy_level_rewards_claimed.items()},
         "economy_income_roles": {str(g): {str(r): cfg for r, cfg in roles.items()} for g, roles in economy_income_roles.items()},
+        "economy_achievements": {f"{g}:{u}": list(ids) for (g, u), ids in economy_achievements.items()},
         "economy_items": ECONOMY_ITEMS,
         "economy_quest_definitions": ECONOMY_QUESTS,
         # Server configuration that should survive a restart/redeploy.
         "ai_channels": {str(k): v for k, v in ai_channels.items()},
         "disabled_channels": {str(k): list(v) for k, v in disabled_channels.items()},
         "log_channels": {str(k): v for k, v in log_channels.items()},
+        "category_log_channels": {str(g): {str(c): ch for c, ch in cfg.items()} for g, cfg in category_log_channels.items()},
     }
 
 
 def _bd_decode(raw: dict):
     global warnings_data, welcome_config, goodbye_config, automod_config
     global xp_data, reaction_role_ids, temp_bans, antiraid_config, case_counters
-    global level_roles, active_giveaways, active_polls, ai_channels, disabled_channels, log_channels
+    global level_roles, active_giveaways, active_polls, ai_channels, disabled_channels, log_channels, category_log_channels
     global economy_balances, economy_inventory, economy_quests, economy_cooldowns, economy_log_channels
-    global economy_level_rewards_claimed, economy_income_roles
+    global economy_level_rewards_claimed, economy_income_roles, economy_achievements
     warnings_data = defaultdict(list, {tuple(map(int, k.split(":"))): v for k, v in raw.get("warnings", {}).items()})
     welcome_config = {int(k): v for k, v in raw.get("welcome_config", {}).items()}
     goodbye_config = {int(k): v for k, v in raw.get("goodbye_config", {}).items()}
@@ -1208,6 +1351,11 @@ def _bd_decode(raw: dict):
         if len(parts) == 2:
             economy_level_rewards_claimed[(int(parts[0]), int(parts[1]))] = [int(x) for x in levels]
     economy_income_roles = {int(g): {int(r): cfg for r, cfg in roles.items()} for g, roles in raw.get("economy_income_roles", {}).items()}
+    economy_achievements = {}
+    for k, ids in raw.get("economy_achievements", {}).items():
+        parts = k.split(":")
+        if len(parts) == 2 and isinstance(ids, list):
+            economy_achievements[(int(parts[0]), int(parts[1]))] = [str(x) for x in ids if str(x) in ECONOMY_ACHIEVEMENTS]
     saved_items = raw.get("economy_items")
     if isinstance(saved_items, dict):
         ECONOMY_ITEMS.clear()
@@ -1235,6 +1383,7 @@ def _bd_decode(raw: dict):
     ai_channels = {int(k): v for k, v in raw.get("ai_channels", {}).items()}
     disabled_channels = defaultdict(set, {int(k): set(v) for k, v in raw.get("disabled_channels", {}).items()})
     log_channels = {int(k): v for k, v in raw.get("log_channels", {}).items()}
+    category_log_channels = {int(g): {str(c): int(ch) for c, ch in cfg.items()} for g, cfg in raw.get("category_log_channels", {}).items() if isinstance(cfg, dict)}
 
 
 async def bd_load_data():
@@ -1295,10 +1444,11 @@ def dashboard_state_provider() -> dict:
         "active_giveaways": active_giveaways, "economy_balances": economy_balances,
         "economy_inventory": economy_inventory, "economy_quests": economy_quests,
         "economy_log_channels": economy_log_channels, "economy_income_roles": economy_income_roles,
-        "ECONOMY_ITEMS": ECONOMY_ITEMS, "ECONOMY_QUESTS": ECONOMY_QUESTS,
+        "ECONOMY_ITEMS": ECONOMY_ITEMS, "ECONOMY_QUESTS": ECONOMY_QUESTS, "ECONOMY_ACHIEVEMENTS": ECONOMY_ACHIEVEMENTS, "economy_achievements": economy_achievements,
         "ECONOMY_DAILY_REWARD": ECONOMY_DAILY_REWARD, "ECONOMY_WORK_MIN": ECONOMY_WORK_MIN,
         "ECONOMY_WORK_MAX": ECONOMY_WORK_MAX, "ECONOMY_WORK_COOLDOWN": ECONOMY_WORK_COOLDOWN,
         "ai_channels": ai_channels, "log_channels": log_channels,
+        "category_log_channels": category_log_channels,
         "BD_UPSTASH_URL": BD_UPSTASH_URL, "BD_UPSTASH_TOKEN": BD_UPSTASH_TOKEN,
         "bd_save_data": bd_save_data, "send_log": send_log,
         "recall_guild_data": recall_guild_data,
@@ -1543,11 +1693,13 @@ async def serverinfo(interaction: discord.Interaction):
 @app_commands.describe(reason="Optional reason")
 @app_commands.guild_only()
 async def afk_cmd(interaction: discord.Interaction, reason: str = "AFK"):
-    afk_users[(interaction.guild.id, interaction.user.id)] = reason
+    afk_users[(interaction.guild.id, interaction.user.id)] = reason[:200]
     await interaction.response.send_message(
         f"🐾 {interaction.user.mention} is now AFK: {reason}",
         allowed_mentions=discord.AllowedMentions(users=True),
     )
+    await send_log(interaction.guild.id, title="💤 AFK status set", interaction=interaction, category="general",
+                   fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Reason", reason[:200])])
 
 
 # --- Welcome / goodbye messages ----------------------------------------------
@@ -1579,6 +1731,8 @@ async def welcome_set(interaction: discord.Interaction, channel: discord.TextCha
     welcome_config[interaction.guild.id] = {"channel_id": channel.id, "message": message}
     await bd_save_data()
     await interaction.response.send_message(f"🐾 Welcome messages will post in {channel.mention}.")
+    await send_log(interaction.guild.id, title="👋 Welcome configuration changed", interaction=interaction, category="setup",
+                   fields=[("Channel", channel.mention), ("Message", message[:900])])
 
 
 @welcome_group.command(name="disable", description="Turn off welcome messages")
@@ -1588,6 +1742,7 @@ async def welcome_disable(interaction: discord.Interaction):
     welcome_config.pop(interaction.guild.id, None)
     await bd_save_data()
     await interaction.response.send_message("🐾 Welcome messages turned off.")
+    await send_log(interaction.guild.id, title="👋 Welcome messages disabled", interaction=interaction, category="setup")
 
 
 goodbye_group = app_commands.Group(name="goodbye", description="Configure member-leave messages")
@@ -1605,6 +1760,8 @@ async def goodbye_set(interaction: discord.Interaction, channel: discord.TextCha
     goodbye_config[interaction.guild.id] = {"channel_id": channel.id, "message": message}
     await bd_save_data()
     await interaction.response.send_message(f"🐾 Goodbye messages will post in {channel.mention}.")
+    await send_log(interaction.guild.id, title="🚪 Goodbye configuration changed", interaction=interaction, category="setup",
+                   fields=[("Channel", channel.mention), ("Message", message[:900])])
 
 
 @goodbye_group.command(name="disable", description="Turn off goodbye messages")
@@ -1614,6 +1771,7 @@ async def goodbye_disable(interaction: discord.Interaction):
     goodbye_config.pop(interaction.guild.id, None)
     await bd_save_data()
     await interaction.response.send_message("🐾 Goodbye messages turned off.")
+    await send_log(interaction.guild.id, title="🚪 Goodbye messages disabled", interaction=interaction, category="setup")
 
 
 # --- Reaction roles (self-assignable, via button) ----------------------------
@@ -1639,9 +1797,13 @@ class ReactionRoleView(discord.ui.View):
             if role in member.roles:
                 await member.remove_roles(role, reason="Reaction role toggle")
                 await interaction.response.send_message(f"➖ Removed **{role.name}**.", ephemeral=True)
+                await send_log(interaction.guild.id, title="🏷️ Self-assign role removed", category="roles",
+                               fields=[("Member", f"{member} ({member.id})"), ("Role", f"{role.name} ({role.id})")])
             else:
                 await member.add_roles(role, reason="Reaction role toggle")
                 await interaction.response.send_message(f"➕ Added **{role.name}**!", ephemeral=True)
+                await send_log(interaction.guild.id, title="🏷️ Self-assign role added", category="roles",
+                               fields=[("Member", f"{member} ({member.id})"), ("Role", f"{role.name} ({role.id})")])
         except discord.Forbidden:
             await interaction.response.send_message(
                 "I don't have permission to manage that role — check my role position.", ephemeral=True
@@ -1673,6 +1835,8 @@ async def reactionrole_create(interaction: discord.Interaction, role: discord.Ro
     reaction_role_ids.add(role.id)
     await bd_save_data()
     bot.add_view(view)  # re-register for persistence in case this process restarts
+    await send_log(interaction.guild.id, title="🏷️ Reaction role created", interaction=interaction, category="roles",
+                   fields=[("Role", f"{role.name} ({role.id})"), ("Button label", label[:80])])
 
 
 @reactionrole_group.command(name="remove", description="Stop a role from being self-assignable")
@@ -1687,6 +1851,8 @@ async def reactionrole_remove(interaction: discord.Interaction, role: discord.Ro
         f"after the next restart; this doesn't delete the message.)",
         ephemeral=True,
     )
+    await send_log(interaction.guild.id, title="🏷️ Reaction role removed", interaction=interaction, category="roles",
+                   fields=[("Role", f"{role.name} ({role.id})")])
 
 
 # --- Auto-moderation -----------------------------------------------------------
@@ -1768,10 +1934,13 @@ automod_word_group = app_commands.Group(name="word", description="Manage banned 
 @app_commands.guild_only()
 async def automod_word_add(interaction: discord.Interaction, word: app_commands.Range[str, 1, 100]):
     cfg = get_automod(interaction.guild.id)
-    if word.lower() not in (w.lower() for w in cfg["words"]):
+    changed = word.lower() not in (w.lower() for w in cfg["words"])
+    if changed:
         cfg["words"].append(word)
         await bd_save_data()
     await interaction.response.send_message(f"🐾 Added `{word}` to the banned word list.", ephemeral=True)
+    await send_log(interaction.guild.id, title="🛡️ AutoMod banned word added", interaction=interaction, category="moderation",
+                   fields=[("Word/phrase", word[:300]), ("Changed", str(changed))])
 
 
 @automod_word_group.command(name="remove", description="Remove a banned word/phrase")
@@ -1779,9 +1948,13 @@ async def automod_word_add(interaction: discord.Interaction, word: app_commands.
 @app_commands.guild_only()
 async def automod_word_remove(interaction: discord.Interaction, word: app_commands.Range[str, 1, 100]):
     cfg = get_automod(interaction.guild.id)
+    before = len(cfg["words"])
     cfg["words"] = [w for w in cfg["words"] if w.lower() != word.lower()]
+    removed = before - len(cfg["words"])
     await bd_save_data()
     await interaction.response.send_message(f"🐾 Removed `{word}` from the banned word list.", ephemeral=True)
+    await send_log(interaction.guild.id, title="🛡️ AutoMod banned word removed", interaction=interaction, category="moderation",
+                   fields=[("Word/phrase", word[:300]), ("Removed", str(removed))])
 
 
 @automod_word_group.command(name="list", description="List banned words")
@@ -1802,6 +1975,7 @@ async def automod_spam(interaction: discord.Interaction, enabled: bool):
     get_automod(interaction.guild.id)["spam"] = enabled
     await bd_save_data()
     await interaction.response.send_message(f"🐾 Spam detection turned **{'on' if enabled else 'off'}**.")
+    await send_log(interaction.guild.id, title="🛡️ AutoMod spam setting changed", interaction=interaction, category="moderation", fields=[("Enabled", str(enabled))])
 
 
 @automod_group.command(name="mentions", description="Toggle mass-mention detection")
@@ -1816,6 +1990,8 @@ async def automod_mentions(interaction: discord.Interaction, enabled: bool, thre
     await interaction.response.send_message(
         f"🐾 Mass-mention detection turned **{'on' if enabled else 'off'}** (threshold {threshold})."
     )
+    await send_log(interaction.guild.id, title="🛡️ AutoMod mention setting changed", interaction=interaction, category="moderation",
+                   fields=[("Enabled", str(enabled)), ("Threshold", str(threshold))])
 
 
 @automod_group.command(name="invites", description="Toggle auto-deleting Discord invite links")
@@ -1826,6 +2002,7 @@ async def automod_invites(interaction: discord.Interaction, enabled: bool):
     get_automod(interaction.guild.id)["invites"] = enabled
     await bd_save_data()
     await interaction.response.send_message(f"🐾 Invite-link filter turned **{'on' if enabled else 'off'}**.")
+    await send_log(interaction.guild.id, title="🛡️ AutoMod invite filter changed", interaction=interaction, category="moderation", fields=[("Enabled", str(enabled))])
 
 
 # --- Temp-ban ------------------------------------------------------------------
@@ -1920,6 +2097,10 @@ async def award_xp(message: discord.Message):
     xp_data[key] = new_xp
     new_level = level_from_xp(new_xp)
     gained = await sync_level_roles(message.author, new_level)
+    await send_log(message.guild.id, title="📈 XP changed", category="levels",
+                   fields=[("User", f"{message.author} ({message.author.id})"), ("XP before", str(old_xp)),
+                           ("XP gained", str(new_xp - old_xp)), ("XP after", str(new_xp)),
+                           ("Level", f"{old_level} → {new_level}"), ("New level roles", ", ".join(gained) if gained else "None")])
     if new_level > old_level:
         text = f"🐾 {message.author.mention} just leveled up to **Level {new_level}**!"
         if gained:
@@ -2083,6 +2264,14 @@ class GiveawayView(discord.ui.View):
             text = "🎉 You're entered! Click again to leave."
         await interaction.response.send_message(text, ephemeral=True)
         await bd_save_data()  # after responding: Discord only gives us 3s to answer
+        guild_id = gw.get("guild_id")
+        if guild_id:
+            await send_log(int(guild_id), title="🎉 Giveaway entry changed", category="community",
+                           fields=[("User", f"{interaction.user} ({interaction.user.id})"),
+                                   ("Giveaway message", str(interaction.message.id)),
+                                   ("Action", "Entered" if uid in gw["entrants"] else "Left"),
+                                   ("Entrants", str(len(gw["entrants"]))),
+                                   ("Prize", str(gw.get("prize", "Giveaway"))[:900])])
 
 
 async def finish_giveaway(mid: int):
@@ -2121,6 +2310,9 @@ async def finish_giveaway(mid: int):
         text = f"🎉 Congrats {' '.join(f'<@{u}>' for u in winner_ids)}! You won **{gw['prize']}**!"
     else:
         text = "🐾 No one entered the giveaway — no winners this time."
+    await send_log(int(gw.get("guild_id", 0)), title="🏁 Giveaway finished", category="community",
+                   fields=[("Message", str(mid)), ("Prize", str(gw.get("prize", "Giveaway"))[:900]),
+                           ("Entrants", str(len(entrants))), ("Winners", ", ".join(str(x) for x in winner_ids) if winner_ids else "None")])
     try:
         await message.reply(text, allowed_mentions=discord.AllowedMentions(users=True))
     except discord.HTTPException:
@@ -2142,6 +2334,9 @@ async def cancel_giveaway(mid: int):
             await message.edit(embed=embed, view=GiveawayView(disabled=True))
         except discord.HTTPException:
             pass
+    await send_log(int(gw.get("guild_id", 0)), title="🚫 Giveaway cancelled", category="community",
+                   fields=[("Message", str(mid)), ("Prize", str(gw.get("prize", "Giveaway"))[:900]),
+                           ("Entrants", str(len(gw.get("entrants", []))))])
     return True
 
 giveaway_group = app_commands.Group(name="giveaway", description="Run a simple prize giveaway")
@@ -2161,6 +2356,9 @@ async def giveaway_start(interaction: discord.Interaction, duration_minutes: int
     msg = await interaction.original_response()
     active_giveaways[msg.id] = gw
     await bd_save_data()
+    await send_log(interaction.guild.id, title="🎉 Giveaway started", interaction=interaction, category="community",
+                   fields=[("Message", str(msg.id)), ("Prize", prize), ("Duration", f"{duration_minutes} minute(s)"),
+                           ("Winners", str(winners))])
 
 
 @giveaway_group.command(name="end", description="End a giveaway early and pick winners now")
@@ -2227,6 +2425,10 @@ class PollView(discord.ui.View):
                 poll["votes"][uid] = idx
             await interaction.response.edit_message(embed=_poll_embed(poll))
             await bd_save_data()  # after responding: Discord only gives us 3s to answer
+            await send_log(int(poll.get("guild_id", 0)), title="📊 Poll vote changed", category="community",
+                           fields=[("User", f"{interaction.user} ({interaction.user.id})"),
+                                   ("Poll message", str(interaction.message.id)),
+                                   ("Choice", poll["options"][idx]), ("Total votes", str(len(poll["votes"])))])
         return callback
 
 
@@ -2261,6 +2463,9 @@ async def finish_poll(mid: int):
         await message.reply(text, allowed_mentions=discord.AllowedMentions.none())
     except discord.HTTPException:
         pass
+    await send_log(int(poll.get("guild_id", 0)), title="🏁 Poll finished", category="community",
+                   fields=[("Message", str(mid)), ("Question", str(poll.get("question", "Poll"))[:900]),
+                           ("Votes", str(sum(counts))), ("Result", text[:900])])
 
 
 @bot.tree.command(name="poll", description="Start a poll with 2-4 options")
@@ -2286,6 +2491,9 @@ async def poll(interaction: discord.Interaction, question: app_commands.Range[st
     msg = await interaction.original_response()
     active_polls[msg.id] = p
     await bd_save_data()
+    await send_log(interaction.guild.id, title="📊 Poll started", interaction=interaction, category="community",
+                   fields=[("Message", str(msg.id)), ("Question", question), ("Options", " | ".join(options)),
+                           ("Duration", f"{duration_minutes} minute(s)")])
 
 
 @tasks.loop(seconds=30)
@@ -2346,6 +2554,8 @@ async def antiraid_enable(interaction: discord.Interaction, threshold: int = 5, 
         f"🐾 Anti-raid alerts on: {threshold} joins within {window_seconds}s triggers a log-channel alert. "
         f"(This only alerts — it doesn't auto-kick or lock the server.)"
     )
+    await send_log(interaction.guild.id, title="🚨 Anti-raid configuration changed", interaction=interaction, category="moderation",
+                   fields=[("Enabled", "True"), ("Threshold", str(threshold)), ("Window", f"{window_seconds}s")])
 
 
 @antiraid_group.command(name="disable", description="Turn off raid-join alerts")
@@ -2355,6 +2565,7 @@ async def antiraid_disable(interaction: discord.Interaction):
     get_antiraid(interaction.guild.id)["enabled"] = False
     await bd_save_data()
     await interaction.response.send_message("🐾 Anti-raid alerts off.")
+    await send_log(interaction.guild.id, title="🚨 Anti-raid disabled", interaction=interaction, category="moderation")
 
 
 # --- Channel lock / unlock -------------------------------------------------------
@@ -2500,6 +2711,57 @@ async def botstatus(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+# Category-specific logging controls. Existing /logchannel remains the fallback.
+categorylogs_group = app_commands.Group(name="categorylogs", description="Configure separate Cinnamon log channels")
+
+@categorylogs_group.command(name="set", description="Set a category's log channel")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.describe(category="Which Cinnamon category to log", channel="Text channel receiving its logs")
+@app_commands.choices(category=[
+    app_commands.Choice(name="Moderation", value="moderation"),
+    app_commands.Choice(name="Economy", value="economy"),
+    app_commands.Choice(name="AI", value="ai"),
+    app_commands.Choice(name="Levels & XP", value="levels"),
+    app_commands.Choice(name="Giveaways & Polls", value="community"),
+    app_commands.Choice(name="Roles", value="roles"),
+    app_commands.Choice(name="Server Setup", value="setup"),
+    app_commands.Choice(name="General utilities", value="general"),
+])
+async def categorylogs_set(interaction: discord.Interaction, category: app_commands.Choice[str], channel: discord.TextChannel):
+    category_log_channels.setdefault(interaction.guild.id, {})[category.value] = channel.id
+    await secure_log_channel(channel)
+    if category.value == "economy":
+        economy_log_channels[interaction.guild.id] = channel.id
+    if category.value == "moderation":
+        log_channels[interaction.guild.id] = channel.id
+    await bd_save_data()
+    await interaction.response.send_message(f"✅ {category.name} logs will be sent to {channel.mention}.", ephemeral=True)
+    await send_log(interaction.guild.id, title="⚙️ Category log channel updated", description=f"{category.name} logging configured.", fields=[("Category", category.value), ("Channel", channel.mention), ("Changed by", f"{interaction.user} ({interaction.user.id})")])
+
+@categorylogs_group.command(name="disable", description="Disable a category-specific log channel")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.choices(category=[
+    app_commands.Choice(name="Moderation", value="moderation"), app_commands.Choice(name="Economy", value="economy"),
+    app_commands.Choice(name="AI", value="ai"), app_commands.Choice(name="Levels & XP", value="levels"),
+    app_commands.Choice(name="Giveaways & Polls", value="community"), app_commands.Choice(name="Roles", value="roles"),
+    app_commands.Choice(name="Server Setup", value="setup"), app_commands.Choice(name="General utilities", value="general"),
+])
+async def categorylogs_disable(interaction: discord.Interaction, category: app_commands.Choice[str]):
+    removed = category_log_channels.get(interaction.guild.id, {}).get(category.value)
+    if removed:
+        await send_log(interaction.guild.id, title="⚙️ Category log channel disabled", interaction=interaction, category=category.value,
+                       fields=[("Category", category.value), ("Previous channel ID", str(removed))])
+    category_log_channels.get(interaction.guild.id, {}).pop(category.value, None)
+    if category.value == "economy": economy_log_channels.pop(interaction.guild.id, None)
+    if category.value == "moderation": log_channels.pop(interaction.guild.id, None)
+    await bd_save_data()
+    await interaction.response.send_message(f"Category-specific {category.name} logs {'disabled' if removed else 'were not configured'}. Existing general logs may still be used as fallback.", ephemeral=True)
+
+bot.tree.add_command(categorylogs_group)
+
+
 # --- Help + guided setup ------------------------------------------------------
 
 async def _ensure_setup_channel(guild: discord.Guild, category: discord.CategoryChannel, name: str, topic: str):
@@ -2509,9 +2771,18 @@ async def _ensure_setup_channel(guild: discord.Guild, category: discord.Category
     instead of creating duplicates.
     """
     existing = discord.utils.get(category.text_channels, name=name)
+    is_log = name.endswith("-logs") or name in {"cinnamon-logs", "cinnamon-economy", "cinnamon-hangry"}
+    overwrites = None
+    if is_log and guild.me is not None:
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True, read_message_history=True),
+        }
     if existing:
+        if is_log and overwrites:
+            await secure_log_channel(existing)
         return existing, False
-    channel = await guild.create_text_channel(name=name, category=category, topic=topic, reason="Cinnamon guided server setup")
+    channel = await guild.create_text_channel(name=name, category=category, topic=topic, overwrites=overwrites, reason="Cinnamon guided server setup")
     return channel, True
 
 
@@ -2561,8 +2832,14 @@ async def setup_cmd(interaction: discord.Interaction):
 
     specs = [
         ("cinnamon-logs", "Cinnamon moderation, AutoMod, errors, warnings, and general logs."),
-        ("cinnamon-economy", "Catnip economy transactions and pre-reset economy snapshots."),
+        ("cinnamon-economy", "Catnip economy transactions, balance changes, inventory, shop, and snapshots."),
         ("cinnamon-hangry", "Hangry Games starts, winners, cancellations, and recovery logs."),
+        ("cinnamon-ai-logs", "Cinnamon AI command usage, settings, and service errors; not private conversation contents."),
+        ("cinnamon-level-logs", "XP awards, level-ups, and level-role changes."),
+        ("cinnamon-community-logs", "Giveaway and poll events."),
+        ("cinnamon-role-logs", "Role management and reaction-role configuration events."),
+        ("cinnamon-setup-logs", "Welcome/goodbye, setup, and logging configuration changes."),
+        ("cinnamon-general-logs", "General information and utility command usage."),
         ("cinnamon-welcome", "Cinnamon's member welcome messages."),
         ("cinnamon-goodbye", "Cinnamon's member goodbye messages."),
         ("cinnamon-ai", "Cinnamon's always-on AI chat channel."),
@@ -2578,6 +2855,16 @@ async def setup_cmd(interaction: discord.Interaction):
     # Configure the systems that have dedicated channel settings.
     log_channels[guild.id] = channels["cinnamon-logs"].id
     economy_log_channels[guild.id] = channels["cinnamon-economy"].id
+    category_log_channels[guild.id] = {
+        "moderation": channels["cinnamon-logs"].id,
+        "economy": channels["cinnamon-economy"].id,
+        "ai": channels["cinnamon-ai-logs"].id,
+        "levels": channels["cinnamon-level-logs"].id,
+        "community": channels["cinnamon-community-logs"].id,
+        "roles": channels["cinnamon-role-logs"].id,
+        "setup": channels["cinnamon-setup-logs"].id,
+        "general": channels["cinnamon-general-logs"].id,
+    }
     ai_channels[guild.id] = channels["cinnamon-ai"].id
     welcome_config[guild.id] = {
         "channel_id": channels["cinnamon-welcome"].id,
@@ -2595,6 +2882,9 @@ async def setup_cmd(interaction: discord.Interaction):
         await hg_cog._save()
 
     await bd_save_data()
+    await send_log(guild.id, title="⚙️ Cinnamon setup applied", category="setup",
+                   fields=[("Main logs", channels["cinnamon-logs"].mention), ("Economy logs", channels["cinnamon-economy"].mention),
+                           ("Hangry logs", channels["cinnamon-hangry"].mention), ("AI channel", channels["cinnamon-ai"].mention)])
 
     # Keep the setup message useful even if someone runs it again later.
     created_text = ", ".join(created) if created else "No channels needed to be created; the setup was already present."
@@ -2610,6 +2900,12 @@ async def setup_cmd(interaction: discord.Interaction):
     embed.add_field(name="🛡️ Main logs", value=channels["cinnamon-logs"].mention, inline=True)
     embed.add_field(name="🌿 Economy", value=channels["cinnamon-economy"].mention, inline=True)
     embed.add_field(name="🍔 Hangry Games", value=channels["cinnamon-hangry"].mention, inline=True)
+    embed.add_field(name="🤖 AI logs", value=channels["cinnamon-ai-logs"].mention, inline=True)
+    embed.add_field(name="🏅 Levels logs", value=channels["cinnamon-level-logs"].mention, inline=True)
+    embed.add_field(name="🎉 Community logs", value=channels["cinnamon-community-logs"].mention, inline=True)
+    embed.add_field(name="🏷️ Role logs", value=channels["cinnamon-role-logs"].mention, inline=True)
+    embed.add_field(name="⚙️ Setup logs", value=channels["cinnamon-setup-logs"].mention, inline=True)
+    embed.add_field(name="📌 General logs", value=channels["cinnamon-general-logs"].mention, inline=True)
     embed.add_field(name="👋 Welcome", value=channels["cinnamon-welcome"].mention, inline=True)
     embed.add_field(name="🚪 Goodbye", value=channels["cinnamon-goodbye"].mention, inline=True)
     embed.add_field(name="🐱 AI chat", value=channels["cinnamon-ai"].mention, inline=True)
@@ -2634,6 +2930,12 @@ async def setupstatus_cmd(interaction: discord.Interaction):
     rows = [
         ("🛡️ Main logs", log_channels.get(guild.id)),
         ("🌿 Economy logs", economy_log_channels.get(guild.id)),
+        ("🤖 AI logs", category_log_channels.get(guild.id, {}).get("ai")),
+        ("🏅 Levels logs", category_log_channels.get(guild.id, {}).get("levels")),
+        ("🎉 Community logs", category_log_channels.get(guild.id, {}).get("community")),
+        ("🏷️ Role logs", category_log_channels.get(guild.id, {}).get("roles")),
+        ("⚙️ Setup logs", category_log_channels.get(guild.id, {}).get("setup")),
+        ("📌 General logs", category_log_channels.get(guild.id, {}).get("general")),
         ("🍔 Hangry logs", hg_cog.hg_log_channels.get(guild.id) if hg_cog else None),
         ("👋 Welcome", welcome_config.get(guild.id, {}).get("channel_id")),
         ("🚪 Goodbye", goodbye_config.get(guild.id, {}).get("channel_id")),
@@ -2821,6 +3123,9 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
 async def recall_cmd(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True, thinking=True)
     result = await recall_guild_data(interaction.guild)
+    await send_log(interaction.guild.id, title="🩹 Log recovery completed", interaction=interaction, category="setup",
+                   fields=[("Warnings restored", str(result["warnings"])), ("Hangry games found", str(result["hangry_game_count"])),
+                           ("Hangry wins found", str(result["hangry_wins_seen"])), ("Economy accounts restored", str(result["economy_accounts"]))])
     await interaction.followup.send(
         "🩹 **Cinnamon's log recovery scan is complete.**\n"
         f"• New warnings reconstructed: **{result['warnings']}**\n"
@@ -2840,6 +3145,9 @@ async def recall_cmd(interaction: discord.Interaction):
 async def datastatus_recover(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True, thinking=True)
     result = await recall_guild_data(interaction.guild)
+    await send_log(interaction.guild.id, title="🩹 Data recovery completed", interaction=interaction, category="setup",
+                   fields=[("Warnings restored", str(result["warnings"])), ("Hangry games found", str(result["hangry_game_count"])),
+                           ("Hangry wins found", str(result["hangry_wins_seen"])), ("Economy accounts restored", str(result["economy_accounts"]))])
     await interaction.followup.send(
         f"🩹 Recovery scan complete. Warnings reconstructed: **{result['warnings']}**; "
         f"Hangry Games count: **#{result['hangry_game_count']}**; wins found: **{result['hangry_wins_seen']}**; "
@@ -2884,26 +3192,64 @@ def economy_inventory_for(guild_id: int, user_id: int) -> dict:
 
 
 def economy_quests_for(guild_id: int, user_id: int) -> dict:
+    return sanitize_economy_quests(guild_id, user_id)
+
+
+async def unlock_economy_achievement(guild_id: int, user_id: int, achievement_id: str, *, reason: str = "") -> bool:
+    """Unlock one achievement exactly once and persist it. Returns True only on a new unlock."""
+    if achievement_id not in ECONOMY_ACHIEVEMENTS:
+        return False
     key = economy_key(guild_id, user_id)
-    if key not in economy_quests:
-        economy_quests[key] = {qid: 0 for qid in ECONOMY_QUESTS}
-    else:
-        for qid in ECONOMY_QUESTS:
-            economy_quests[key].setdefault(qid, 0)
-    return economy_quests[key]
+    unlocked = economy_achievements.setdefault(key, [])
+    if achievement_id in unlocked:
+        return False
+    unlocked.append(achievement_id)
+    reward = int(ECONOMY_ACHIEVEMENTS[achievement_id].get("reward", 0))
+    if reward:
+        economy_balances[key] = economy_balance(guild_id, user_id) + reward
+    await bd_save_data()
+    achievement = ECONOMY_ACHIEVEMENTS[achievement_id]
+    await economy_log(guild_id, title="🏆 Achievement unlocked", fields=[
+        ("User", f"<@{user_id}> ({user_id})"),
+        ("Achievement", achievement["name"]),
+        ("Reward", f"+{reward:,} Catnip"),
+        ("Reason", reason or achievement["description"]),
+        ("Balance after", f"{economy_balance(guild_id, user_id):,} Catnip"),
+    ])
+    return True
+
+
+def sanitize_economy_quests(guild_id: int, user_id: int) -> dict:
+    """Return a valid quest-progress dict even if old/corrupt persisted data exists."""
+    key = economy_key(guild_id, user_id)
+    raw = economy_quests.get(key)
+    if not isinstance(raw, dict):
+        raw = {}
+        economy_quests[key] = raw
+    clean = {}
+    for qid, q in ECONOMY_QUESTS.items():
+        try:
+            clean[qid] = max(0, int(raw.get(qid, 0)))
+        except (TypeError, ValueError):
+            clean[qid] = 0
+    economy_quests[key] = clean
+    return clean
 
 
 def economy_user_snapshot(guild_id: int, user_id: int) -> dict:
     return {
         "balance": economy_balance(guild_id, user_id),
         "inventory": dict(economy_inventory_for(guild_id, user_id)),
-        "quests": dict(economy_quests_for(guild_id, user_id)),
+        "quests": dict(sanitize_economy_quests(guild_id, user_id)),
+        "achievements": list(economy_achievements.get((guild_id, user_id), [])),
         "level_rewards_claimed": list(economy_level_rewards_claimed.get((guild_id, user_id), [])),
     }
 
 
 async def economy_log(guild_id: int, *, title: str, description: str = "", fields=None):
-    channel_id = economy_log_channels.get(guild_id)
+    channel_id = economy_log_channels.get(guild_id) or category_log_channels.get(guild_id, {}).get("economy")
+    if not channel_id:
+        channel_id = log_channels.get(guild_id)
     if not channel_id:
         return
     channel = bot.get_channel(channel_id)
@@ -2941,6 +3287,7 @@ async def economy_do_work(guild_id: int, user: discord.abc.User) -> tuple[bool, 
     remaining = economy_cooldown_remaining(guild_id, user_id, "work")
     if remaining:
         return False, 0, f"🐾 You're on a work cooldown. Try again in **{remaining // 60}m {remaining % 60}s**."
+    balance_before = economy_balance(guild_id, user_id)
     amount = random.randint(ECONOMY_WORK_MIN, ECONOMY_WORK_MAX)
     jobs = [
         "sorted Cinnamon's treats", "guarded the tuna cupboard", "cleaned the cat tree",
@@ -2949,9 +3296,9 @@ async def economy_do_work(guild_id: int, user: discord.abc.User) -> tuple[bool, 
     ]
     job = random.choice(jobs)
     economy_cooldowns[(guild_id, user_id, "work")] = time.time() + ECONOMY_WORK_COOLDOWN
-    economy_balances[(guild_id, user_id)] = economy_balance(guild_id, user_id) + amount
+    economy_balances[(guild_id, user_id)] = balance_before + amount
     await bd_save_data()
-    await economy_log(guild_id, title="💼 Economy work", fields=[("User", f"{user} ({user_id})"), ("Job", job), ("Earned", f"+{amount} Catnip")])
+    await economy_log(guild_id, title="💼 Economy work", fields=[("User", f"{user} ({user_id})"), ("Job", job), ("Earned", f"+{amount} Catnip"), ("Balance before", f"{balance_before:,}"), ("Balance after", f"{balance_before+amount:,}")])
     return True, amount, f"💼 You **{job}** and earned **{amount} Catnip**! *Cinnamon inspects the work proudly.*"
 
 
@@ -3013,7 +3360,8 @@ async def economy_inventory_cmd(interaction: discord.Interaction, member: discor
     embed = discord.Embed(title=f"🎒 {member.display_name}'s inventory", color=discord.Color.blurple())
     embed.description = "\n".join(lines) if lines else "Your inventory is empty. Visit `/economy shop`!"
     await interaction.response.send_message(embed=embed)
-    await economy_log(interaction.guild.id, title="🎒 Economy inventory viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})")])
+    inv_summary = "\n".join(f"{ECONOMY_ITEMS[k]['name']}: {int(v)}" for k, v in inv.items() if k in ECONOMY_ITEMS and int(v) > 0) or "Empty"
+    await economy_log(interaction.guild.id, title="🎒 Economy inventory viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Inventory", inv_summary[:1000]), ("Total items", str(sum(int(v) for v in inv.values()))), ("Catnip balance", f"{economy_balance(interaction.guild.id, member.id):,}")])
 
 
 @economy_group.command(name="shop", description="View Cinnamon's shop")
@@ -3053,7 +3401,7 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
     inv = economy_inventory_for(guild_id, user_id)
     inv[item_id] = current_qty + quantity
     await bd_save_data()
-    await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", data["name"]), ("Quantity", quantity), ("Cost", f"{cost:,} Catnip")])
+    await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity", quantity), ("Unit price", f"{data['price']:,} Catnip"), ("Deducted", f"-{cost:,} Catnip"), ("Balance before", f"{balance:,} Catnip"), ("Balance after", f"{balance-cost:,} Catnip"), ("Item quantity after", str(inv[item_id]))])
     await interaction.response.send_message(f"🛒 Bought **{quantity}× {data['emoji']} {data['name']}** for **{cost:,} Catnip**. Balance: **{economy_balances[(guild_id, user_id)]:,}**")
 
 
@@ -3066,9 +3414,10 @@ async def economy_daily_cmd(interaction: discord.Interaction):
         await interaction.response.send_message(f"🐾 Cinnamon already gave you your daily Catnip. Come back in **{remaining // 3600}h {(remaining % 3600) // 60}m**.", ephemeral=True)
         return
     economy_cooldowns[(guild_id, user_id, "daily")] = time.time() + 86400
-    economy_balances[(guild_id, user_id)] = economy_balance(guild_id, user_id) + ECONOMY_DAILY_REWARD
+    balance_before = economy_balance(guild_id, user_id)
+    economy_balances[(guild_id, user_id)] = balance_before + ECONOMY_DAILY_REWARD
     await bd_save_data()
-    await economy_log(guild_id, title="🌿 Daily Catnip", fields=[("User", f"{interaction.user} ({user_id})"), ("Amount", f"+{ECONOMY_DAILY_REWARD} Catnip")])
+    await economy_log(guild_id, title="🌿 Daily Catnip", fields=[("User", f"{interaction.user} ({user_id})"), ("Amount", f"+{ECONOMY_DAILY_REWARD} Catnip"), ("Balance before", f"{balance_before:,}"), ("Balance after", f"{balance_before+ECONOMY_DAILY_REWARD:,}")])
     await interaction.response.send_message(f"🌿 **+{ECONOMY_DAILY_REWARD} Catnip!** Cinnamon has approved your daily snack budget.")
 
 
@@ -3093,10 +3442,11 @@ async def economy_give_cmd(interaction: discord.Interaction, member: discord.Mem
     if sender_balance < amount:
         await interaction.response.send_message(f"❌ You only have **{sender_balance:,} Catnip**.", ephemeral=True)
         return
+    recipient_before = economy_balance(guild_id, member.id)
     economy_balances[(guild_id, interaction.user.id)] = sender_balance - amount
-    economy_balances[(guild_id, member.id)] = economy_balance(guild_id, member.id) + amount
+    economy_balances[(guild_id, member.id)] = recipient_before + amount
     await bd_save_data()
-    await economy_log(guild_id, title="🎁 Catnip transfer", fields=[("From", f"{interaction.user} ({interaction.user.id})"), ("To", f"{member} ({member.id})"), ("Amount", f"{amount:,} Catnip")])
+    await economy_log(guild_id, title="🎁 Catnip transfer", fields=[("From", f"{interaction.user} ({interaction.user.id})"), ("To", f"{member} ({member.id})"), ("Amount", f"{amount:,} Catnip"), ("Sender before", f"{sender_balance:,}"), ("Sender after", f"{sender_balance-amount:,}"), ("Recipient before", f"{recipient_before:,}"), ("Recipient after", f"{recipient_before+amount:,}")])
     await interaction.response.send_message(f"🎁 Gave **{amount:,} Catnip** to {member.mention}.")
 
 
@@ -3118,45 +3468,108 @@ async def economy_leaderboard_cmd(interaction: discord.Interaction):
 @economy_group.command(name="quest", description="View Cinnamon quests and your progress")
 @app_commands.guild_only()
 async def economy_quest_cmd(interaction: discord.Interaction):
-    progress = economy_quests_for(interaction.guild.id, interaction.user.id)
-    lines = []
-    for qid, q in ECONOMY_QUESTS.items():
-        done = min(progress.get(qid, 0), q["amount"])
-        lines.append(f"**{q['name']}** — {done}/{q['amount']} {ECONOMY_ITEMS[q['item']]['emoji']} {ECONOMY_ITEMS[q['item']]['name']} → **{q['reward']} Catnip**\n{q['description']}")
-    embed = discord.Embed(title="📜 Cinnamon's quests", description="\n\n".join(lines), color=discord.Color.blurple())
-    embed.set_footer(text="Use /economy feed to give Cinnamon the required item.")
-    await interaction.response.send_message(embed=embed)
+    try:
+        progress = sanitize_economy_quests(interaction.guild.id, interaction.user.id)
+        lines = []
+        for qid, q in ECONOMY_QUESTS.items():
+            item_id = str(q.get("item", ""))
+            item = ECONOMY_ITEMS.get(item_id)
+            if not item:
+                continue
+            amount = max(1, int(q.get("amount", 1)))
+            done = min(int(progress.get(qid, 0)), amount)
+            lines.append(f"**{q.get('name', qid)}** — {done}/{amount} {item['emoji']} {item['name']} → **{int(q.get('reward', 0))} Catnip**\n{q.get('description', '')}")
+        if not lines:
+            lines.append("No economy quests are currently configured.")
+        embed = discord.Embed(title="📜 Cinnamon's quests", description="\n\n".join(lines)[:4000], color=discord.Color.blurple())
+        embed.set_footer(text="Use /economy feed to give Cinnamon the required item.")
+        await interaction.response.send_message(embed=embed)
+        await economy_log(interaction.guild.id, title="📜 Economy quests viewed", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Quests shown", len(lines))])
+    except Exception as exc:
+        log.exception("Economy quest command failed for guild %s", interaction.guild.id if interaction.guild else None)
+        msg = "❌ I couldn't load the quests right now. The quest data may need to be reset or repaired."
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
 
 
 @economy_group.command(name="feed", description="Give Cinnamon an item and progress matching quests")
 @app_commands.describe(item="Item to give Cinnamon", quantity="How many to give")
 @app_commands.choices(item=[app_commands.Choice(name=v["name"], value=k) for k, v in ECONOMY_ITEMS.items()])
 @app_commands.guild_only()
-async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.Choice[str], quantity: int = 1):
-    guild_id, user_id = interaction.guild.id, interaction.user.id
-    item_id = item.value
-    inv = economy_inventory_for(guild_id, user_id)
-    have = int(inv.get(item_id, 0))
-    if have < quantity:
-        await interaction.response.send_message(f"❌ You only have **{have}× {ECONOMY_ITEMS[item_id]['name']}**.", ephemeral=True)
-        return
-    inv[item_id] = have - quantity
-    completed = []
-    progress = economy_quests_for(guild_id, user_id)
-    for qid, q in ECONOMY_QUESTS.items():
-        if q["item"] != item_id:
-            continue
-        before = min(progress.get(qid, 0), q["amount"])
-        progress[qid] = before + quantity
-        if before < q["amount"] <= progress[qid]:
-            economy_balances[(guild_id, user_id)] = economy_balance(guild_id, user_id) + q["reward"]
-            completed.append(f"**{q['name']}** (+{q['reward']} Catnip)")
-    await bd_save_data()
-    await economy_log(guild_id, title="🐟 Cinnamon fed", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", ECONOMY_ITEMS[item_id]["name"]), ("Quantity", quantity), ("Quest rewards", ", ".join(completed) if completed else "None")])
-    text = f"🐾 Cinnamon happily accepted **{quantity}× {ECONOMY_ITEMS[item_id]['name']}**!"
-    if completed:
-        text += "\n🎉 Quest complete: " + ", ".join(completed)
-    await interaction.response.send_message(text)
+async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.Choice[str], quantity: app_commands.Range[int, 1, 99] = 1):
+    try:
+        guild_id, user_id = interaction.guild.id, interaction.user.id
+        item_id = str(item.value)
+        data = ECONOMY_ITEMS.get(item_id)
+        if not data:
+            await interaction.response.send_message("❌ That item no longer exists. Refresh the command choices and try again.", ephemeral=True)
+            return
+        inv = economy_inventory_for(guild_id, user_id)
+        have = max(0, int(inv.get(item_id, 0)))
+        if have < quantity:
+            await interaction.response.send_message(f"❌ You only have **{have}× {data['name']}**.", ephemeral=True)
+            return
+        balance_before = economy_balance(guild_id, user_id)
+        inv[item_id] = have - quantity
+        progress = sanitize_economy_quests(guild_id, user_id)
+        completed = []
+        for qid, q in list(ECONOMY_QUESTS.items()):
+            if str(q.get("item", "")) != item_id:
+                continue
+            amount = max(1, int(q.get("amount", 1)))
+            before = min(int(progress.get(qid, 0)), amount)
+            after = min(amount, before + quantity)
+            progress[qid] = after
+            if before < amount <= after:
+                reward = max(0, int(q.get("reward", 0)))
+                economy_balances[(guild_id, user_id)] = economy_balance(guild_id, user_id) + reward
+                completed.append(f"**{q.get('name', qid)}** (+{reward} Catnip)")
+        await bd_save_data()
+        balance_after = economy_balance(guild_id, user_id)
+        unlocked = []
+        if await unlock_economy_achievement(guild_id, user_id, "first_feed", reason=f"Fed {quantity}× {data['name']} to Cinnamon"):
+            unlocked.append(ECONOMY_ACHIEVEMENTS["first_feed"]["name"])
+        if completed and await unlock_economy_achievement(guild_id, user_id, "quest_complete", reason="Completed an economy quest"):
+            unlocked.append(ECONOMY_ACHIEVEMENTS["quest_complete"]["name"])
+        if balance_after >= 1000 and await unlock_economy_achievement(guild_id, user_id, "catnip_1000", reason="Reached 1,000 Catnip"):
+            unlocked.append(ECONOMY_ACHIEVEMENTS["catnip_1000"]["name"])
+        total_items = sum(max(0, int(v)) for v in inv.values())
+        if total_items >= 10 and await unlock_economy_achievement(guild_id, user_id, "collector_10", reason="Reached 10 total items"):
+            unlocked.append(ECONOMY_ACHIEVEMENTS["collector_10"]["name"])
+        if ECONOMY_QUESTS and all(int(progress.get(qid, 0)) >= int(q.get("amount", 1)) for qid, q in ECONOMY_QUESTS.items()):
+            if await unlock_economy_achievement(guild_id, user_id, "all_quests", reason="Completed every configured economy quest"):
+                unlocked.append(ECONOMY_ACHIEVEMENTS["all_quests"]["name"])
+        await economy_log(guild_id, title="🐟 Cinnamon fed", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity fed", quantity), ("Quantity remaining", inv.get(item_id, 0)), ("Catnip before", f"{balance_before:,}"), ("Catnip after", f"{economy_balance(guild_id, user_id):,}"), ("Quest rewards", ", ".join(completed) if completed else "None"), ("Achievements", ", ".join(unlocked) if unlocked else "None")])
+        text = f"🐾 Cinnamon happily accepted **{quantity}× {data['name']}**!"
+        if completed:
+            text += "\n🎉 Quest complete: " + ", ".join(completed)
+        if unlocked:
+            text += "\n🏆 Achievement unlocked: **" + ", ".join(unlocked) + "**"
+        await interaction.response.send_message(text)
+    except Exception as exc:
+        log.exception("Economy feed command failed for guild %s", interaction.guild.id if interaction.guild else None)
+        if interaction.response.is_done():
+            await interaction.followup.send("❌ I couldn't process that feed/quest action. No further changes were made by the failed step.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ I couldn't process that feed/quest action. Please try again.", ephemeral=True)
+
+
+@economy_group.command(name="achievements", description="View your unlocked Cinnamon economy achievements")
+@app_commands.guild_only()
+async def economy_achievements_cmd(interaction: discord.Interaction, member: discord.Member | None = None):
+    member = member or interaction.user
+    unlocked = set(economy_achievements.get((interaction.guild.id, member.id), []))
+    lines = []
+    for aid, achievement in ECONOMY_ACHIEVEMENTS.items():
+        status = "🏆" if aid in unlocked else "🔒"
+        reward = int(achievement.get("reward", 0))
+        lines.append(f"{status} **{achievement['name']}** — {achievement['description']} — **{reward} Catnip**")
+    embed = discord.Embed(title=f"🏆 {member.display_name}'s achievements", description="\n".join(lines)[:4000], color=discord.Color.gold())
+    embed.set_footer(text=f"Unlocked: {len(unlocked)}/{len(ECONOMY_ACHIEVEMENTS)}")
+    await interaction.response.send_message(embed=embed)
+    await economy_log(interaction.guild.id, title="🏆 Economy achievements viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Unlocked", f"{len(unlocked)}/{len(ECONOMY_ACHIEVEMENTS)}")])
 
 
 @economy_group.command(name="logs", description="Set or disable the economy transaction log channel")
@@ -3167,10 +3580,16 @@ async def economy_logs_cmd(interaction: discord.Interaction, channel: discord.Te
     guild_id = interaction.guild.id
     if channel is None:
         removed = economy_log_channels.pop(guild_id, None)
+        category_log_channels.get(guild_id, {}).pop("economy", None)
         await bd_save_data()
         await interaction.response.send_message("🧾 Economy logs disabled." if removed else "🧾 Economy logs are already disabled.", ephemeral=True)
+        if removed:
+            # The economy destination has just been removed, so this is intentionally routed through the remaining setup/main logger.
+            await send_log(guild_id, title="🧾 Economy logging disabled", interaction=interaction, category="setup", fields=[("Previous channel ID", str(removed))])
         return
     economy_log_channels[guild_id] = channel.id
+    category_log_channels.setdefault(guild_id, {})["economy"] = channel.id
+    await secure_log_channel(channel)
     await bd_save_data()
     await economy_log(guild_id, title="🧾 Economy logging enabled", description=f"Economy transactions and backup snapshots will be posted here: {channel.mention}")
     await interaction.response.send_message(f"✅ Economy logs will now go to {channel.mention}.", ephemeral=True)
@@ -3233,6 +3652,7 @@ async def economy_snapshot_cmd(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     await channel.send(embed=embed, file=file)
     await bd_save_data()
+    await economy_log(guild_id, title="💾 Economy snapshot created", fields=[("Created by", f"{interaction.user} ({interaction.user.id})"), ("Users backed up", str(user_count)), ("Items", str(len(ECONOMY_ITEMS))), ("Channel", channel.mention)])
     await interaction.followup.send(f"✅ Snapshot saved to {channel.mention}. **{user_count}** users are included. You can reset the bot and later run `/economy recover`.", ephemeral=True)
 
 
@@ -3298,9 +3718,10 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000)
 @app_commands.checks.has_permissions(manage_guild=True)
 async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     guild_id = interaction.guild.id
-    economy_balances[(guild_id, member.id)] = economy_balance(guild_id, member.id) + amount
+    before = economy_balance(guild_id, member.id)
+    economy_balances[(guild_id, member.id)] = before + amount
     await bd_save_data()
-    await economy_log(guild_id, title="🛠️ Admin Catnip added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Amount", f"+{amount:,} Catnip")])
+    await economy_log(guild_id, title="🛠️ Admin Catnip added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Amount", f"+{amount:,} Catnip"), ("Balance before", f"{before:,}"), ("Balance after", f"{before+amount:,}")])
     await interaction.response.send_message(f"✅ Added **{amount:,} Catnip** to {member.mention}. New balance: **{economy_balance(guild_id, member.id):,}**.", ephemeral=True)
 
 
@@ -3313,7 +3734,7 @@ async def economy_removecatnip_cmd(interaction: discord.Interaction, member: dis
     removed = min(current, amount)
     economy_balances[(guild_id, member.id)] = current - removed
     await bd_save_data()
-    await economy_log(guild_id, title="🛠️ Admin Catnip removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Amount", f"-{removed:,} Catnip")])
+    await economy_log(guild_id, title="🛠️ Admin Catnip removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Amount", f"-{removed:,} Catnip"), ("Balance before", f"{current:,}"), ("Balance after", f"{current-removed:,}")])
     await interaction.response.send_message(f"✅ Removed **{removed:,} Catnip** from {member.mention}. New balance: **{economy_balance(guild_id, member.id):,}**.", ephemeral=True)
 
 
@@ -3373,9 +3794,10 @@ async def economy_collect(interaction: discord.Interaction):
     if not collected:
         await interaction.response.send_message("⏳ None of your income roles are ready to collect yet.", ephemeral=True)
         return
-    economy_balances[(guild_id, interaction.user.id)] = economy_balance(guild_id, interaction.user.id) + total
+    balance_before = economy_balance(guild_id, interaction.user.id)
+    economy_balances[(guild_id, interaction.user.id)] = balance_before + total
     await bd_save_data()
-    await economy_log(guild_id, title="💰 Income collected", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Total", f"+{total:,} Catnip"), ("Sources", "\n".join(collected))])
+    await economy_log(guild_id, title="💰 Income collected", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Total", f"+{total:,} Catnip"), ("Balance before", f"{balance_before:,}"), ("Balance after", f"{balance_before+total:,}"), ("Sources", "\n".join(collected))])
     await interaction.response.send_message(f"💰 You collected **{total:,} Catnip**!\n" + "\n".join(f"• {x}" for x in collected))
 
 
@@ -3413,7 +3835,7 @@ async def economy_item_add_cmd(interaction: discord.Interaction, member: discord
         return
     inv[item_id] = current + quantity
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="🛠️ Admin item added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Item", data["name"]), ("Quantity", f"+{quantity}")])
+    await economy_log(interaction.guild.id, title="🛠️ Admin item added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity added", f"+{quantity}"), ("Quantity before", current), ("Quantity after", inv[item_id]), ("Catnip balance", economy_balance(interaction.guild.id, member.id))])
     await interaction.response.send_message(f"✅ Added **{quantity}× {data['emoji']} {data['name']}** to {member.mention}.", ephemeral=True)
 
 
@@ -3441,7 +3863,7 @@ async def economy_item_remove_cmd(interaction: discord.Interaction, member: disc
     if inv[item_id] <= 0:
         inv.pop(item_id, None)
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="🛠️ Admin item removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Item", data["name"]), ("Quantity", f"-{removed}")])
+    await economy_log(interaction.guild.id, title="🛠️ Admin item removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity removed", f"-{removed}"), ("Quantity before", current), ("Quantity after", inv.get(item_id, 0)), ("Catnip balance", economy_balance(interaction.guild.id, member.id))])
     await interaction.response.send_message(f"✅ Removed **{removed}× {data['emoji']} {data['name']}** from {member.mention}.", ephemeral=True)
 
 
@@ -3855,6 +4277,9 @@ class HGLobbyView(discord.ui.View):
             return await interaction.response.send_message("You're already in — no backing out!", ephemeral=True)
         self.players[interaction.user.id] = interaction.user
         await interaction.response.edit_message(embed=self.embed(), view=self)
+        await self.cog._log(interaction.guild.id, title="🐾 Hangry Games player joined",
+                            fields=[("Channel", interaction.channel.mention), ("Player", f"{interaction.user} ({interaction.user.id})"),
+                                    ("Players", str(len(self.players)))])
 
     @discord.ui.button(label="Start 🔴", style=discord.ButtonStyle.danger)
     async def start(self, interaction: discord.Interaction, _: discord.ui.Button):
@@ -4163,6 +4588,8 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         await interaction.response.send_message(embed=view.embed(), view=view)
         view.message = await interaction.original_response()
         self.lobbies[interaction.channel.id] = view
+        await self._log(interaction.guild.id, title="🐾 Hangry Games lobby created",
+                        fields=[("Channel", interaction.channel.mention), ("Host", f"{view.host} ({view.host.id})"), ("Mode", "Normal")])
 
     @app_commands.command(name="giveaway", description="Run a Hangry Games giveaway")
     @app_commands.describe(prize="What the winner takes home (optional)", host="Who's hosting (defaults to you)",
@@ -4176,6 +4603,10 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         await interaction.response.send_message(embed=view.embed(), view=view)
         view.message = await interaction.original_response()
         self.lobbies[interaction.channel.id] = view
+        await self._log(interaction.guild.id, title="🐾 Hangry Games giveaway lobby created",
+                        fields=[("Channel", interaction.channel.mention), ("Host", f"{view.host} ({view.host.id})"),
+                                ("Prize", str(prize)[:900] if prize else "None"),
+                                ("Winner role", winner_role.name if winner_role else "None")])
 
     @app_commands.command(name="role", description="Auto-start a game with everyone who has a role")
     @app_commands.describe(role="The role to pull players from", prize="What the winner takes home (optional)",
@@ -4195,6 +4626,9 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
             f"🐾 **{len(players)}** cats from **{role.name}** enter the arena, hosted by {host.mention}!",
             allowed_mentions=discord.AllowedMentions(roles=False),
         )
+        await self._log(interaction.guild.id, title="🐾 Hangry Games role launch",
+                        fields=[("Channel", interaction.channel.mention), ("Role", f"{role.name} ({role.id})"),
+                                ("Players", str(len(players))), ("Host", f"{host} ({host.id})")])
         await self.launch(interaction.channel, players, host, prize, winner_role)
 
     @app_commands.command(name="leaderboard", description="Top Hangry Games winners in this server")
@@ -4275,6 +4709,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
 
         self.hg_log_channels[guild_id] = target.id
         self.log_enabled[guild_id] = True
+        await secure_log_channel(target)
 
         # Fresh start: reset this server's game number back to 1 and wipe its win totals.
         self.game_counts.pop(guild_id, None)
