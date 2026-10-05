@@ -3004,7 +3004,7 @@ _HELP_ADMINS = (
     "`/economy logs` — choose the economy transaction log channel\n"
     "`/economy snapshot` — create a complete pre-reset backup\n"
     "`/economy restore-snapshot` — restore the latest backup from economy logs\n"
-    "`/economy addcatnip` · `removecatnip` — admin balance controls\n"
+    "`/economy admin addcatnip` · `removecatnip` — admin balance controls\n"
     "`/economy income` — admin income-role management\n"
     "`/economy item-add` · `/economy item-remove` — admin inventory controls\n`/economy add-item-shop` · `/economy edit-shop-item` · `/economy remove-item-shop` — admin shop controls\n`/economy add-role-income` · `/economy remove-role-income` — admin role income controls\n`/economy iteminfo` — detailed item information"
 )
@@ -3330,6 +3330,15 @@ def economy_income_role_lines(guild: discord.Guild) -> str:
 
 
 economy_group = app_commands.Group(name="economy", description="Cinnamon's Catnip economy, items, quests, and backups")
+
+# Discord allows at most 25 direct children under one application-command group.
+# Keep the two Catnip admin balance controls under a nested admin group so the
+# main /economy group stays within that limit.
+economy_admin_group = app_commands.Group(
+    name="admin",
+    description="Economy administration commands",
+    parent=economy_group,
+)
 
 
 @economy_group.command(name="balance", description="Check your Catnip balance")
@@ -3713,7 +3722,7 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000)
     return restored, created
 
 
-@economy_group.command(name="addcatnip", description="Admin: add Catnip to a member")
+@economy_admin_group.command(name="addcatnip", description="Admin: add Catnip to a member")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
@@ -3725,7 +3734,7 @@ async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discor
     await interaction.response.send_message(f"✅ Added **{amount:,} Catnip** to {member.mention}. New balance: **{economy_balance(guild_id, member.id):,}**.", ephemeral=True)
 
 
-@economy_group.command(name="removecatnip", description="Admin: remove Catnip from a member")
+@economy_admin_group.command(name="removecatnip", description="Admin: remove Catnip from a member")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 async def economy_removecatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
