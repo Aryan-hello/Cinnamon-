@@ -144,7 +144,6 @@ active_polls = {}                       # message_id -> {"guild_id","channel_id"
 # with the same Upstash/local storage system as the rest of Cinnamon.
 economy_balances = {}                    # (guild_id, user_id) -> catnip
 economy_inventory = {}                   # (guild_id, user_id) -> {item_id: quantity}
-economy_quests = {}                      # (guild_id, user_id) -> {quest_id: progress, ...}
 economy_cooldowns = {}                   # (guild_id, user_id, action) -> unix timestamp
 economy_log_channels = {}                # guild_id -> channel_id
 economy_level_rewards_claimed = {}        # (guild_id, user_id) -> [level numbers already rewarded]
@@ -158,20 +157,6 @@ ECONOMY_ITEMS = {
     "fish": {"name": "Fancy Fish", "price": 90, "emoji": "🐠", "description": "A fancy fish for a very fancy cat.", "max_per_person": 0},
 }
 
-ECONOMY_QUESTS = {
-    "tuna_time": {"name": "Tuna Time", "item": "tuna", "amount": 3, "reward": 140, "description": "Give Cinnamon 3 tuna."},
-    "treat_run": {"name": "Treat Run", "item": "treat", "amount": 5, "reward": 120, "description": "Give Cinnamon 5 cat treats."},
-    "royal_snack": {"name": "Royal Snack", "item": "churu", "amount": 2, "reward": 130, "description": "Give Cinnamon 2 Churus."},
-    "zoomies": {"name": "Zoomies", "item": "catnip_ball", "amount": 2, "reward": 180, "description": "Give Cinnamon 2 catnip balls."},
-}
-ECONOMY_ACHIEVEMENTS = {
-    "first_feed": {"name": "First Snack", "description": "Feed Cinnamon an item for the first time.", "reward": 50},
-    "quest_complete": {"name": "Quest Paw-sitive", "description": "Complete your first economy quest.", "reward": 100},
-    "catnip_1000": {"name": "Catnip Hoarder", "description": "Reach 1,000 Catnip in your balance.", "reward": 150},
-    "collector_10": {"name": "Snack Collector", "description": "Own at least 10 total economy items at once.", "reward": 100},
-    "all_quests": {"name": "Cinnamon's Favorite", "description": "Complete every currently defined economy quest.", "reward": 300},
-}
-economy_achievements = {}             # (guild_id, user_id) -> set/list of unlocked achievement ids
 
 ECONOMY_STARTING_BALANCE = 100
 ECONOMY_DAILY_REWARD = 150
@@ -291,6 +276,8 @@ _CINNAMON_MODULES = (
     "dashboard_runtime.py",
     "moderation.py",
     "levels_games.py",
+    "quests.py",
+    "achievements.py",
     "server_setup.py",
     "economy.py",
     "hangry_games.py",
