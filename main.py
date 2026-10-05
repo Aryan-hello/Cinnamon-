@@ -3266,8 +3266,9 @@ async def economy_log(guild_id: int, *, title: str, description: str = "", field
     embed.set_footer(text=f"Cinnamon economy log • Guild {guild_id}")
     try:
         await channel.send(embed=embed)
-    except discord.HTTPException as e:
-        log.error(f"Failed to send economy log in guild {guild_id}: {e}")
+    except Exception as e:
+        # Logging must never make the actual economy command fail.
+        log.exception(f"Failed to send economy log in guild {guild_id}: {e}")
 
 
 def economy_cooldown_remaining(guild_id: int, user_id: int, action: str) -> int:
@@ -3477,30 +3478,51 @@ async def economy_leaderboard_cmd(interaction: discord.Interaction):
 @economy_group.command(name="quest", description="View Cinnamon quests and your progress")
 @app_commands.guild_only()
 async def economy_quest_cmd(interaction: discord.Interaction):
+    guild_id = interaction.guild.id
+    user_id = interaction.user.id
     try:
-        progress = sanitize_economy_quests(interaction.guild.id, interaction.user.id)
+        progress = sanitize_economy_quests(guild_id, user_id)
         lines = []
         for qid, q in ECONOMY_QUESTS.items():
+            if not isinstance(q, dict):
+                continue
             item_id = str(q.get("item", ""))
             item = ECONOMY_ITEMS.get(item_id)
-            if not item:
+            if not isinstance(item, dict):
                 continue
             amount = max(1, int(q.get("amount", 1)))
-            done = min(int(progress.get(qid, 0)), amount)
-            lines.append(f"**{q.get('name', qid)}** — {done}/{amount} {item['emoji']} {item['name']} → **{int(q.get('reward', 0))} Catnip**\n{q.get('description', '')}")
+            done = min(max(0, int(progress.get(qid, 0))), amount)
+            emoji = str(item.get("emoji", "🐾"))[:8]
+            item_name = str(item.get("name", item_id))[:80]
+            reward = max(0, int(q.get("reward", 0)))
+            lines.append(
+                f"**{q.get('name', qid)}** — {done}/{amount} {emoji} {item_name} → **{reward} Catnip**\n"
+                f"{q.get('description', '')}"
+            )
         if not lines:
             lines.append("No economy quests are currently configured.")
-        embed = discord.Embed(title="📜 Cinnamon's quests", description="\n\n".join(lines)[:4000], color=discord.Color.blurple())
+        embed = discord.Embed(
+            title="📜 Cinnamon's quests",
+            description="\n\n".join(lines)[:4000],
+            color=discord.Color.blurple(),
+        )
         embed.set_footer(text="Use /economy feed to give Cinnamon the required item.")
         await interaction.response.send_message(embed=embed)
-        await economy_log(interaction.guild.id, title="📜 Economy quests viewed", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Quests shown", len(lines))])
-    except Exception as exc:
-        log.exception("Economy quest command failed for guild %s", interaction.guild.id if interaction.guild else None)
+        # Logging is deliberately after the user response and is non-fatal.
+        await economy_log(guild_id, title="📜 Economy quests viewed", fields=[
+            ("User", f"{interaction.user} ({user_id})"),
+            ("Quests shown", str(len(lines))),
+        ])
+    except Exception:
+        log.exception("Economy quest command failed for guild %s", guild_id)
         msg = "❌ I couldn't load the quests right now. The quest data may need to be reset or repaired."
-        if interaction.response.is_done():
-            await interaction.followup.send(msg, ephemeral=True)
-        else:
-            await interaction.response.send_message(msg, ephemeral=True)
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        except Exception:
+            log.exception("Could not send economy quest error response for guild %s", guild_id)
 
 
 @economy_group.command(name="feed", description="Give Cinnamon an item and progress matching quests")
@@ -3568,17 +3590,43 @@ async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.
 @economy_group.command(name="achievements", description="View your unlocked Cinnamon economy achievements")
 @app_commands.guild_only()
 async def economy_achievements_cmd(interaction: discord.Interaction, member: discord.Member | None = None):
-    member = member or interaction.user
-    unlocked = set(economy_achievements.get((interaction.guild.id, member.id), []))
-    lines = []
-    for aid, achievement in ECONOMY_ACHIEVEMENTS.items():
-        status = "🏆" if aid in unlocked else "🔒"
-        reward = int(achievement.get("reward", 0))
-        lines.append(f"{status} **{achievement['name']}** — {achievement['description']} — **{reward} Catnip**")
-    embed = discord.Embed(title=f"🏆 {member.display_name}'s achievements", description="\n".join(lines)[:4000], color=discord.Color.gold())
-    embed.set_footer(text=f"Unlocked: {len(unlocked)}/{len(ECONOMY_ACHIEVEMENTS)}")
-    await interaction.response.send_message(embed=embed)
-    await economy_log(interaction.guild.id, title="🏆 Economy achievements viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Unlocked", f"{len(unlocked)}/{len(ECONOMY_ACHIEVEMENTS)}")])
+    guild_id = interaction.guild.id
+    try:
+        member = member or interaction.user
+        raw_unlocked = economy_achievements.get((guild_id, member.id), [])
+        if not isinstance(raw_unlocked, (list, tuple, set)):
+            raw_unlocked = []
+        unlocked = {str(aid) for aid in raw_unlocked if str(aid) in ECONOMY_ACHIEVEMENTS}
+        lines = []
+        for aid, achievement in ECONOMY_ACHIEVEMENTS.items():
+            status = "🏆" if aid in unlocked else "🔒"
+            reward = max(0, int(achievement.get("reward", 0)))
+            lines.append(
+                f"{status} **{achievement.get('name', aid)}** — "
+                f"{achievement.get('description', '')} — **{reward} Catnip**"
+            )
+        embed = discord.Embed(
+            title=f"🏆 {member.display_name}'s achievements",
+            description="\n".join(lines)[:4000] if lines else "No achievements are currently configured.",
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"Unlocked: {len(unlocked)}/{len(ECONOMY_ACHIEVEMENTS)}")
+        await interaction.response.send_message(embed=embed)
+        await economy_log(guild_id, title="🏆 Economy achievements viewed", fields=[
+            ("Viewer", f"{interaction.user} ({interaction.user.id})"),
+            ("Member", f"{member} ({member.id})"),
+            ("Unlocked", f"{len(unlocked)}/{len(ECONOMY_ACHIEVEMENTS)}"),
+        ])
+    except Exception:
+        log.exception("Economy achievements command failed for guild %s", guild_id)
+        msg = "❌ I couldn't load the achievements right now. The achievement data may need to be repaired."
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        except Exception:
+            log.exception("Could not send economy achievements error response for guild %s", guild_id)
 
 
 @economy_group.command(name="logs", description="Set or disable the economy transaction log channel")
@@ -3891,7 +3939,23 @@ async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: s
     await interaction.response.send_message(f"✅ Added **{emoji} {name}** (`{item_id}`) to the shop.", ephemeral=True)
 
 
+async def autocomplete_shop_item_ids(interaction: discord.Interaction, current: str):
+    current = current.lower().strip()
+    choices = []
+    for item_id, item in ECONOMY_ITEMS.items():
+        if current and current not in item_id.lower() and current not in str(item.get("name", "")).lower():
+            continue
+        choices.append(app_commands.Choice(
+            name=f"{str(item.get('name', item_id))[:80]} ({item_id})",
+            value=item_id,
+        ))
+        if len(choices) >= 25:
+            break
+    return choices
+
+
 @economy_group.command(name="edit-shop-item", description="Admin: edit a Catnip shop item")
+@app_commands.autocomplete(item_id=autocomplete_shop_item_ids)
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(item_id="Item ID to edit", name="New name", price="New price", description="New description", per_person_limit="New per-person limit; 0 means unlimited", emoji="New emoji")
