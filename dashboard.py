@@ -445,7 +445,7 @@ def _system(guild,state):
         ("Hangry Games logs",hg.hg_log_channels.get(gid) if hg else None)]
     for label,cid in configured:
         logitems.append(f"<div class='toggle'><b>{label}</b><span>{current(cid)}</span></div>")
-    recall_form=("<p class='muted'>Scan configured log channels to rebuild recoverable warnings, Hangry Games totals and—only if no live economy accounts exist—the latest economy snapshot.</p>"
+    recall_form=("<p class='muted'>Scan every configured log channel and merge recoverable warnings, XP totals, economy balances/inventory, completed quests, achievements, Hangry Games totals, and missing state from a snapshot without overwriting existing account balances.</p>"
                  + _form(gid,"recall","<p class='muted'>This does not overwrite existing economy accounts.</p>","Run recovery scan"))
     status=bool(_bot and _bot.is_ready())
     storage="Upstash Redis" if state.get("BD_UPSTASH_URL") and state.get("BD_UPSTASH_TOKEN") else "Local JSON file (may not survive redeploys)"
@@ -728,11 +728,17 @@ def dashboard_action():
             if not callable(recall_fn): raise RuntimeError("Recovery service is not connected to the dashboard.")
             result=_run_bot(recall_fn(guild),timeout=120)
             _audit(gid,actor,"Dashboard: log recovery scan completed",
-                   f"Warnings={result.get('warnings',0)}; Hangry games=#{result.get('hangry_game_count',0)}; "
-                   f"wins seen={result.get('hangry_wins_seen',0)}; economy accounts={result.get('economy_accounts',0)}")
-            session["dashboard_notice"]=(f"Recovery scan complete — {result.get('warnings',0)} new warning(s), "
-                f"Hangry Games #{result.get('hangry_game_count',0)}, {result.get('hangry_wins_seen',0)} win(s) seen, "
-                f"{result.get('economy_accounts',0)} economy account(s) restored. Check channel history limitations.")
+                   f"Channels scanned={result.get('channels_scanned',0)}/{result.get('channels_configured',0)}; "
+                   f"embeds={result.get('embeds_scanned',0)}; warnings={result.get('warnings',0)}; "
+                   f"XP users={result.get('xp_users_restored',0)}; economy accounts={result.get('economy_accounts',0)}; "
+                   f"achievements={result.get('achievements_restored',0)}; quests={result.get('quests_restored',0)}; "
+                   f"Hangry games=#{result.get('hangry_game_count',0)}; wins={result.get('hangry_wins_seen',0)}")
+            session["dashboard_notice"]=(f"Recovery scanned {result.get('embeds_scanned',0)} log embeds across "
+                f"{result.get('channels_scanned',0)} channel(s). Restored/updated: {result.get('warnings',0)} warnings, "
+                f"{result.get('xp_users_restored',0)} XP users, {result.get('economy_accounts',0)} economy account(s), "
+                f"{result.get('achievements_restored',0)} achievement(s), {result.get('quests_restored',0)} completed quest(s); "
+                f"Hangry Games #{result.get('hangry_game_count',0)} with {result.get('hangry_wins_seen',0)} win(s) found. "
+                "Only retained logs/snapshots can be recovered.")
         elif action=="moderate":
             target,mod_action=_moderate(guild,_tokens[sid]["user"]["id"],request.form)
             _audit(gid,actor,f"Dashboard moderation: {mod_action}",f"Target {target}; reason: {request.form.get('reason','No reason provided')[:350]}")
