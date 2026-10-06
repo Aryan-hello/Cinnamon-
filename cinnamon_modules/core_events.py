@@ -433,12 +433,18 @@ async def prefix_slowmode(ctx,seconds:int):
 @bot.command(name="balance",aliases=["bal","wallet"])
 @commands.guild_only()
 async def prefix_balance(ctx,member:discord.Member=None):
-    m=member or ctx.author; gid=ctx.guild.id; bal=economy_balance(gid,m.id); inv=economy_inventory_for(gid,m.id); total_items=sum(int(v) for v in inv.values()); await ctx.reply(f"👛 **{m.display_name}'s wallet**\n🌿 Catnip: **{bal:,}**\n🎒 Items: **{total_items}**",mention_author=False); await economy_log(gid,title="👛 Economy balance viewed",fields=[("Viewer",f"{ctx.author} ({ctx.author.id})"),("Member",f"{m} ({m.id})"),("Balance",f"{bal:,} Catnip"),("Total items",total_items)]); await bd_save_data()
+    m=member or ctx.author; gid=ctx.guild.id; bal=economy_balance(gid,m.id); inv=economy_inventory_for(gid,m.id); total_items=sum(int(v) for v in inv.values())
+    embed=cinnamon_embed("🌿 Catnip Wallet",f"**{m.mention}**\n\nHere is your current Cinnamon economy status.",color=CINNAMON_GOLD,user=m,footer="Cinnamon Economy • Wallet")
+    cinnamon_field(embed,"🌿 Catnip",f"**{bal:,}**",True); cinnamon_field(embed,"🎒 Items",f"**{total_items:,}**",True); cinnamon_field(embed,"\u200b","\u200b",True)
+    await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none()); await economy_log(gid,title="👛 Economy balance viewed",fields=[("Viewer",f"{ctx.author} ({ctx.author.id})"),("Member",f"{m} ({m.id})"),("Balance",f"{bal:,} Catnip"),("Total items",total_items)]); await bd_save_data()
 
 @bot.command(name="inventory",aliases=["inv","bag"])
 @commands.guild_only()
 async def prefix_inventory(ctx,member:discord.Member=None):
-    m=member or ctx.author; gid=ctx.guild.id; inv=economy_inventory_for(gid,m.id); lines=[f"{ECONOMY_ITEMS[k]['emoji']} **{ECONOMY_ITEMS[k]['name']}** × {v}" for k,v in inv.items() if k in ECONOMY_ITEMS and int(v)>0]; summary="\n".join(f"{ECONOMY_ITEMS[k]['name']}: {int(v)}" for k,v in inv.items() if k in ECONOMY_ITEMS and int(v)>0) or "Empty"; await ctx.reply("\n".join(lines) if lines else "🎒 Inventory is empty. Use `?shop`.",mention_author=False); await economy_log(gid,title="🎒 Economy inventory viewed",fields=[("Viewer",f"{ctx.author} ({ctx.author.id})"),("Member",f"{m} ({m.id})"),("Inventory",summary[:1000]),("Total items",sum(int(v) for v in inv.values())),("Catnip balance",economy_balance(gid,m.id))])
+    m=member or ctx.author; gid=ctx.guild.id; inv=economy_inventory_for(gid,m.id); lines=[f"{ECONOMY_ITEMS[k]['emoji']} **{ECONOMY_ITEMS[k]['name']}** × **{v}**" for k,v in inv.items() if k in ECONOMY_ITEMS and int(v)>0]; summary="\n".join(f"{ECONOMY_ITEMS[k]['name']}: {int(v)}" for k,v in inv.items() if k in ECONOMY_ITEMS and int(v)>0) or "Empty"
+    embed=cinnamon_embed("🎒 Inventory",f"**{m.mention}**\n\n"+("\n".join(lines) if lines else "Your inventory is empty. Use `?shop` to start collecting."),color=CINNAMON_BLUE,user=m,footer="Cinnamon Economy • Inventory")
+    cinnamon_field(embed,"🌿 Catnip",f"**{economy_balance(gid,m.id):,}**",True); cinnamon_field(embed,"📦 Total items",f"**{sum(int(v) for v in inv.values()):,}**",True)
+    await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none()); await economy_log(gid,title="🎒 Economy inventory viewed",fields=[("Viewer",f"{ctx.author} ({ctx.author.id})"),("Member",f"{m} ({m.id})"),("Inventory",summary[:1000]),("Total items",sum(int(v) for v in inv.values())),("Catnip balance",economy_balance(gid,m.id))])
 
 @bot.command(name="shop")
 @commands.guild_only()
@@ -448,13 +454,24 @@ async def prefix_shop(ctx): await ctx.reply(embed=discord.Embed(title="🐟 Cinn
 @commands.guild_only()
 async def prefix_daily(ctx):
     gid,uid=ctx.guild.id,ctx.author.id; rem=economy_cooldown_remaining(gid,uid,"daily")
-    if rem: return await ctx.reply(f"🐾 Daily ready in {rem//3600}h {(rem%3600)//60}m.",mention_author=False)
-    economy_cooldowns[(gid,uid,"daily")]=time.time()+86400; economy_balances[(gid,uid)]=economy_balance(gid,uid)+ECONOMY_DAILY_REWARD; await achievement_record(gid,uid,"catnip_earned",ECONOMY_DAILY_REWARD); await achievement_record(gid,uid,"balance"); await quest_event(gid,uid,"balance",economy_balance(gid,uid)); await bd_save_data(); await economy_log(gid,title="🌿 Daily Catnip",fields=[("User",str(ctx.author)),("Amount",f"+{ECONOMY_DAILY_REWARD}")]); await ctx.reply(f"🌿 +{ECONOMY_DAILY_REWARD} Catnip!",mention_author=False)
+    if rem:
+        embed=cinnamon_embed("⏳ Daily Catnip Cooldown",f"Cinnamon has already given you today's reward.\n\nCome back in **{rem//3600}h {(rem%3600)//60}m**.",color=CINNAMON_MUTED,user=ctx.author,footer="Cinnamon Economy • Daily")
+        return await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
+    economy_cooldowns[(gid,uid,"daily")]=time.time()+86400; economy_balances[(gid,uid)]=economy_balance(gid,uid)+ECONOMY_DAILY_REWARD; await achievement_record(gid,uid,"catnip_earned",ECONOMY_DAILY_REWARD); await achievement_record(gid,uid,"balance"); await quest_event(gid,uid,"balance",economy_balance(gid,uid)); await bd_save_data(); await economy_log(gid,title="🌿 Daily Catnip",fields=[("User",str(ctx.author)),("Amount",f"+{ECONOMY_DAILY_REWARD}")]); embed=cinnamon_embed("🌿 Daily Catnip Claimed","Cinnamon has approved your daily snack budget.\n\n**Come back tomorrow for another reward!**",color=CINNAMON_GREEN,user=ctx.author,footer="Cinnamon Economy • Daily Reward")
+    cinnamon_field(embed,"Reward",f"**+{ECONOMY_DAILY_REWARD:,} Catnip**",True); cinnamon_field(embed,"New balance",f"**{economy_balance(gid,uid):,} Catnip**",True)
+    await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.command(name="work")
 @commands.guild_only()
 async def prefix_work(ctx):
-    _,_,msg=await economy_do_work(ctx.guild.id,ctx.author); await ctx.reply(msg,mention_author=False)
+    ok,amount,msg=await economy_do_work(ctx.guild.id,ctx.author)
+    if not ok:
+        embed=cinnamon_embed("⏳ Work Cooldown",msg,color=CINNAMON_MUTED,user=ctx.author,footer="Cinnamon Economy • Work")
+        return await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
+    balance=economy_balance(ctx.guild.id,ctx.author.id); job=msg.replace("💼 You **","").split("** and earned",1)[0] if "** and earned" in msg else "worked for Cinnamon"
+    embed=cinnamon_embed("💼 Shift Complete","Cinnamon inspected your work and approved the payment. 🐾",color=CINNAMON_GREEN,user=ctx.author,footer="Cinnamon Economy • Work • 10 minute cooldown")
+    cinnamon_field(embed,"💼 Job",job); cinnamon_field(embed,"🌿 Earned",f"**+{amount:,} Catnip**",True); cinnamon_field(embed,"💰 New balance",f"**{balance:,} Catnip**",True)
+    await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.command(name="buy")
 @commands.guild_only()
@@ -481,28 +498,32 @@ async def prefix_give(ctx,member:discord.Member,amount:int):
 @bot.command(name="econlb",aliases=["economylb"])
 @commands.guild_only()
 async def prefix_econlb(ctx):
-    rows=sorted(((uid,b) for (gid,uid),b in economy_balances.items() if gid==ctx.guild.id),key=lambda x:x[1],reverse=True)[:10]; lines=[f"**{i}.** {ctx.guild.get_member(uid) or f'User {uid}'} — {bal:,} Catnip" for i,(uid,bal) in enumerate(rows,1)]; await ctx.reply("\n".join(lines) if lines else "No economy balances yet.",mention_author=False)
+    rows=sorted(((uid,b) for (gid,uid),b in economy_balances.items() if gid==ctx.guild.id),key=lambda x:x[1],reverse=True)[:10]; lines=[f"**{i}.** {ctx.guild.get_member(uid) or f'User {uid}'} — 🌿 **{bal:,}**" for i,(uid,bal) in enumerate(rows,1)]
+    embed=cinnamon_embed("🏆 Catnip Leaderboard","The richest humans in this server, according to Cinnamon. 🐱\n",color=CINNAMON_GOLD,user=ctx.author,footer="Cinnamon Economy • Top 10")
+    embed.description += "\n".join(lines) if lines else "No economy balances yet. Start with `?daily` or `?work`."
+    await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
-@bot.command(name="level", aliases=["rank", "lvl"])
+@bot.command(name="rank")
 @commands.guild_only()
-async def prefix_level(ctx, member: discord.Member = None):
-    m = member or ctx.author
-    xp = int(xp_data.get((ctx.guild.id, m.id), 0))
-    level = level_from_xp(xp)
-    try:
-        card = await _make_rank_card(m, xp, level)
-        await ctx.reply(file=discord.File(card, filename="cinnamon-rank.png"), mention_author=False)
-    except Exception:
-        log.exception("Rank card rendering failed for %s", m.id)
-        await ctx.reply(f"🐾 **{m.display_name}** — Level **{level}**, **{xp:,} XP**", mention_author=False)
+async def prefix_rank(ctx,member:discord.Member=None):
+    m=member or ctx.author; xp=int(xp_data.get((ctx.guild.id,m.id),0)); level=level_from_xp(xp); embed=cinnamon_embed("🏅 Rank & XP",f"**{m.mention}**\n\nYour current level progress is below.",color=CINNAMON_ORANGE,user=m,footer="Cinnamon Levels • Use ?level for the image rank card")
+    cinnamon_field(embed,"🏅 Level",f"**{level}**",True); cinnamon_field(embed,"✨ Total XP",f"**{xp:,} XP**",True)
+    await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.command(name="leaderboard",aliases=["lb"])
 @commands.guild_only()
 async def prefix_leaderboard(ctx):
-    rows=sorted(((uid,xp) for (gid,uid),xp in xp_data.items() if gid==ctx.guild.id),key=lambda x:x[1],reverse=True)[:10]; lines=[f"**{i}.** {ctx.guild.get_member(uid) or f'User {uid}'} — {xp:,} XP" for i,(uid,xp) in enumerate(rows,1)]; await ctx.reply("\n".join(lines) if lines else "No XP data yet.",mention_author=False)
+    rows=sorted(((uid,xp) for (gid,uid),xp in xp_data.items() if gid==ctx.guild.id),key=lambda x:x[1],reverse=True)[:10]; lines=[f"**{i}.** {ctx.guild.get_member(uid) or f'User {uid}'} — **Level {level_from_xp(xp)}** · {xp:,} XP" for i,(uid,xp) in enumerate(rows,1)]
+    embed=cinnamon_embed("🏆 XP Leaderboard","Top members by XP and level.\n",color=CINNAMON_ORANGE,user=ctx.author,footer="Cinnamon Levels • Top 10")
+    embed.description += "\n".join(lines) if lines else "No XP data yet. Start chatting to earn XP."
+    await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.command(name="botstatus",aliases=["status"])
-async def prefix_botstatus(ctx): await ctx.reply(f"🐾 Cinnamon is online. Latency: {round(bot.latency*1000)} ms.",mention_author=False)
+async def prefix_botstatus(ctx):
+    embed=cinnamon_embed("🐾 Cinnamon Status", "Cinnamon is online and ready.\n\nEverything looks good from the bot's side.", color=CINNAMON_GREEN, user=ctx.author, footer="Cinnamon • System Status")
+    cinnamon_field(embed,"📡 Latency",f"**{round(bot.latency*1000)} ms**",True)
+    cinnamon_field(embed,"🟢 Status","**Online**",True)
+    await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -551,16 +572,9 @@ async def on_message(message: discord.Message):
         clean_content = clean_content.replace(f"<@{bot.user.id}>", "").strip()
         clean_content = clean_content.replace(f"<@!{bot.user.id}>", "").strip()
 
-    # --- XP + full Quest event tracking ---
-    # XP is throttled, but message-based quests count every genuine message.
+    # --- XP: award for genuine chat messages, at most once per user per 60s ---
     if message.guild and clean_content:
         await award_xp(message)
-        try:
-            await quest_record_event(
-                message.guild.id, message.author.id, "messages", 1, member=message.author
-            )
-        except Exception:
-            log.exception("Quest message event failed for guild %s", message.guild.id)
 
     if clean_content:
         channel_memories[message.channel.id].append((speaker, clean_content))
@@ -746,7 +760,7 @@ remove_group = app_commands.Group(name="remove", description="Remove rewards or 
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 async def add_xp_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     if amount <= 0:
-        return await interaction.response.send_message("❌ XP amount must be greater than 0.", ephemeral=True)
+        return await cinnamon_send(interaction, "❌ XP amount must be greater than 0.", ephemeral=True)
     key = (interaction.guild.id, member.id)
     before = int(xp_data.get(key, 0))
     xp_data[key] = before + amount
@@ -755,7 +769,7 @@ async def add_xp_cmd(interaction: discord.Interaction, member: discord.Member, a
     await bd_save_data()
     await send_log(interaction.guild.id, title="📈 XP manually added", category="levels", interaction=interaction,
                    fields=[("Member", f"{member} ({member.id})"), ("Amount", f"+{amount:,} XP"), ("XP after", f"{before + amount:,}"), ("Level", str(level))])
-    await interaction.response.send_message(f"📈 Added **{amount:,} XP** to {member.mention}. They now have **{before + amount:,} XP** (Level **{level}**)." + (f"\n🎖️ New role: **{', '.join(gained)}**" if gained else ""), allowed_mentions=discord.AllowedMentions.none())
+    await cinnamon_send(interaction, f"📈 Added **{amount:,} XP** to {member.mention}. They now have **{before + amount:,} XP** (Level **{level}**)." + (f"\n🎖️ New role: **{', '.join(gained)}**" if gained else ""), allowed_mentions=discord.AllowedMentions.none())
 
 
 @remove_group.command(name="xp", description="Admin: remove XP from a member")
@@ -765,7 +779,7 @@ async def add_xp_cmd(interaction: discord.Interaction, member: discord.Member, a
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 async def remove_xp_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     if amount <= 0:
-        return await interaction.response.send_message("❌ XP amount must be greater than 0.", ephemeral=True)
+        return await cinnamon_send(interaction, "❌ XP amount must be greater than 0.", ephemeral=True)
     key = (interaction.guild.id, member.id)
     before = int(xp_data.get(key, 0))
     after = max(0, before - amount)
@@ -774,7 +788,7 @@ async def remove_xp_cmd(interaction: discord.Interaction, member: discord.Member
     await bd_save_data()
     await send_log(interaction.guild.id, title="📉 XP manually removed", category="levels", interaction=interaction,
                    fields=[("Member", f"{member} ({member.id})"), ("Amount", f"-{min(amount, before):,} XP"), ("XP after", f"{after:,}"), ("Level", str(level))])
-    await interaction.response.send_message(f"📉 Removed **{min(amount, before):,} XP** from {member.mention}. They now have **{after:,} XP** (Level **{level}**).", allowed_mentions=discord.AllowedMentions.none())
+    await cinnamon_send(interaction, f"📉 Removed **{min(amount, before):,} XP** from {member.mention}. They now have **{after:,} XP** (Level **{level}**).", allowed_mentions=discord.AllowedMentions.none())
 
 
 try:

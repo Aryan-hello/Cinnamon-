@@ -7,28 +7,28 @@ Do not run this file directly.
 
 @bot.tree.command(name="pet", description="Give Cinnamon some pets")
 async def pet(interaction: discord.Interaction):
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         "*melts into a puddle of fluff, purring loudly* Purrrrr... more, please?"
     )
 
 
 @bot.tree.command(name="treat", description="Offer Cinnamon a treat")
 async def treat(interaction: discord.Interaction):
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         "*ears perk up, pupils go huge* Tuna?? Churu?? ANYTHING?? *sits so politely*"
     )
 
 
 @bot.tree.command(name="nap", description="Let Cinnamon take a nap")
 async def nap(interaction: discord.Interaction):
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         "*curls into a tight loaf on the nearest keyboard* Zzz... five more minutes..."
     )
 
 
 @bot.tree.command(name="zoomies", description="Uh oh, Cinnamon has the zoomies")
 async def zoomies(interaction: discord.Interaction):
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         "*tears across the room sideways, tail puffed* WHO TURNED ON THE FLOOR IS LAVA?!"
     )
 
@@ -43,7 +43,7 @@ async def zoomies(interaction: discord.Interaction):
 async def aichannel(interaction: discord.Interaction):
     ai_channels[interaction.guild.id] = interaction.channel.id
     await bd_save_data()
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"*claims {interaction.channel.mention} as her own* I'll chat here without being mentioned now!"
     )
     await send_log(
@@ -59,12 +59,12 @@ async def disableaichannel(interaction: discord.Interaction):
     removed = ai_channels.pop(interaction.guild.id, None)
     await bd_save_data()
     if removed:
-        await interaction.response.send_message(
+        await cinnamon_send(interaction, 
             "*stretches and wanders off* Back to needing a mention or reply now."
         )
         await send_log(interaction.guild.id, title="⚙️ AI channel disabled", interaction=interaction)
     else:
-        await interaction.response.send_message(
+        await cinnamon_send(interaction, 
             "*blinks* There wasn't an AI channel set for this server.", ephemeral=True
         )
 
@@ -75,7 +75,7 @@ async def disableaichannel(interaction: discord.Interaction):
 async def disableai(interaction: discord.Interaction):
     disabled_channels[interaction.guild.id].add(interaction.channel.id)
     await bd_save_data()
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         "*curls up and goes quiet* Won't respond in this channel anymore, even if mentioned."
     )
     await send_log(
@@ -90,7 +90,7 @@ async def disableai(interaction: discord.Interaction):
 async def enableai(interaction: discord.Interaction):
     disabled_channels[interaction.guild.id].discard(interaction.channel.id)
     await bd_save_data()
-    await interaction.response.send_message("*perks back up* I can talk here again!")
+    await cinnamon_send(interaction, "*perks back up* I can talk here again!")
     await send_log(
         interaction.guild.id, title="⚙️ Channel re-enabled for AI", interaction=interaction,
         fields=[("Channel", interaction.channel.mention)],
@@ -106,7 +106,7 @@ async def logchannel(interaction: discord.Interaction):
     await bd_save_data()
     status = await storage_status()
     icon = "✅" if status["connected"] else "⚠️"
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"*sets up a little logbook in {interaction.channel.mention}* "
         f"I'll post mod actions, config changes, and errors here from now on.\n\n"
         f"{icon} **Storage:** {status['backend']} — {status['detail']}"
@@ -128,11 +128,11 @@ async def disablelogchannel(interaction: discord.Interaction):
     removed = log_channels.pop(interaction.guild.id, None)
     await bd_save_data()
     if removed:
-        await interaction.response.send_message("*closes the logbook* Stopped logging actions for this server.")
+        await cinnamon_send(interaction, "*closes the logbook* Stopped logging actions for this server.")
         await send_log(interaction.guild.id, title="📋 Main log channel disabled", interaction=interaction, category="setup",
                        fields=[("Previous channel ID", str(removed))])
     else:
-        await interaction.response.send_message(
+        await cinnamon_send(interaction, 
             "*blinks* There wasn't a log channel set for this server.", ephemeral=True
         )
 
@@ -151,7 +151,7 @@ async def kick(interaction: discord.Interaction, member: discord.Member,
     await member.kick(reason=reason)
     case_id = next_case(interaction.guild.id)
     await bd_save_data()
-    await interaction.response.send_message(f"*escorts {member.mention} out with a paw* Kicked. Reason: {reason}")
+    await cinnamon_send(interaction, f"*escorts {member.mention} out with a paw* Kicked. Reason: {reason}")
     await send_log(
         interaction.guild.id, title="👢 Member kicked", color=discord.Color.orange(), interaction=interaction,
         fields=[("Case", f"#{case_id}"), ("Member", f"{member} ({member.id})"), ("Reason", reason)],
@@ -168,7 +168,7 @@ async def ban(interaction: discord.Interaction, member: discord.Member,
     await member.ban(reason=reason, delete_message_seconds=0)
     case_id = next_case(interaction.guild.id)
     await bd_save_data()
-    await interaction.response.send_message(f"*hisses and swats {member.mention} out the door* Banned. Reason: {reason}")
+    await cinnamon_send(interaction, f"*hisses and swats {member.mention} out the door* Banned. Reason: {reason}")
     await send_log(
         interaction.guild.id, title="🔨 Member banned", color=discord.Color.red(), interaction=interaction,
         fields=[("Case", f"#{case_id}"), ("Member", f"{member} ({member.id})"), ("Reason", reason)],
@@ -186,13 +186,13 @@ async def unban(interaction: discord.Interaction, user_id: str):
         temp_bans.pop((interaction.guild.id, int(user_id)), None)  # in case it was also a tempban
         case_id = next_case(interaction.guild.id)
         await bd_save_data()
-        await interaction.response.send_message(f"*nudges the door back open* Unbanned <@{user_id}>.")
+        await cinnamon_send(interaction, f"*nudges the door back open* Unbanned <@{user_id}>.")
         await send_log(
             interaction.guild.id, title="🔓 Member unbanned", color=discord.Color.green(), interaction=interaction,
             fields=[("Case", f"#{case_id}"), ("User ID", str(int(user_id)))],
         )
     except (ValueError, discord.NotFound):
-        await interaction.response.send_message(
+        await cinnamon_send(interaction, 
             "*tilts head* Couldn't find that user ID on the ban list.", ephemeral=True
         )
 
@@ -207,7 +207,7 @@ async def mute(interaction: discord.Interaction, member: discord.Member, minutes
     await member.timeout(datetime.timedelta(minutes=minutes), reason=reason)
     case_id = next_case(interaction.guild.id)
     await bd_save_data()
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"*sits on {member.mention}'s keyboard* Muted for {minutes} minute(s). Reason: {reason}"
     )
     await send_log(
@@ -225,7 +225,7 @@ async def unmute(interaction: discord.Interaction, member: discord.Member):
     await member.timeout(None)
     case_id = next_case(interaction.guild.id)
     await bd_save_data()
-    await interaction.response.send_message(f"*hops off the keyboard* {member.mention} can talk again.")
+    await cinnamon_send(interaction, f"*hops off the keyboard* {member.mention} can talk again.")
     await send_log(
         interaction.guild.id, title="🔊 Member unmuted", color=discord.Color.green(), interaction=interaction,
         fields=[("Case", f"#{case_id}"), ("Member", f"{member} ({member.id})")],
@@ -263,7 +263,7 @@ async def slowmode(interaction: discord.Interaction, seconds: int,
         msg = f"*stops pacing the room* Slowmode's off in {target.mention}."
     else:
         msg = f"*sets a little hourglass* Slowmode set to {seconds}s in {target.mention}."
-    await interaction.response.send_message(msg)
+    await cinnamon_send(interaction, msg)
     await send_log(
         interaction.guild.id, title="🐌 Slowmode changed", color=discord.Color.blurple(), interaction=interaction,
         fields=[("Channel", target.mention), ("Seconds", str(seconds))],
@@ -284,7 +284,7 @@ role_group = app_commands.Group(name="role", description="Add roles to members")
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 async def role_add(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
     await member.add_roles(role, reason=f"/role add run by {interaction.user}")
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"*drapes **{role.name}** over {member.mention}* Done!",
         allowed_mentions=discord.AllowedMentions(roles=False),
     )
@@ -304,10 +304,10 @@ async def role_add(interaction: discord.Interaction, member: discord.Member, rol
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 async def role_add_all(interaction: discord.Interaction, role: discord.Role, include_bots: bool = False):
     if role.is_default():
-        await interaction.response.send_message("*tilts head* Everyone already has @everyone!", ephemeral=True)
+        await cinnamon_send(interaction, "*tilts head* Everyone already has @everyone!", ephemeral=True)
         return
     if role >= interaction.guild.me.top_role:
-        await interaction.response.send_message(
+        await cinnamon_send(interaction, 
             "*can't quite reach that high* That role sits above (or level with) my own top role — "
             "move my role above it in Server Settings → Roles first.", ephemeral=True
         )
@@ -370,7 +370,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     if interaction.response.is_done():
         await interaction.followup.send(msg, ephemeral=True)
     else:
-        await interaction.response.send_message(msg, ephemeral=True)
+        await cinnamon_send(interaction, msg, ephemeral=True)
 
     await send_log(
         interaction.guild.id if interaction.guild else None,

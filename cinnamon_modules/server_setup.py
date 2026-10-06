@@ -36,7 +36,7 @@ async def antiraid_enable(interaction: discord.Interaction, threshold: int = 5, 
     cfg = get_antiraid(interaction.guild.id)
     cfg.update({"enabled": True, "threshold": threshold, "window": window_seconds})
     await bd_save_data()
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"🐾 Anti-raid alerts on: {threshold} joins within {window_seconds}s triggers a log-channel alert. "
         f"(This only alerts — it doesn't auto-kick or lock the server.)"
     )
@@ -50,7 +50,7 @@ async def antiraid_enable(interaction: discord.Interaction, threshold: int = 5, 
 async def antiraid_disable(interaction: discord.Interaction):
     get_antiraid(interaction.guild.id)["enabled"] = False
     await bd_save_data()
-    await interaction.response.send_message("🐾 Anti-raid alerts off.")
+    await cinnamon_send(interaction, "🐾 Anti-raid alerts off.")
     await send_log(interaction.guild.id, title="🚨 Anti-raid disabled", interaction=interaction, category="moderation")
 
 
@@ -66,7 +66,7 @@ async def lock(interaction: discord.Interaction, channel: discord.TextChannel = 
     overwrite = channel.overwrites_for(interaction.guild.default_role)
     overwrite.send_messages = False
     await channel.set_permissions(interaction.guild.default_role, overwrite=overwrite, reason=f"Locked by {interaction.user}")
-    await interaction.response.send_message(f"🔒 {channel.mention} locked.")
+    await cinnamon_send(interaction, f"🔒 {channel.mention} locked.")
     await send_log(
         interaction.guild.id, title="🔒 Channel locked", color=discord.Color.red(), interaction=interaction,
         fields=[("Channel", channel.mention)],
@@ -83,7 +83,7 @@ async def unlock(interaction: discord.Interaction, channel: discord.TextChannel 
     overwrite = channel.overwrites_for(interaction.guild.default_role)
     overwrite.send_messages = None  # inherit
     await channel.set_permissions(interaction.guild.default_role, overwrite=overwrite, reason=f"Unlocked by {interaction.user}")
-    await interaction.response.send_message(f"🔓 {channel.mention} unlocked.")
+    await cinnamon_send(interaction, f"🔓 {channel.mention} unlocked.")
     await send_log(
         interaction.guild.id, title="🔓 Channel unlocked", color=discord.Color.green(), interaction=interaction,
         fields=[("Channel", channel.mention)],
@@ -106,7 +106,7 @@ _MODINFO_TITLES = {
 async def modinfo(interaction: discord.Interaction, user: discord.User):
     channel = bot.get_channel(log_channels.get(interaction.guild.id, 0))
     if channel is None:
-        return await interaction.response.send_message(
+        return await cinnamon_send(interaction, 
             "Set a log channel first with `/logchannel` — this command reads its history.", ephemeral=True
         )
     await interaction.response.defer(ephemeral=True)
@@ -170,7 +170,7 @@ async def modinfo(interaction: discord.Interaction, user: discord.User):
 
 async def ping(interaction: discord.Interaction):
     latency_ms = round(bot.latency * 1000)
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"🏓 **Pong!** Discord latency: **{latency_ms} ms**",
         ephemeral=True,
     )
@@ -192,7 +192,7 @@ async def botstatus(interaction: discord.Interaction):
     embed.add_field(name="Hangry Games", value="Ready" if hg_cog else "Starting", inline=True)
     embed.add_field(name="Storage", value=storage["backend"], inline=True)
     embed.set_footer(text="Use /help for commands. 🐾")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
 
 
 # Category-specific logging controls. Existing /logchannel remains the fallback.
@@ -223,7 +223,7 @@ async def categorylogs_set(interaction: discord.Interaction, category: app_comma
     if category.value == "moderation":
         log_channels[interaction.guild.id] = channel.id
     await bd_save_data()
-    await interaction.response.send_message(f"✅ {category.name} logs will be sent to {channel.mention}.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ {category.name} logs will be sent to {channel.mention}.", ephemeral=True)
     await send_log(interaction.guild.id, title="⚙️ Category log channel updated", description=f"{category.name} logging configured.", fields=[("Category", category.value), ("Channel", channel.mention), ("Changed by", f"{interaction.user} ({interaction.user.id})")])
 
 @categorylogs_group.command(name="disable", description="Disable a category-specific log channel")
@@ -245,7 +245,7 @@ async def categorylogs_disable(interaction: discord.Interaction, category: app_c
     if category.value == "economy": economy_log_channels.pop(interaction.guild.id, None)
     if category.value == "moderation": log_channels.pop(interaction.guild.id, None)
     await bd_save_data()
-    await interaction.response.send_message(f"Category-specific {category.name} logs {'disabled' if removed else 'were not configured'}. Existing general logs may still be used as fallback.", ephemeral=True)
+    await cinnamon_send(interaction, f"Category-specific {category.name} logs {'disabled' if removed else 'were not configured'}. Existing general logs may still be used as fallback.", ephemeral=True)
 
 bot.tree.add_command(categorylogs_group)
 
@@ -471,7 +471,7 @@ async def setupstatus_cmd(interaction: discord.Interaction):
     embed.add_field(name="Anti-raid", value="Enabled" if antiraid_config.get(guild.id, {}).get("enabled") else "Off", inline=True)
     embed.add_field(name="Persistent storage", value=(await storage_status())["backend"], inline=True)
     embed.set_footer(text="Run /setup to create/configure the standard Cinnamon channels.")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
 
 
 # --- Help ---------------------------------------------------------------------
@@ -607,7 +607,7 @@ async def datastatus_check(interaction: discord.Interaction):
     embed.add_field(name="Detail", value=status["detail"], inline=False)
     embed.add_field(name="This server's warnings tracked", value=str(guild_warnings), inline=True)
     embed.add_field(name="This server's Hangry Games count", value=str(hg_game_num), inline=True)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
 
 
 async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -> dict:

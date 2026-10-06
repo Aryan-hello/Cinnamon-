@@ -196,7 +196,7 @@ async def quest_cmd(interaction):
             q=defs[qid]; p=_prog(u,scope,qid); done="✅" if _completed(q,p) else "⬜"; cur=p.get("count",p.get("value",0)); out.append(f"{done} **{q['name']}** — {cur}/{q.get('target','✓')} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
         return "\n\n".join(out)
     e=discord.Embed(title="📜 Cinnamon Quests",color=discord.Color.blurple()); e.add_field(name="☀️ Daily",value=lines(DAILY_QUESTS,d.get("daily_ids",[]),"daily")[:3900] or "None"); e.add_field(name="📅 Weekly",value=lines(WEEKLY_QUESTS,d.get("weekly_ids",[]),"weekly")[:3900] or "None"); e.set_footer(text=f"Quest Points: {u['qp']:,} • Daily/weekly rolls persist across restarts")
-    await interaction.response.send_message(embed=e)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(e))
 
 @bot.tree.command(name="dailyquests",description="View your 5 active daily Cinnamon quests")
 @app_commands.guild_only()
@@ -210,7 +210,7 @@ async def dailyquests_cmd(interaction):
         lines.append(f"{done} **{q['name']}** — {cur}/{target} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
     e=discord.Embed(title="☀️ Cinnamon Daily Quests",description="\n\n".join(lines)[:3900] or "No daily quests are active.",color=0xFFB02E)
     e.set_footer(text=f"Quest Points: {u['qp']:,} • Daily quests reset with the server's Cinnamon day")
-    await interaction.response.send_message(embed=e)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(e))
 
 @bot.tree.command(name="weeklyquests",description="View your 5 active weekly Cinnamon quests")
 @app_commands.guild_only()
@@ -224,7 +224,7 @@ async def weeklyquests_cmd(interaction):
         lines.append(f"{done} **{q['name']}** — {cur}/{target} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
     e=discord.Embed(title="📅 Cinnamon Weekly Quests",description="\n\n".join(lines)[:3900] or "No weekly quests are active.",color=0x8E7CFF)
     e.set_footer(text=f"Quest Points: {u['qp']:,} • Weekly quests reset each Cinnamon week")
-    await interaction.response.send_message(embed=e)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(e))
 
 @bot.group(name="quest", aliases=["quests"], invoke_without_command=True)
 @commands.guild_only()
@@ -275,15 +275,15 @@ async def prefix_quest_progress(ctx):
 async def questshop_cmd(interaction, reward:app_commands.Choice[str]):
     reward = reward.value
     u=_user(interaction.guild.id,interaction.user.id); key=reward.lower().strip(); match=next((k for k,v in QUEST_SHOP.items() if k==key or v["name"].lower()==key),None)
-    if not match: return await interaction.response.send_message("❌ Unknown reward. Options: 250_catnip, 1000_catnip, 2500_catnip, golden_tuna, quest_master",ephemeral=True)
+    if not match: return await cinnamon_send(interaction, "❌ Unknown reward. Options: 250_catnip, 1000_catnip, 2500_catnip, golden_tuna, quest_master",ephemeral=True)
     r=QUEST_SHOP[match]
-    if u["qp"]<r["qp"]: return await interaction.response.send_message(f"❌ You need **{r['qp']:,} QP** but have **{u['qp']:,} QP**.",ephemeral=True)
+    if u["qp"]<r["qp"]: return await cinnamon_send(interaction, f"❌ You need **{r['qp']:,} QP** but have **{u['qp']:,} QP**.",ephemeral=True)
     u["qp"]-=r["qp"]
     if r.get("catnip"): economy_balances[(interaction.guild.id,interaction.user.id)]=economy_balance(interaction.guild.id,interaction.user.id)+r["catnip"]; await achievement_record(interaction.guild.id,interaction.user.id,"catnip_earned",r["catnip"])
     if r.get("item"):
         inv=economy_inventory_for(interaction.guild.id,interaction.user.id); inv[r["item"]]=int(inv.get(r["item"],0))+int(r.get("item_qty",1)); await achievement_record(interaction.guild.id,interaction.user.id,"inventory")
     if r.get("role"): await _assign_quest_role(interaction.guild.id,interaction.user.id,r["role"])
-    await bd_save_data(); await interaction.response.send_message(f"✅ Redeemed **{r['name']}** for **{r['qp']:,} QP**. Remaining: **{u['qp']:,} QP**.")
+    await bd_save_data(); await cinnamon_send(interaction, f"✅ Redeemed **{r['name']}** for **{r['qp']:,} QP**. Remaining: **{u['qp']:,} QP**.")
 
 async def _assign_quest_role(g,u,name):
     guild=bot.get_guild(g); member=guild.get_member(u) if guild else None
@@ -299,14 +299,14 @@ async def _assign_quest_role(g,u,name):
 async def questsetup_cmd(interaction, role:discord.Role|None=None):
     cfg=quest_config.setdefault(interaction.guild.id,{})
     if role: cfg["quest_master_role"]=role.id
-    await bd_save_data(); await interaction.response.send_message(f"✅ Quest setup saved. Quest Master role: {role.mention if role else 'not changed'}",ephemeral=True)
+    await bd_save_data(); await cinnamon_send(interaction, f"✅ Quest setup saved. Quest Master role: {role.mention if role else 'not changed'}",ephemeral=True)
 
 @bot.tree.command(name="questlist",description="Admin: list the full daily and weekly quest pools")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def questlist_cmd(interaction):
     text="☀️ DAILY POOL\n"+"\n".join(f"• {q['name']} — {q['qp']} QP + {q['xp']} XP" for q in DAILY_QUESTS.values())+"\n\n📅 WEEKLY POOL\n"+"\n".join(f"• {q['name']} — {q['qp']} QP + {q['xp']} XP" for q in WEEKLY_QUESTS.values())
-    await interaction.response.send_message(text[:6000],ephemeral=True)
+    await cinnamon_send(interaction, text[:6000],ephemeral=True)
 
 ECONOMY_QUESTS=DAILY_QUESTS
 

@@ -190,10 +190,10 @@ async def rank(interaction: discord.Interaction, member: discord.Member = None):
         embed.add_field(name="🌿 Level reward", value=f"+{reward:,} Catnip at this level", inline=True)
     try:
         card = await _make_rank_card(member, xp, level)
-        await interaction.response.send_message(embed=embed, file=discord.File(card, filename="cinnamon-rank.png"), allowed_mentions=discord.AllowedMentions.none())
+        await interaction.response.send_message(embed=cinnamon_polish_embed(embed), file=discord.File(card, filename="cinnamon-rank.png"), allowed_mentions=discord.AllowedMentions.none())
     except Exception:
         log.exception("Rank card rendering failed for %s", member.id)
-        await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
 
 @bot.tree.command(name="leaderboard", description="Show a Cinnamon server leaderboard")
@@ -232,7 +232,7 @@ async def leaderboard(interaction: discord.Interaction, category: app_commands.C
             if g==gid and uid not in {x[0] for x in rows}: rows.append((uid,int(fs.get("points",0))))
         title="🐾 Cinnamon Friendship Leaderboard"; fmt=lambda uid,v:f"{v:,} Friendship XP"
     rows=sorted(rows,key=lambda x:x[1],reverse=True)[:10]
-    if not rows: return await interaction.response.send_message("No leaderboard data yet. 🐾",ephemeral=True)
+    if not rows: return await cinnamon_send(interaction, "No leaderboard data yet. 🐾",ephemeral=True)
     lines=[]
     for i,(uid,v) in enumerate(rows,1):
         m=interaction.guild.get_member(uid); name=m.display_name if m else f"User {uid}"
@@ -252,7 +252,7 @@ levelsettings_group = app_commands.Group(name="level-settings", description="Con
 async def levelsettings_xp(interaction: discord.Interaction, amount: app_commands.Range[int, 1, 1000]):
     xp_per_message[interaction.guild.id] = int(amount)
     await bd_save_data()
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"📈 Eligible messages now give **{amount} XP**. A member can earn it once every **{XP_COOLDOWN_SECONDS} seconds**, and only in your configured XP channels.",
         ephemeral=True,
     )
@@ -265,7 +265,7 @@ async def levelsettings_xp(interaction: discord.Interaction, amount: app_command
 async def levelsettings_channel_add(interaction: discord.Interaction, channel: discord.TextChannel):
     xp_channels.setdefault(interaction.guild.id, set()).add(channel.id)
     await bd_save_data()
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"✅ {channel.mention} is now an XP channel. Members can earn XP there once every {XP_COOLDOWN_SECONDS} seconds.",
         ephemeral=True,
     )
@@ -278,10 +278,10 @@ async def levelsettings_channel_add(interaction: discord.Interaction, channel: d
 async def levelsettings_channel_remove(interaction: discord.Interaction, channel: discord.TextChannel):
     channels = xp_channels.setdefault(interaction.guild.id, set())
     if channel.id not in channels:
-        return await interaction.response.send_message("That channel is not in the XP channel list.", ephemeral=True)
+        return await cinnamon_send(interaction, "That channel is not in the XP channel list.", ephemeral=True)
     channels.remove(channel.id)
     await bd_save_data()
-    await interaction.response.send_message(f"🧹 {channel.mention} was removed from the XP channel list.", ephemeral=True)
+    await cinnamon_send(interaction, f"🧹 {channel.mention} was removed from the XP channel list.", ephemeral=True)
 
 
 @levelsettings_group.command(name="channels", description="Show channels that can earn XP")
@@ -290,12 +290,12 @@ async def levelsettings_channel_remove(interaction: discord.Interaction, channel
 async def levelsettings_channels(interaction: discord.Interaction):
     channels = sorted(xp_channels.get(interaction.guild.id, set()))
     if not channels:
-        return await interaction.response.send_message(
+        return await cinnamon_send(interaction, 
             "📈 **XP channels:** none configured — message XP is currently disabled.\nUse `/level-settings channel-add` to select the channels that can earn XP.",
             ephemeral=True,
         )
     mentions = [f"<#{cid}>" for cid in channels]
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         "📈 **XP channels:**\n" + "\n".join(mentions),
         ephemeral=True,
     )
@@ -307,7 +307,7 @@ async def levelsettings_channels(interaction: discord.Interaction):
 async def levelsettings_channels_clear(interaction: discord.Interaction):
     xp_channels.pop(interaction.guild.id, None)
     await bd_save_data()
-    await interaction.response.send_message("✅ XP channel list cleared. Message XP is now disabled until you add at least one channel with `/level-settings channel-add`.", ephemeral=True)
+    await cinnamon_send(interaction, "✅ XP channel list cleared. Message XP is now disabled until you add at least one channel with `/level-settings channel-add`.", ephemeral=True)
 
 
 @levelsettings_group.command(name="status", description="Show the server's XP settings")
@@ -316,7 +316,7 @@ async def levelsettings_channels_clear(interaction: discord.Interaction):
 async def levelsettings_status(interaction: discord.Interaction):
     amount, channels = xp_settings_for_guild(interaction.guild.id)
     channel_text = "None configured (message XP disabled)" if not channels else f"{len(channels)} configured channel(s)"
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"📊 **Cinnamon XP settings**\n• XP per eligible message: **{amount}**\n• Cooldown: **{XP_COOLDOWN_SECONDS}s**\n• XP channels: **{channel_text}**\n• Maximum level: **{MAX_LEVEL}**",
         ephemeral=True,
     )
@@ -333,10 +333,10 @@ levelrewards_group = app_commands.Group(name="level-rewards", description="Confi
 @app_commands.guild_only()
 async def levelrewards_add(interaction: discord.Interaction, level: app_commands.Range[int,1,200], role: discord.Role):
     if role.is_default() or role.managed or role >= interaction.guild.me.top_role:
-        return await interaction.response.send_message("❌ I can't assign that role. Make sure it is a normal role below Cinnamon's highest role.",ephemeral=True)
+        return await cinnamon_send(interaction, "❌ I can't assign that role. Make sure it is a normal role below Cinnamon's highest role.",ephemeral=True)
     level_roles.setdefault(interaction.guild.id,{})[int(level)]=role.id
     await bd_save_data()
-    await interaction.response.send_message(f"🎖️ **Level {level}** now awards {role.mention}.",allowed_mentions=discord.AllowedMentions.none())
+    await cinnamon_send(interaction, f"🎖️ **Level {level}** now awards {role.mention}.",allowed_mentions=discord.AllowedMentions.none())
 
 @levelrewards_group.command(name="remove", description="Remove a level role reward")
 @app_commands.describe(level="Level whose reward should be removed")
@@ -344,15 +344,15 @@ async def levelrewards_add(interaction: discord.Interaction, level: app_commands
 @app_commands.guild_only()
 async def levelrewards_remove(interaction: discord.Interaction, level: int):
     if level_roles.get(interaction.guild.id,{}).pop(int(level),None) is None:
-        return await interaction.response.send_message(f"❌ No reward is configured for Level {level}.",ephemeral=True)
-    await bd_save_data(); await interaction.response.send_message(f"🧹 Removed the Level {level} role reward. Members keep roles they already earned.",ephemeral=True)
+        return await cinnamon_send(interaction, f"❌ No reward is configured for Level {level}.",ephemeral=True)
+    await bd_save_data(); await cinnamon_send(interaction, f"🧹 Removed the Level {level} role reward. Members keep roles they already earned.",ephemeral=True)
 
 @levelrewards_group.command(name="list", description="List all configured level rewards")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 async def levelrewards_list(interaction: discord.Interaction):
     cfg=level_roles.get(interaction.guild.id,{})
-    if not cfg: return await interaction.response.send_message("No level rewards are configured. Use `/levelrewards add`.",ephemeral=True)
+    if not cfg: return await cinnamon_send(interaction, "No level rewards are configured. Use `/levelrewards add`.",ephemeral=True)
     lines=[]
     for lvl in sorted(cfg):
         role=interaction.guild.get_role(cfg[lvl]); lines.append(f"**Level {lvl}** → {role.mention if role else '❌ Deleted role'}")
@@ -368,15 +368,15 @@ levelrole_group = app_commands.Group(name="levelrole", description="Give roles a
 @app_commands.guild_only()
 async def levelrole_add(interaction: discord.Interaction, level: app_commands.Range[int,1,200], role: discord.Role):
     if role.is_default() or role.managed:
-        return await interaction.response.send_message("That role can't be assigned by a bot.", ephemeral=True)
+        return await cinnamon_send(interaction, "That role can't be assigned by a bot.", ephemeral=True)
     if role >= interaction.guild.me.top_role:
-        return await interaction.response.send_message(
+        return await cinnamon_send(interaction, 
             "That role is above my highest role, so I can't hand it out. Move my role higher in Server Settings → Roles.",
             ephemeral=True,
         )
     level_roles.setdefault(interaction.guild.id, {})[level] = role.id
     await bd_save_data()
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"🐾 Members will get **{role.name}** at **Level {level}**. "
         f"Anyone already past that level gets it the next time they earn XP.",
         allowed_mentions=discord.AllowedMentions.none(),
@@ -394,9 +394,9 @@ async def levelrole_add(interaction: discord.Interaction, level: app_commands.Ra
 async def levelrole_remove(interaction: discord.Interaction, level: app_commands.Range[int,1,200]):
     cfg = level_roles.get(interaction.guild.id, {})
     if cfg.pop(level, None) is None:
-        return await interaction.response.send_message(f"No level role is set for level {level}.", ephemeral=True)
+        return await cinnamon_send(interaction, f"No level role is set for level {level}.", ephemeral=True)
     await bd_save_data()
-    await interaction.response.send_message(f"🐾 Removed the Level {level} reward. Members keep roles they already earned.")
+    await cinnamon_send(interaction, f"🐾 Removed the Level {level} reward. Members keep roles they already earned.")
     await send_log(
         interaction.guild.id, title="🎖️ Level role removed", color=discord.Color.orange(), interaction=interaction,
         fields=[("Level", str(level))],
@@ -409,12 +409,12 @@ async def levelrole_remove(interaction: discord.Interaction, level: app_commands
 async def levelrole_list(interaction: discord.Interaction):
     cfg = level_roles.get(interaction.guild.id, {})
     if not cfg:
-        return await interaction.response.send_message("No level roles set. Add one with `/levelrole add`.", ephemeral=True)
+        return await cinnamon_send(interaction, "No level roles set. Add one with `/levelrole add`.", ephemeral=True)
     lines = []
     for lvl in sorted(cfg):
         role = interaction.guild.get_role(cfg[lvl])
         lines.append(f"**Level {lvl}** → {role.name if role else '(deleted role)'}")
-    await interaction.response.send_message("\n".join(lines), ephemeral=True)
+    await cinnamon_send(interaction, "\n".join(lines), ephemeral=True)
 
 
 # --- Standalone giveaways (persistent — survive restarts) --------------------------
@@ -450,7 +450,7 @@ class GiveawayView(discord.ui.View):
     async def _enter(self, interaction: discord.Interaction):
         gw = active_giveaways.get(interaction.message.id)
         if gw is None:
-            return await interaction.response.send_message("This giveaway has ended.", ephemeral=True)
+            return await cinnamon_send(interaction, "This giveaway has ended.", ephemeral=True)
         uid = interaction.user.id
         if uid in gw["entrants"]:
             gw["entrants"].remove(uid)
@@ -458,7 +458,7 @@ class GiveawayView(discord.ui.View):
         else:
             gw["entrants"].append(uid)
             text = "🎉 You're entered! Click again to leave."
-        await interaction.response.send_message(text, ephemeral=True)
+        await cinnamon_send(interaction, text, ephemeral=True)
         if text.startswith("🎉 You're entered"):
             await achievement_record(int(gw.get("guild_id",0)), interaction.user.id, "giveaway", 1)
             await quest_event(int(gw.get("guild_id",0)), interaction.user.id, "giveaway", 1)
@@ -568,11 +568,11 @@ async def giveaway_end(interaction: discord.Interaction, message_id: str):
     try:
         mid = int(message_id)
     except ValueError:
-        return await interaction.response.send_message("That doesn't look like a valid message ID.", ephemeral=True)
+        return await cinnamon_send(interaction, "That doesn't look like a valid message ID.", ephemeral=True)
     gw = active_giveaways.get(mid)
     if not gw or gw["guild_id"] != interaction.guild.id:
-        return await interaction.response.send_message("No active giveaway with that message ID.", ephemeral=True)
-    await interaction.response.send_message("Ending the giveaway now...", ephemeral=True)
+        return await cinnamon_send(interaction, "No active giveaway with that message ID.", ephemeral=True)
+    await cinnamon_send(interaction, "Ending the giveaway now...", ephemeral=True)
     await finish_giveaway(mid)
 
 
@@ -614,9 +614,9 @@ class PollView(discord.ui.View):
         async def callback(interaction: discord.Interaction):
             poll = active_polls.get(interaction.message.id)
             if poll is None:
-                return await interaction.response.send_message("This poll has ended.", ephemeral=True)
+                return await cinnamon_send(interaction, "This poll has ended.", ephemeral=True)
             if idx >= len(poll["options"]):
-                return await interaction.response.send_message("That option doesn't exist.", ephemeral=True)
+                return await cinnamon_send(interaction, "That option doesn't exist.", ephemeral=True)
             uid = str(interaction.user.id)
             if poll["votes"].get(uid) == idx:
                 del poll["votes"][uid]  # tapping your current choice again removes your vote

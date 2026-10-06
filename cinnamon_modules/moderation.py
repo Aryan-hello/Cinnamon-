@@ -97,7 +97,7 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
     count = add_warning(interaction.guild.id, member.id, reason, interaction.user)
     case_id = next_case(interaction.guild.id)
     await bd_save_data()
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"🐾 *hisses a warning at* {member.mention} — now has **{count}** warning(s). (Case #{case_id})",
         allowed_mentions=discord.AllowedMentions(users=True),
     )
@@ -114,12 +114,12 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
 async def warnings_cmd(interaction: discord.Interaction, member: discord.Member):
     lst = warnings_data.get((interaction.guild.id, member.id), [])
     if not lst:
-        return await interaction.response.send_message(f"{member.display_name} has no warnings. 🐾", ephemeral=True)
+        return await cinnamon_send(interaction, f"{member.display_name} has no warnings. 🐾", ephemeral=True)
     embed = discord.Embed(title=f"⚠️ Warnings for {member.display_name}", color=discord.Color.orange())
     for i, w in enumerate(lst[-10:], 1):
         embed.add_field(name=f"#{i} — {w['ts'][:10]}", value=f"{w['reason']} (by {w['mod_name']})", inline=False)
     embed.set_footer(text=f"{len(lst)} total warning(s)")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
 
 
 @bot.tree.command(name="clearwarnings", description="Clear all warnings for a member")
@@ -129,7 +129,7 @@ async def warnings_cmd(interaction: discord.Interaction, member: discord.Member)
 async def clearwarnings(interaction: discord.Interaction, member: discord.Member):
     removed = len(warnings_data.pop((interaction.guild.id, member.id), []))
     await bd_save_data()
-    await interaction.response.send_message(f"🐾 Cleared **{removed}** warning(s) for {member.display_name}.")
+    await cinnamon_send(interaction, f"🐾 Cleared **{removed}** warning(s) for {member.display_name}.")
     await send_log(
         interaction.guild.id, title="🧹 Warnings cleared", color=discord.Color.green(), interaction=interaction,
         fields=[("Member", f"{member} ({member.id})"), ("Cleared", str(removed))],
@@ -157,7 +157,7 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member = No
     )
     embed.add_field(name="Warnings", value=str(warn_count), inline=True)
     embed.add_field(name=f"Roles ({len(roles)})", value=", ".join(roles) if roles else "None", inline=False)
-    await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
 
 @bot.tree.command(name="serverinfo", description="Show info about this server")
@@ -174,7 +174,7 @@ async def serverinfo(interaction: discord.Interaction):
     embed.add_field(name="Voice channels", value=str(len(g.voice_channels)), inline=True)
     embed.add_field(name="Roles", value=str(len(g.roles)), inline=True)
     embed.add_field(name="Owner", value=g.owner.mention if g.owner else "Unknown", inline=True)
-    await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
 
 # --- AFK ---------------------------------------------------------------------
@@ -184,7 +184,7 @@ async def serverinfo(interaction: discord.Interaction):
 @app_commands.guild_only()
 async def afk_cmd(interaction: discord.Interaction, reason: str = "AFK"):
     afk_users[(interaction.guild.id, interaction.user.id)] = reason[:200]
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"🐾 {interaction.user.mention} is now AFK: {reason}",
         allowed_mentions=discord.AllowedMentions(users=True),
     )
@@ -217,10 +217,10 @@ async def welcome_set(interaction: discord.Interaction, channel: discord.TextCha
                        message: app_commands.Range[str, 1, 800] = "🐾 Welcome {member} to {server}! Glad you're here."):
     error = _validate_template(message)
     if error:
-        return await interaction.response.send_message(error, ephemeral=True)
+        return await cinnamon_send(interaction, error, ephemeral=True)
     welcome_config[interaction.guild.id] = {"channel_id": channel.id, "message": message}
     await bd_save_data()
-    await interaction.response.send_message(f"🐾 Welcome messages will post in {channel.mention}.")
+    await cinnamon_send(interaction, f"🐾 Welcome messages will post in {channel.mention}.")
     await send_log(interaction.guild.id, title="👋 Welcome configuration changed", interaction=interaction, category="setup",
                    fields=[("Channel", channel.mention), ("Message", message[:900])])
 
@@ -231,7 +231,7 @@ async def welcome_set(interaction: discord.Interaction, channel: discord.TextCha
 async def welcome_disable(interaction: discord.Interaction):
     welcome_config.pop(interaction.guild.id, None)
     await bd_save_data()
-    await interaction.response.send_message("🐾 Welcome messages turned off.")
+    await cinnamon_send(interaction, "🐾 Welcome messages turned off.")
     await send_log(interaction.guild.id, title="👋 Welcome messages disabled", interaction=interaction, category="setup")
 
 
@@ -246,10 +246,10 @@ async def goodbye_set(interaction: discord.Interaction, channel: discord.TextCha
                        message: app_commands.Range[str, 1, 800] = "🐾 {member} has left {server}. We'll miss you!"):
     error = _validate_template(message)
     if error:
-        return await interaction.response.send_message(error, ephemeral=True)
+        return await cinnamon_send(interaction, error, ephemeral=True)
     goodbye_config[interaction.guild.id] = {"channel_id": channel.id, "message": message}
     await bd_save_data()
-    await interaction.response.send_message(f"🐾 Goodbye messages will post in {channel.mention}.")
+    await cinnamon_send(interaction, f"🐾 Goodbye messages will post in {channel.mention}.")
     await send_log(interaction.guild.id, title="🚪 Goodbye configuration changed", interaction=interaction, category="setup",
                    fields=[("Channel", channel.mention), ("Message", message[:900])])
 
@@ -260,7 +260,7 @@ async def goodbye_set(interaction: discord.Interaction, channel: discord.TextCha
 async def goodbye_disable(interaction: discord.Interaction):
     goodbye_config.pop(interaction.guild.id, None)
     await bd_save_data()
-    await interaction.response.send_message("🐾 Goodbye messages turned off.")
+    await cinnamon_send(interaction, "🐾 Goodbye messages turned off.")
     await send_log(interaction.guild.id, title="🚪 Goodbye messages disabled", interaction=interaction, category="setup")
 
 
@@ -281,21 +281,21 @@ class ReactionRoleView(discord.ui.View):
     async def toggle(self, interaction: discord.Interaction):
         role = interaction.guild.get_role(self.role_id)
         if role is None:
-            return await interaction.response.send_message("That role no longer exists.", ephemeral=True)
+            return await cinnamon_send(interaction, "That role no longer exists.", ephemeral=True)
         member = interaction.user
         try:
             if role in member.roles:
                 await member.remove_roles(role, reason="Reaction role toggle")
-                await interaction.response.send_message(f"➖ Removed **{role.name}**.", ephemeral=True)
+                await cinnamon_send(interaction, f"➖ Removed **{role.name}**.", ephemeral=True)
                 await send_log(interaction.guild.id, title="🏷️ Self-assign role removed", category="roles",
                                fields=[("Member", f"{member} ({member.id})"), ("Role", f"{role.name} ({role.id})")])
             else:
                 await member.add_roles(role, reason="Reaction role toggle")
-                await interaction.response.send_message(f"➕ Added **{role.name}**!", ephemeral=True)
+                await cinnamon_send(interaction, f"➕ Added **{role.name}**!", ephemeral=True)
                 await send_log(interaction.guild.id, title="🏷️ Self-assign role added", category="roles",
                                fields=[("Member", f"{member} ({member.id})"), ("Role", f"{role.name} ({role.id})")])
         except discord.Forbidden:
-            await interaction.response.send_message(
+            await cinnamon_send(interaction, 
                 "I don't have permission to manage that role — check my role position.", ephemeral=True
             )
 
@@ -311,7 +311,7 @@ reactionrole_group = app_commands.Group(name="reactionrole", description="Self-a
 async def reactionrole_create(interaction: discord.Interaction, role: discord.Role,
                                label: str = "Toggle Role 🐾", description: str = None):
     if role >= interaction.guild.me.top_role:
-        return await interaction.response.send_message(
+        return await cinnamon_send(interaction, 
             "I can't manage a role higher than or equal to my own top role — move my role above it first.",
             ephemeral=True,
         )
@@ -321,7 +321,7 @@ async def reactionrole_create(interaction: discord.Interaction, role: discord.Ro
         color=0xFFB02E,
     )
     view = ReactionRoleView(role.id, label)
-    await interaction.response.send_message(embed=embed, view=view)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), view=view)
     reaction_role_ids.add(role.id)
     await bd_save_data()
     bot.add_view(view)  # re-register for persistence in case this process restarts
@@ -336,7 +336,7 @@ async def reactionrole_create(interaction: discord.Interaction, role: discord.Ro
 async def reactionrole_remove(interaction: discord.Interaction, role: discord.Role):
     reaction_role_ids.discard(role.id)
     await bd_save_data()
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"🐾 **{role.name}** is no longer tracked as self-assignable. (Existing buttons for it stop working "
         f"after the next restart; this doesn't delete the message.)",
         ephemeral=True,
@@ -428,7 +428,7 @@ async def automod_word_add(interaction: discord.Interaction, word: app_commands.
     if changed:
         cfg["words"].append(word)
         await bd_save_data()
-    await interaction.response.send_message(f"🐾 Added `{word}` to the banned word list.", ephemeral=True)
+    await cinnamon_send(interaction, f"🐾 Added `{word}` to the banned word list.", ephemeral=True)
     await send_log(interaction.guild.id, title="🛡️ AutoMod banned word added", interaction=interaction, category="moderation",
                    fields=[("Word/phrase", word[:300]), ("Changed", str(changed))])
 
@@ -442,7 +442,7 @@ async def automod_word_remove(interaction: discord.Interaction, word: app_comman
     cfg["words"] = [w for w in cfg["words"] if w.lower() != word.lower()]
     removed = before - len(cfg["words"])
     await bd_save_data()
-    await interaction.response.send_message(f"🐾 Removed `{word}` from the banned word list.", ephemeral=True)
+    await cinnamon_send(interaction, f"🐾 Removed `{word}` from the banned word list.", ephemeral=True)
     await send_log(interaction.guild.id, title="🛡️ AutoMod banned word removed", interaction=interaction, category="moderation",
                    fields=[("Word/phrase", word[:300]), ("Removed", str(removed))])
 
@@ -452,7 +452,7 @@ async def automod_word_remove(interaction: discord.Interaction, word: app_comman
 @app_commands.guild_only()
 async def automod_word_list(interaction: discord.Interaction):
     words = get_automod(interaction.guild.id)["words"]
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         "Banned words: " + (", ".join(f"`{w}`" for w in words) if words else "*(none set)*"), ephemeral=True
     )
 
@@ -464,7 +464,7 @@ async def automod_word_list(interaction: discord.Interaction):
 async def automod_spam(interaction: discord.Interaction, enabled: bool):
     get_automod(interaction.guild.id)["spam"] = enabled
     await bd_save_data()
-    await interaction.response.send_message(f"🐾 Spam detection turned **{'on' if enabled else 'off'}**.")
+    await cinnamon_send(interaction, f"🐾 Spam detection turned **{'on' if enabled else 'off'}**.")
     await send_log(interaction.guild.id, title="🛡️ AutoMod spam setting changed", interaction=interaction, category="moderation", fields=[("Enabled", str(enabled))])
 
 
@@ -477,7 +477,7 @@ async def automod_mentions(interaction: discord.Interaction, enabled: bool, thre
     cfg["mentions"] = enabled
     cfg["mention_threshold"] = threshold
     await bd_save_data()
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"🐾 Mass-mention detection turned **{'on' if enabled else 'off'}** (threshold {threshold})."
     )
     await send_log(interaction.guild.id, title="🛡️ AutoMod mention setting changed", interaction=interaction, category="moderation",
@@ -491,7 +491,7 @@ async def automod_mentions(interaction: discord.Interaction, enabled: bool, thre
 async def automod_invites(interaction: discord.Interaction, enabled: bool):
     get_automod(interaction.guild.id)["invites"] = enabled
     await bd_save_data()
-    await interaction.response.send_message(f"🐾 Invite-link filter turned **{'on' if enabled else 'off'}**.")
+    await cinnamon_send(interaction, f"🐾 Invite-link filter turned **{'on' if enabled else 'off'}**.")
     await send_log(interaction.guild.id, title="🛡️ AutoMod invite filter changed", interaction=interaction, category="moderation", fields=[("Enabled", str(enabled))])
 
 
@@ -509,7 +509,7 @@ async def tempban(interaction: discord.Interaction, member: discord.Member, dura
     temp_bans[(interaction.guild.id, member.id)] = unban_at
     case_id = next_case(interaction.guild.id)
     await bd_save_data()
-    await interaction.response.send_message(
+    await cinnamon_send(interaction, 
         f"🐾 {member.mention} temp-banned for **{duration_hours}h**. Reason: {reason}",
         allowed_mentions=discord.AllowedMentions.none(),
     )

@@ -100,9 +100,9 @@ class HGLobbyView(discord.ui.View):
     @discord.ui.button(label="Join 🐾", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, _: discord.ui.Button):
         if self.started:
-            return await interaction.response.send_message("Already started!", ephemeral=True)
+            return await cinnamon_send(interaction, "Already started!", ephemeral=True)
         if interaction.user.id in self.players:
-            return await interaction.response.send_message("You're already in — no backing out!", ephemeral=True)
+            return await cinnamon_send(interaction, "You're already in — no backing out!", ephemeral=True)
         self.players[interaction.user.id] = interaction.user
         await interaction.response.edit_message(embed=self.embed(), view=self)
         await self.cog._log(interaction.guild.id, title="🐾 Hangry Games player joined",
@@ -112,9 +112,9 @@ class HGLobbyView(discord.ui.View):
     @discord.ui.button(label="Start 🔴", style=discord.ButtonStyle.danger)
     async def start(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not interaction.user.guild_permissions.manage_messages:
-            return await interaction.response.send_message("Need Manage Messages to start.", ephemeral=True)
+            return await cinnamon_send(interaction, "Need Manage Messages to start.", ephemeral=True)
         if len(self.players) < 2:
-            return await interaction.response.send_message("Need at least 2 players.", ephemeral=True)
+            return await cinnamon_send(interaction, "Need at least 2 players.", ephemeral=True)
         self.started = True
         for c in self.children:
             c.disabled = True
@@ -151,9 +151,9 @@ class HGRematchView(discord.ui.View):
     @discord.ui.button(label="Rematch 🔁", style=discord.ButtonStyle.primary)
     async def rematch(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.host.id and not interaction.user.guild_permissions.manage_messages:
-            return await interaction.response.send_message("Only the host or a mod can start a rematch.", ephemeral=True)
+            return await cinnamon_send(interaction, "Only the host or a mod can start a rematch.", ephemeral=True)
         if self.cog._busy(interaction.channel.id):
-            return await interaction.response.send_message("A game's already running here!", ephemeral=True)
+            return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
         for c in self.children:
             c.disabled = True
         self.stop()
@@ -420,7 +420,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
     @app_commands.guild_only()
     async def new(self, interaction: discord.Interaction, host: discord.Member = None):
         if self._busy(interaction.channel.id):
-            return await interaction.response.send_message("A game's already running here!", ephemeral=True)
+            return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
         view = HGLobbyView(self, host or interaction.user)
         await interaction.response.send_message(embed=view.embed(), view=view)
         view.message = await interaction.original_response()
@@ -435,7 +435,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
     async def giveaway(self, interaction: discord.Interaction, prize: str = None, host: discord.Member = None,
                         winner_role: discord.Role = None):
         if self._busy(interaction.channel.id):
-            return await interaction.response.send_message("A game's already running here!", ephemeral=True)
+            return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
         view = HGLobbyView(self, host or interaction.user, prize=prize, winner_role=winner_role)
         await interaction.response.send_message(embed=view.embed(), view=view)
         view.message = await interaction.original_response()
@@ -452,14 +452,14 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
     async def role_cmd(self, interaction: discord.Interaction, role: discord.Role, prize: str = None,
                         host: discord.Member = None, winner_role: discord.Role = None):
         if self._busy(interaction.channel.id):
-            return await interaction.response.send_message("A game's already running here!", ephemeral=True)
+            return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
         players = {m.id: m for m in role.members if not m.bot}
         if len(players) < 2:
-            return await interaction.response.send_message(
+            return await cinnamon_send(interaction, 
                 "Need at least 2 non-bot members with that role.", ephemeral=True
             )
         host = host or interaction.user
-        await interaction.response.send_message(
+        await cinnamon_send(interaction, 
             f"🐾 **{len(players)}** cats from **{role.name}** enter the arena, hosted by {host.mention}!",
             allowed_mentions=discord.AllowedMentions(roles=False),
         )
@@ -474,7 +474,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         gid = interaction.guild.id
         top = sorted(((m, w) for (g, m), w in self.win_counts.items() if g == gid), key=lambda e: e[1], reverse=True)[:10]
         if not top:
-            return await interaction.response.send_message("No Hangry Games winners yet. 🐾", ephemeral=True)
+            return await cinnamon_send(interaction, "No Hangry Games winners yet. 🐾", ephemeral=True)
         lines = []
         for i, (uid, wins) in enumerate(top, 1):
             member = interaction.guild.get_member(uid)
@@ -482,7 +482,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
             kills = self.kill_counts.get((gid, uid), 0)
             lines.append(f"**#{i}** {name} — {wins} win(s), {kills} kill(s)")
         embed = discord.Embed(title="🏆 Hangry Games Leaderboard", description="\n".join(lines), color=0xFEE75C)
-        await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
     @app_commands.command(name="stats", description="A member's Hangry Games stats")
     @app_commands.describe(member="Who to check (defaults to you)")
@@ -502,7 +502,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         embed.add_field(name="Server rank", value=f"#{place}" if place else "Unranked", inline=True)
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.set_footer(text="Kills and games played count from completed games since stats tracking began.")
-        await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
     @app_commands.command(name="cancel", description="Cancel the Hangry Games running in this channel")
     @app_commands.guild_only()
@@ -510,7 +510,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         task = self.active.pop(interaction.channel.id, None)
         if task:
             task.cancel()
-            return await interaction.response.send_message(
+            return await cinnamon_send(interaction, 
                 "🐾 *pulls the emergency lever* Calling off the Hangry Games mid-fight!"
             )
 
@@ -531,11 +531,11 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                         ("Cancelled by", f"{interaction.user} ({interaction.user.id})"),
                         ("Players signed up", str(len(lobby.players)))],
             )
-            return await interaction.response.send_message(
+            return await cinnamon_send(interaction, 
                 "🐾 *knocks the lobby sign-up sheet off the table* The Hangry Games were cancelled before they even began!"
             )
 
-        await interaction.response.send_message("No game running here.", ephemeral=True)
+        await cinnamon_send(interaction, "No game running here.", ephemeral=True)
 
     @app_commands.command(name="logchannel", description="Set (or reset) this channel as Hangry Games' dedicated log channel")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -553,7 +553,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         self.win_counts = {k: v for k, v in self.win_counts.items() if k[0] != guild_id}
         await self._save()
 
-        await interaction.response.send_message(
+        await cinnamon_send(interaction, 
             f"🐾 Hangry Games will now log to {target.mention}. Game numbers and win totals for this "
             f"server have been reset — the next game will be **Game #1**.",
             allowed_mentions=discord.AllowedMentions.none(),
@@ -571,8 +571,8 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         self.log_enabled.pop(interaction.guild.id, None)
         await self._save()
         if removed is None:
-            return await interaction.response.send_message("No Hangry Games log channel was set.", ephemeral=True)
-        await interaction.response.send_message("🐾 Hangry Games log channel disabled. Game numbers and win totals are unaffected.")
+            return await cinnamon_send(interaction, "No Hangry Games log channel was set.", ephemeral=True)
+        await cinnamon_send(interaction, "🐾 Hangry Games log channel disabled. Game numbers and win totals are unaffected.")
 
     @app_commands.command(name="log", description="Turn Hangry Games activity logging on/off without changing the channel")
     @app_commands.describe(enabled="On: log game starts, winners, and cancellations to the log channel")
@@ -580,13 +580,13 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
     @app_commands.guild_only()
     async def log_toggle(self, interaction: discord.Interaction, enabled: bool):
         if interaction.guild.id not in self.hg_log_channels:
-            return await interaction.response.send_message(
+            return await cinnamon_send(interaction, 
                 "Set a Hangry Games log channel first with `/hangrygames logchannel`, then toggle this.",
                 ephemeral=True,
             )
         self.log_enabled[interaction.guild.id] = enabled
         await self._save()
         state = "on" if enabled else "off"
-        await interaction.response.send_message(f"🐾 Hangry Games logging turned **{state}**.", ephemeral=True)
+        await cinnamon_send(interaction, f"🐾 Hangry Games logging turned **{state}**.", ephemeral=True)
 
 

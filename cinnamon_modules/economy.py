@@ -5,6 +5,32 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
+
+
+# ---------------------------------------------------------------------------
+# Cinnamon embed design system
+# Discord controls the actual font inside embeds; we improve hierarchy with
+# spacing, short fields, thumbnails, timestamps, and a consistent palette.
+# ---------------------------------------------------------------------------
+CINNAMON_ORANGE = 0xE89A3C
+CINNAMON_GOLD = 0xF2B84B
+CINNAMON_GREEN = 0x7BC96F
+CINNAMON_RED = 0xE57373
+CINNAMON_BLUE = 0x6EA8FE
+CINNAMON_MUTED = 0x8E9AAF
+
+def cinnamon_embed(title: str, description: str = "", *, color=CINNAMON_ORANGE, user=None, footer="Cinnamon"):
+    e = discord.Embed(title=title, description=description, color=color, timestamp=datetime.datetime.now(datetime.timezone.utc))
+    if user is not None:
+        e.set_author(name=user.display_name, icon_url=user.display_avatar.url)
+        e.set_thumbnail(url=user.display_avatar.url)
+    e.set_footer(text=footer)
+    return e
+
+def cinnamon_field(e, name, value, inline=False):
+    e.add_field(name=name, value=str(value) if value else "—", inline=inline)
+    return e
+
 def economy_key(guild_id: int, user_id: int) -> tuple[int, int]:
     return guild_id, user_id
 
@@ -23,10 +49,18 @@ def economy_inventory_for(guild_id: int, user_id: int) -> dict:
     return economy_inventory[key]
 
 
+
+
+
+
+
+
 def economy_user_snapshot(guild_id: int, user_id: int) -> dict:
     return {
         "balance": economy_balance(guild_id, user_id),
         "inventory": dict(economy_inventory_for(guild_id, user_id)),
+        "quests": dict(sanitize_economy_quests(guild_id, user_id)),
+        "achievements": list(economy_achievements.get((guild_id, user_id), [])),
         "level_rewards_claimed": list(economy_level_rewards_claimed.get((guild_id, user_id), [])),
     }
 
@@ -63,9 +97,156 @@ def economy_cooldown_remaining(guild_id: int, user_id: int, action: str) -> int:
 
 def economy_item_lines() -> str:
     return "\n".join(
-        f"{item['emoji']} **{item['name']}** — `{item_id}` — **{item['price']} Catnip**\n{item['description']}"
+        f"{item['emoji']} **{item['name']}** — `{item_id}` — **{item['price']:,} Catnip**\n{item['description']}"
         for item_id, item in ECONOMY_ITEMS.items()
     )
+
+
+def economy_shop_embed(guild_id: int, user: discord.abc.User, page: int = 0) -> discord.Embed:
+    """Build the public Cinnamon shop card. Inspired by the clean catalog style
+    used by established economy bots, but branded for Cinnamon.
+    """
+    items = list(ECONOMY_ITEMS.items())
+    per_page = 5
+    total_pages = max(1, (len(items) + per_page - 1) // per_page)
+    page = max(0, min(page, total_pages - 1))
+    start = page * per_page
+    visible = items[start:start + per_page]
+    balance = economy_balance(guild_id, user.id)
+
+    embed = cinnamon_embed(
+        "🛒 Cinnamon's Catnip Shop",
+        "**Welcome to the shop.**\nSpend your Catnip on Cinnamon-approved supplies.\n\n"
+        "Select an item below to inspect it, then use `/economy buy` when you're ready.",
+        color=CINNAMON_ORANGE, user=user,
+        footer=f"Cinnamon Economy • Shop • Page {page + 1}/{total_pages}",
+    )
+    cinnamon_field(embed, "🌿 Your Catnip", f"**{balance:,}**", True)
+    cinnamon_field(embed, "📦 Items in shop", f"**{len(items)}**", True)
+    cinnamon_field(embed, "🛍️ Page", f"**{page + 1} / {total_pages}**", True)
+
+    if not visible:
+        embed.description = "The shop is empty right now. Ask an administrator to add some items."
+        return cinnamon_polish_embed(embed)
+
+    for number, (item_id, item) in enumerate(visible, start=start + 1):
+        limit = int(item.get("max_per_person", 0))
+        limit_text = f" • Limit: **{limit}**" if limit else " • Limit: **Unlimited**"
+        owned = int(economy_inventory_for(guild_id, user.id).get(item_id, 0))
+        embed.add_field(
+            name=f"{number}. {item['emoji']} {item['name']}",
+            value=(
+                f"**{item['price']:,} Catnip**{limit_text}\n"
+                f"{item.get('description', 'No description provided.')}\n"
+                f"You own: **{owned}** • ID: `{item_id}`"
+            ),
+            inline=False,
+        )
+    return cinnamon_polish_embed(embed)
+
+
+class CinnamonShopView(discord.ui.View):
+    """Interactive shop catalog: pagination + an item inspector.
+
+    The controls never purchase anything by themselves, which prevents an
+    accidental click from spending Catnip.
+    """
+    def __init__(self, guild_id: int, user_id: int, page: int = 0):
+        super().__init__(timeout=180)
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.page = page
+        self._refresh_controls()
+
+    def _refresh_controls(self):
+        items = list(ECONOMY_ITEMS.items())
+        per_page = 5
+        total_pages = max(1, (len(items) + per_page - 1) // per_page)
+        self.page = max(0, min(self.page, total_pages - 1))
+
+        self.clear_items()
+        start = self.page * per_page
+        visible = items[start:start + per_page]
+        options = [
+            discord.SelectOption(
+                label=str(item.get("name", item_id))[:100],
+                value=item_id,
+                description=f"{int(item.get('price', 0)):,} Catnip • {item_id}"[:100],
+                emoji=item.get("emoji") or "🐾",
+            )
+            for item_id, item in visible
+        ]
+        if options:
+            select = discord.ui.Select(
+                placeholder="🔎 Inspect an item...",
+                options=options,
+                custom_id=f"cinnamon_shop_select_{self.page}",
+            )
+            select.callback = self._inspect_callback
+            self.add_item(select)
+
+        previous = discord.ui.Button(label="Previous", emoji="◀️", style=discord.ButtonStyle.secondary, disabled=self.page <= 0)
+        next_button = discord.ui.Button(label="Next", emoji="▶️", style=discord.ButtonStyle.secondary, disabled=self.page >= total_pages - 1)
+        close = discord.ui.Button(label="Close", emoji="✖️", style=discord.ButtonStyle.danger)
+        previous.callback = self._previous_callback
+        next_button.callback = self._next_callback
+        close.callback = self._close_callback
+        self.add_item(previous)
+        self.add_item(next_button)
+        self.add_item(close)
+
+    async def _guard(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("🐾 This shop panel belongs to the person who opened it.", ephemeral=True)
+            return False
+        return True
+
+    async def _inspect_callback(self, interaction: discord.Interaction):
+        if not await self._guard(interaction):
+            return
+        item_id = interaction.data.get("values", [""])[0]
+        item = ECONOMY_ITEMS.get(item_id)
+        if not item:
+            await interaction.response.send_message("🐾 Cinnamon couldn't find that item anymore.", ephemeral=True)
+            return
+        owned = int(economy_inventory_for(self.guild_id, self.user_id).get(item_id, 0))
+        limit = int(item.get("max_per_person", 0))
+        embed = cinnamon_embed(
+            f"{item.get('emoji', '🐾')} {item.get('name', item_id)}",
+            item.get("description", "No description provided."),
+            color=CINNAMON_GOLD, footer="Cinnamon Economy • Item Details",
+        )
+        cinnamon_field(embed, "💸 Price", f"**{int(item.get('price', 0)):,} Catnip**", True)
+        cinnamon_field(embed, "🎒 You own", f"**{owned}**", True)
+        cinnamon_field(embed, "📦 Limit", f"**{limit}**" if limit else "**Unlimited**", True)
+        cinnamon_field(embed, "🏷️ Item ID", f"`{item_id}`", False)
+        cinnamon_field(embed, "🛒 Buy", f"`/economy buy item:{item_id} quantity:1`", False)
+        await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
+
+    async def _previous_callback(self, interaction: discord.Interaction):
+        if not await self._guard(interaction):
+            return
+        self.page -= 1
+        self._refresh_controls()
+        await interaction.response.edit_message(embed=economy_shop_embed(self.guild_id, interaction.user, self.page), view=self)
+
+    async def _next_callback(self, interaction: discord.Interaction):
+        if not await self._guard(interaction):
+            return
+        self.page += 1
+        self._refresh_controls()
+        await interaction.response.edit_message(embed=economy_shop_embed(self.guild_id, interaction.user, self.page), view=self)
+
+    async def _close_callback(self, interaction: discord.Interaction):
+        if not await self._guard(interaction):
+            return
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
 
 
 async def economy_do_work(guild_id: int, user: discord.abc.User) -> tuple[bool, int, str]:
@@ -83,15 +264,6 @@ async def economy_do_work(guild_id: int, user: discord.abc.User) -> tuple[bool, 
     job = random.choice(jobs)
     economy_cooldowns[(guild_id, user_id, "work")] = time.time() + ECONOMY_WORK_COOLDOWN
     economy_balances[(guild_id, user_id)] = balance_before + amount
-    await achievement_record(guild_id, user_id, "catnip_earned", amount)
-    await achievement_record(guild_id, user_id, "balance")
-    await quest_event(guild_id, user_id, "work", 1)
-    await quest_event(guild_id, user_id, "balance", balance_before + amount)
-    try:
-        await quest_record_event(guild_id, user_id, "work", 1, member=user)
-        await quest_record_event(guild_id, user_id, "earned", amount, member=user)
-    except Exception:
-        log.exception("Full quest work event failed for guild %s", guild_id)
     await bd_save_data()
     await economy_log(guild_id, title="💼 Economy work", fields=[("User", f"{user} ({user_id})"), ("Job", job), ("Earned", f"+{amount} Catnip"), ("Balance before", f"{balance_before:,}"), ("Balance after", f"{balance_before+amount:,}")])
     return True, amount, f"💼 You **{job}** and earned **{amount} Catnip**! *Cinnamon inspects the work proudly.*"
@@ -124,7 +296,7 @@ def economy_income_role_lines(guild: discord.Guild) -> str:
     return "\n".join(lines)
 
 
-economy_group = app_commands.Group(name="economy", description="Cinnamon's Catnip economy, items, quests, and backups")
+economy_group = app_commands.Group(name="economy", description="Cinnamon's Catnip economy, items, transactions, and backups")
 
 # Discord allows at most 25 direct children under one application-command group.
 # Keep the two Catnip admin balance controls under a nested admin group so the
@@ -143,10 +315,15 @@ async def economy_balance_cmd(interaction: discord.Interaction, member: discord.
     balance = economy_balance(interaction.guild.id, member.id)
     inv = economy_inventory_for(interaction.guild.id, member.id)
     item_count = sum(int(v) for v in inv.values())
-    embed = discord.Embed(title=f"🐾 {member.display_name}'s wallet", color=discord.Color.gold())
-    embed.add_field(name="Catnip", value=f"🌿 **{balance:,}**", inline=True)
-    embed.add_field(name="Items", value=f"🎒 **{item_count}**", inline=True)
-    await interaction.response.send_message(embed=embed)
+    embed = cinnamon_embed(
+        "🌿 Catnip Wallet",
+        f"**{member.mention}**\n\nYour current Cinnamon economy status is shown below.",
+        color=CINNAMON_GOLD, user=member, footer="Cinnamon Economy • Wallet"
+    )
+    cinnamon_field(embed, "🌿 Catnip", f"**{balance:,}**", True)
+    cinnamon_field(embed, "🎒 Items", f"**{item_count:,}**", True)
+    cinnamon_field(embed, "​", "​", True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
     await economy_log(interaction.guild.id, title="👛 Economy balance viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Balance", f"{balance:,} Catnip")])
     await bd_save_data()
 
@@ -161,20 +338,31 @@ async def economy_inventory_cmd(interaction: discord.Interaction, member: discor
         if qty > 0 and item_id in ECONOMY_ITEMS:
             item = ECONOMY_ITEMS[item_id]
             lines.append(f"{item['emoji']} **{item['name']}** × **{qty}** (`{item_id}`)")
-    embed = discord.Embed(title=f"🎒 {member.display_name}'s inventory", color=discord.Color.blurple())
-    embed.description = "\n".join(lines) if lines else "Your inventory is empty. Visit `/economy shop`!"
-    await interaction.response.send_message(embed=embed)
+    embed = cinnamon_embed(
+        "🎒 Inventory",
+        f"**{member.mention}**\n\n" + ("\n".join(lines) if lines else "Your inventory is empty. Visit `/economy shop` to start collecting."),
+        color=CINNAMON_BLUE, user=member, footer="Cinnamon Economy • Inventory"
+    )
+    cinnamon_field(embed, "🌿 Catnip", f"**{economy_balance(interaction.guild.id, member.id):,}**", True)
+    cinnamon_field(embed, "📦 Total items", f"**{sum(int(v) for v in inv.values()):,}**", True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
     inv_summary = "\n".join(f"{ECONOMY_ITEMS[k]['name']}: {int(v)}" for k, v in inv.items() if k in ECONOMY_ITEMS and int(v) > 0) or "Empty"
     await economy_log(interaction.guild.id, title="🎒 Economy inventory viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Inventory", inv_summary[:1000]), ("Total items", str(sum(int(v) for v in inv.values()))), ("Catnip balance", f"{economy_balance(interaction.guild.id, member.id):,}")])
 
 
-@economy_group.command(name="shop", description="View Cinnamon's shop")
+@economy_group.command(name="shop", description="Open Cinnamon's interactive Catnip shop")
 @app_commands.guild_only()
 async def economy_shop_cmd(interaction: discord.Interaction):
-    embed = discord.Embed(title="🐟 Cinnamon's Catnip Shop", description=economy_item_lines(), color=discord.Color.gold())
-    embed.set_footer(text="Buy with /economy buy item:<item_id> quantity:<number>")
-    await interaction.response.send_message(embed=embed)
-    await economy_log(interaction.guild.id, title="🛒 Economy shop viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})")])
+    embed = economy_shop_embed(interaction.guild.id, interaction.user, 0)
+    view = CinnamonShopView(interaction.guild.id, interaction.user.id, 0)
+    await interaction.response.send_message(
+        embed=embed, view=view, allowed_mentions=discord.AllowedMentions.none()
+    )
+    await economy_log(
+        interaction.guild.id,
+        title="🛒 Economy shop viewed",
+        fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Items shown", str(len(ECONOMY_ITEMS)))]
+    )
 
 
 @economy_group.command(name="buy", description="Buy an item with Catnip")
@@ -189,31 +377,28 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
             item_id = matches[0]
     data = ECONOMY_ITEMS.get(item_id)
     if data is None:
-        await interaction.response.send_message("❌ That item isn't in the shop. Use `/economy shop` to see available items.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ That item isn't in the shop. Use `/economy shop` to see available items.", ephemeral=True)
         return
     current_qty = int(economy_inventory_for(guild_id, user_id).get(item_id, 0))
     max_per_person = int(data.get("max_per_person", 0))
     if max_per_person and current_qty + quantity > max_per_person:
-        await interaction.response.send_message(f"❌ This item has a limit of **{max_per_person}** per person. You already have **{current_qty}**.", ephemeral=True)
+        await cinnamon_send(interaction, f"❌ This item has a limit of **{max_per_person}** per person. You already have **{current_qty}**.", ephemeral=True)
         return
     cost = data["price"] * quantity
     balance = economy_balance(guild_id, user_id)
     if balance < cost:
-        await interaction.response.send_message(f"❌ You need **{cost:,} Catnip**, but you only have **{balance:,}**.", ephemeral=True)
+        await cinnamon_send(interaction, f"❌ You need **{cost:,} Catnip**, but you only have **{balance:,}**.", ephemeral=True)
         return
     economy_balances[(guild_id, user_id)] = balance - cost
     inv = economy_inventory_for(guild_id, user_id)
     inv[item_id] = current_qty + quantity
-    await achievement_record(guild_id, user_id, "purchase", quantity, spent=cost)
-    await achievement_record(guild_id, user_id, "inventory")
-    await quest_event(guild_id, user_id, "items_owned", sum(max(0,int(v)) for v in inv.values()))
-    await quest_event(guild_id, user_id, "purchase", quantity, spent=cost)
-    await quest_event(guild_id, user_id, "spent", cost, spent=cost)
-    await achievement_record(guild_id, user_id, "balance")
-    await quest_event(guild_id, user_id, "balance", balance - cost)
     await bd_save_data()
     await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity", quantity), ("Unit price", f"{data['price']:,} Catnip"), ("Deducted", f"-{cost:,} Catnip"), ("Balance before", f"{balance:,} Catnip"), ("Balance after", f"{balance-cost:,} Catnip"), ("Item quantity after", str(inv[item_id]))])
-    await interaction.response.send_message(f"🛒 Bought **{quantity}× {data['emoji']} {data['name']}** for **{cost:,} Catnip**. Balance: **{economy_balances[(guild_id, user_id)]:,}**")
+    embed = cinnamon_embed("🛒 Purchase Complete", f"You bought **{quantity:,}× {data['emoji']} {data['name']}**.", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Purchase")
+    cinnamon_field(embed, "💸 Cost", f"**{cost:,} Catnip**", True)
+    cinnamon_field(embed, "🌿 New balance", f"**{economy_balances[(guild_id, user_id)]:,} Catnip**", True)
+    cinnamon_field(embed, "📦 You now own", f"**{inv[item_id]:,}×**", True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
 
 @economy_group.command(name="daily", description="Claim your daily Catnip")
@@ -222,16 +407,18 @@ async def economy_daily_cmd(interaction: discord.Interaction):
     guild_id, user_id = interaction.guild.id, interaction.user.id
     remaining = economy_cooldown_remaining(guild_id, user_id, "daily")
     if remaining:
-        await interaction.response.send_message(f"🐾 Cinnamon already gave you your daily Catnip. Come back in **{remaining // 3600}h {(remaining % 3600) // 60}m**.", ephemeral=True)
+        embed = cinnamon_embed("⏳ Daily Catnip Cooldown", f"Cinnamon has already given you today's Catnip.\n\nCome back in **{remaining // 3600}h {(remaining % 3600) // 60}m**.", color=CINNAMON_MUTED, user=interaction.user, footer="Cinnamon Economy • Daily")
+        await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
         return
     economy_cooldowns[(guild_id, user_id, "daily")] = time.time() + 86400
     balance_before = economy_balance(guild_id, user_id)
     economy_balances[(guild_id, user_id)] = balance_before + ECONOMY_DAILY_REWARD
-    await achievement_record(guild_id, user_id, "catnip_earned", ECONOMY_DAILY_REWARD)
-    await achievement_record(guild_id, user_id, "balance")
     await bd_save_data()
     await economy_log(guild_id, title="🌿 Daily Catnip", fields=[("User", f"{interaction.user} ({user_id})"), ("Amount", f"+{ECONOMY_DAILY_REWARD} Catnip"), ("Balance before", f"{balance_before:,}"), ("Balance after", f"{balance_before+ECONOMY_DAILY_REWARD:,}")])
-    await interaction.response.send_message(f"🌿 **+{ECONOMY_DAILY_REWARD} Catnip!** Cinnamon has approved your daily snack budget.")
+    embed = cinnamon_embed("🌿 Daily Catnip Claimed", "Cinnamon has approved your daily snack budget.\n\n**Come back tomorrow for another reward!**", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Daily Reward")
+    cinnamon_field(embed, "Reward", f"**+{ECONOMY_DAILY_REWARD:,} Catnip**", True)
+    cinnamon_field(embed, "New balance", f"**{balance_before + ECONOMY_DAILY_REWARD:,} Catnip**", True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
 
 @economy_group.command(name="work", description="Work for Cinnamon and earn 50-150 Catnip every 10 minutes")
@@ -239,25 +426,16 @@ async def economy_daily_cmd(interaction: discord.Interaction):
 async def economy_work_cmd(interaction: discord.Interaction):
     ok, amount, message = await economy_do_work(interaction.guild.id, interaction.user)
     if not ok:
-        embed = discord.Embed(
-            title="🐾 Cinnamon's Work Desk",
-            description=message,
-            color=discord.Color.orange(),
-        )
-        embed.set_footer(text="Cinnamon economy • Work cooldown")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        embed = cinnamon_embed("⏳ Work Cooldown", message, color=CINNAMON_MUTED, user=interaction.user, footer="Cinnamon Economy • Work")
+        await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
         return
-
     balance = economy_balance(interaction.guild.id, interaction.user.id)
-    embed = discord.Embed(
-        title="💼 Shift Complete!",
-        description=message,
-        color=discord.Color.gold(),
-    )
-    embed.add_field(name="💰 Earned", value=f"**+{amount:,} Catnip**", inline=True)
-    embed.add_field(name="🌿 New Balance", value=f"**{balance:,} Catnip**", inline=True)
-    embed.set_footer(text="Cinnamon economy • Next shift available in 10 minutes")
-    await interaction.response.send_message(embed=embed)
+    job = message.replace("💼 You **", "").split("** and earned", 1)[0] if "** and earned" in message else "worked for Cinnamon"
+    embed = cinnamon_embed("💼 Shift Complete", "Cinnamon inspected your work and approved the payment. 🐾", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Work • 10 minute cooldown")
+    cinnamon_field(embed, "💼 Job", f"{job}", False)
+    cinnamon_field(embed, "🌿 Earned", f"**+{amount:,} Catnip**", True)
+    cinnamon_field(embed, "💰 New balance", f"**{balance:,} Catnip**", True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
 
 @economy_group.command(name="give", description="Give Catnip to another member")
@@ -265,35 +443,21 @@ async def economy_work_cmd(interaction: discord.Interaction):
 async def economy_give_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     guild_id = interaction.guild.id
     if member.bot:
-        await interaction.response.send_message("❌ Bot accounts can't receive Catnip.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ Bot accounts can't receive Catnip.", ephemeral=True)
         return
     if member.id == interaction.user.id:
-        await interaction.response.send_message("🐾 You can't give Catnip to yourself.", ephemeral=True)
-        return
-    if amount <= 0:
-        await interaction.response.send_message("❌ Amount must be greater than 0.", ephemeral=True)
-        return
-    pair_key = (guild_id, interaction.user.id, f"give:{member.id}")
-    pair_remaining = economy_cooldown_remaining(guild_id, interaction.user.id, f"give:{member.id}")
-    if pair_remaining:
-        await interaction.response.send_message(f"🐾 You recently sent Catnip to that member. Try again in **{pair_remaining // 60}m**.", ephemeral=True)
+        await cinnamon_send(interaction, "🐾 You can't give Catnip to yourself.", ephemeral=True)
         return
     sender_balance = economy_balance(guild_id, interaction.user.id)
     if sender_balance < amount:
-        await interaction.response.send_message(f"❌ You only have **{sender_balance:,} Catnip**.", ephemeral=True)
+        await cinnamon_send(interaction, f"❌ You only have **{sender_balance:,} Catnip**.", ephemeral=True)
         return
     recipient_before = economy_balance(guild_id, member.id)
     economy_balances[(guild_id, interaction.user.id)] = sender_balance - amount
     economy_balances[(guild_id, member.id)] = recipient_before + amount
-    economy_cooldowns[pair_key] = time.time() + 3600
-    await achievement_record(guild_id, interaction.user.id, "give", amount)
-    await achievement_record(guild_id, interaction.user.id, "balance")
-    await quest_event(guild_id, interaction.user.id, "balance", sender_balance-amount)
-    await quest_event(guild_id, interaction.user.id, "give", amount)
-    await quest_event(guild_id, interaction.user.id, "give_count", 1)
     await bd_save_data()
     await economy_log(guild_id, title="🎁 Catnip transfer", fields=[("From", f"{interaction.user} ({interaction.user.id})"), ("To", f"{member} ({member.id})"), ("Amount", f"{amount:,} Catnip"), ("Sender before", f"{sender_balance:,}"), ("Sender after", f"{sender_balance-amount:,}"), ("Recipient before", f"{recipient_before:,}"), ("Recipient after", f"{recipient_before+amount:,}")])
-    await interaction.response.send_message(f"🎁 Gave **{amount:,} Catnip** to {member.mention}.")
+    await cinnamon_send(interaction, f"🎁 Gave **{amount:,} Catnip** to {member.mention}.")
 
 
 @economy_group.command(name="leaderboard", description="Show the richest members")
@@ -307,8 +471,13 @@ async def economy_leaderboard_cmd(interaction: discord.Interaction):
         member = interaction.guild.get_member(uid)
         name = member.display_name if member else f"User {uid}"
         lines.append(f"**{i}.** {name} — 🌿 **{bal:,}**")
-    embed = discord.Embed(title="🏆 Catnip leaderboard", description="\n".join(lines) if lines else "No economy users yet.", color=discord.Color.gold())
-    await interaction.response.send_message(embed=embed)
+    embed = cinnamon_embed("🏆 Catnip Leaderboard", "The richest humans in this server, according to Cinnamon. 🐱\n", color=CINNAMON_GOLD, user=interaction.user, footer="Cinnamon Economy • Top 10")
+    if lines:
+        embed.description += "\n".join(lines)
+    else:
+        embed.description += "No economy users yet. Start with `/economy daily` or `/economy work`."
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
+
 
 
 @economy_group.command(name="feed", description="Give Cinnamon an item")
@@ -321,38 +490,37 @@ async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.
         item_id = str(item.value)
         data = ECONOMY_ITEMS.get(item_id)
         if not data:
-            await interaction.response.send_message("❌ That item no longer exists. Refresh the command choices and try again.", ephemeral=True)
+            await cinnamon_send(interaction, "❌ That item no longer exists. Refresh the command choices and try again.", ephemeral=True)
             return
         inv = economy_inventory_for(guild_id, user_id)
         have = max(0, int(inv.get(item_id, 0)))
         if have < quantity:
-            await interaction.response.send_message(f"❌ You only have **{have}× {data['name']}**.", ephemeral=True)
+            await cinnamon_send(interaction, f"❌ You only have **{have}× {data['name']}**.", ephemeral=True)
             return
+        balance_before = economy_balance(guild_id, user_id)
         inv[item_id] = have - quantity
-        await achievement_record(guild_id, user_id, "feed", quantity, item=item_id)
-        await achievement_record(guild_id, user_id, "inventory")
-        await quest_event(guild_id, user_id, "items_owned", sum(max(0,int(v)) for v in inv.values()))
-        await quest_event(guild_id, user_id, "feed", quantity, item=item_id)
+        completed, quest_reward = await apply_quest_progress(guild_id, user_id, item_id, quantity)
+        if quest_reward:
+            economy_balances[(guild_id, user_id)] = economy_balance(guild_id, user_id) + quest_reward
         await bd_save_data()
-        await economy_log(guild_id, title="🐟 Cinnamon fed", fields=[
-            ("User", f"{interaction.user} ({user_id})"),
-            ("Item", f"{data['name']} (`{item_id}`)"),
-            ("Quantity fed", str(quantity)),
-            ("Inventory before", str(have)),
-            ("Inventory after", str(inv.get(item_id, 0))),
-            ("Inventory change", f"-{quantity} {data['name']}"),
-        ])
-        await interaction.response.send_message(
-            f"🐾 Cinnamon happily accepted **{quantity}× {data['name']}**!",
-            allowed_mentions=discord.AllowedMentions.none(),
+        balance_after = economy_balance(guild_id, user_id)
+        unlocked = await check_economy_achievements(
+            guild_id, user_id, fed=True, completed_quest=bool(completed), member=interaction.user
         )
-    except Exception:
-        log.exception("Economy feed command failed for guild %s", interaction.guild.id if interaction.guild else 0)
-        msg = "❌ I couldn't process that feed action. Please try again."
+        await economy_log(guild_id, title="🐟 Cinnamon fed", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity fed", quantity), ("Quantity remaining", inv.get(item_id, 0)), ("Catnip before", f"{balance_before:,}"), ("Catnip after", f"{economy_balance(guild_id, user_id):,}"), ("Quest rewards", ", ".join(completed) if completed else "None"), ("Achievements", ", ".join(unlocked) if unlocked else "None")])
+        text = f"🐾 Cinnamon happily accepted **{quantity}× {data['name']}**!"
+        if completed:
+            text += "\n🎉 Quest complete: " + ", ".join(completed)
+        if unlocked:
+            text += "\n🏆 Achievement unlocked: **" + ", ".join(unlocked) + "**"
+        await cinnamon_send(interaction, text)
+    except Exception as exc:
+        log.exception("Economy feed command failed for guild %s", interaction.guild.id if interaction.guild else None)
         if interaction.response.is_done():
-            await interaction.followup.send(msg, ephemeral=True)
+            await interaction.followup.send("❌ I couldn't process that feed/quest action. No further changes were made by the failed step.", ephemeral=True)
         else:
-            await interaction.response.send_message(msg, ephemeral=True)
+            await cinnamon_send(interaction, "❌ I couldn't process that feed/quest action. Please try again.", ephemeral=True)
+
 
 
 @economy_group.command(name="logs", description="Set or disable the economy transaction log channel")
@@ -365,7 +533,7 @@ async def economy_logs_cmd(interaction: discord.Interaction, channel: discord.Te
         removed = economy_log_channels.pop(guild_id, None)
         category_log_channels.get(guild_id, {}).pop("economy", None)
         await bd_save_data()
-        await interaction.response.send_message("🧾 Economy logs disabled." if removed else "🧾 Economy logs are already disabled.", ephemeral=True)
+        await cinnamon_send(interaction, "🧾 Economy logs disabled." if removed else "🧾 Economy logs are already disabled.", ephemeral=True)
         if removed:
             # The economy destination has just been removed, so this is intentionally routed through the remaining setup/main logger.
             await send_log(guild_id, title="🧾 Economy logging disabled", interaction=interaction, category="setup", fields=[("Previous channel ID", str(removed))])
@@ -375,7 +543,7 @@ async def economy_logs_cmd(interaction: discord.Interaction, channel: discord.Te
     await secure_log_channel(channel)
     await bd_save_data()
     await economy_log(guild_id, title="🧾 Economy logging enabled", description=f"Economy transactions and backup snapshots will be posted here: {channel.mention}")
-    await interaction.response.send_message(f"✅ Economy logs will now go to {channel.mention}.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ Economy logs will now go to {channel.mention}.", ephemeral=True)
 
 
 async def economy_snapshot_payload(guild_id: int) -> dict:
@@ -385,32 +553,21 @@ async def economy_snapshot_payload(guild_id: int) -> dict:
         if gid == guild_id: user_ids.add(uid)
     for (gid, uid) in economy_inventory:
         if gid == guild_id: user_ids.add(uid)
+    for (gid, uid) in economy_quests:
+        if gid == guild_id: user_ids.add(uid)
     for uid in user_ids:
         users[str(uid)] = economy_user_snapshot(guild_id, uid)
-    achievement_data_all = globals().get("achievement_data", {})
-    achievement_config_all = globals().get("achievement_config", {})
-    achievement_role_overrides_all = globals().get("achievement_role_overrides", {})
-    quest_data_all = globals().get("quest_data", {})
-    quest_config_all = globals().get("quest_config", {})
     return {
-        "schema": 2,
+        "schema": 1,
         "type": "cinnamon_economy_snapshot",
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "guild_id": guild_id,
         "currency": "Catnip",
         "users": users,
         "items": ECONOMY_ITEMS,
+        "quests": ECONOMY_QUESTS,
         "level_rewards": ECONOMY_LEVEL_REWARDS,
         "income_roles": economy_income_roles.get(guild_id, {}),
-        "achievements": {
-            f"{g}:{u}": v
-            for (g, u), v in achievement_data_all.items()
-            if g == guild_id
-        },
-        "achievement_config": achievement_config_all.get(guild_id, {}),
-        "achievement_role_overrides": achievement_role_overrides_all.get(guild_id, {}),
-        "quests": quest_data_all.get(guild_id, {}),
-        "quest_config": quest_config_all.get(guild_id, {}),
     }
 
 
@@ -422,13 +579,13 @@ async def economy_snapshot_cmd(interaction: discord.Interaction):
     channel_id = economy_log_channels.get(guild_id)
     channel = bot.get_channel(channel_id) if channel_id else None
     if channel is None:
-        await interaction.response.send_message("❌ Set an economy log channel first with `/economy logs #channel`.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ Set an economy log channel first with `/economy logs #channel`.", ephemeral=True)
         return
     payload = await economy_snapshot_payload(guild_id)
     raw = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
     file = discord.File(io.BytesIO(raw), filename=f"cinnamon_economy_snapshot_{guild_id}.json")
     user_count = len(payload["users"])
-    embed = discord.Embed(title="💾 Cinnamon economy snapshot", description="Complete Catnip balances, inventories, item definitions, and economy settings for this server. Keep this message/file before a reset.", color=discord.Color.green(), timestamp=datetime.datetime.now(datetime.timezone.utc))
+    embed = discord.Embed(title="💾 Cinnamon economy snapshot", description="Complete Catnip balances, inventories, quest progress, item definitions, and quest definitions for this server. Keep this message/file before a reset.", color=discord.Color.green(), timestamp=datetime.datetime.now(datetime.timezone.utc))
     embed.add_field(name="Users backed up", value=str(user_count), inline=True)
     embed.add_field(name="Currency", value="Catnip", inline=True)
     embed.add_field(name="Items", value=str(len(ECONOMY_ITEMS)), inline=True)
@@ -440,6 +597,8 @@ async def economy_snapshot_cmd(interaction: discord.Interaction):
     embed.add_field(name="🏆 Leaderboard at backup time", value="\n".join(rows) if rows else "No users yet.", inline=False)
     item_text = "\n".join(f"{v['emoji']} {v['name']} (`{k}`) — {v['price']} Catnip" for k, v in ECONOMY_ITEMS.items())
     embed.add_field(name="🛒 Item information", value=item_text, inline=False)
+    quest_text = "\n".join(f"{q['name']} — {q['amount']}× {ECONOMY_ITEMS[q['item']]['name']} → {q['reward']} Catnip" for q in ECONOMY_QUESTS.values())
+    embed.add_field(name="📜 Quest information", value=quest_text, inline=False)
     embed.add_field(name="How to restore", value="After the reset, run `/economy restore-snapshot` in this server. The bot will scan this log channel for the newest snapshot.", inline=False)
     await interaction.response.defer(ephemeral=True)
     await channel.send(embed=embed, file=file)
@@ -493,11 +652,23 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
                     live_inventory.setdefault(item_id, quantity)
             else:
                 economy_inventory[key] = snap_inventory
+            snap_quests = {str(k): int(v) for k, v in user.get("quests", {}).items()}
+            if merge_only:
+                live_quests = economy_quests.setdefault(key, {})
+                for quest_id, progress in snap_quests.items():
+                    live_quests.setdefault(quest_id, progress)
+            else:
+                economy_quests[key] = snap_quests
             snap_levels = [int(x) for x in user.get("level_rewards_claimed", [])]
             if merge_only:
                 economy_level_rewards_claimed[key] = sorted(set(economy_level_rewards_claimed.get(key, [])) | set(snap_levels))
             else:
                 economy_level_rewards_claimed[key] = snap_levels
+            snap_achievements = [str(x) for x in user.get("achievements", []) if str(x) in ECONOMY_ACHIEVEMENTS]
+            if merge_only:
+                economy_achievements[key] = sorted(set(economy_achievements.get(key, [])) | set(snap_achievements))
+            else:
+                economy_achievements[key] = snap_achievements
             if not had_balance:
                 restored += 1
         except (ValueError, TypeError):
@@ -505,43 +676,6 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
     snapshot_income = latest.get("income_roles")
     if isinstance(snapshot_income, dict):
         economy_income_roles[guild.id] = {int(r): cfg for r, cfg in snapshot_income.items()}
-    # Restore achievement/quest state from the same admin snapshot so a full
-    # economy recovery does not silently lose unlocked achievements, roles,
-    # Quest Points, active rotations, or their per-guild configuration.
-    snapshot_achievements = latest.get("achievements")
-    if isinstance(snapshot_achievements, dict) and "achievement_data" in globals():
-        target = globals()["achievement_data"]
-        for key_text, state in snapshot_achievements.items():
-            try:
-                g_text, u_text = str(key_text).split(":", 1)
-                if int(g_text) != guild.id or not isinstance(state, dict):
-                    continue
-                key = (guild.id, int(u_text))
-                if merge_only and key in target:
-                    continue
-                target[key] = state
-            except (ValueError, TypeError):
-                continue
-
-    snapshot_achievement_config = latest.get("achievement_config")
-    if isinstance(snapshot_achievement_config, dict) and "achievement_config" in globals() and not merge_only:
-        globals()["achievement_config"][guild.id] = snapshot_achievement_config
-
-    snapshot_role_overrides = latest.get("achievement_role_overrides")
-    if isinstance(snapshot_role_overrides, dict) and "achievement_role_overrides" in globals() and not merge_only:
-        try:
-            globals()["achievement_role_overrides"][guild.id] = {str(a): int(r) for a, r in snapshot_role_overrides.items()}
-        except (ValueError, TypeError):
-            pass
-
-    snapshot_quests = latest.get("quests")
-    if isinstance(snapshot_quests, dict) and "quest_data" in globals() and not merge_only:
-        globals()["quest_data"][guild.id] = snapshot_quests
-
-    snapshot_quest_config = latest.get("quest_config")
-    if isinstance(snapshot_quest_config, dict) and "quest_config" in globals() and not merge_only:
-        globals()["quest_config"][guild.id] = snapshot_quest_config
-
     snapshot_items = latest.get("items")
     if isinstance(snapshot_items, dict):
         restored_items = {}
@@ -560,6 +694,24 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
         else:
             ECONOMY_ITEMS.clear()
             ECONOMY_ITEMS.update(restored_items)
+    snapshot_quests = latest.get("quests")
+    if isinstance(snapshot_quests, dict):
+        valid_quests = {}
+        for quest_id, quest in snapshot_quests.items():
+            if isinstance(quest, dict) and str(quest.get("item", "")) in ECONOMY_ITEMS:
+                valid_quests[str(quest_id)] = {
+                    "name": str(quest.get("name", quest_id))[:80],
+                    "item": str(quest.get("item")),
+                    "amount": max(1, int(quest.get("amount", 1))),
+                    "reward": max(0, int(quest.get("reward", 0))),
+                    "description": str(quest.get("description", ""))[:300],
+                }
+        if merge_only:
+            for quest_id, quest in valid_quests.items():
+                ECONOMY_QUESTS.setdefault(quest_id, quest)
+        elif valid_quests:
+            ECONOMY_QUESTS.clear()
+            ECONOMY_QUESTS.update(valid_quests)
     await bd_save_data()
     created = latest.get("created_at", "unknown time")
     return restored, created
@@ -574,7 +726,7 @@ async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discor
     economy_balances[(guild_id, member.id)] = before + amount
     await bd_save_data()
     await economy_log(guild_id, title="🛠️ Admin Catnip added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Amount", f"+{amount:,} Catnip"), ("Balance before", f"{before:,}"), ("Balance after", f"{before+amount:,}")])
-    await interaction.response.send_message(f"✅ Added **{amount:,} Catnip** to {member.mention}. New balance: **{economy_balance(guild_id, member.id):,}**.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ Added **{amount:,} Catnip** to {member.mention}. New balance: **{economy_balance(guild_id, member.id):,}**.", ephemeral=True)
 
 
 @economy_admin_group.command(name="removecatnip", description="Admin: remove Catnip from a member")
@@ -587,7 +739,7 @@ async def economy_removecatnip_cmd(interaction: discord.Interaction, member: dis
     economy_balances[(guild_id, member.id)] = current - removed
     await bd_save_data()
     await economy_log(guild_id, title="🛠️ Admin Catnip removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Amount", f"-{removed:,} Catnip"), ("Balance before", f"{current:,}"), ("Balance after", f"{current-removed:,}")])
-    await interaction.response.send_message(f"✅ Removed **{removed:,} Catnip** from {member.mention}. New balance: **{economy_balance(guild_id, member.id):,}**.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ Removed **{removed:,} Catnip** from {member.mention}. New balance: **{economy_balance(guild_id, member.id):,}**.", ephemeral=True)
 
 
 @economy_group.command(name="income", description="Admin: manage Catnip income roles")
@@ -600,30 +752,30 @@ async def economy_income_cmd(interaction: discord.Interaction, action: app_comma
     cfg = economy_income_roles.setdefault(guild_id, {})
     if action.value == "list":
         embed = discord.Embed(title="💰 Catnip income roles", description=economy_income_role_lines(interaction.guild), color=discord.Color.gold())
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
         return
     if role is None:
-        await interaction.response.send_message("❌ Choose a role.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ Choose a role.", ephemeral=True)
         return
     if action.value == "remove":
         removed = cfg.pop(role.id, None)
         await bd_save_data()
-        await interaction.response.send_message(f"🗑️ Removed {role.mention} from Catnip income roles." if removed else f"ℹ️ {role.mention} was not an income role.", ephemeral=True)
+        await cinnamon_send(interaction, f"🗑️ Removed {role.mention} from Catnip income roles." if removed else f"ℹ️ {role.mention} was not an income role.", ephemeral=True)
         return
     if amount is None or minutes is None:
-        await interaction.response.send_message("❌ For `add`, provide both `amount` and `minutes`.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ For `add`, provide both `amount` and `minutes`.", ephemeral=True)
         return
     cfg[role.id] = {"amount": int(amount), "cooldown": int(minutes) * 60}
     await bd_save_data()
     await economy_log(guild_id, title="💰 Income role configured", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Role", role.name), ("Income", f"{amount:,} Catnip / {minutes} min")])
-    await interaction.response.send_message(f"✅ {role.mention} now earns **{amount:,} Catnip every {minutes} minutes** when members use `/collect`.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ {role.mention} now earns **{amount:,} Catnip every {minutes} minutes** when members use `/collect`.", ephemeral=True)
 
 
 async def economy_collect(interaction: discord.Interaction):
     guild_id = interaction.guild.id
     configs = economy_income_roles.get(guild_id, {})
     if not configs:
-        await interaction.response.send_message("ℹ️ This server has no income roles configured yet.", ephemeral=True)
+        await cinnamon_send(interaction, "ℹ️ This server has no income roles configured yet.", ephemeral=True)
         return
     total = 0
     collected = []
@@ -644,13 +796,13 @@ async def economy_collect(interaction: discord.Interaction):
         total += amount
         collected.append(f"{role.name}: +{amount:,}")
     if not collected:
-        await interaction.response.send_message("⏳ None of your income roles are ready to collect yet.", ephemeral=True)
+        await cinnamon_send(interaction, "⏳ None of your income roles are ready to collect yet.", ephemeral=True)
         return
     balance_before = economy_balance(guild_id, interaction.user.id)
     economy_balances[(guild_id, interaction.user.id)] = balance_before + total
     await bd_save_data()
     await economy_log(guild_id, title="💰 Income collected", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Total", f"+{total:,} Catnip"), ("Balance before", f"{balance_before:,}"), ("Balance after", f"{balance_before+total:,}"), ("Sources", "\n".join(collected))])
-    await interaction.response.send_message(f"💰 You collected **{total:,} Catnip**!\n" + "\n".join(f"• {x}" for x in collected))
+    await cinnamon_send(interaction, f"💰 You collected **{total:,} Catnip**!\n" + "\n".join(f"• {x}" for x in collected))
 
 
 @economy_group.command(name="collect", description="Collect Catnip from all income roles you have")
@@ -676,18 +828,18 @@ async def economy_item_add_cmd(interaction: discord.Interaction, member: discord
             item_id = matches[0]
     data = ECONOMY_ITEMS.get(item_id)
     if data is None:
-        await interaction.response.send_message("❌ That item doesn't exist. Use `/economy shop` first.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ That item doesn't exist. Use `/economy shop` first.", ephemeral=True)
         return
     inv = economy_inventory_for(interaction.guild.id, member.id)
     max_per_person = int(data.get("max_per_person", 0))
     current = int(inv.get(item_id, 0))
     if max_per_person and current + quantity > max_per_person:
-        await interaction.response.send_message(f"❌ {member.mention} cannot hold more than **{max_per_person}** of this item.", ephemeral=True)
+        await cinnamon_send(interaction, f"❌ {member.mention} cannot hold more than **{max_per_person}** of this item.", ephemeral=True)
         return
     inv[item_id] = current + quantity
     await bd_save_data()
     await economy_log(interaction.guild.id, title="🛠️ Admin item added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity added", f"+{quantity}"), ("Quantity before", current), ("Quantity after", inv[item_id]), ("Catnip balance", economy_balance(interaction.guild.id, member.id))])
-    await interaction.response.send_message(f"✅ Added **{quantity}× {data['emoji']} {data['name']}** to {member.mention}.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ Added **{quantity}× {data['emoji']} {data['name']}** to {member.mention}.", ephemeral=True)
 
 
 @economy_group.command(name="item-remove", description="Admin: remove an item from a member's inventory")
@@ -702,20 +854,20 @@ async def economy_item_remove_cmd(interaction: discord.Interaction, member: disc
             item_id = matches[0]
     data = ECONOMY_ITEMS.get(item_id)
     if data is None:
-        await interaction.response.send_message("❌ That item doesn't exist.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ That item doesn't exist.", ephemeral=True)
         return
     inv = economy_inventory_for(interaction.guild.id, member.id)
     current = int(inv.get(item_id, 0))
     removed = min(current, quantity)
     if removed <= 0:
-        await interaction.response.send_message(f"❌ {member.mention} doesn't have that item.", ephemeral=True)
+        await cinnamon_send(interaction, f"❌ {member.mention} doesn't have that item.", ephemeral=True)
         return
     inv[item_id] = current - removed
     if inv[item_id] <= 0:
         inv.pop(item_id, None)
     await bd_save_data()
     await economy_log(interaction.guild.id, title="🛠️ Admin item removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity removed", f"-{removed}"), ("Quantity before", current), ("Quantity after", inv.get(item_id, 0)), ("Catnip balance", economy_balance(interaction.guild.id, member.id))])
-    await interaction.response.send_message(f"✅ Removed **{removed}× {data['emoji']} {data['name']}** from {member.mention}.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ Removed **{removed}× {data['emoji']} {data['name']}** from {member.mention}.", ephemeral=True)
 
 
 @economy_group.command(name="add-item-shop", description="Admin: add an item to the Catnip shop")
@@ -725,14 +877,12 @@ async def economy_item_remove_cmd(interaction: discord.Interaction, member: disc
 async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: str, name: str, price: int, description: str | None = None, per_person_limit: int | None = None, emoji: str = "🐾"):
     item_id = re.sub(r"[^a-z0-9_-]", "", item_id.lower())[:32]
     if not item_id or item_id in ECONOMY_ITEMS:
-        await interaction.response.send_message("❌ That item ID is invalid or already exists.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ That item ID is invalid or already exists.", ephemeral=True)
         return
-    if int(price) < 1000:
-        return await interaction.response.send_message("❌ Default shop items must cost at least **1,000 Catnip**.", ephemeral=True)
     ECONOMY_ITEMS[item_id] = {"name": name[:80], "price": int(price), "emoji": emoji[:8], "description": (description or "No description provided.")[:300], "max_per_person": int(per_person_limit or 0)}
     await bd_save_data()
     await economy_log(interaction.guild.id, title="🛒 Shop item added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{emoji} {name}"), ("ID", item_id), ("Price", f"{price:,} Catnip"), ("Per-person limit", per_person_limit or "Unlimited")])
-    await interaction.response.send_message(f"✅ Added **{emoji} {name}** (`{item_id}`) to the shop.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ Added **{emoji} {name}** (`{item_id}`) to the shop.", ephemeral=True)
 
 
 async def autocomplete_shop_item_ids(interaction: discord.Interaction, current: str):
@@ -759,22 +909,19 @@ async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: 
     item_id = item_id.lower().strip()
     item = ECONOMY_ITEMS.get(item_id)
     if item is None:
-        await interaction.response.send_message("❌ That shop item doesn't exist.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ That shop item doesn't exist.", ephemeral=True)
         return
     if all(x is None for x in (name, price, description, per_person_limit, emoji)):
-        await interaction.response.send_message("❌ Choose at least one property to edit.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ Choose at least one property to edit.", ephemeral=True)
         return
     if name is not None: item["name"] = name[:80]
-    if price is not None:
-        if int(price) < 1000:
-            return await interaction.response.send_message("❌ Shop item prices must be at least **1,000 Catnip**.", ephemeral=True)
-        item["price"] = int(price)
+    if price is not None: item["price"] = int(price)
     if description is not None: item["description"] = description[:300]
     if per_person_limit is not None: item["max_per_person"] = int(per_person_limit)
     if emoji is not None: item["emoji"] = emoji[:8]
     await bd_save_data()
     await economy_log(interaction.guild.id, title="✏️ Shop item edited", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Item ID", item_id), ("New name", item["name"]), ("New price", f"{item['price']:,} Catnip"), ("Per-person limit", item.get("max_per_person", 0) or "Unlimited")])
-    await interaction.response.send_message(f"✅ Updated **{item['emoji']} {item['name']}** (`{item_id}`).", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ Updated **{item['emoji']} {item['name']}** (`{item_id}`).", ephemeral=True)
 
 
 @economy_group.command(name="remove-item-shop", description="Admin: remove an item from the Catnip shop")
@@ -786,7 +933,7 @@ async def economy_remove_item_shop_cmd(interaction: discord.Interaction, item_id
     item_id = item_id.lower().strip()
     item = ECONOMY_ITEMS.get(item_id)
     if item is None:
-        await interaction.response.send_message("❌ That shop item doesn't exist.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ That shop item doesn't exist.", ephemeral=True)
         return
     removed_inventory = 0
     if remove_from_inventories:
@@ -796,7 +943,7 @@ async def economy_remove_item_shop_cmd(interaction: discord.Interaction, item_id
     ECONOMY_ITEMS.pop(item_id, None)
     await bd_save_data()
     await economy_log(guild_id, title="🗑️ Shop item removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{item['emoji']} {item['name']}"), ("ID", item_id), ("Inventory copies removed", removed_inventory), ("Removed from inventories", remove_from_inventories)])
-    await interaction.response.send_message(f"🗑️ Removed **{item['name']}** from the shop. " + (f"Also removed **{removed_inventory}** copies from inventories." if remove_from_inventories else "Existing inventory copies were kept."), ephemeral=True)
+    await cinnamon_send(interaction, f"🗑️ Removed **{item['name']}** from the shop. " + (f"Also removed **{removed_inventory}** copies from inventories." if remove_from_inventories else "Existing inventory copies were kept."), ephemeral=True)
 
 
 @economy_group.command(name="add-role-income", description="Admin: give a role a recurring Catnip income")
@@ -810,7 +957,7 @@ async def economy_add_role_income_cmd(interaction: discord.Interaction, role: di
     economy_income_roles.setdefault(interaction.guild.id, {})[role.id] = {"amount": int(amount), "cooldown": cooldown, "interval": int(interval), "unit": unit.value}
     await bd_save_data()
     await economy_log(interaction.guild.id, title="💰 Role income added/updated", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Role", f"{role} ({role.id})"), ("Income", f"{amount:,} Catnip / {interval} {unit.name.lower()}")])
-    await interaction.response.send_message(f"✅ {role.mention} now provides **{amount:,} Catnip every {interval} {unit.name.lower()}** via `/collect`.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ {role.mention} now provides **{amount:,} Catnip every {interval} {unit.name.lower()}** via `/collect`.", ephemeral=True)
 
 
 @economy_group.command(name="remove-role-income", description="Admin: remove a role's recurring Catnip income")
@@ -822,7 +969,7 @@ async def economy_remove_role_income_cmd(interaction: discord.Interaction, role:
     removed = cfg.pop(role.id, None)
     await bd_save_data()
     await economy_log(interaction.guild.id, title="🗑️ Role income removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Role", f"{role} ({role.id})"), ("Was configured", bool(removed))])
-    await interaction.response.send_message(f"🗑️ Removed {role.mention} from recurring Catnip income." if removed else f"ℹ️ {role.mention} wasn't configured for income.", ephemeral=True)
+    await cinnamon_send(interaction, f"🗑️ Removed {role.mention} from recurring Catnip income." if removed else f"ℹ️ {role.mention} wasn't configured for income.", ephemeral=True)
 
 
 @economy_group.command(name="iteminfo", description="Show complete information about a Catnip item")
@@ -836,14 +983,14 @@ async def economy_iteminfo_cmd(interaction: discord.Interaction, item: str):
             item_id = matches[0]
     data = ECONOMY_ITEMS.get(item_id)
     if data is None:
-        await interaction.response.send_message("❌ That item doesn't exist. Use `/economy shop` to see the item IDs.", ephemeral=True)
+        await cinnamon_send(interaction, "❌ That item doesn't exist. Use `/economy shop` to see the item IDs.", ephemeral=True)
         return
     limit = int(data.get("max_per_person", 0))
     embed = discord.Embed(title=f"{data['emoji']} {data['name']}", description=data["description"], color=discord.Color.gold())
     embed.add_field(name="Item ID", value=f"`{item_id}`", inline=True)
     embed.add_field(name="Price", value=f"{data['price']:,} Catnip", inline=True)
     embed.add_field(name="Per-person limit", value=str(limit) if limit else "Unlimited", inline=True)
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed))
     await economy_log(interaction.guild.id, title="🔎 Economy item info viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{item['name']} (`{item_id}`)")])
 
 
