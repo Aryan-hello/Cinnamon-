@@ -282,7 +282,10 @@ class InventoryPageView(discord.ui.View):
         self.page+=1; self._refresh(); await i.response.edit_message(embed=inventory_embed(self.guild_id,self.user_id,self.page),view=self)
     async def _shop(self,i):
         if not await self._guard(i): return
-        view=CinnamonShopView(self.guild_id,self.user_id,0); await i.response.edit_message(embed=economy_shop_embed(self.guild_id,i.user,0),view=view)
+        # Components V2 owns the entire message. Do not attach the legacy
+        # embed to a LayoutView or Discord will reject the message payload.
+        view=CinnamonShopView(self.guild_id,self.user_id,0)
+        await i.response.edit_message(view=view)
     async def _close(self,i):
         if not await self._guard(i): return
         for child in self.children: child.disabled=True

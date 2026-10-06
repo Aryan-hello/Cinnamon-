@@ -450,6 +450,32 @@ async def setup_cmd(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+@setup_cmd.error
+async def setup_cmd_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    original = error.original if isinstance(error, app_commands.CommandInvokeError) else error
+    if isinstance(error, app_commands.MissingPermissions):
+        msg = (
+            "🐾 You need **Manage Server** (or Administrator) to run `/setup`. "
+            "If you already have it, make sure you are running this command in the server where Cinnamon is installed."
+        )
+    elif isinstance(error, app_commands.BotMissingPermissions):
+        missing = ", ".join(str(p).replace("_", " ").title() for p in getattr(error, "missing_permissions", [])) or "Manage Channels / Send Messages / Embed Links"
+        msg = f"🐾 Cinnamon is missing these permissions: **{missing}**. Give Cinnamon the required permissions and run `/setup` again."
+    elif isinstance(original, discord.Forbidden):
+        msg = (
+            "🐾 Discord refused one of the setup actions. Cinnamon needs **Manage Channels**, "
+            "**Send Messages**, and **Embed Links**, and its role must not be blocked by a channel/category permission override."
+        )
+    else:
+        log.exception("/setup failed", exc_info=original)
+        msg = "🐾 `/setup` hit an unexpected error. I logged the exact error in Render so it can be fixed without guessing."
+
+    if interaction.response.is_done():
+        await interaction.followup.send(msg, ephemeral=True)
+    else:
+        await interaction.response.send_message(msg, ephemeral=True)
+
+
 @bot.tree.command(name="setupstatus", description="Check Cinnamon's configured channels and systems")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)

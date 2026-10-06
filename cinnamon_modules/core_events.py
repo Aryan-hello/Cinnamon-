@@ -246,7 +246,23 @@ async def on_ready():
                 except Exception as e:
                     log.error(f"Hangry Games recovery failed for guild {guild.id}: {e}")
 
-    await bot.tree.sync()
+    # Sync globally for normal Discord propagation, and also copy the same
+    # command tree into each current guild so setup/configuration commands are
+    # available immediately instead of waiting for global command propagation.
+    try:
+        synced = await bot.tree.sync()
+        log.info("Globally synced %d Cinnamon slash commands", len(synced))
+    except Exception:
+        log.exception("Global slash-command sync failed")
+
+    for guild in bot.guilds:
+        try:
+            bot.tree.copy_global_to(guild=guild)
+            guild_synced = await bot.tree.sync(guild=guild)
+            log.info("Guild-synced %d Cinnamon slash commands to %s (%s)", len(guild_synced), guild.name, guild.id)
+        except Exception:
+            log.exception("Guild slash-command sync failed for %s (%s)", guild.name, guild.id)
+
     await bot.change_presence(activity=discord.Activity(
         type=discord.ActivityType.watching, name="for treats 🐟"))
     log.info(f"Cinnamon is online as {bot.user}")
@@ -448,7 +464,20 @@ async def prefix_inventory(ctx,member:discord.Member=None):
 
 @bot.command(name="shop")
 @commands.guild_only()
-async def prefix_shop(ctx): await ctx.reply(embed=discord.Embed(title="🐟 Cinnamon's Catnip Shop",description=economy_item_lines(),color=discord.Color.gold()))
+async def prefix_shop(ctx):
+    # Keep ?shop identical to /economy shop. The old embed-only shop was
+    # accidentally left behind, so prefix users were still seeing the legacy UI.
+    view = CinnamonShopView(ctx.guild.id, ctx.author.id, 0)
+    await ctx.reply(view=view, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+    await economy_log(
+        ctx.guild.id,
+        title="🛒 Economy shop viewed",
+        fields=[
+            ("Viewer", f"{ctx.author} ({ctx.author.id})"),
+            ("Items shown", str(len(ECONOMY_ITEMS))),
+            ("Entry", "?shop"),
+        ],
+    )
 
 @bot.command(name="daily")
 @commands.guild_only()
