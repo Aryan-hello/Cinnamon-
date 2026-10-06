@@ -87,6 +87,11 @@ async def economy_do_work(guild_id: int, user: discord.abc.User) -> tuple[bool, 
     await achievement_record(guild_id, user_id, "balance")
     await quest_event(guild_id, user_id, "work", 1)
     await quest_event(guild_id, user_id, "balance", balance_before + amount)
+    try:
+        await quest_record_event(guild_id, user_id, "work", 1, member=user)
+        await quest_record_event(guild_id, user_id, "earned", amount, member=user)
+    except Exception:
+        log.exception("Full quest work event failed for guild %s", guild_id)
     await bd_save_data()
     await economy_log(guild_id, title="💼 Economy work", fields=[("User", f"{user} ({user_id})"), ("Job", job), ("Earned", f"+{amount} Catnip"), ("Balance before", f"{balance_before:,}"), ("Balance after", f"{balance_before+amount:,}")])
     return True, amount, f"💼 You **{job}** and earned **{amount} Catnip**! *Cinnamon inspects the work proudly.*"
@@ -233,7 +238,26 @@ async def economy_daily_cmd(interaction: discord.Interaction):
 @app_commands.guild_only()
 async def economy_work_cmd(interaction: discord.Interaction):
     ok, amount, message = await economy_do_work(interaction.guild.id, interaction.user)
-    await interaction.response.send_message(message, ephemeral=not ok)
+    if not ok:
+        embed = discord.Embed(
+            title="🐾 Cinnamon's Work Desk",
+            description=message,
+            color=discord.Color.orange(),
+        )
+        embed.set_footer(text="Cinnamon economy • Work cooldown")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    balance = economy_balance(interaction.guild.id, interaction.user.id)
+    embed = discord.Embed(
+        title="💼 Shift Complete!",
+        description=message,
+        color=discord.Color.gold(),
+    )
+    embed.add_field(name="💰 Earned", value=f"**+{amount:,} Catnip**", inline=True)
+    embed.add_field(name="🌿 New Balance", value=f"**{balance:,} Catnip**", inline=True)
+    embed.set_footer(text="Cinnamon economy • Next shift available in 10 minutes")
+    await interaction.response.send_message(embed=embed)
 
 
 @economy_group.command(name="give", description="Give Catnip to another member")

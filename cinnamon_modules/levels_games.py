@@ -5,6 +5,8 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
+import io
+
 MAX_LEVEL = 200
 DEFAULT_XP_PER_MESSAGE = 20
 XP_COOLDOWN_SECONDS = 30
@@ -124,6 +126,51 @@ async def award_xp(message: discord.Message):
             pass
 
 
+async def _make_rank_card(member: discord.Member, xp: int, level: int) -> io.BytesIO:
+    """Render Cinnamon's 800x200 image rank card."""
+    from PIL import Image, ImageDraw, ImageFont
+    width, height = 800, 200
+    bg = Image.new("RGB", (width, height), (35, 27, 24))
+    draw = ImageDraw.Draw(bg)
+    draw.rounded_rectangle((12, 12, width - 12, height - 12), radius=24, fill=(49, 37, 31), outline=(255, 176, 46), width=2)
+    draw.ellipse((620, -100, 840, 120), fill=(73, 51, 39))
+    draw.ellipse((720, 80, 880, 240), fill=(59, 43, 35))
+    font_dir = "/usr/share/fonts/truetype/dejavu"
+    bold = ImageFont.truetype(f"{font_dir}/DejaVuSans-Bold.ttf", 27)
+    regular = ImageFont.truetype(f"{font_dir}/DejaVuSans.ttf", 18)
+    small = ImageFont.truetype(f"{font_dir}/DejaVuSans.ttf", 15)
+    avatar_size = 120
+    avatar = Image.new("RGB", (avatar_size, avatar_size), (75, 55, 45))
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(member.display_avatar.replace(size=128).url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status == 200:
+                    avatar = Image.open(io.BytesIO(await resp.read())).convert("RGB").resize((avatar_size, avatar_size))
+    except Exception:
+        pass
+    mask = Image.new("L", (avatar_size, avatar_size), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, avatar_size, avatar_size), fill=255)
+    bg.paste(avatar, (38, 40), mask)
+    draw.text((180, 35), member.display_name[:28], font=bold, fill=(255, 244, 231))
+    draw.text((180, 72), f"Level {level}", font=regular, fill=(255, 190, 80))
+    current = total_xp_for_level(level)
+    if level >= MAX_LEVEL:
+        progress = 1.0
+        progress_text = f"{xp:,} XP • MAX LEVEL"
+    else:
+        needed = max(1, total_xp_for_level(level + 1) - current)
+        progress = max(0.0, min(1.0, (xp - current) / needed))
+        progress_text = f"{xp - current:,} / {needed:,} XP to Level {level + 1}"
+    bar_x, bar_y, bar_w, bar_h = 180, 116, 555, 25
+    draw.rounded_rectangle((bar_x, bar_y, bar_x + bar_w, bar_y + bar_h), radius=12, fill=(27, 22, 20))
+    fill_w = max(0, int((bar_w - 4) * progress))
+    if fill_w:
+        draw.rounded_rectangle((bar_x + 2, bar_y + 2, bar_x + 2 + fill_w, bar_y + bar_h - 2), radius=10, fill=(255, 176, 46))
+    draw.text((180, 151), progress_text, font=small, fill=(224, 211, 201))
+    draw.text((620, 69), f"{xp:,} total XP", font=small, fill=(190, 178, 169))
+    out = io.BytesIO(); bg.save(out, format="PNG", optimize=True); out.seek(0); return out
+
+
 @bot.tree.command(name="rank", description="Show your (or someone's) level and XP")
 @app_commands.describe(member="Who to check (defaults to you)")
 @app_commands.guild_only()
@@ -141,7 +188,12 @@ async def rank(interaction: discord.Interaction, member: discord.Member = None):
     reward = ECONOMY_LEVEL_REWARDS.get(level)
     if reward:
         embed.add_field(name="🌿 Level reward", value=f"+{reward:,} Catnip at this level", inline=True)
-    await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+    try:
+        card = await _make_rank_card(member, xp, level)
+        await interaction.response.send_message(embed=embed, file=discord.File(card, filename="cinnamon-rank.png"), allowed_mentions=discord.AllowedMentions.none())
+    except Exception:
+        log.exception("Rank card rendering failed for %s", member.id)
+        await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
 @bot.tree.command(name="leaderboard", description="Show a Cinnamon server leaderboard")

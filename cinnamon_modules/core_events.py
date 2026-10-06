@@ -483,10 +483,18 @@ async def prefix_give(ctx,member:discord.Member,amount:int):
 async def prefix_econlb(ctx):
     rows=sorted(((uid,b) for (gid,uid),b in economy_balances.items() if gid==ctx.guild.id),key=lambda x:x[1],reverse=True)[:10]; lines=[f"**{i}.** {ctx.guild.get_member(uid) or f'User {uid}'} — {bal:,} Catnip" for i,(uid,bal) in enumerate(rows,1)]; await ctx.reply("\n".join(lines) if lines else "No economy balances yet.",mention_author=False)
 
-@bot.command(name="rank")
+@bot.command(name="level", aliases=["rank", "lvl"])
 @commands.guild_only()
-async def prefix_rank(ctx,member:discord.Member=None):
-    m=member or ctx.author; xp=int(xp_data.get((ctx.guild.id,m.id),0)); level=level_from_xp(xp); await ctx.reply(f"🏅 **{m.display_name}** — Level **{level}**, **{xp:,} XP**",mention_author=False)
+async def prefix_level(ctx, member: discord.Member = None):
+    m = member or ctx.author
+    xp = int(xp_data.get((ctx.guild.id, m.id), 0))
+    level = level_from_xp(xp)
+    try:
+        card = await _make_rank_card(m, xp, level)
+        await ctx.reply(file=discord.File(card, filename="cinnamon-rank.png"), mention_author=False)
+    except Exception:
+        log.exception("Rank card rendering failed for %s", m.id)
+        await ctx.reply(f"🐾 **{m.display_name}** — Level **{level}**, **{xp:,} XP**", mention_author=False)
 
 @bot.command(name="leaderboard",aliases=["lb"])
 @commands.guild_only()
@@ -543,9 +551,16 @@ async def on_message(message: discord.Message):
         clean_content = clean_content.replace(f"<@{bot.user.id}>", "").strip()
         clean_content = clean_content.replace(f"<@!{bot.user.id}>", "").strip()
 
-    # --- XP: award for genuine chat messages, at most once per user per 60s ---
+    # --- XP + full Quest event tracking ---
+    # XP is throttled, but message-based quests count every genuine message.
     if message.guild and clean_content:
         await award_xp(message)
+        try:
+            await quest_record_event(
+                message.guild.id, message.author.id, "messages", 1, member=message.author
+            )
+        except Exception:
+            log.exception("Quest message event failed for guild %s", message.guild.id)
 
     if clean_content:
         channel_memories[message.channel.id].append((speaker, clean_content))

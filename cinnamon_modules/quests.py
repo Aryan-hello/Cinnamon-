@@ -198,6 +198,77 @@ async def quest_cmd(interaction):
     e=discord.Embed(title="📜 Cinnamon Quests",color=discord.Color.blurple()); e.add_field(name="☀️ Daily",value=lines(DAILY_QUESTS,d.get("daily_ids",[]),"daily")[:3900] or "None"); e.add_field(name="📅 Weekly",value=lines(WEEKLY_QUESTS,d.get("weekly_ids",[]),"weekly")[:3900] or "None"); e.set_footer(text=f"Quest Points: {u['qp']:,} • Daily/weekly rolls persist across restarts")
     await interaction.response.send_message(embed=e)
 
+@bot.tree.command(name="dailyquests",description="View your 5 active daily Cinnamon quests")
+@app_commands.guild_only()
+async def dailyquests_cmd(interaction):
+    d=_ensure_rolls(interaction.guild.id); u=_user(interaction.guild.id,interaction.user.id)
+    lines=[]
+    for qid in d.get("daily_ids",[]):
+        q=DAILY_QUESTS[qid]; p=_prog(u,"daily",qid); done="✅" if _completed(q,p) else "⬜"
+        cur=p.get("count",p.get("value",0))
+        target=q.get("target", "—")
+        lines.append(f"{done} **{q['name']}** — {cur}/{target} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
+    e=discord.Embed(title="☀️ Cinnamon Daily Quests",description="\n\n".join(lines)[:3900] or "No daily quests are active.",color=0xFFB02E)
+    e.set_footer(text=f"Quest Points: {u['qp']:,} • Daily quests reset with the server's Cinnamon day")
+    await interaction.response.send_message(embed=e)
+
+@bot.tree.command(name="weeklyquests",description="View your 5 active weekly Cinnamon quests")
+@app_commands.guild_only()
+async def weeklyquests_cmd(interaction):
+    d=_ensure_rolls(interaction.guild.id); u=_user(interaction.guild.id,interaction.user.id)
+    lines=[]
+    for qid in d.get("weekly_ids",[]):
+        q=WEEKLY_QUESTS[qid]; p=_prog(u,"weekly",qid); done="✅" if _completed(q,p) else "⬜"
+        cur=p.get("count",p.get("value",0))
+        target=q.get("target", "—")
+        lines.append(f"{done} **{q['name']}** — {cur}/{target} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
+    e=discord.Embed(title="📅 Cinnamon Weekly Quests",description="\n\n".join(lines)[:3900] or "No weekly quests are active.",color=0x8E7CFF)
+    e.set_footer(text=f"Quest Points: {u['qp']:,} • Weekly quests reset each Cinnamon week")
+    await interaction.response.send_message(embed=e)
+
+@bot.group(name="quest", aliases=["quests"], invoke_without_command=True)
+@commands.guild_only()
+async def prefix_quest(ctx):
+    d=_ensure_rolls(ctx.guild.id); u=_user(ctx.guild.id,ctx.author.id)
+    def render(scope, defs, ids):
+        lines=[]
+        for qid in ids:
+            q=defs[qid]; p=_prog(u,scope,qid); done="✅" if _completed(q,p) else "⬜"; cur=p.get("count",p.get("value",0)); target=q.get("target","—")
+            lines.append(f"{done} **{q['name']}** — {cur}/{target} · {q['qp']} QP + {q['xp']} XP")
+        return "\n".join(lines) or "None"
+    embed=discord.Embed(title="📜 Cinnamon Quests",color=0xFFB02E)
+    embed.add_field(name="☀️ Daily",value=render("daily",DAILY_QUESTS,d.get("daily_ids",[]))[:1024],inline=False)
+    embed.add_field(name="📅 Weekly",value=render("weekly",WEEKLY_QUESTS,d.get("weekly_ids",[]))[:1024],inline=False)
+    embed.set_footer(text=f"Quest Points: {u['qp']:,} • Use ?quest daily, ?quest weekly, or ?quest progress")
+    await ctx.reply(embed=embed,mention_author=False)
+
+@prefix_quest.command(name="daily")
+@commands.guild_only()
+async def prefix_quest_daily(ctx):
+    d=_ensure_rolls(ctx.guild.id); u=_user(ctx.guild.id,ctx.author.id)
+    lines=[]
+    for qid in d.get("daily_ids",[]):
+        q=DAILY_QUESTS[qid]; p=_prog(u,"daily",qid); done="✅" if _completed(q,p) else "⬜"; cur=p.get("count",p.get("value",0))
+        lines.append(f"{done} **{q['name']}** — {cur}/{q.get('target','—')} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
+    await ctx.reply("**☀️ Daily Cinnamon Quests**\n\n"+"\n\n".join(lines),mention_author=False)
+
+@prefix_quest.command(name="weekly")
+@commands.guild_only()
+async def prefix_quest_weekly(ctx):
+    d=_ensure_rolls(ctx.guild.id); u=_user(ctx.guild.id,ctx.author.id)
+    lines=[]
+    for qid in d.get("weekly_ids",[]):
+        q=WEEKLY_QUESTS[qid]; p=_prog(u,"weekly",qid); done="✅" if _completed(q,p) else "⬜"; cur=p.get("count",p.get("value",0))
+        lines.append(f"{done} **{q['name']}** — {cur}/{q.get('target','—')} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
+    await ctx.reply("**📅 Weekly Cinnamon Quests**\n\n"+"\n\n".join(lines),mention_author=False)
+
+@prefix_quest.command(name="progress")
+@commands.guild_only()
+async def prefix_quest_progress(ctx):
+    d=_ensure_rolls(ctx.guild.id); u=_user(ctx.guild.id,ctx.author.id)
+    completed=len(u.get("completed_history",[]))
+    await ctx.reply(f"📜 **Quest Progress**\n• Quest Points: **{u['qp']:,}**\n• Completed quests: **{completed}**\n• Active daily: **{len(d.get('daily_ids',[]))}/5**\n• Active weekly: **{len(d.get('weekly_ids',[]))}/5**",mention_author=False)
+
 @bot.tree.command(name="questshop",description="Redeem Quest Points for Catnip, Golden Tuna, or the Quest Master role")
 @app_commands.guild_only()
 @app_commands.choices(reward=[app_commands.Choice(name=v["name"], value=k) for k,v in QUEST_SHOP.items()])

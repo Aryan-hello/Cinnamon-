@@ -188,6 +188,13 @@ def dashboard_state_provider() -> dict:
         "ECONOMY_ITEMS": ECONOMY_ITEMS, "achievement_data": achievement_data, "friendship_data": friendship_data, "quest_data": quest_data,
         "ECONOMY_DAILY_REWARD": ECONOMY_DAILY_REWARD, "ECONOMY_WORK_MIN": ECONOMY_WORK_MIN,
         "ECONOMY_WORK_MAX": ECONOMY_WORK_MAX, "ECONOMY_WORK_COOLDOWN": ECONOMY_WORK_COOLDOWN,
+        # Read-only definitions/status exposed to the dashboard. Commands remain Discord-only.
+        "ACHIEVEMENTS": globals().get("ACHIEVEMENTS", {}),
+        "SECRET_ACHIEVEMENTS": globals().get("SECRET_ACHIEVEMENTS", {}),
+        "ADMIN_ACHIEVEMENT": globals().get("ADMIN_ACHIEVEMENT", {}),
+        "DAILY_QUESTS": globals().get("DAILY_QUESTS", {}),
+        "WEEKLY_QUESTS": globals().get("WEEKLY_QUESTS", {}),
+        "QUEST_SHOP": globals().get("QUEST_SHOP", {}),
         "ai_channels": ai_channels, "log_channels": log_channels,
         "category_log_channels": category_log_channels,
         "BD_UPSTASH_URL": BD_UPSTASH_URL, "BD_UPSTASH_TOKEN": BD_UPSTASH_TOKEN,
