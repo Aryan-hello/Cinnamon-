@@ -77,14 +77,24 @@ def _cinnamon_embed_tone(text: str):
     return CINNAMON_EMBED_COLOR, "🐾 Cinnamon"
 
 def cinnamon_polish_embed(embed: discord.Embed, *, footer: str = "Cinnamon • Made with paws 🐾") -> discord.Embed:
+    # User-facing panels stay visually quiet: logs retain their own timestamps,
+    # while interactive cards avoid a timestamp on every screen.
     if embed.color is None or embed.color.value == 0: embed.color = discord.Color(CINNAMON_EMBED_COLOR)
-    if embed.timestamp is None: embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
     if not embed.footer or not embed.footer.text: embed.set_footer(text=footer)
     return embed
 
+def cinnamon_progress_bar(current: int, target: int, length: int = 10) -> str:
+    target = max(1, int(target)); current = max(0, min(int(current), target))
+    filled = round((current / target) * length)
+    return "▰" * filled + "▱" * (length - filled)
+
+def cinnamon_page_footer(section: str, page: int, pages: int, extra: str = "") -> str:
+    tail = f" • {extra}" if extra else ""
+    return f"Cinnamon • {section} • {page}/{pages}{tail}"
+
 async def cinnamon_send(interaction: discord.Interaction, description: str, *, title: str | None = None, ephemeral: bool = False, allowed_mentions=None):
     color, default_title = _cinnamon_embed_tone(description)
-    embed = discord.Embed(title=title or default_title, description=description, color=color, timestamp=datetime.datetime.now(datetime.timezone.utc))
+    embed = discord.Embed(title=title or default_title, description=description, color=color)
     embed.set_footer(text="Cinnamon • Made with paws 🐾")
     return await interaction.response.send_message(embed=embed, ephemeral=ephemeral, allowed_mentions=allowed_mentions or discord.AllowedMentions.none())
 
