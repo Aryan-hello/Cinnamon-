@@ -71,6 +71,12 @@ GEMINI_MODEL = "gemini-3.1-flash-lite"
 
 MEMORY_LENGTH = 10  # messages remembered per channel
 AI_CHANNEL_COOLDOWN_SECONDS = 2.0  # prevents an always-on AI channel from hammering Gemini
+# Server-time offset used by time-based quests/achievements. Default: IST (UTC+5:30).
+# Set CINNAMON_TIMEZONE_OFFSET_MINUTES in deployment settings for another server timezone.
+CINNAMON_TIMEZONE_OFFSET_MINUTES = int(os.environ.get("CINNAMON_TIMEZONE_OFFSET_MINUTES", "330"))
+CINNAMON_TIMEZONE = datetime.timezone(datetime.timedelta(minutes=CINNAMON_TIMEZONE_OFFSET_MINUTES))
+def cinnamon_now():
+    return datetime.datetime.now(CINNAMON_TIMEZONE)
 
 # Owner — used for the "who's your owner / favorite person" reply.
 # Set OWNER_USER_ID (Aryan's numeric Discord user ID) as an env var for a
@@ -110,6 +116,7 @@ channel_memories = defaultdict(lambda: deque(maxlen=MEMORY_LENGTH))
 
 # guild_id -> channel_id where Cinnamon replies to every message, no mention needed
 ai_channels = {}
+ai_cooldowns = {}  # channel_id -> monotonic timestamp for always-on AI throttling
 
 # guild_id -> set of channel_ids where Cinnamon never responds, even if mentioned
 disabled_channels = defaultdict(set)
@@ -131,11 +138,18 @@ welcome_config = {}                     # guild_id -> {"channel_id": int, "messa
 goodbye_config = {}                     # guild_id -> {"channel_id": int, "message": str}
 automod_config = {}                     # guild_id -> {"words": [...], "spam": bool, "mentions": bool, "invites": bool, "mention_threshold": int}
 xp_data = {}                            # (guild_id, user_id) -> total xp
+# Declared before modular loading so persistence helpers can safely reference them.
+achievement_data = {}
+achievement_config = {}
+quest_data = {}
+quest_config = {}
 reaction_role_ids = set()               # role_ids with a live self-assign button (re-registered as views on startup)
 temp_bans = {}                          # (guild_id, user_id) -> unban unix timestamp
 antiraid_config = {}                    # guild_id -> {"enabled": bool, "threshold": int, "window": int}
 case_counters = {}                      # guild_id -> last case number issued (warn/kick/ban/unban/mute/unmute/tempban/automod)
 level_roles = {}                        # guild_id -> {level: role_id} (roles granted automatically at that level)
+xp_per_message = {}                     # guild_id -> fixed XP awarded per eligible message
+xp_channels = defaultdict(set)           # guild_id -> channel IDs allowed to earn XP; empty means all channels
 active_giveaways = {}                   # message_id -> {"guild_id","channel_id","host_id","winners","prize","ends_at","entrants":[user_ids]}
 active_polls = {}                       # message_id -> {"guild_id","channel_id","host_id","host_name","question","options","votes":{user_id_str: idx},"ends_at"}
 
@@ -150,11 +164,11 @@ economy_level_rewards_claimed = {}        # (guild_id, user_id) -> [level number
 economy_income_roles = {}                 # guild_id -> {role_id: {amount, cooldown}}
 
 ECONOMY_ITEMS = {
-    "tuna": {"name": "Tuna", "price": 25, "emoji": "🐟", "description": "A tasty tuna snack for Cinnamon.", "max_per_person": 0},
-    "treat": {"name": "Cat Treat", "price": 15, "emoji": "🍪", "description": "A crunchy little reward.", "max_per_person": 0},
-    "churu": {"name": "Churu", "price": 40, "emoji": "🥫", "description": "Premium lickable cat snack.", "max_per_person": 0},
-    "catnip_ball": {"name": "Catnip Ball", "price": 60, "emoji": "🧶", "description": "Instant zoomies fuel.", "max_per_person": 0},
-    "fish": {"name": "Fancy Fish", "price": 90, "emoji": "🐠", "description": "A fancy fish for a very fancy cat.", "max_per_person": 0},
+    "tuna": {"name": "Tuna", "price": 1000, "emoji": "🐟", "description": "A tasty tuna snack for Cinnamon.", "max_per_person": 0},
+    "treat": {"name": "Cat Treat", "price": 1000, "emoji": "🍪", "description": "A crunchy little reward.", "max_per_person": 0},
+    "churu": {"name": "Churu", "price": 1500, "emoji": "🥫", "description": "Premium lickable cat snack.", "max_per_person": 0},
+    "catnip_ball": {"name": "Catnip Ball", "price": 2000, "emoji": "🧶", "description": "Instant zoomies fuel.", "max_per_person": 0},
+    "fish": {"name": "Fancy Fish", "price": 2500, "emoji": "🐠", "description": "A fancy fish for a very fancy cat.", "max_per_person": 0},
 }
 
 

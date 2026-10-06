@@ -113,7 +113,13 @@ def _audit(guild_id, actor, title, detail):
     if callable(send_log):
         try:
             text = f"{title} {detail}".lower()
-            if any(x in text for x in ("economy", "shop item", "catnip", "quest")):
+            if any(x in text for x in ("achievement", "achievement role", "secret achievement")):
+                category = "achievements"
+            elif any(x in text for x in ("friendship", "cinnamon friendship")):
+                category = "friendship"
+            elif any(x in text for x in ("quest", "quest shop", "daily quest", "weekly quest")):
+                category = "quests"
+            elif any(x in text for x in ("economy", "shop item", "catnip")):
                 category = "economy"
             elif any(x in text for x in ("giveaway", "poll")):
                 category = "community"
@@ -232,7 +238,7 @@ def _header():
 
 
 def _nav(guild_id, tab):
-    items = [("overview", "⌂", "Overview"), ("moderation", "🛡", "Moderation"), ("engagement", "✦", "Engagement"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community"), ("system", "⚙", "Settings & Logs")]
+    items = [("overview", "⌂", "Overview"), ("moderation", "🛡", "Moderation"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community"), ("system", "⚙", "Settings & Logs")]
     return "<div class='navlabel'>Workspace</div><nav class='nav'>" + "".join(
         f"<a class='{'active' if tab == key else ''}' href='/dashboard?guild_id={guild_id}&tab={key}'><span>{ico}</span>{label}</a>" for key, ico, label in items
     ) + "</nav>"
@@ -353,12 +359,60 @@ def _moderation(guild, state):
 
 def _engagement(guild,state):
     gid=guild.id; xp=state.get("xp_data",{}); levels=state.get("level_roles",{}).get(gid,{})
+    channels=state.get("xp_channels",{}).get(gid,set()); per=state.get("xp_per_message",{}).get(gid,20)
     top=sorted(((uid,val) for (g,uid),val in xp.items() if g==gid),key=lambda x:x[1],reverse=True)[:10]
-    rows="".join(f"<tr><td>{i}</td><td>{_esc((guild.get_member(uid).display_name if guild.get_member(uid) else 'Member '+str(uid)))}</td><td>{int(val):,}</td><td>{int(state.get('level_from_xp',lambda n:0)(val))}</td></tr>" for i,(uid,val) in enumerate(top,1)) or "<tr><td colspan='4'>No XP data yet.</td></tr>"
+    level_fn=state.get("level_from_xp",lambda n:0)
+    rows="".join(f"<tr><td>{i}</td><td>{_esc((guild.get_member(uid).display_name if guild.get_member(uid) else 'Member '+str(uid)))}</td><td>{int(val):,}</td><td>{int(level_fn(val))}</td></tr>" for i,(uid,val) in enumerate(top,1)) or "<tr><td colspan='4'>No XP data yet.</td></tr>"
     role_rows="".join(f"<tr><td>{level}</td><td>{_esc((guild.get_role(rid).name if guild.get_role(rid) else 'Missing role'))}</td><td><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='levelrole_remove'><input type='hidden' name='level' value='{level}'><button class='btn secondary small' type='submit'>Remove</button></form></td></tr>" for level,rid in sorted(levels.items()) if str(level).isdigit()) or "<tr><td colspan='3'>No level roles configured.</td></tr>"
-    formcontent="<div class='formgrid'><div class='field'><label>Level (1–100)</label><input name='level' type='number' min='1' max='100' required></div><div class='field'><label>Reward role</label>"+_role_select(guild,"role_id",allow_none=False)+"</div></div>"
-    body=f"<h1>Engagement</h1><p class='muted'>Level progression, XP leaderboard, and automatic level-role rewards. The current main.py has economy feed quests, shown under Catnip Economy; it does not include separate daily/weekly quests or achievements.</p><div class='grid'><article class='card third'><div class='statlabel'>Members with XP</div><div class='stat'>{_count(xp,gid):,}</div></article><article class='card half'><h2>XP leaderboard</h2><div class='tablewrap'><table><thead><tr><th>#</th><th>Member</th><th>XP</th><th>Level</th></tr></thead><tbody>{rows}</tbody></table></div></article><article class='card half'><h2>Level rewards</h2><div class='tablewrap'><table><thead><tr><th>Level</th><th>Role</th><th></th></tr></thead><tbody>{role_rows}</tbody></table></div><div class='rule'></div>"+_form(gid,"levelrole_add",formcontent,"Add level reward")+"</article></div>"
+    channel_list="".join(f"<span class='pill good'>#{_esc(guild.get_channel(cid).name if guild.get_channel(cid) else str(cid))}</span> " for cid in sorted(channels)) or "<span class='pill warn'>No channels selected — XP is disabled</span>"
+    add_channels=_channel_select(guild,"channel_id",allow_none=False)
+    formcontent="<div class='formgrid'><div class='field'><label>Level (1–200)</label><input name='level' type='number' min='1' max='200' required></div><div class='field'><label>Reward role</label>"+_role_select(guild,"role_id",allow_none=False)+"</div></div>"
+    xpcontent=f"<div class='formgrid'><div class='field'><label>XP per eligible message</label><input name='xp_per_message' type='number' min='1' max='1000' value='{int(per)}' required></div><div class='field'><label>Add an XP channel</label>{add_channels}</div></div><p class='muted'>Cinnamon awards XP only in selected channels, with its built-in 30-second per-member cooldown. Remove channels below when needed.</p>"
+    channel_rows="".join(f"<tr><td>#{_esc(guild.get_channel(cid).name if guild.get_channel(cid) else str(cid))}</td><td><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='xp_channel_remove'><input type='hidden' name='channel_id' value='{cid}'><button class='btn secondary small' type='submit'>Remove</button></form></td></tr>" for cid in sorted(channels)) or "<tr><td colspan='2'>No XP channels configured.</td></tr>"
+    body=f"<h1>Levels & XP</h1><p class='muted'>Control Cinnamon's message XP, eligible channels and level-role rewards. Level roles are intentionally not created by setup.</p><div class='grid'><article class='card third'><div class='statlabel'>Members with XP</div><div class='stat'>{_count(xp,gid):,}</div></article><article class='card third'><div class='statlabel'>XP per message</div><div class='stat'>{int(per):,}</div></article><article class='card third'><div class='statlabel'>XP channels</div><div class='stat'>{len(channels):,}</div></article><article class='card half'><h2>XP settings</h2>{_form(gid,'xp_settings',xpcontent,'Save XP settings')}<div class='rule'></div><div>{channel_list}</div><div class='tablewrap'><table><thead><tr><th>Eligible channel</th><th></th></tr></thead><tbody>{channel_rows}</tbody></table></div></article><article class='card half'><h2>Level rewards</h2><div class='tablewrap'><table><thead><tr><th>Level</th><th>Role</th><th></th></tr></thead><tbody>{role_rows}</tbody></table></div><div class='rule'></div>{_form(gid,'levelrole_add',formcontent,'Add level reward')}</article><article class='card full'><h2>XP leaderboard</h2><div class='tablewrap'><table><thead><tr><th>#</th><th>Member</th><th>XP</th><th>Level</th></tr></thead><tbody>{rows}</tbody></table></div></article></div>"
     return body
+
+
+def _achievements(guild,state):
+    gid=guild.id; data=state.get("achievement_data",{}); cfg=state.get("achievement_config",{}).get(gid,{})
+    normal=state.get("ACHIEVEMENTS",{}); secret=state.get("SECRET_ACHIEVEMENTS",{}); admin=state.get("ADMIN_ACHIEVEMENT",{}) or {}
+    users=[(uid,v) for (g,uid),v in data.items() if g==gid and isinstance(v,dict)]
+    unlocked=sum(len(v.get("unlocked",[])) for _,v in users); unique_users=len(users)
+    log_id=cfg.get("log_channel") or state.get("category_log_channels",{}).get(gid,{}).get("achievements")
+    logch=guild.get_channel(log_id) if log_id else None
+    role_names=sorted({str(a.get("role")).strip() for a in list(normal.values())+list(secret.values())+[admin] if a.get("role")})
+    missing=[n for n in role_names if not any(r.name==n for r in guild.roles)]
+    rows="".join(f"<tr><td><b>{_esc(aid)}</b><div class='muted'>{_esc(a.get('name','Unnamed'))}</div></td><td>{_esc(a.get('description',''))}</td><td>{'Secret' if aid in secret else 'Normal'}</td><td>{'Enabled' if a.get('enabled',True) else 'Disabled'}</td></tr>" for aid,a in list(normal.items())[:100]) or "<tr><td colspan='4'>No achievement definitions exposed.</td></tr>"
+    secrets_count=len(secret); enabled=cfg.get("enabled",True)
+    achievement_form="<div class='formgrid'><div class='field'><label>Achievement log channel</label>"+_channel_select(guild,"channel_id",log_id)+"</div></div><label class='toggle'><input type='checkbox' name='enabled' "+("checked" if enabled else "")+"><span><b>Enable achievement tracking</b><small>Disabling pauses achievement processing; existing unlock data is retained.</small></span></label>"
+    return f"<h1>Achievements</h1><p class='muted'>Monitor achievements and manage the server-level configuration without exposing every achievement command in the web panel.</p><div class='grid'><article class='card third'><div class='statlabel'>Normal achievements</div><div class='stat'>{len(normal):,}</div></article><article class='card third'><div class='statlabel'>Secret achievements</div><div class='stat'>{secrets_count:,}</div></article><article class='card third'><div class='statlabel'>Members tracked</div><div class='stat'>{unique_users:,}</div></article><article class='card half'><h2>Achievement system</h2><div class='toggle'><b>Status</b><span class='pill {'good' if enabled else 'warn'}'>{'Enabled' if enabled else 'Disabled'}</span></div><div class='toggle'><b>Total unlock records</b><span>{unlocked:,}</span></div><div class='toggle'><b>Achievement logs</b><span>{_esc(logch.mention if logch else 'Not configured')}</span></div><div class='toggle'><b>Reward roles missing</b><span>{len(missing):,}</span></div><p class='muted'>Use Discord's achievement commands for individual awards, revokes and definition editing. The dashboard focuses on server configuration and visibility.</p>{_form(gid,'achievement_settings',achievement_form,'Save achievement settings')}</article><article class='card half'><h2>Reward-role readiness</h2><div class='tablewrap'><table><thead><tr><th>Role</th><th>Status</th></tr></thead><tbody>{''.join(f"<tr><td>@{_esc(n)}</td><td><span class='pill {'good' if n not in missing else 'warn'}'>{'Ready' if n not in missing else 'Missing'}</span></td></tr>" for n in role_names)}</tbody></table></div></article><article class='card full'><h2>Achievement catalog</h2><div class='tablewrap'><table><thead><tr><th>ID / Name</th><th>Description</th><th>Type</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div></article></div>"
+
+
+def _quests(guild,state):
+    gid=guild.id; qdata=state.get("quest_data",{}).get(gid,{}) or {}; qcfg=state.get("quest_config",{}).get(gid,{}) or {}
+    daily_defs=state.get("DAILY_QUESTS",{}); weekly_defs=state.get("WEEKLY_QUESTS",{})
+    daily_ids=qdata.get("daily_ids",[]) if isinstance(qdata,dict) else []; weekly_ids=qdata.get("weekly_ids",[]) if isinstance(qdata,dict) else []
+    log_id=state.get("category_log_channels",{}).get(gid,{}).get("quests"); logch=guild.get_channel(log_id) if log_id else None
+    def rows(ids,pool):
+        out=[]
+        for qid in ids if isinstance(ids,list) else []:
+            q=pool.get(qid,{})
+            out.append(f"<tr><td><b>{_esc(q.get('name',qid))}</b></td><td>{_esc(q.get('desc',q.get('description','')))}</td><td>{int(q.get('qp',0)):,} QP + {int(q.get('xp',0)):,} XP</td></tr>")
+        return ''.join(out) or "<tr><td colspan='3'>No rotation has been generated yet.</td></tr>"
+    role=qcfg.get("quest_master_role"); role_obj=guild.get_role(int(role)) if str(role).isdigit() else None
+    role_form="<div class='field'><label>Quest Master role</label>"+_role_select(guild,"role_id",role)+"</div>"
+    return f"<h1>Quests</h1><p class='muted'>Daily and weekly quest visibility, Quest Master configuration and logging. Quest completion remains in Discord.</p><div class='grid'><article class='card third'><div class='statlabel'>Daily active</div><div class='stat'>{len(daily_ids):,}</div></article><article class='card third'><div class='statlabel'>Weekly active</div><div class='stat'>{len(weekly_ids):,}</div></article><article class='card third'><div class='statlabel'>Quest log</div><div class='stat'>{_esc(logch.name if logch else 'Off')}</div></article><article class='card half'><h2>Daily rotation</h2><div class='tablewrap'><table><thead><tr><th>Quest</th><th>Description</th><th>Reward</th></tr></thead><tbody>{rows(daily_ids,daily_defs)}</tbody></table></div></article><article class='card half'><h2>Weekly rotation</h2><div class='tablewrap'><table><thead><tr><th>Quest</th><th>Description</th><th>Reward</th></tr></thead><tbody>{rows(weekly_ids,weekly_defs)}</tbody></table></div></article><article class='card full'><h2>Quest settings</h2><div class='toggle'><b>Quest Master role</b><span>{_esc(role_obj.mention if role_obj else 'Not configured')}</span></div>{_form(gid,'quest_settings',role_form,'Save Quest Master role')}<p class='muted'>The full quest-definition editor stays in Discord so the dashboard does not become a duplicate of every Cinnamon command.</p></article></div>"
+
+
+def _friendship(guild,state):
+    gid=guild.id; fd=state.get("friendship_data",{}); entries=[]
+    thresholds=[(0,'Stranger'),(25,'Familiar Face'),(75,'Friend'),(200,'Trusted Human'),(500,"Cinnamon's Best Friend"),(1000,"Cinnamon's Chosen Human")]
+    for (g,u),v in fd.items():
+        if g==gid and isinstance(v,dict): entries.append((u,int(v.get('points',0)),int(v.get('level',0))))
+    entries.sort(key=lambda x:x[1],reverse=True); rows=''.join(f"<tr><td>{i}</td><td>{_esc(guild.get_member(u).display_name if guild.get_member(u) else 'Member '+str(u))}</td><td>{pts:,}</td><td>{lvl}</td></tr>" for i,(u,pts,lvl) in enumerate(entries[:25],1)) or "<tr><td colspan='4'>No friendship data yet.</td></tr>"
+    log_id=state.get("category_log_channels",{}).get(gid,{}).get("friendship"); ch=guild.get_channel(log_id) if log_id else None
+    levels=''.join(f"<div class='toggle'><b>{name}</b><span>{points:,} points</span></div>" for points,name in thresholds)
+    return f"<h1>Cinnamon Friendship</h1><p class='muted'>See friendship progress and server-level logging. Individual friendship interactions stay in Discord.</p><div class='grid'><article class='card third'><div class='statlabel'>Tracked humans</div><div class='stat'>{len(entries):,}</div></article><article class='card third'><div class='statlabel'>Friendship log</div><div class='stat'>{_esc(ch.name if ch else 'Off')}</div></article><article class='card third'><div class='statlabel'>Highest points</div><div class='stat'>{entries[0][1]:,}</div></article><article class='card half'><h2>Friendship levels</h2>{levels}</article><article class='card half'><h2>Leaderboard</h2><div class='tablewrap'><table><thead><tr><th>#</th><th>Member</th><th>Points</th><th>Level</th></tr></thead><tbody>{rows}</tbody></table></div></article></div>"
 
 
 def _economy(guild,state):
@@ -430,26 +484,80 @@ def _community(guild,state):
 
 
 def _system(guild,state):
-    gid=guild.id; elog=state.get("economy_log_channels",{}).get(gid); hg=state.get("hg_cog")
-    def current(cid):
-        ch=guild.get_channel(cid) if cid else None
-        return _esc(ch.mention if ch else "Not configured")
-    channels="<div class='field'><label>Economy logs</label>"+_channel_select(guild,"economy_log",elog)+"</div>"
-    logsform=_form(gid,"special_logs",channels,"Save log channel")
-    logitems=[]
-    category_channels=state.get("category_log_channels",{}).get(gid,{})
-    configured=[("Main moderation logs",state.get("log_channels",{}).get(gid)),("Economy logs",elog),
-        ("AI logs",category_channels.get("ai")),("Levels & XP logs",category_channels.get("levels")),
-        ("Giveaways & polls logs",category_channels.get("community")),("Role management logs",category_channels.get("roles")),
-        ("Server setup logs",category_channels.get("setup")),("General utility logs",category_channels.get("general")),
-        ("Hangry Games logs",hg.hg_log_channels.get(gid) if hg else None)]
-    for label,cid in configured:
-        logitems.append(f"<div class='toggle'><b>{label}</b><span>{current(cid)}</span></div>")
-    recall_form=("<p class='muted'>Scan every configured log channel and merge recoverable warnings, XP totals, economy balances/inventory, completed quests, achievements, Hangry Games totals, and missing state from a snapshot without overwriting existing account balances.</p>"
-                 + _form(gid,"recall","<p class='muted'>This does not overwrite existing economy accounts.</p>","Run recovery scan"))
-    status=bool(_bot and _bot.is_ready())
-    storage="Upstash Redis" if state.get("BD_UPSTASH_URL") and state.get("BD_UPSTASH_TOKEN") else "Local JSON file (may not survive redeploys)"
-    return f"<h1>Settings & system</h1><p class='muted'>Channel routing, persistence status and recovery guidance.</p><div class='grid'><article class='card half'><h2>Dedicated log channels</h2>{logsform}</article><article class='card half'><h2>Current system status</h2><div class='toggle'><b>Bot Gateway</b><span class='pill {'good' if status else 'warn'}'>{'Connected' if status else 'Not ready'}</span></div><div class='toggle'><b>Storage backend</b><span>{storage}</span></div><div class='toggle'><b>Guild ID</b><span>{gid}</span></div><div class='toggle'><b>Bot permissions</b><span>Use <b>/diagnostics</b> in Discord for the detailed check.</span></div></article><article class='card half'><h2>Log recovery</h2>{recall_form}<p class='muted'>Recovery is best-effort: it cannot recreate information that was never logged or has been deleted/removed from the channel history.</p></article><article class='card half'><h2>Channel configuration</h2>{''.join(logitems)}<div class='rule'></div><p class='muted'>Keep log channels available to Cinnamon with View Channel, Read Message History and, for posting future logs, Send Messages and Embed Links.</p><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=overview'>Back to overview</a></article></div>"
+    gid=guild.id; hg=state.get("hg_cog"); category_channels=state.get("category_log_channels",{}).get(gid,{})
+    categories=[("moderation","Main moderation"),("economy","Economy"),("ai","AI"),("levels","Levels & XP"),("achievements","Achievements"),("quests","Quests"),("friendship","Cinnamon Friendship"),("community","Giveaways & polls"),("roles","Role management"),("setup","Server setup"),("general","General utilities")]
+    configured=[]
+    for key,label in categories:
+        cid=state.get("log_channels",{}).get(gid) if key=="moderation" else (state.get("economy_log_channels",{}).get(gid) if key=="economy" else category_channels.get(key))
+        configured.append((key,label,cid))
+    if hg: configured.append(("hangry","Hangry Games",hg.hg_log_channels.get(gid)))
+    options=[]
+    for key,label,cid in configured:
+        options.append(f"<option value='{_esc(key)}'>{_esc(label)} — {_esc((guild.get_channel(cid).name if cid and guild.get_channel(cid) else 'not configured'))}</option>")
+    editor=f"<div class='formgrid'><div class='field'><label>Log category</label><select name='log_category'>{''.join(options)}</select></div><div class='field'><label>Channel</label>{_channel_select(guild,'channel_id')}</div></div><p class='muted'>Selecting a channel replaces that category's dedicated log route. Use Disable to remove it.</p>"
+    disable="<form method='post' action='/dashboard/action'>"+_csrf_input()+f"<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='category_log_disable'><button class='btn secondary' type='submit'>Disable selected category</button></form>"
+    items=''.join(f"<div class='toggle'><b>{_esc(label)}</b><span>{_esc(guild.get_channel(cid).mention if cid and guild.get_channel(cid) else 'Not configured')}</span></div>" for _,label,cid in configured)
+    status=bool(_bot and _bot.is_ready()); storage='Upstash Redis' if state.get('BD_UPSTASH_URL') and state.get('BD_UPSTASH_TOKEN') else 'Local JSON file (may not survive redeploys)'
+    setup_content="<p class='muted'>This is safe to run again; existing managed channels and roles are reused.</p>"
+    setup="<article class='card full'><h2>Guided Cinnamon setup</h2><p class='muted'>Run the same idempotent setup flow as <b>/setup</b>. It creates/reuses Cinnamon's managed log channels and achievement/quest reward roles, but never creates level roles.</p>"+_form(gid,'run_setup',setup_content,'Run /setup from dashboard')+"</article>"
+    recall_content="<p class='muted'>Best-effort recovery. Deleted Discord history cannot be recovered.</p>"
+    recall="<p class='muted'>Scan configured log channels and merge recoverable warnings, XP, economy state, achievements, quests and Hangry data without intentionally overwriting existing account balances.</p>"+_form(gid,'recall',recall_content,'Run recovery scan')
+    gateway_pill="<span class='pill good'>Connected</span>" if status else "<span class='pill warn'>Not ready</span>"
+    return f"<h1>Settings & system</h1><p class='muted'>Cinnamon's server control center: logging, setup, persistence and recovery.</p><div class='grid'><article class='card half'><h2>Log routing</h2>{_form(gid,'category_log_set',editor,'Save log route')}{disable}</article><article class='card half'><h2>System health</h2><div class='toggle'><b>Bot Gateway</b>{gateway_pill}</div><div class='toggle'><b>Storage</b><span>{storage}</span></div><div class='toggle'><b>Guild ID</b><span>{gid}</span></div><p class='muted'>Use <b>/diagnostics</b> in Discord for the complete permission/runtime diagnostic.</p></article><article class='card full'><h2>Configured log channels</h2>{items}</article>{setup}<article class='card full'><h2>Recovery</h2>{recall}</article></div>"
+
+
+async def _dashboard_setup(guild,state):
+    """Idempotent dashboard equivalent of /setup. Keeps level roles out."""
+    discord=__import__("discord")
+    category=discord.utils.get(guild.categories,name="Cinnamon • Logs & Setup")
+    if category is None: category=await guild.create_category("Cinnamon • Logs & Setup",reason="Cinnamon dashboard setup")
+    specs=[
+        ("cinnamon-logs","Cinnamon moderation, AutoMod, errors, warnings, and general logs."),
+        ("cinnamon-economy","Catnip economy transactions, balances, inventory and shop."),
+        ("cinnamon-hangry","Hangry Games starts, winners, cancellations and recovery."),
+        ("cinnamon-ai-logs","Cinnamon AI usage/settings logs; not private conversation contents."),
+        ("cinnamon-level-logs","XP awards, level-ups and level-role changes."),
+        ("cinnamon-achievement-logs","Achievement unlocks, rewards, roles and recovery."),
+        ("cinnamon-quest-logs","Daily/weekly quest rotations, completions and rewards."),
+        ("cinnamon-friendship-logs","Cinnamon Friendship level changes and related events."),
+        ("cinnamon-community-logs","Giveaway and poll events."),
+        ("cinnamon-role-logs","Role management events."),
+        ("cinnamon-setup-logs","Setup and configuration changes."),
+        ("cinnamon-general-logs","General utility command usage."),
+        ("cinnamon-welcome","Cinnamon member welcome messages."),
+        ("cinnamon-goodbye","Cinnamon member goodbye messages."),
+        ("cinnamon-ai","Cinnamon's always-on AI chat channel."),
+    ]
+    channels={}
+    for name,topic in specs:
+        ch=discord.utils.get(category.text_channels,name=name)
+        if ch is None:
+            ch=await guild.create_text_channel(name=name,category=category,topic=topic,reason="Cinnamon dashboard setup")
+        if name.endswith("-logs") or name in {"cinnamon-logs","cinnamon-economy","cinnamon-hangry"}:
+            try:
+                await ch.set_permissions(guild.default_role,view_channel=False)
+                if guild.me: await ch.set_permissions(guild.me,view_channel=True,send_messages=True,embed_links=True,read_message_history=True)
+            except Exception: pass
+        channels[name]=ch
+    normal=state.get("ACHIEVEMENTS",{}); secret=state.get("SECRET_ACHIEVEMENTS",{}); admin=state.get("ADMIN_ACHIEVEMENT",{}) or {}
+    role_names=sorted({str(a.get("role")).strip() for a in list(normal.values())+list(secret.values())+[admin] if a.get("role")})+ ["Quest Master"]
+    existing={r.name:r for r in guild.roles if not r.managed}
+    for name in dict.fromkeys(role_names):
+        if name not in existing:
+            try: await guild.create_role(name=name,reason="Cinnamon achievement/quest setup")
+            except Exception: pass
+    gid=guild.id; state.setdefault("log_channels",{})[gid]=channels["cinnamon-logs"].id; state.setdefault("economy_log_channels",{})[gid]=channels["cinnamon-economy"].id
+    state.setdefault("category_log_channels",{})[gid]={"moderation":channels["cinnamon-logs"].id,"economy":channels["cinnamon-economy"].id,"ai":channels["cinnamon-ai-logs"].id,"levels":channels["cinnamon-level-logs"].id,"achievements":channels["cinnamon-achievement-logs"].id,"quests":channels["cinnamon-quest-logs"].id,"friendship":channels["cinnamon-friendship-logs"].id,"community":channels["cinnamon-community-logs"].id,"roles":channels["cinnamon-role-logs"].id,"setup":channels["cinnamon-setup-logs"].id,"general":channels["cinnamon-general-logs"].id}
+    state.setdefault("ai_channels",{})[gid]=channels["cinnamon-ai"].id
+    state.setdefault("welcome_config",{})[gid]={"channel_id":channels["cinnamon-welcome"].id,"message":"🐾 Welcome {member} to **{server}**! Cinnamon hopes you brought snacks."}
+    state.setdefault("goodbye_config",{})[gid]={"channel_id":channels["cinnamon-goodbye"].id,"message":"🐾 {member} left **{server}**. Cinnamon will miss the head pats!"}
+    hg=state.get("hg_cog")
+    if hg:
+        hg.hg_log_channels[gid]=channels["cinnamon-hangry"].id; hg.log_enabled[gid]=True
+        try: await hg._save()
+        except Exception: pass
+    _save()
+    return f"Cinnamon setup complete: managed log channels and {len(dict.fromkeys(role_names))} non-level reward roles are ready."
 
 
 def _moderate(guild, actor_id, form):
@@ -535,10 +643,10 @@ def dashboard_home():
         return _page("<main class='main'>"+_header()+body+"</main>")
     guild_id=request.args.get("guild_id") or eligible[0]["id"]
     guild,guild_item=_get_access(sid,guilds,guild_id)
-    tab=request.args.get("tab","overview"); allowed={"overview","moderation","engagement","economy","giveaways","hangry","community","system"}
+    tab=request.args.get("tab","overview"); allowed={"overview","moderation","engagement","achievements","quests","friendship","economy","giveaways","hangry","community","system"}
     if tab not in allowed: tab="overview"
     state=_state(); notice=session.pop("dashboard_notice",None)
-    pages={"overview":_overview,"moderation":_moderation,"engagement":_engagement,"economy":_economy,"giveaways":_giveaways,"hangry":_hangry,"community":_community,"system":_system}
+    pages={"overview":_overview,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"hangry":_hangry,"community":_community,"system":_system}
     return _shell(guild,eligible,tab,pages[tab](guild,state),notice)
 
 
@@ -606,10 +714,57 @@ def dashboard_action():
             cfg.update({"enabled":"enabled" in request.form,"threshold":threshold,"window":window})
             _save(); _audit(gid,actor,"Dashboard: anti-raid updated",f"Enabled={cfg['enabled']}, threshold={threshold}, window={window}s. Alert-only.")
             session["dashboard_notice"]="Anti-raid settings saved."
+        elif action=="achievement_settings":
+            enabled="enabled" in request.form; channel_id=request.form.get("channel_id","").strip()
+            if channel_id and (not channel_id.isdigit() or not isinstance(guild.get_channel(int(channel_id)),__import__("discord").TextChannel)): raise ValueError("Choose a valid achievement log channel.")
+            cfg=state.setdefault("achievement_config",{}).setdefault(gid,{})
+            cfg["enabled"]=enabled
+            if channel_id:
+                cfg["log_channel"]=int(channel_id); state.setdefault("category_log_channels",{}).setdefault(gid,{})["achievements"]=int(channel_id)
+            else: cfg.pop("log_channel",None)
+            _save(); _audit(gid,actor,"Dashboard: achievement settings updated",f"enabled={enabled}; channel={channel_id or 'disabled'}"); session["dashboard_notice"]="Achievement settings saved."
+        elif action=="quest_settings":
+            role_id=request.form.get("role_id","").strip()
+            role=guild.get_role(int(role_id)) if role_id.isdigit() else None
+            if not role or role.is_default() or role.managed: raise ValueError("Choose a valid assignable Quest Master role.")
+            state.setdefault("quest_config",{}).setdefault(gid,{})["quest_master_role"]=role.id
+            _save(); _audit(gid,actor,"Dashboard: Quest Master role updated",role.name); session["dashboard_notice"]="Quest Master role saved."
+        elif action=="xp_settings":
+            per=int(request.form.get("xp_per_message","20")); channel_id=request.form.get("channel_id","").strip()
+            if not 1<=per<=1000: raise ValueError("XP per message must be between 1 and 1,000.")
+            state.setdefault("xp_per_message",{})[gid]=per
+            if channel_id:
+                if not channel_id.isdigit() or not isinstance(guild.get_channel(int(channel_id)),__import__("discord").TextChannel): raise ValueError("Choose a valid text channel for XP.")
+                state.setdefault("xp_channels",{}).setdefault(gid,set()).add(int(channel_id))
+            _save(); _audit(gid,actor,"Dashboard: XP settings updated",f"XP/message={per}; added channel={channel_id or 'none'}")
+            session["dashboard_notice"]="XP settings saved."
+        elif action=="xp_channel_remove":
+            channel_id=request.form.get("channel_id","").strip()
+            if not channel_id.isdigit(): raise ValueError("Invalid XP channel.")
+            state.setdefault("xp_channels",{}).setdefault(gid,set()).discard(int(channel_id)); _save(); _audit(gid,actor,"Dashboard: XP channel removed",channel_id)
+            session["dashboard_notice"]="XP channel removed."
+        elif action=="category_log_set":
+            category=request.form.get("log_category","").strip(); channel_id=request.form.get("channel_id","").strip()
+            allowed={"moderation","economy","ai","levels","achievements","quests","friendship","community","roles","setup","general"}
+            if category not in allowed: raise ValueError("Unknown log category.")
+            if not channel_id.isdigit() or not isinstance(guild.get_channel(int(channel_id)),__import__("discord").TextChannel): raise ValueError("Choose a valid text channel.")
+            cid=int(channel_id); state.setdefault("category_log_channels",{}).setdefault(gid,{})[category]=cid
+            if category=="moderation": state.setdefault("log_channels",{})[gid]=cid
+            if category=="economy": state.setdefault("economy_log_channels",{})[gid]=cid
+            _save(); _audit(gid,actor,"Dashboard: log route updated",f"{category} -> {cid}"); session["dashboard_notice"]=f"{category.title()} log channel saved."
+        elif action=="category_log_disable":
+            category=request.form.get("log_category","").strip(); allowed={"moderation","economy","ai","levels","achievements","quests","friendship","community","roles","setup","general"}
+            if category not in allowed: raise ValueError("Unknown log category.")
+            state.setdefault("category_log_channels",{}).setdefault(gid,{}).pop(category,None)
+            if category=="moderation": state.setdefault("log_channels",{}).pop(gid,None)
+            if category=="economy": state.setdefault("economy_log_channels",{}).pop(gid,None)
+            _save(); _audit(gid,actor,"Dashboard: log route disabled",category); session["dashboard_notice"]=f"{category.title()} log route disabled."
+        elif action=="run_setup":
+            result=_run_bot(_dashboard_setup(guild,state),timeout=120); _audit(gid,actor,"Dashboard: Cinnamon setup applied",str(result)); session["dashboard_notice"]=result
         elif action=="levelrole_add":
             level=int(request.form.get("level","0")); role_id=request.form.get("role_id","")
             role=guild.get_role(int(role_id)) if role_id.isdigit() else None
-            if not 1<=level<=100 or not role or role.is_default() or role.managed: raise ValueError("Choose a valid level (1–100) and assignable role.")
+            if not 1<=level<=200 or not role or role.is_default() or role.managed: raise ValueError("Choose a valid level (1–100) and assignable role.")
             if not guild.me or role>=guild.me.top_role: raise ValueError("Move Cinnamon's highest role above the reward role first.")
             state["level_roles"].setdefault(gid,{})[level]=role.id
             _save(); _audit(gid,actor,"Dashboard: level reward added",f"Level {level}: {role.name}")
@@ -745,11 +900,11 @@ def dashboard_action():
             session["dashboard_notice"]=f"{mod_action.title()} action completed for {target}."
         else:
             raise ValueError("Unknown dashboard action.")
-        tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_quest_add":"economy","economy_quest_save":"economy","economy_quest_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","recall":"system"}.get(action,"overview")
+        tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_quest_add":"economy","economy_quest_save":"economy","economy_quest_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice"]=str(exc)[:300]
-        return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_quest_add":"economy","economy_quest_save":"economy","economy_quest_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","hangry_logs":"hangry","moderate":"moderation","automod":"moderation","antiraid":"moderation"}.get(request.form.get("action"),"community")))
+        return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_quest_add":"economy","economy_quest_save":"economy","economy_quest_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","hangry_logs":"hangry","moderate":"moderation","automod":"moderation","antiraid":"moderation","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system"}.get(request.form.get("action"),"community")))
     except Exception as exc:
         log.exception("Dashboard action failed (%s)",type(exc).__name__)
         session["dashboard_notice"]="The change could not be completed. Check Cinnamon's Render logs and bot permissions."
