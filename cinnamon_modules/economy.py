@@ -301,6 +301,52 @@ def inventory_embed(guild_id,user_id,page=0):
     return cinnamon_polish_embed(e)
 
 
+# Application-command group for all Cinnamon economy features.
+economy_group = app_commands.Group(
+    name="economy",
+    description="Cinnamon's Catnip economy, items, transactions, and backups",
+)
+
+# Keep the two admin balance controls under a nested group so the main
+# /economy group stays within Discord's 25 direct-child command limit.
+economy_admin_group = app_commands.Group(
+    name="admin",
+    description="Economy administration commands",
+    parent=economy_group,
+)
+
+
+@economy_group.command(name="balance", description="Check your Catnip balance")
+@app_commands.guild_only()
+async def economy_balance_cmd(interaction: discord.Interaction, member: discord.Member | None = None):
+    member = member or interaction.user
+    balance = economy_balance(interaction.guild.id, member.id)
+    inv = economy_inventory_for(interaction.guild.id, member.id)
+    item_count = sum(int(v) for v in inv.values())
+    embed = cinnamon_embed(
+        "🌿 Catnip Wallet",
+        f"**{member.mention}**\n\nYour current Cinnamon economy status is shown below.",
+        color=CINNAMON_GOLD, user=member, footer="Cinnamon Economy • Wallet"
+    )
+    cinnamon_field(embed, "🌿 Catnip", f"**{balance:,}**", True)
+    cinnamon_field(embed, "🎒 Items", f"**{item_count:,}**", True)
+    cinnamon_field(embed, "​", "​", True)
+    await interaction.response.send_message(
+        embed=cinnamon_polish_embed(embed),
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+    await economy_log(
+        interaction.guild.id,
+        title="👛 Economy balance viewed",
+        fields=[
+            ("Viewer", f"{interaction.user} ({interaction.user.id})"),
+            ("Member", f"{member} ({member.id})"),
+            ("Balance", f"{balance:,} Catnip"),
+        ],
+    )
+    await bd_save_data()
+
+
 @economy_group.command(name="inventory", description="See your Cinnamon items")
 @app_commands.guild_only()
 async def economy_inventory_cmd(interaction: discord.Interaction, member: discord.Member | None = None):
