@@ -171,10 +171,6 @@ async def quest_event(g,u,event,value=1,**kw):
         await bd_save_data()
     return completed_total
 
-@quest_reset_loop.before_loop
-async def _quest_reset_before_loop():
-    await bot.wait_until_ready()
-
 @tasks.loop(minutes=1)
 async def quest_reset_loop():
     # Touch every guild once a minute so rotations happen predictably at local midnight/week rollover.
@@ -185,6 +181,10 @@ async def quest_reset_loop():
         after=(quest_data.get(guild.id,{}).get("daily_date"), quest_data.get(guild.id,{}).get("weekly_key"))
         if before!=after: changed=True
     if changed: await bd_save_data()
+
+@quest_reset_loop.before_loop
+async def _quest_reset_before_loop():
+    await bot.wait_until_ready()
 
 @bot.tree.command(name="quest",description="View your current daily and weekly Cinnamon quests")
 @app_commands.guild_only()
