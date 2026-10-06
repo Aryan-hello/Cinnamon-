@@ -258,43 +258,14 @@ def _shell(guild, guilds, tab, body, notice=None):
     return _page("<div class='layout'>" + side + "<main class='main'>" + _header() + notice_html + body + "<div class='footer'>Cinnamon • Server controls are permission-checked. Keep your Discord account secure.</div></main></div>", title)
 
 
-def _channel_select(guild, name, selected=None, allow_none=True, multiple=False, size=7):
-    """Render a channel picker; multi-select is used for settings like XP."""
+def _channel_select(guild, name, selected=None, allow_none=True):
     channels = [c for c in guild.text_channels if c.permissions_for(guild.me).view_channel] if guild.me else guild.text_channels
-    if multiple:
-        if selected is None:
-            selected_ids = set()
-        elif isinstance(selected, (set, list, tuple)):
-            selected_ids = {int(x) for x in selected}
-        else:
-            selected_ids = {int(selected)}
-        boxes=[]
-        for ch in channels:
-            checked = " checked" if ch.id in selected_ids else ""
-            boxes.append(f"<label style='display:flex;align-items:center;gap:.65rem;padding:.65rem .75rem;border:1px solid var(--line);border-radius:12px;cursor:pointer;background:var(--surface2)'><input type='checkbox' name='{_esc(name)}' value='{ch.id}'{checked} style='width:18px;height:18px;accent-color:var(--accent)'><span>#{_esc(ch.name)}</span></label>")
-        return "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.55rem;max-height:320px;overflow:auto;padding:.2rem'>"+"".join(boxes)+"</div>"
     opts = ["<option value=''>— Not set —</option>"] if allow_none else []
     for ch in channels:
-        try:
-            sel = " selected" if selected is not None and int(selected) == ch.id else ""
-        except (TypeError, ValueError):
-            sel = ""
+        sel = " selected" if selected is not None and int(selected) == ch.id else ""
         opts.append(f"<option value='{ch.id}'{sel}>#{_esc(ch.name)}</option>")
     return f"<select name='{_esc(name)}'>" + "".join(opts) + "</select>"
 
-
-def _member_select(guild, name="member_id", selected=None, allow_none=False, size=7):
-    """Display member names in the dashboard while submitting their IDs internally."""
-    members = sorted((m for m in guild.members if not m.bot), key=lambda m: (m.display_name or m.name or "").lower())
-    selected_id = str(selected) if selected is not None else ""
-    opts = ["<option value=''>— Select a member —</option>"] if allow_none else []
-    for member in members:
-        label = member.display_name or member.name
-        tag = member.name if member.name != label else ""
-        suffix = f" · @{tag}" if tag else ""
-        sel = " selected" if str(member.id) == selected_id else ""
-        opts.append(f"<option value='{member.id}'{sel}>{_esc(label + suffix)}</option>")
-    return f"<select name='{_esc(name)}' size='{max(4, min(int(size), 15))}'>" + "".join(opts) + "</select>"
 
 def _role_select(guild, name, selected=None, allow_none=True):
     roles = sorted([r for r in guild.roles if not r.is_default() and not r.managed], key=lambda r: r.position, reverse=True)
@@ -372,8 +343,8 @@ def _moderation(guild, state):
     antiraid=state.get("antiraid_config",{}).get(gid,{})
     warns=state.get("warnings_data",{})
     warning_count=sum(len(v) for k,v in warns.items() if isinstance(k,tuple) and k[0]==gid)
-    modform="<div class='formgrid'><div class='field'><label>Member</label>"+_member_select(guild,"member_id",allow_none=False)+"<small>Select the Discord name; Cinnamon keeps the user ID internally.</small></div><div class='field'><label>Action</label><select name='mod_action'><option value='timeout'>Timeout</option><option value='kick'>Kick</option><option value='ban'>Ban</option></select></div><div class='field'><label>Timeout duration (minutes)</label><input name='duration' type='number' min='1' max='40320' value='60'></div><div class='field'><label>Reason</label><input name='reason' maxlength='400' placeholder='Reason for moderation action'></div></div><p class='muted'>Actions require the matching Discord permission and bot role hierarchy. Bans and kicks cannot be undone from this page.</p>"
-    modcard="<article class='card half'><h2>Member moderation</h2><p class='muted'>Apply a Discord moderation action by selecting the member name.</p>"+_form(gid,"moderate",modform,"Apply action",True)+"</article>"
+    modform="<div class='formgrid'><div class='field'><label>Member ID</label><input name='member_id' inputmode='numeric' required pattern='[0-9]{15,22}' placeholder='Discord user ID'></div><div class='field'><label>Action</label><select name='mod_action'><option value='timeout'>Timeout</option><option value='kick'>Kick</option><option value='ban'>Ban</option></select></div><div class='field'><label>Timeout duration (minutes)</label><input name='duration' type='number' min='1' max='40320' value='60'></div><div class='field'><label>Reason</label><input name='reason' maxlength='400' placeholder='Reason for moderation action'></div></div><p class='muted'>Actions require the matching Discord permission and bot role hierarchy. Bans and kicks cannot be undone from this page.</p>"
+    modcard="<article class='card half'><h2>Member moderation</h2><p class='muted'>Apply a Discord moderation action by member ID.</p>"+_form(gid,"moderate",modform,"Apply action",True)+"</article>"
     words="\n".join(str(w) for w in automod.get("words",[]))
     automodform="<div class='field'><label>Banned words or phrases</label><textarea name='words' maxlength='3000' placeholder='One per line'>"+_esc(words)+"</textarea><small>One phrase per line; maximum 50 entries, each up to 100 characters.</small></div>"
     for key,label,desc in [("spam","Spam detection","Remove rapid repeated messages."),("mentions","Mass mention protection","Flag messages over the mention threshold."),("invites","Discord invite protection","Remove Discord invite links.")]:
@@ -394,9 +365,9 @@ def _engagement(guild,state):
     rows="".join(f"<tr><td>{i}</td><td>{_esc((guild.get_member(uid).display_name if guild.get_member(uid) else 'Member '+str(uid)))}</td><td>{int(val):,}</td><td>{int(level_fn(val))}</td></tr>" for i,(uid,val) in enumerate(top,1)) or "<tr><td colspan='4'>No XP data yet.</td></tr>"
     role_rows="".join(f"<tr><td>{level}</td><td>{_esc((guild.get_role(rid).name if guild.get_role(rid) else 'Missing role'))}</td><td><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='levelrole_remove'><input type='hidden' name='level' value='{level}'><button class='btn secondary small' type='submit'>Remove</button></form></td></tr>" for level,rid in sorted(levels.items()) if str(level).isdigit()) or "<tr><td colspan='3'>No level roles configured.</td></tr>"
     channel_list="".join(f"<span class='pill good'>#{_esc(guild.get_channel(cid).name if guild.get_channel(cid) else str(cid))}</span> " for cid in sorted(channels)) or "<span class='pill warn'>No channels selected — XP is disabled</span>"
-    add_channels=_channel_select(guild,"channel_id",selected=channels,allow_none=False,multiple=True,size=8)
+    add_channels=_channel_select(guild,"channel_id",allow_none=False)
     formcontent="<div class='formgrid'><div class='field'><label>Level (1–200)</label><input name='level' type='number' min='1' max='200' required></div><div class='field'><label>Reward role</label>"+_role_select(guild,"role_id",allow_none=False)+"</div></div>"
-    xpcontent=f"<div class='formgrid'><div class='field'><label>XP per eligible message</label><input name='xp_per_message' type='number' min='1' max='1000' value='{int(per)}' required></div><div class='field'><label>XP channels</label>{add_channels}<small>Hold Ctrl/Cmd to select multiple channels. Saving replaces the current XP channel set.</small></div></div><p class='muted'>Cinnamon awards XP only in selected channels, with its built-in 30-second per-member cooldown. Remove channels below when needed.</p>"
+    xpcontent=f"<div class='formgrid'><div class='field'><label>XP per eligible message</label><input name='xp_per_message' type='number' min='1' max='1000' value='{int(per)}' required></div><div class='field'><label>Add an XP channel</label>{add_channels}</div></div><p class='muted'>Cinnamon awards XP only in selected channels, with its built-in 30-second per-member cooldown. Remove channels below when needed.</p>"
     channel_rows="".join(f"<tr><td>#{_esc(guild.get_channel(cid).name if guild.get_channel(cid) else str(cid))}</td><td><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='xp_channel_remove'><input type='hidden' name='channel_id' value='{cid}'><button class='btn secondary small' type='submit'>Remove</button></form></td></tr>" for cid in sorted(channels)) or "<tr><td colspan='2'>No XP channels configured.</td></tr>"
     body=f"<h1>Levels & XP</h1><p class='muted'>Control Cinnamon's message XP, eligible channels and level-role rewards. Level roles are intentionally not created by setup.</p><div class='grid'><article class='card third'><div class='statlabel'>Members with XP</div><div class='stat'>{_count(xp,gid):,}</div></article><article class='card third'><div class='statlabel'>XP per message</div><div class='stat'>{int(per):,}</div></article><article class='card third'><div class='statlabel'>XP channels</div><div class='stat'>{len(channels):,}</div></article><article class='card half'><h2>XP settings</h2>{_form(gid,'xp_settings',xpcontent,'Save XP settings')}<div class='rule'></div><div>{channel_list}</div><div class='tablewrap'><table><thead><tr><th>Eligible channel</th><th></th></tr></thead><tbody>{channel_rows}</tbody></table></div></article><article class='card half'><h2>Level rewards</h2><div class='tablewrap'><table><thead><tr><th>Level</th><th>Role</th><th></th></tr></thead><tbody>{role_rows}</tbody></table></div><div class='rule'></div>{_form(gid,'levelrole_add',formcontent,'Add level reward')}</article><article class='card full'><h2>XP leaderboard</h2><div class='tablewrap'><table><thead><tr><th>#</th><th>Member</th><th>XP</th><th>Level</th></tr></thead><tbody>{rows}</tbody></table></div></article></div>"
     return body
@@ -759,19 +730,14 @@ def dashboard_action():
             state.setdefault("quest_config",{}).setdefault(gid,{})["quest_master_role"]=role.id
             _save(); _audit(gid,actor,"Dashboard: Quest Master role updated",role.name); session["dashboard_notice"]="Quest Master role saved."
         elif action=="xp_settings":
-            per=int(request.form.get("xp_per_message","20")); channel_ids=request.form.getlist("channel_id")
+            per=int(request.form.get("xp_per_message","20")); channel_id=request.form.get("channel_id","").strip()
             if not 1<=per<=1000: raise ValueError("XP per message must be between 1 and 1,000.")
-            chosen=set()
-            for raw in channel_ids:
-                raw=raw.strip()
-                if not raw.isdigit(): raise ValueError("Choose valid text channels for XP.")
-                ch=guild.get_channel(int(raw))
-                if not isinstance(ch,__import__("discord").TextChannel): raise ValueError("Choose valid text channels for XP.")
-                chosen.add(ch.id)
             state.setdefault("xp_per_message",{})[gid]=per
-            state.setdefault("xp_channels",{})[gid]=chosen
-            _save(); _audit(gid,actor,"Dashboard: XP settings updated",f"XP/message={per}; channels={','.join(str(x) for x in sorted(chosen)) or 'none'}")
-            session["dashboard_notice"]="XP settings saved with the selected channels."
+            if channel_id:
+                if not channel_id.isdigit() or not isinstance(guild.get_channel(int(channel_id)),__import__("discord").TextChannel): raise ValueError("Choose a valid text channel for XP.")
+                state.setdefault("xp_channels",{}).setdefault(gid,set()).add(int(channel_id))
+            _save(); _audit(gid,actor,"Dashboard: XP settings updated",f"XP/message={per}; added channel={channel_id or 'none'}")
+            session["dashboard_notice"]="XP settings saved."
         elif action=="xp_channel_remove":
             channel_id=request.form.get("channel_id","").strip()
             if not channel_id.isdigit(): raise ValueError("Invalid XP channel.")
