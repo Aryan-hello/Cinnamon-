@@ -207,6 +207,9 @@ categorylogs_group = app_commands.Group(name="categorylogs", description="Config
     app_commands.Choice(name="Economy", value="economy"),
     app_commands.Choice(name="AI", value="ai"),
     app_commands.Choice(name="Levels & XP", value="levels"),
+    app_commands.Choice(name="Achievements", value="achievements"),
+    app_commands.Choice(name="Quests", value="quests"),
+    app_commands.Choice(name="Cinnamon Friendship", value="friendship"),
     app_commands.Choice(name="Giveaways & Polls", value="community"),
     app_commands.Choice(name="Roles", value="roles"),
     app_commands.Choice(name="Server Setup", value="setup"),
@@ -229,6 +232,7 @@ async def categorylogs_set(interaction: discord.Interaction, category: app_comma
 @app_commands.choices(category=[
     app_commands.Choice(name="Moderation", value="moderation"), app_commands.Choice(name="Economy", value="economy"),
     app_commands.Choice(name="AI", value="ai"), app_commands.Choice(name="Levels & XP", value="levels"),
+    app_commands.Choice(name="Achievements", value="achievements"), app_commands.Choice(name="Quests", value="quests"), app_commands.Choice(name="Cinnamon Friendship", value="friendship"),
     app_commands.Choice(name="Giveaways & Polls", value="community"), app_commands.Choice(name="Roles", value="roles"),
     app_commands.Choice(name="Server Setup", value="setup"), app_commands.Choice(name="General utilities", value="general"),
 ])
@@ -303,7 +307,7 @@ def _all_leaf_commands() -> list:
 @bot.tree.command(name="setup", description="Guided first-time setup: create Cinnamon's channels and configure logging")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.checks.bot_has_permissions(manage_channels=True, send_messages=True, embed_links=True)
+@app_commands.checks.bot_has_permissions(manage_channels=True, manage_roles=True, send_messages=True, embed_links=True)
 async def setup_cmd(interaction: discord.Interaction):
     guild = interaction.guild
     await interaction.response.defer(ephemeral=True)
@@ -320,6 +324,9 @@ async def setup_cmd(interaction: discord.Interaction):
         ("cinnamon-hangry", "Hangry Games starts, winners, cancellations, and recovery logs."),
         ("cinnamon-ai-logs", "Cinnamon AI command usage, settings, and service errors; not private conversation contents."),
         ("cinnamon-level-logs", "XP awards, level-ups, and level-role changes."),
+        ("cinnamon-achievement-logs", "Achievement unlocks, secret discoveries, rewards, role assignments, backups, and recovery."),
+        ("cinnamon-quest-logs", "Daily/weekly quest rotations, progress, completions, rewards, QP changes, and quest-shop purchases."),
+        ("cinnamon-friendship-logs", "Cinnamon Friendship XP, level changes, and related interactions."),
         ("cinnamon-community-logs", "Giveaway and poll events."),
         ("cinnamon-role-logs", "Role management and reaction-role configuration events."),
         ("cinnamon-setup-logs", "Welcome/goodbye, setup, and logging configuration changes."),
@@ -336,6 +343,25 @@ async def setup_cmd(interaction: discord.Interaction):
         if was_created:
             created.append(channel.mention)
 
+    # Create every non-level role used by achievements and the quest shop.
+    # Level roles are intentionally excluded; those are configured separately with /level-rewards.
+    achievement_role_names = sorted({
+        str(a.get("role")).strip()
+        for a in list(ACHIEVEMENTS.values()) + list(SECRET_ACHIEVEMENTS.values()) + [ADMIN_ACHIEVEMENT]
+        if a.get("role")
+    })
+    achievement_role_names.append("Quest Master")
+    achievement_role_names = list(dict.fromkeys(achievement_role_names))
+    created_roles = []
+    existing_roles = {r.name: r for r in guild.roles if not r.managed}
+    for role_name in achievement_role_names:
+        role = existing_roles.get(role_name)
+        if role is None:
+            try:
+                role = await guild.create_role(name=role_name, reason="Cinnamon achievement/quest setup")
+                created_roles.append(role.mention)
+            except discord.HTTPException as exc:
+                log.warning("Could not create Cinnamon reward role %r in guild %s: %s", role_name, guild.id, exc)
     # Configure the systems that have dedicated channel settings.
     log_channels[guild.id] = channels["cinnamon-logs"].id
     economy_log_channels[guild.id] = channels["cinnamon-economy"].id
@@ -344,6 +370,9 @@ async def setup_cmd(interaction: discord.Interaction):
         "economy": channels["cinnamon-economy"].id,
         "ai": channels["cinnamon-ai-logs"].id,
         "levels": channels["cinnamon-level-logs"].id,
+        "achievements": channels["cinnamon-achievement-logs"].id,
+        "quests": channels["cinnamon-quest-logs"].id,
+        "friendship": channels["cinnamon-friendship-logs"].id,
         "community": channels["cinnamon-community-logs"].id,
         "roles": channels["cinnamon-role-logs"].id,
         "setup": channels["cinnamon-setup-logs"].id,
@@ -377,7 +406,9 @@ async def setup_cmd(interaction: discord.Interaction):
         description=(
             "I checked the server and configured the main Cinnamon systems. "
             "Running `/setup` again is safe and will reuse these channels.\n\n"
-            f"**Created:** {created_text}"
+            f"**Created channels:** {created_text}\n\n"
+            f"**Reward roles ready:** {len(achievement_role_names)} total"
+            + (f"\n**New reward roles:** {', '.join(created_roles)[:1800]}" if created_roles else "\nNo new reward roles were needed; existing roles were reused.")
         ),
         color=discord.Color.green(),
     )
@@ -386,6 +417,9 @@ async def setup_cmd(interaction: discord.Interaction):
     embed.add_field(name="🍔 Hangry Games", value=channels["cinnamon-hangry"].mention, inline=True)
     embed.add_field(name="🤖 AI logs", value=channels["cinnamon-ai-logs"].mention, inline=True)
     embed.add_field(name="🏅 Levels logs", value=channels["cinnamon-level-logs"].mention, inline=True)
+    embed.add_field(name="🏆 Achievement logs", value=channels["cinnamon-achievement-logs"].mention, inline=True)
+    embed.add_field(name="📜 Quest logs", value=channels["cinnamon-quest-logs"].mention, inline=True)
+    embed.add_field(name="🐾 Friendship logs", value=channels["cinnamon-friendship-logs"].mention, inline=True)
     embed.add_field(name="🎉 Community logs", value=channels["cinnamon-community-logs"].mention, inline=True)
     embed.add_field(name="🏷️ Role logs", value=channels["cinnamon-role-logs"].mention, inline=True)
     embed.add_field(name="⚙️ Setup logs", value=channels["cinnamon-setup-logs"].mention, inline=True)
@@ -416,6 +450,9 @@ async def setupstatus_cmd(interaction: discord.Interaction):
         ("🌿 Economy logs", economy_log_channels.get(guild.id)),
         ("🤖 AI logs", category_log_channels.get(guild.id, {}).get("ai")),
         ("🏅 Levels logs", category_log_channels.get(guild.id, {}).get("levels")),
+        ("🏆 Achievement logs", category_log_channels.get(guild.id, {}).get("achievements")),
+        ("📜 Quest logs", category_log_channels.get(guild.id, {}).get("quests")),
+        ("🐾 Friendship logs", category_log_channels.get(guild.id, {}).get("friendship")),
         ("🎉 Community logs", category_log_channels.get(guild.id, {}).get("community")),
         ("🏷️ Role logs", category_log_channels.get(guild.id, {}).get("roles")),
         ("⚙️ Setup logs", category_log_channels.get(guild.id, {}).get("setup")),
@@ -453,7 +490,7 @@ _HELP_ECONOMY = (
     "`/economy balance` · `/economy inventory` — your Catnip and items\n"
     "`/economy daily` · `/economy work` · `?work` — earn Catnip\n"
     "`/economy shop` · `/economy buy` · `/economy iteminfo` — view, buy, and inspect items\n"
-    "`/quests` · `/economy feed` — see quests and give Cinnamon items\n"
+    "`/economy feed` — give Cinnamon items\n"
     "`/economy give` — give Catnip to another member\n"
     "`/collect` — collect income from your income roles\n"
     "`/economy leaderboard` — richest members\n"
@@ -585,11 +622,6 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
         if channel_id:
             channel_map.setdefault(int(channel_id), set()).add(label)
 
-    # Prefer persisted Cinnamon configuration, but also discover Cinnamon's
-    # managed log channels by name. This matters on Render when local JSON
-    # storage was wiped after a redeploy and Upstash was not configured: the
-    # historical Discord log messages still exist, so recovery should not
-    # report zero channels merely because the setting was lost.
     add_channel(log_channels.get(guild.id), "moderation")
     for category, channel_id in category_log_channels.get(guild.id, {}).items():
         add_channel(channel_id, str(category))
@@ -598,37 +630,12 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
     if hg:
         add_channel(hg.hg_log_channels.get(guild.id), "hangry")
 
-    known_log_names = {
-        "cinnamon-logs", "cinnamon-economy", "cinnamon-hangry",
-        "economy-logs", "hangry-logs", "moderation-logs", "xp-logs",
-        "levels-logs", "ai-logs", "setup-logs", "general-logs",
-        "roles-logs", "community-logs", "giveaways-logs",
-    }
-    discovered = 0
-    for text_channel in guild.text_channels:
-        name = text_channel.name.casefold()
-        topic = (text_channel.topic or "").casefold()
-        is_cinnamon_named_log = (
-            name in known_log_names
-            or ("cinnamon" in name and "log" in name)
-            or name.endswith("-logs")
-            or name.endswith("_logs")
-            or ("cinnamon" in topic and "log" in topic)
-        )
-        if not is_cinnamon_named_log:
-            continue
-        before = len(channel_map)
-        add_channel(text_channel.id, "discovered")
-        if len(channel_map) > before:
-            discovered += 1
-    result_discovered = discovered
-
     result = {
-        "channels_configured": len(channel_map), "channels_auto_discovered": result_discovered, "channels_scanned": 0,
+        "channels_configured": len(channel_map), "channels_scanned": 0,
         "messages_scanned": 0, "embeds_scanned": 0,
         "title_counts": defaultdict(int), "category_counts": defaultdict(int),
-        "scan_errors": [], "xp_users_restored": 0, "achievements_restored": 0,
-        "quests_restored": 0, "economy_users_from_events": 0,
+        "scan_errors": [], "xp_users_restored": 0,
+        "economy_users_from_events": 0,
     }
     events = []
     for channel_id, labels in channel_map.items():
@@ -662,7 +669,6 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
     # latest absolute log value, never by replaying deltas (which double-count).
     events.sort(key=lambda item: item[0], reverse=True)
     seen_xp, seen_balances, seen_inventory = set(), set(), set()
-    seen_quests, seen_achievements = set(), set()
     economy_keys_before = {uid for gid, uid in economy_balances if gid == guild.id}
     for created_at, channel_id, embed in events:
         fields = {str(f.name).strip(): str(f.value).strip() for f in embed.fields}
@@ -682,38 +688,7 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
                     if xp_after > old:
                         xp_data[key] = xp_after
                         result["xp_users_restored"] += 1
-
-        # Achievements can be recovered by matching logged display names to definitions.
-        if title == "🏆 Achievement unlocked":
-            user_text = fields.get("User", "")
-            match = re.search(r"\((\d+)\)\s*$", user_text)
-            achievement_name = fields.get("Achievement", "").strip().strip("*")
-            aid = next((key for key, definition in ECONOMY_ACHIEVEMENTS.items()
-                        if str(definition.get("name", "")).strip() == achievement_name), None)
-            if match and aid:
-                uid = int(match.group(1)); key = (guild.id, uid)
-                if (uid, aid) not in seen_achievements:
-                    seen_achievements.add((uid, aid))
-                    unlocked = economy_achievements.setdefault(key, [])
-                    if aid not in unlocked:
-                        unlocked.append(aid)
-                        result["achievements_restored"] += 1
-
-        # Completed quest names in feed logs provide a safe minimum progress value.
-        if title == "🐟 Cinnamon fed":
-            user_text = fields.get("User", "")
-            match = re.search(r"\((\d+)\)\s*$", user_text)
-            rewards_text = fields.get("Quest rewards", "")
-            if match and rewards_text and rewards_text.lower() != "none":
-                uid = int(match.group(1)); key = (guild.id, uid)
-                for qid, quest in ECONOMY_QUESTS.items():
-                    if str(quest.get("name", qid)).casefold() in rewards_text.casefold() and (uid, qid) not in seen_quests:
-                        seen_quests.add((uid, qid))
-                        progress = economy_quests.setdefault(key, {})
-                        target = max(1, int(quest.get("amount", 1)))
-                        if int(progress.get(qid, 0) or 0) < target:
-                            progress[qid] = target
-                            result["quests_restored"] += 1
+        # Economy quest/achievement recovery intentionally removed.
 
         # Rebuild missing balances only from absolute post-transaction values.
         candidates = []
@@ -812,8 +787,6 @@ async def recall_cmd(interaction: discord.Interaction):
         f"• XP users restored/updated from absolute XP logs: **{result['xp_users_restored']}**\n"
         f"• Economy accounts filled from events/snapshot: **{result['economy_accounts']}**\n"
         f"• Economy snapshot: {result['economy_snapshot_detail']}\n"
-        f"• Economy achievements unlocked restored: **{result['achievements_restored']}**\n"
-        f"• Completed quest progress restored: **{result['quests_restored']}**\n"
         f"• Hangry game counter: **#{result['hangry_game_count']}**; wins found: **{result['hangry_wins_seen']}**\n\n"
         f"**Most common log types found**\n{title_summary}\n\n"
         f"**Channel scan issues**\n{errors}\n\n"
@@ -835,8 +808,7 @@ async def datastatus_recover(interaction: discord.Interaction):
     await interaction.followup.send(
         f"🩹 Recovery scan complete: **{result['embeds_scanned']}** log embeds across **{result['channels_scanned']}** channels.\n"
         f"Warnings: **{result['warnings']}** · XP users restored/updated: **{result['xp_users_restored']}** · "
-        f"Economy accounts filled: **{result['economy_accounts']}** · Achievements restored: **{result['achievements_restored']}** · "
-        f"Quest progress restored: **{result['quests_restored']}** · Hangry games: **#{result['hangry_game_count']}**, wins: **{result['hangry_wins_seen']}**.\n"
+        f"Economy accounts filled: **{result['economy_accounts']}** · Hangry games: **#{result['hangry_game_count']}**, wins: **{result['hangry_wins_seen']}**.\n"
         f"Snapshot: {result['economy_snapshot_detail']}\n"
         "Only data supported by retained logs or snapshots can be recovered; see `/recall` for the full scan report.",
         ephemeral=True,
@@ -849,13 +821,17 @@ bot.tree.add_command(reactionrole_group)
 bot.tree.add_command(automod_group)
 bot.tree.add_command(giveaway_group)
 bot.tree.add_command(levelrole_group)
+try: bot.tree.add_command(levelrewards_group)
+except Exception: pass
+try: bot.tree.add_command(levelsettings_group)
+except Exception: pass
 bot.tree.add_command(antiraid_group)
 bot.tree.add_command(datastatus_group)
 
 
 
 # ---------------------------------------------------------------------------
-# Economy — Catnip, items, quests, transaction logs, and reset-safe snapshots
+# Economy — Catnip, items, transaction logs, and reset-safe snapshots
 # ---------------------------------------------------------------------------
 
 

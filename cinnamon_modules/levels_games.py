@@ -5,14 +5,55 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
-def level_from_xp(xp: int) -> int:
-    # Inverse of total_xp_for_level's quadratic (25*n^2 + 75*n <= xp).
-    n = (-75 + math.sqrt(5625 + 100 * xp)) / 50
-    return max(0, int(n))
+MAX_LEVEL = 200
+DEFAULT_XP_PER_MESSAGE = 20
+XP_COOLDOWN_SECONDS = 30
 
 
 def total_xp_for_level(level: int) -> int:
-    return 25 * level * level + 75 * level
+    """Cumulative XP required to reach `level` (maximum Level 200).
+
+    Cinnamon uses a softened quadratic progression. The XP cost for each
+    level step is approximately:
+        2.75*L^2 + 40*L + 100
+
+    This keeps early levels approachable while making Level 200 a long-term
+    goal of about 8.09 million total XP.
+    """
+    level = max(0, min(MAX_LEVEL, int(level)))
+    if level <= 0:
+        return 0
+    n = level - 1
+    # Exact integer form of:
+    # 11/4 * sum(k^2, k=0..n) + 20*n*(n+1) + 100*level
+    return (11 * n * (n + 1) * (2 * n + 1) + 240 * n * (n + 1) + 2400 * level) // 24
+
+
+def level_from_xp(xp: int) -> int:
+    """Return the highest level (0-200) whose cumulative XP is met."""
+    xp = max(0, int(xp))
+    if xp >= total_xp_for_level(MAX_LEVEL):
+        return MAX_LEVEL
+    lo, hi = 0, MAX_LEVEL
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if total_xp_for_level(mid) <= xp:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+def xp_settings_for_guild(guild_id: int) -> tuple[int, set[int]]:
+    amount = int(xp_per_message.get(guild_id, DEFAULT_XP_PER_MESSAGE))
+    channels = set(xp_channels.get(guild_id, set()))
+    return max(1, min(1000, amount)), channels
+
+
+def xp_allowed_in_channel(guild_id: int, channel_id: int) -> bool:
+    channels = xp_channels.get(guild_id, set())
+    # An empty list means XP is disabled until an admin explicitly selects channels.
+    return bool(channels) and channel_id in channels
 
 
 async def sync_level_roles(member: discord.Member, level: int) -> list[str]:
@@ -40,16 +81,21 @@ async def sync_level_roles(member: discord.Member, level: int) -> list[str]:
 
 
 async def award_xp(message: discord.Message):
-    key = (message.guild.id, message.author.id)
+    guild_id = message.guild.id
+    if not xp_allowed_in_channel(guild_id, message.channel.id):
+        return
+    key = (guild_id, message.author.id)
     now = time.monotonic()
-    if now - xp_cooldowns.get(key, 0) < 60:
+    if now - xp_cooldowns.get(key, 0) < XP_COOLDOWN_SECONDS:
         return
     xp_cooldowns[key] = now
     old_xp = xp_data.get(key, 0)
     old_level = level_from_xp(old_xp)
-    new_xp = old_xp + random.randint(15, 25)
+    xp_amount, _ = xp_settings_for_guild(guild_id)
+    new_xp = old_xp + xp_amount
     xp_data[key] = new_xp
     new_level = level_from_xp(new_xp)
+    await achievement_record(guild_id, message.author.id, "level", new_level)
     gained = await sync_level_roles(message.author, new_level)
     await send_log(message.guild.id, title="📈 XP changed", category="levels",
                    fields=[("User", f"{message.author} ({message.author.id})"), ("XP before", str(old_xp)),
@@ -63,6 +109,7 @@ async def award_xp(message: discord.Message):
         reward_total = sum(ECONOMY_LEVEL_REWARDS[lvl] for lvl in reward_levels)
         if reward_total:
             economy_balances[(message.guild.id, message.author.id)] = economy_balance(message.guild.id, message.author.id) + reward_total
+            await achievement_record(message.guild.id, message.author.id, "catnip_earned", reward_total)
             for lvl in reward_levels:
                 mark_economy_level_reward_claimed(message.guild.id, message.author.id, lvl)
             await economy_log(message.guild.id, title="🏆 Level Catnip reward", fields=[("User", f"{message.author} ({message.author.id})"), ("Levels", ", ".join(map(str, reward_levels))), ("Reward", f"+{reward_total:,} Catnip")])
@@ -85,36 +132,179 @@ async def rank(interaction: discord.Interaction, member: discord.Member = None):
     xp = xp_data.get((interaction.guild.id, member.id), 0)
     level = level_from_xp(xp)
     this_level_xp = total_xp_for_level(level)
-    next_level_xp = total_xp_for_level(level + 1)
+    next_level_xp = total_xp_for_level(level + 1) if level < MAX_LEVEL else this_level_xp
     embed = discord.Embed(title=f"🐾 {member.display_name}'s Rank", color=0xFFB02E)
     embed.add_field(name="Level", value=str(level), inline=True)
     embed.add_field(name="Total XP", value=str(xp), inline=True)
-    embed.add_field(name="Progress", value=f"{xp - this_level_xp}/{next_level_xp - this_level_xp} XP to next level", inline=True)
+    progress = "MAX LEVEL" if level >= MAX_LEVEL else f"{xp - this_level_xp}/{next_level_xp - this_level_xp} XP to next level"
+    embed.add_field(name="Progress", value=progress, inline=True)
     reward = ECONOMY_LEVEL_REWARDS.get(level)
     if reward:
         embed.add_field(name="🌿 Level reward", value=f"+{reward:,} Catnip at this level", inline=True)
     await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-@bot.tree.command(name="leaderboard", description="Show the top 10 members by XP in this server")
+@bot.tree.command(name="leaderboard", description="Show a Cinnamon server leaderboard")
 @app_commands.guild_only()
-async def leaderboard(interaction: discord.Interaction):
-    entries = sorted(
-        ((uid, xp) for (gid, uid), xp in xp_data.items() if gid == interaction.guild.id),
-        key=lambda e: e[1], reverse=True,
-    )[:10]
-    if not entries:
-        return await interaction.response.send_message("No one has earned XP yet. 🐾", ephemeral=True)
-    lines = []
-    for i, (uid, xp) in enumerate(entries, 1):
-        member = interaction.guild.get_member(uid)
-        name = member.display_name if member else f"User {uid}"
-        lines.append(f"**#{i}** {name} — Level {level_from_xp(xp)} ({xp} XP)")
-    embed = discord.Embed(title="🏆 XP Leaderboard", description="\n".join(lines), color=0xFEE75C)
-    await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+@app_commands.describe(category="What you want to rank members by")
+@app_commands.choices(category=[
+    app_commands.Choice(name="XP / Levels",value="xp"),
+    app_commands.Choice(name="Catnip",value="catnip"),
+    app_commands.Choice(name="Achievement Points",value="achievements"),
+    app_commands.Choice(name="Messages",value="messages"),
+    app_commands.Choice(name="Work Sessions",value="work"),
+    app_commands.Choice(name="Cinnamon Friendship",value="friendship"),
+])
+async def leaderboard(interaction: discord.Interaction, category: app_commands.Choice[str] | None = None):
+    category=(category.value if category else "xp")
+    gid=interaction.guild.id
+    rows=[]
+    if category=="xp":
+        rows=[(uid,int(xp)) for (g,uid),xp in xp_data.items() if g==gid]
+        title="⭐ XP / Level Leaderboard"; fmt=lambda uid,v:f"Level {level_from_xp(v)} · {v:,} XP"
+    elif category=="catnip":
+        rows=[(uid,int(v)) for (g,uid),v in economy_balances.items() if g==gid]
+        title="🌿 Catnip Leaderboard"; fmt=lambda uid,v:f"{v:,} Catnip"
+    elif category=="achievements":
+        rows=[(uid,int(s.get("points",0))) for (g,uid),s in achievement_data.items() if g==gid]
+        title="🏆 Achievement Points Leaderboard"; fmt=lambda uid,v:f"{v:,} AP"
+    elif category=="messages":
+        rows=[(uid,int(s.get("stats",{}).get("messages",0))) for (g,uid),s in achievement_data.items() if g==gid]
+        title="💬 Message Leaderboard"; fmt=lambda uid,v:f"{v:,} messages"
+    elif category=="work":
+        rows=[(uid,int(s.get("stats",{}).get("work_sessions",0))) for (g,uid),s in achievement_data.items() if g==gid]
+        title="💼 Work Leaderboard"; fmt=lambda uid,v:f"{v:,} work sessions"
+    else:
+        rows=[(uid,int(friendship_data.get((gid,uid),{}).get("points",0))) for (g,uid) in achievement_data if g==gid]
+        for (g,uid),fs in friendship_data.items():
+            if g==gid and uid not in {x[0] for x in rows}: rows.append((uid,int(fs.get("points",0))))
+        title="🐾 Cinnamon Friendship Leaderboard"; fmt=lambda uid,v:f"{v:,} Friendship XP"
+    rows=sorted(rows,key=lambda x:x[1],reverse=True)[:10]
+    if not rows: return await interaction.response.send_message("No leaderboard data yet. 🐾",ephemeral=True)
+    lines=[]
+    for i,(uid,v) in enumerate(rows,1):
+        m=interaction.guild.get_member(uid); name=m.display_name if m else f"User {uid}"
+        lines.append(f"**#{i}** {name} — {fmt(uid,v)}")
+    await interaction.response.send_message(embed=discord.Embed(title=title,description="\n".join(lines),color=0xFEE75C),allowed_mentions=discord.AllowedMentions.none())
+
+
+# --- Level XP settings ----------------------------------------------------------
+
+levelsettings_group = app_commands.Group(name="level-settings", description="Configure Cinnamon XP earning")
+
+
+@levelsettings_group.command(name="xp", description="Set the fixed XP earned per eligible message")
+@app_commands.describe(amount="XP awarded when the member's 30-second XP cooldown is ready (1-1000)")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def levelsettings_xp(interaction: discord.Interaction, amount: app_commands.Range[int, 1, 1000]):
+    xp_per_message[interaction.guild.id] = int(amount)
+    await bd_save_data()
+    await interaction.response.send_message(
+        f"📈 Eligible messages now give **{amount} XP**. A member can earn it once every **{XP_COOLDOWN_SECONDS} seconds**, and only in your configured XP channels.",
+        ephemeral=True,
+    )
+
+
+@levelsettings_group.command(name="channel-add", description="Allow a channel to earn XP")
+@app_commands.describe(channel="Channel where messages can earn XP")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def levelsettings_channel_add(interaction: discord.Interaction, channel: discord.TextChannel):
+    xp_channels.setdefault(interaction.guild.id, set()).add(channel.id)
+    await bd_save_data()
+    await interaction.response.send_message(
+        f"✅ {channel.mention} is now an XP channel. Members can earn XP there once every {XP_COOLDOWN_SECONDS} seconds.",
+        ephemeral=True,
+    )
+
+
+@levelsettings_group.command(name="channel-remove", description="Stop a channel from earning XP")
+@app_commands.describe(channel="Channel to remove from XP earning")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def levelsettings_channel_remove(interaction: discord.Interaction, channel: discord.TextChannel):
+    channels = xp_channels.setdefault(interaction.guild.id, set())
+    if channel.id not in channels:
+        return await interaction.response.send_message("That channel is not in the XP channel list.", ephemeral=True)
+    channels.remove(channel.id)
+    await bd_save_data()
+    await interaction.response.send_message(f"🧹 {channel.mention} was removed from the XP channel list.", ephemeral=True)
+
+
+@levelsettings_group.command(name="channels", description="Show channels that can earn XP")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def levelsettings_channels(interaction: discord.Interaction):
+    channels = sorted(xp_channels.get(interaction.guild.id, set()))
+    if not channels:
+        return await interaction.response.send_message(
+            "📈 **XP channels:** none configured — message XP is currently disabled.\nUse `/level-settings channel-add` to select the channels that can earn XP.",
+            ephemeral=True,
+        )
+    mentions = [f"<#{cid}>" for cid in channels]
+    await interaction.response.send_message(
+        "📈 **XP channels:**\n" + "\n".join(mentions),
+        ephemeral=True,
+    )
+
+
+@levelsettings_group.command(name="channels-clear", description="Disable message XP by clearing the allowed-channel list")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def levelsettings_channels_clear(interaction: discord.Interaction):
+    xp_channels.pop(interaction.guild.id, None)
+    await bd_save_data()
+    await interaction.response.send_message("✅ XP channel list cleared. Message XP is now disabled until you add at least one channel with `/level-settings channel-add`.", ephemeral=True)
+
+
+@levelsettings_group.command(name="status", description="Show the server's XP settings")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def levelsettings_status(interaction: discord.Interaction):
+    amount, channels = xp_settings_for_guild(interaction.guild.id)
+    channel_text = "None configured (message XP disabled)" if not channels else f"{len(channels)} configured channel(s)"
+    await interaction.response.send_message(
+        f"📊 **Cinnamon XP settings**\n• XP per eligible message: **{amount}**\n• Cooldown: **{XP_COOLDOWN_SECONDS}s**\n• XP channels: **{channel_text}**\n• Maximum level: **{MAX_LEVEL}**",
+        ephemeral=True,
+    )
 
 
 # --- Level roles ----------------------------------------------------------------
+
+levelrewards_group = app_commands.Group(name="level-rewards", description="Configure automatic roles for level milestones")
+
+@levelrewards_group.command(name="add", description="Give a role automatically at a level")
+@app_commands.describe(level="Level required", role="Role to award")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.bot_has_permissions(manage_roles=True)
+@app_commands.guild_only()
+async def levelrewards_add(interaction: discord.Interaction, level: app_commands.Range[int,1,200], role: discord.Role):
+    if role.is_default() or role.managed or role >= interaction.guild.me.top_role:
+        return await interaction.response.send_message("❌ I can't assign that role. Make sure it is a normal role below Cinnamon's highest role.",ephemeral=True)
+    level_roles.setdefault(interaction.guild.id,{})[int(level)]=role.id
+    await bd_save_data()
+    await interaction.response.send_message(f"🎖️ **Level {level}** now awards {role.mention}.",allowed_mentions=discord.AllowedMentions.none())
+
+@levelrewards_group.command(name="remove", description="Remove a level role reward")
+@app_commands.describe(level="Level whose reward should be removed")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def levelrewards_remove(interaction: discord.Interaction, level: int):
+    if level_roles.get(interaction.guild.id,{}).pop(int(level),None) is None:
+        return await interaction.response.send_message(f"❌ No reward is configured for Level {level}.",ephemeral=True)
+    await bd_save_data(); await interaction.response.send_message(f"🧹 Removed the Level {level} role reward. Members keep roles they already earned.",ephemeral=True)
+
+@levelrewards_group.command(name="list", description="List all configured level rewards")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+async def levelrewards_list(interaction: discord.Interaction):
+    cfg=level_roles.get(interaction.guild.id,{})
+    if not cfg: return await interaction.response.send_message("No level rewards are configured. Use `/levelrewards add`.",ephemeral=True)
+    lines=[]
+    for lvl in sorted(cfg):
+        role=interaction.guild.get_role(cfg[lvl]); lines.append(f"**Level {lvl}** → {role.mention if role else '❌ Deleted role'}")
+    await interaction.response.send_message(embed=discord.Embed(title="🎖️ Level Rewards",description="\n".join(lines),color=discord.Color.blurple()),ephemeral=True)
 
 levelrole_group = app_commands.Group(name="levelrole", description="Give roles automatically at certain levels")
 
@@ -124,7 +314,7 @@ levelrole_group = app_commands.Group(name="levelrole", description="Give roles a
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 @app_commands.guild_only()
-async def levelrole_add(interaction: discord.Interaction, level: int, role: discord.Role):
+async def levelrole_add(interaction: discord.Interaction, level: app_commands.Range[int,1,200], role: discord.Role):
     if role.is_default() or role.managed:
         return await interaction.response.send_message("That role can't be assigned by a bot.", ephemeral=True)
     if role >= interaction.guild.me.top_role:
@@ -149,7 +339,7 @@ async def levelrole_add(interaction: discord.Interaction, level: int, role: disc
 @app_commands.describe(level="The level to remove the reward from")
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
-async def levelrole_remove(interaction: discord.Interaction, level: int):
+async def levelrole_remove(interaction: discord.Interaction, level: app_commands.Range[int,1,200]):
     cfg = level_roles.get(interaction.guild.id, {})
     if cfg.pop(level, None) is None:
         return await interaction.response.send_message(f"No level role is set for level {level}.", ephemeral=True)
@@ -217,6 +407,9 @@ class GiveawayView(discord.ui.View):
             gw["entrants"].append(uid)
             text = "🎉 You're entered! Click again to leave."
         await interaction.response.send_message(text, ephemeral=True)
+        if text.startswith("🎉 You're entered"):
+            await achievement_record(int(gw.get("guild_id",0)), interaction.user.id, "giveaway", 1)
+            await quest_event(int(gw.get("guild_id",0)), interaction.user.id, "giveaway", 1)
         await bd_save_data()  # after responding: Discord only gives us 3s to answer
         guild_id = gw.get("guild_id")
         if guild_id:
@@ -378,6 +571,12 @@ class PollView(discord.ui.View):
             else:
                 poll["votes"][uid] = idx
             await interaction.response.edit_message(embed=_poll_embed(poll))
+            # Count a distinct vote action once per user per poll; changing a vote
+            # still represents participation in the poll.
+            if uid not in poll.setdefault("achievement_voters", []):
+                poll["achievement_voters"].append(uid)
+                await achievement_record(int(poll.get("guild_id",0)), interaction.user.id, "poll_vote", 1, poll_id=str(interaction.message.id))
+                await quest_event(int(poll.get("guild_id",0)), interaction.user.id, "poll_vote", 1, poll_id=str(interaction.message.id))
             await bd_save_data()  # after responding: Discord only gives us 3s to answer
             await send_log(int(poll.get("guild_id", 0)), title="📊 Poll vote changed", category="community",
                            fields=[("User", f"{interaction.user} ({interaction.user.id})"),

@@ -354,6 +354,11 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                 self.played_counts[pkey] = self.played_counts.get(pkey, 0) + 1
                 if k:
                     self.kill_counts[pkey] = self.kill_counts.get(pkey, 0) + k
+                try:
+                    await achievement_record(channel.guild.id, pid, "hangry", 1, kills=k, win=1 if pid == winner_id else 0)
+                    await quest_event(channel.guild.id, pid, "hangry", 1)
+                except Exception:
+                    log.exception("Achievement tracking failed for Hangry Games participant %s", pid)
             await self._save()
 
             desc = f"🎉 **{winner.display_name}** won **{host.display_name}**'s Hangry Games"

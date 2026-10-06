@@ -113,8 +113,12 @@ def _command_log_category(command_name: str) -> str:
         return "economy"
     if root in {"ask", "ai", "chat", "aichannel", "disableaichannel", "disableai", "enableai"}:
         return "ai"
-    if root in {"rank", "leaderboard", "levelrole"}:
+    if root in {"rank", "leaderboard", "levelrole", "level-rewards", "level-settings"}:
         return "levels"
+    if root in {"achievement", "achievements"} or "achievement" in name:
+        return "achievements"
+    if root in {"quest", "quests", "questshop"} or "quest" in name:
+        return "quests"
     if root in {"giveaway", "poll"}:
         return "community"
     if root in {"role", "reactionrole"}:
@@ -208,6 +212,10 @@ async def on_ready():
             check_tempbans.start()
         if not periodic_save.is_running():
             periodic_save.start()
+        # Keep the daily/weekly quest rotation clock-driven rather than waiting
+        # for a member to invoke /quest.
+        if not quest_reset_loop.is_running():
+            quest_reset_loop.start()
 
         # --- Data-loss recovery: for any guild with a log channel configured
         # but no matching data loaded (persisted store came back empty), try to
@@ -297,13 +305,13 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
 
 
 
-# Main prefix commands. Hangry Games, quests, and achievements stay slash-only.
+# Main prefix commands. Hangry Games and the real quest/achievement systems stay slash-only.
 @bot.command(name="help", aliases=["commands"])
 async def prefix_help(ctx):
     e=discord.Embed(title="🐾 Cinnamon — Help",description="Use ? before a command. Mention or ID works for member arguments.",color=discord.Color.blurple())
     e.add_field(name="Moderation",value="`?kick`, `?ban`, `?unban`, `?mute`, `?unmute`, `?warn`, `?warnings`, `?clearwarnings`, `?purge`, `?slowmode`",inline=False)
     e.add_field(name="AI",value="`?ask <message>` (`?ai`, `?chat`)",inline=False)
-    e.add_field(name="Normal",value="`?ping`, `?botstatus`, `?userinfo [member]`, `?serverinfo`, `?afk [reason]`, `?rank [member]`, `?leaderboard`",inline=False)
+    e.add_field(name="Normal",value="`?ping`, `?botstatus`, `?userinfo [member]`, `?serverinfo`, `?afk [reason]`, `?rank [member]`, `?leaderboard`, `/achievement`, `/quest`",inline=False)
     e.add_field(name="Economy",value="`?balance` (`?bal`, `?wallet`), `?inventory` (`?inv`), `?shop`, `?buy <item> [qty]`, `?daily`, `?work`, `?give <member> <amount>` (`?pay`), `?econlb`",inline=False)
     await ctx.reply(embed=e,mention_author=False)
 
@@ -314,10 +322,17 @@ async def prefix_ping(ctx): await ctx.reply(f"🐾 Pong! {round(bot.latency*1000
 @commands.guild_only()
 async def prefix_ask(ctx,*,prompt:str):
     if ctx.channel.id in disabled_channels[ctx.guild.id]: return
+    ai_success=False
     async with ctx.typing():
-        try: result=await asyncio.to_thread(ask_gemini,ctx.channel.id,ctx.author.display_name,prompt,ctx.guild); reply=result.get("reply") or "*paws at the screen* Try again?"
-        except Exception: log.exception("Prefix AI failed"); reply="*paws at the screen, confused* I couldn't answer just now. Try again soon?"
+        try:
+            result=await asyncio.to_thread(ask_gemini,ctx.channel.id,ctx.author.display_name,prompt,ctx.guild)
+            reply=result.get("reply") or "*paws at the screen* Try again?"
+            ai_success=bool(result.get("reply"))
+        except Exception:
+            log.exception("Prefix AI failed"); reply="*paws at the screen, confused* I couldn't answer just now. Try again soon?"
     channel_memories[ctx.channel.id].append((ctx.author.display_name,prompt)); channel_memories[ctx.channel.id].append(("Cinnamon",reply))
+    if ai_success:
+        await achievement_record(ctx.guild.id,ctx.author.id,"ai_reply",1)
     await ctx.reply(reply[:1900],mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.command(name="userinfo",aliases=["whois"])
@@ -434,7 +449,7 @@ async def prefix_shop(ctx): await ctx.reply(embed=discord.Embed(title="🐟 Cinn
 async def prefix_daily(ctx):
     gid,uid=ctx.guild.id,ctx.author.id; rem=economy_cooldown_remaining(gid,uid,"daily")
     if rem: return await ctx.reply(f"🐾 Daily ready in {rem//3600}h {(rem%3600)//60}m.",mention_author=False)
-    economy_cooldowns[(gid,uid,"daily")]=time.time()+86400; economy_balances[(gid,uid)]=economy_balance(gid,uid)+ECONOMY_DAILY_REWARD; await bd_save_data(); await economy_log(gid,title="🌿 Daily Catnip",fields=[("User",str(ctx.author)),("Amount",f"+{ECONOMY_DAILY_REWARD}")]); await ctx.reply(f"🌿 +{ECONOMY_DAILY_REWARD} Catnip!",mention_author=False)
+    economy_cooldowns[(gid,uid,"daily")]=time.time()+86400; economy_balances[(gid,uid)]=economy_balance(gid,uid)+ECONOMY_DAILY_REWARD; await achievement_record(gid,uid,"catnip_earned",ECONOMY_DAILY_REWARD); await achievement_record(gid,uid,"balance"); await quest_event(gid,uid,"balance",economy_balance(gid,uid)); await bd_save_data(); await economy_log(gid,title="🌿 Daily Catnip",fields=[("User",str(ctx.author)),("Amount",f"+{ECONOMY_DAILY_REWARD}")]); await ctx.reply(f"🌿 +{ECONOMY_DAILY_REWARD} Catnip!",mention_author=False)
 
 @bot.command(name="work")
 @commands.guild_only()
@@ -449,16 +464,19 @@ async def prefix_buy(ctx,item:str,quantity:int=1):
     if not data: return await ctx.reply("❌ Item not found. Use `?shop`.",mention_author=False)
     bal=economy_balance(gid,uid); cost=data["price"]*quantity
     if bal<cost: return await ctx.reply(f"❌ Need {cost:,} Catnip; you have {bal:,}.",mention_author=False)
-    inv=economy_inventory_for(gid,uid); inv[item]=int(inv.get(item,0))+quantity; economy_balances[(gid,uid)]=bal-cost; await bd_save_data(); await economy_log(gid,title="🛒 Economy purchase",fields=[("User",f"{ctx.author} ({uid})"),("Item",f"{data['name']} (`{item}`)"),("Quantity",quantity),("Unit price",data["price"]),("Deducted",f"-{cost:,} Catnip"),("Balance before",bal),("Balance after",bal-cost),("Item quantity after",inv[item])]); await ctx.reply(f"🛒 Bought {quantity}× {data['name']} for {cost:,} Catnip. Balance: {bal-cost:,}.",mention_author=False)
+    inv=economy_inventory_for(gid,uid); inv[item]=int(inv.get(item,0))+quantity; economy_balances[(gid,uid)]=bal-cost; await achievement_record(gid,uid,"purchase",quantity,spent=cost); await achievement_record(gid,uid,"inventory"); await quest_event(gid,uid,"items_owned",sum(max(0,int(v)) for v in inv.values())); await quest_event(gid,uid,"purchase",quantity,spent=cost); await quest_event(gid,uid,"spent",cost,spent=cost); await achievement_record(gid,uid,"balance"); await quest_event(gid,uid,"balance",bal-cost); await bd_save_data(); await economy_log(gid,title="🛒 Economy purchase",fields=[("User",f"{ctx.author} ({uid})"),("Item",f"{data['name']} (`{item}`)"),("Quantity",quantity),("Unit price",data["price"]),("Deducted",f"-{cost:,} Catnip"),("Balance before",bal),("Balance after",bal-cost),("Item quantity after",inv[item])]); await ctx.reply(f"🛒 Bought {quantity}× {data['name']} for {cost:,} Catnip. Balance: {bal-cost:,}.",mention_author=False)
 
 @bot.command(name="give",aliases=["pay","transfer"])
 @commands.guild_only()
 async def prefix_give(ctx,member:discord.Member,amount:int):
     if not 1 <= amount <= 1000000: return await ctx.reply("❌ Amount must be between 1 and 1,000,000.",mention_author=False)
     if member.bot or member.id==ctx.author.id: return await ctx.reply("❌ Choose another human member.",mention_author=False)
-    gid=ctx.guild.id; bal=economy_balance(gid,ctx.author.id)
+    gid=ctx.guild.id
+    pair_remaining=economy_cooldown_remaining(gid,ctx.author.id,f"give:{member.id}")
+    if pair_remaining: return await ctx.reply(f"🐾 You recently sent Catnip to that member. Try again in **{pair_remaining // 60}m**.",mention_author=False)
+    bal=economy_balance(gid,ctx.author.id)
     if bal<amount: return await ctx.reply("❌ You don't have enough Catnip.",mention_author=False)
-    recipient_before=economy_balance(gid,member.id); economy_balances[(gid,ctx.author.id)]=bal-amount; economy_balances[(gid,member.id)]=recipient_before+amount; await bd_save_data(); await economy_log(gid,title="💸 Catnip transfer",fields=[("From",f"{ctx.author} ({ctx.author.id})"),("To",f"{member} ({member.id})"),("Amount",f"{amount:,} Catnip"),("Sender before",bal),("Sender after",bal-amount),("Recipient before",recipient_before),("Recipient after",recipient_before+amount)]); await ctx.reply(f"💸 Sent {amount:,} Catnip to {member.mention}.",mention_author=False)
+    recipient_before=economy_balance(gid,member.id); economy_balances[(gid,ctx.author.id)]=bal-amount; economy_balances[(gid,member.id)]=recipient_before+amount; economy_cooldowns[(gid,ctx.author.id,f"give:{member.id}")]=time.time()+3600; await achievement_record(gid,ctx.author.id,"give",amount); await achievement_record(gid,ctx.author.id,"balance"); await quest_event(gid,ctx.author.id,"balance",bal-amount); await quest_event(gid,ctx.author.id,"give",amount); await quest_event(gid,ctx.author.id,"give_count",1); await bd_save_data(); await economy_log(gid,title="💸 Catnip transfer",fields=[("From",f"{ctx.author} ({ctx.author.id})"),("To",f"{member} ({member.id})"),("Amount",f"{amount:,} Catnip"),("Sender before",bal),("Sender after",bal-amount),("Recipient before",recipient_before),("Recipient after",recipient_before+amount)]); await ctx.reply(f"💸 Sent {amount:,} Catnip to {member.mention}.",mention_author=False)
 
 @bot.command(name="econlb",aliases=["economylb"])
 @commands.guild_only()
@@ -468,7 +486,7 @@ async def prefix_econlb(ctx):
 @bot.command(name="rank")
 @commands.guild_only()
 async def prefix_rank(ctx,member:discord.Member=None):
-    m=member or ctx.author; xp=int(xp_data.get((ctx.guild.id,m.id),0)); level=max(0,int(math.sqrt(max(0,xp)//100))); await ctx.reply(f"🏅 **{m.display_name}** — Level **{level}**, **{xp:,} XP**",mention_author=False)
+    m=member or ctx.author; xp=int(xp_data.get((ctx.guild.id,m.id),0)); level=level_from_xp(xp); await ctx.reply(f"🏅 **{m.display_name}** — Level **{level}**, **{xp:,} XP**",mention_author=False)
 
 @bot.command(name="leaderboard",aliases=["lb"])
 @commands.guild_only()
@@ -564,6 +582,7 @@ async def on_message(message: discord.Message):
                 return
             ai_cooldowns[channel_id] = now
 
+        ai_reply_success = False
         if is_owner_question(clean_content):
             # Hard-coded so this is always correct, instead of hoping the model remembers.
             reply = (
@@ -577,6 +596,7 @@ async def on_message(message: discord.Message):
                     result = await asyncio.to_thread(
                         ask_gemini, message.channel.id, speaker, clean_content, message.guild
                     )
+                    ai_reply_success = bool(result.get("reply"))
                 except Exception as e:
                     log.error(f"Gemini call failed: {e}")
                     result = {
@@ -598,6 +618,8 @@ async def on_message(message: discord.Message):
                 allowed_mentions=discord.AllowedMentions.none(),
             )
 
+        if guild_id is not None and ai_reply_success:
+            await achievement_record(guild_id, message.author.id, "ai_reply", 1)
         await add_reaction_safely(message, reaction)
 
 
@@ -605,3 +627,551 @@ async def on_message(message: discord.Message):
 # Slash commands
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Expanded prefix commands
+# These mirror the important slash commands requested for prefix use.
+# Admin/configuration commands are intentionally kept separate from normal
+# ---------------------------------------------------------------------------
+
+# ---- Economy admin: Catnip -------------------------------------------------
+@bot.command(name="addcatnip", aliases=["add-catnip"])
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_addcatnip(ctx, member: discord.Member, amount: int):
+    if amount <= 0:
+        return await ctx.reply("❌ Amount must be greater than 0.", mention_author=False)
+    gid = ctx.guild.id
+    before = economy_balance(gid, member.id)
+    economy_balances[(gid, member.id)] = before + amount
+    await bd_save_data()
+    await economy_log(gid, title="🌿 Catnip added", fields=[
+        ("Moderator", f"{ctx.author} ({ctx.author.id})"),
+        ("Member", f"{member} ({member.id})"),
+        ("Amount", f"+{amount:,} Catnip"),
+        ("Balance before", f"{before:,}"),
+        ("Balance after", f"{before + amount:,}"),
+    ])
+    await ctx.reply(f"🌿 Added **{amount:,} Catnip** to {member.mention}. Balance: **{before + amount:,}**.", mention_author=False)
+
+
+@bot.command(name="removecatnip", aliases=["remove-catnip"])
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_removecatnip(ctx, member: discord.Member, amount: int):
+    if amount <= 0:
+        return await ctx.reply("❌ Amount must be greater than 0.", mention_author=False)
+    gid = ctx.guild.id
+    before = economy_balance(gid, member.id)
+    removed = min(before, amount)
+    economy_balances[(gid, member.id)] = before - removed
+    await bd_save_data()
+    await economy_log(gid, title="🌿 Catnip removed", fields=[
+        ("Moderator", f"{ctx.author} ({ctx.author.id})"),
+        ("Member", f"{member} ({member.id})"),
+        ("Amount", f"-{removed:,} Catnip"),
+        ("Balance before", f"{before:,}"),
+        ("Balance after", f"{before - removed:,}"),
+    ])
+    await ctx.reply(f"🌿 Removed **{removed:,} Catnip** from {member.mention}. Balance: **{before - removed:,}**.", mention_author=False)
+
+
+# ---- XP admin ---------------------------------------------------------------
+async def _change_xp_prefix(ctx, member: discord.Member, amount: int, add: bool):
+    if amount <= 0:
+        return await ctx.reply("❌ XP amount must be greater than 0.", mention_author=False)
+    key = (ctx.guild.id, member.id)
+    before = int(xp_data.get(key, 0))
+    after = before + amount if add else max(0, before - amount)
+    xp_data[key] = after
+    old_level = level_from_xp(before)
+    new_level = level_from_xp(after)
+    gained_roles = await sync_level_roles(member, new_level)
+    await bd_save_data()
+    await send_log(ctx.guild.id, title="📈 XP manually changed", category="levels", fields=[
+        ("Moderator", f"{ctx.author} ({ctx.author.id})"),
+        ("Member", f"{member} ({member.id})"),
+        ("Change", f"{'+' if add else '-'}{amount:,} XP"),
+        ("XP before", f"{before:,}"),
+        ("XP after", f"{after:,}"),
+        ("Level", f"{old_level} → {new_level}"),
+    ])
+    text = f"📈 {'Added' if add else 'Removed'} **{amount:,} XP** {'to' if add else 'from'} {member.mention}.\n"
+    text += f"XP: **{after:,}** • Level: **{new_level}**"
+    if gained_roles:
+        text += f"\n🎖️ New level role{'s' if len(gained_roles) != 1 else ''}: **{', '.join(gained_roles)}**"
+    await ctx.reply(text, mention_author=False)
+
+
+@bot.command(name="addxp", aliases=["add-xp"])
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+@commands.bot_has_guild_permissions(manage_roles=True)
+async def prefix_addxp(ctx, member: discord.Member, amount: int):
+    await _change_xp_prefix(ctx, member, amount, True)
+
+
+@bot.command(name="removexp", aliases=["remove-xp"])
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+@commands.bot_has_guild_permissions(manage_roles=True)
+async def prefix_removexp(ctx, member: discord.Member, amount: int):
+    await _change_xp_prefix(ctx, member, amount, False)
+
+
+# Slash equivalents: /add xp and /remove xp.
+add_group = app_commands.Group(name="add", description="Add rewards or XP")
+remove_group = app_commands.Group(name="remove", description="Remove rewards or XP")
+
+
+@add_group.command(name="xp", description="Admin: add XP to a member")
+@app_commands.describe(member="Member to receive XP", amount="XP to add")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.bot_has_permissions(manage_roles=True)
+async def add_xp_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
+    if amount <= 0:
+        return await interaction.response.send_message("❌ XP amount must be greater than 0.", ephemeral=True)
+    key = (interaction.guild.id, member.id)
+    before = int(xp_data.get(key, 0))
+    xp_data[key] = before + amount
+    level = level_from_xp(xp_data[key])
+    gained = await sync_level_roles(member, level)
+    await bd_save_data()
+    await send_log(interaction.guild.id, title="📈 XP manually added", category="levels", interaction=interaction,
+                   fields=[("Member", f"{member} ({member.id})"), ("Amount", f"+{amount:,} XP"), ("XP after", f"{before + amount:,}"), ("Level", str(level))])
+    await interaction.response.send_message(f"📈 Added **{amount:,} XP** to {member.mention}. They now have **{before + amount:,} XP** (Level **{level}**)." + (f"\n🎖️ New role: **{', '.join(gained)}**" if gained else ""), allowed_mentions=discord.AllowedMentions.none())
+
+
+@remove_group.command(name="xp", description="Admin: remove XP from a member")
+@app_commands.describe(member="Member to remove XP from", amount="XP to remove")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.bot_has_permissions(manage_roles=True)
+async def remove_xp_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
+    if amount <= 0:
+        return await interaction.response.send_message("❌ XP amount must be greater than 0.", ephemeral=True)
+    key = (interaction.guild.id, member.id)
+    before = int(xp_data.get(key, 0))
+    after = max(0, before - amount)
+    xp_data[key] = after
+    level = level_from_xp(after)
+    await bd_save_data()
+    await send_log(interaction.guild.id, title="📉 XP manually removed", category="levels", interaction=interaction,
+                   fields=[("Member", f"{member} ({member.id})"), ("Amount", f"-{min(amount, before):,} XP"), ("XP after", f"{after:,}"), ("Level", str(level))])
+    await interaction.response.send_message(f"📉 Removed **{min(amount, before):,} XP** from {member.mention}. They now have **{after:,} XP** (Level **{level}**).", allowed_mentions=discord.AllowedMentions.none())
+
+
+try:
+    bot.tree.add_command(add_group)
+    bot.tree.add_command(remove_group)
+except Exception:
+    # main.py may register/reload modules in a way that already attached them.
+    pass
+
+
+@bot.command(name="feed")
+@commands.guild_only()
+async def prefix_feed(ctx, item: str, quantity: int = 1):
+    if not 1 <= quantity <= 99:
+        return await ctx.reply("❌ Quantity must be between 1 and 99.", mention_author=False)
+    gid, uid = ctx.guild.id, ctx.author.id
+    item_id = item.lower().strip()
+    item_id = next((k for k, v in ECONOMY_ITEMS.items() if k == item_id or v["name"].lower() == item_id), item_id)
+    data = ECONOMY_ITEMS.get(item_id)
+    if not data:
+        return await ctx.reply("❌ That item doesn't exist. Use `?shop` to see the available items.", mention_author=False)
+    inv = economy_inventory_for(gid, uid)
+    have = max(0, int(inv.get(item_id, 0)))
+    if have < quantity:
+        return await ctx.reply(f"❌ You only have **{have}× {data['name']}**.", mention_author=False)
+    inv[item_id] = have - quantity
+    await achievement_record(gid, uid, "feed", quantity, item=item_id)
+    await achievement_record(gid, uid, "inventory")
+    await quest_event(gid, uid, "items_owned", sum(max(0, int(v)) for v in inv.values()))
+    await quest_event(gid, uid, "feed", quantity, item=item_id)
+    await bd_save_data()
+    await economy_log(gid, title="🐟 Cinnamon fed", fields=[
+        ("User", f"{ctx.author} ({uid})"), ("Item", f"{data['name']} (`{item_id}`)"),
+        ("Quantity fed", quantity), ("Quantity remaining", inv.get(item_id, 0)),
+    ])
+    await ctx.reply(f"🐾 Cinnamon happily accepted **{quantity}× {data['name']}**!", mention_author=False)
+
+
+# ---- Moderation: remaining slash-only commands as prefix -------------------
+@bot.command(name="tempban")
+@commands.guild_only()
+@commands.has_guild_permissions(ban_members=True)
+@commands.bot_has_guild_permissions(ban_members=True)
+async def prefix_tempban(ctx, member: discord.Member, duration_hours: float, *, reason="No reason given"):
+    if duration_hours <= 0:
+        return await ctx.reply("❌ Duration must be greater than 0 hours.", mention_author=False)
+    unban_at = time.time() + duration_hours * 3600
+    await member.ban(reason=f"Tempban by {ctx.author}: {reason}")
+    temp_bans[(ctx.guild.id, member.id)] = unban_at
+    case_id = next_case(ctx.guild.id)
+    await bd_save_data()
+    await ctx.reply(f"🐾 {member.mention} temp-banned for **{duration_hours:g}h**. Case #{case_id}. Reason: {reason}", mention_author=False)
+    await send_log(ctx.guild.id, title="⏳ Member temp-banned", color=discord.Color.red(), fields=[("Case", f"#{case_id}"), ("Member", f"{member} ({member.id})"), ("Duration", f"{duration_hours:g}h"), ("Reason", reason[:300]), ("Moderator", f"{ctx.author} ({ctx.author.id})")])
+
+
+@bot.command(name="lock")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_channels=True)
+@commands.bot_has_guild_permissions(manage_channels=True)
+async def prefix_lock(ctx, channel: discord.TextChannel = None):
+    channel = channel or ctx.channel
+    overwrite = channel.overwrites_for(ctx.guild.default_role)
+    overwrite.send_messages = False
+    await channel.set_permissions(ctx.guild.default_role, overwrite=overwrite, reason=f"Locked by {ctx.author}")
+    await ctx.reply(f"🔒 {channel.mention} locked.", mention_author=False)
+    await send_log(ctx.guild.id, title="🔒 Channel locked", color=discord.Color.red(), fields=[("Channel", channel.mention), ("Moderator", f"{ctx.author} ({ctx.author.id})")])
+
+
+@bot.command(name="unlock")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_channels=True)
+@commands.bot_has_guild_permissions(manage_channels=True)
+async def prefix_unlock(ctx, channel: discord.TextChannel = None):
+    channel = channel or ctx.channel
+    overwrite = channel.overwrites_for(ctx.guild.default_role)
+    overwrite.send_messages = None
+    await channel.set_permissions(ctx.guild.default_role, overwrite=overwrite, reason=f"Unlocked by {ctx.author}")
+    await ctx.reply(f"🔓 {channel.mention} unlocked.", mention_author=False)
+    await send_log(ctx.guild.id, title="🔓 Channel unlocked", color=discord.Color.green(), fields=[("Channel", channel.mention), ("Moderator", f"{ctx.author} ({ctx.author.id})")])
+
+
+@bot.command(name="modinfo")
+@commands.guild_only()
+@commands.has_guild_permissions(moderate_members=True)
+async def prefix_modinfo(ctx, user: discord.User):
+    channel = bot.get_channel(log_channels.get(ctx.guild.id, 0))
+    if channel is None:
+        return await ctx.reply("❌ Set a log channel first with `?logchannel` or `/logchannel`.", mention_author=False)
+    entries = []
+    try:
+        async for message in channel.history(limit=2000):
+            for embed in message.embeds:
+                if embed.title not in _MODINFO_TITLES:
+                    continue
+                fields = {f.name: f.value for f in embed.fields}
+                m = _ID_IN_PARENS_RE.search(fields.get("Member", ""))
+                target = int(m.group(1)) if m else (int(fields["User ID"]) if fields.get("User ID", "").isdigit() else None)
+                if target != user.id:
+                    continue
+                footer_m = re.search(r"Run by (.+?) • #", embed.footer.text or "") if embed.footer else None
+                extra = f" ({fields['Duration']})" if "Duration" in fields else ""
+                entries.append((embed.timestamp or message.created_at, fields.get("Case", "—"), embed.title, (fields.get("Reason", "") + extra).strip(), footer_m.group(1) if footer_m else "system"))
+    except discord.HTTPException as exc:
+        return await ctx.reply(f"❌ Couldn't read the log channel: {exc}", mention_author=False)
+    stored_warns = len(warnings_data.get((ctx.guild.id, user.id), []))
+    lines = [f"**Account created:** {discord.utils.format_dt(user.created_at, 'D')}", f"**In server:** {'Yes' if ctx.guild.get_member(user.id) else 'No'}", f"**Active warnings:** {stored_warns}", f"**Logged actions:** {len(entries)}"]
+    for ts, case, title, reason, by in entries[:15]:
+        lines.append(f"{case} • **{title}** • {reason or 'No reason'} • by {by}")
+    embed = discord.Embed(title=f"🛡️ Moderation history — {user}", description="\n".join(lines)[:4000], color=discord.Color.orange())
+    await ctx.reply(embed=embed, mention_author=False)
+
+
+# ---- Roles ------------------------------------------------------------------
+@bot.group(name="role", invoke_without_command=True)
+@commands.guild_only()
+@commands.has_guild_permissions(manage_roles=True)
+async def prefix_role(ctx):
+    await ctx.reply("🏷️ Use `?role add @member @role` or `?role add-all @role [true/false]`.", mention_author=False)
+
+
+@prefix_role.command(name="add")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_roles=True)
+@commands.bot_has_guild_permissions(manage_roles=True)
+async def prefix_role_add(ctx, member: discord.Member, role: discord.Role):
+    if role.is_default() or role.managed or role >= ctx.guild.me.top_role:
+        return await ctx.reply("❌ I can't assign that role because of role hierarchy or because it is managed.", mention_author=False)
+    await member.add_roles(role, reason=f"?role add run by {ctx.author}")
+    await ctx.reply(f"🏷️ Added **{role.name}** to {member.mention}.", mention_author=False)
+    await send_log(ctx.guild.id, title="🏷️ Role added", color=discord.Color.green(), fields=[("Member", f"{member} ({member.id})"), ("Role", role.name), ("Moderator", f"{ctx.author} ({ctx.author.id})")])
+
+
+@prefix_role.command(name="add-all")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_roles=True, manage_guild=True)
+@commands.bot_has_guild_permissions(manage_roles=True)
+async def prefix_role_add_all(ctx, role: discord.Role, include_bots: str = "false"):
+    if role.is_default() or role.managed or role >= ctx.guild.me.top_role:
+        return await ctx.reply("❌ I can't assign that role because of role hierarchy or because it is managed.", mention_author=False)
+    bots = include_bots.lower() in {"true", "yes", "1", "on"}
+    targets = [m for m in ctx.guild.members if role not in m.roles and (bots or not m.bot)]
+    added = failed = 0
+    for member in targets:
+        try:
+            await member.add_roles(role, reason=f"?role add-all run by {ctx.author}")
+            added += 1
+        except discord.HTTPException:
+            failed += 1
+    await ctx.reply(f"🏷️ Added **{role.name}** to **{added}** member(s)." + (f" {failed} failed." if failed else ""), mention_author=False)
+    await send_log(ctx.guild.id, title="🏷️ Role added to all members", color=discord.Color.green(), fields=[("Role", role.name), ("Added", str(added)), ("Failed", str(failed)), ("Moderator", f"{ctx.author} ({ctx.author.id})")])
+
+
+# ---- AutoMod prefix group ---------------------------------------------------
+@bot.group(name="automod", invoke_without_command=True)
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_automod(ctx):
+    await ctx.reply("🛡️ Use `?automod word add/remove/list`, `?automod spam on/off`, `?automod mentions on/off [threshold]`, or `?automod invites on/off`.", mention_author=False)
+
+
+@prefix_automod.group(name="word", invoke_without_command=True)
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_automod_word(ctx):
+    await ctx.reply("🛡️ Use `?automod word add <word>`, `remove <word>`, or `list`.", mention_author=False)
+
+
+@prefix_automod_word.command(name="add")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_automod_word_add(ctx, *, word: str):
+    cfg = get_automod(ctx.guild.id)
+    changed = word.lower() not in (w.lower() for w in cfg["words"])
+    if changed:
+        cfg["words"].append(word)
+        await bd_save_data()
+    await ctx.reply(f"🛡️ {'Added' if changed else 'Already had'} `{word}` in the banned-word list.", mention_author=False)
+
+
+@prefix_automod_word.command(name="remove")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_automod_word_remove(ctx, *, word: str):
+    cfg = get_automod(ctx.guild.id)
+    before = len(cfg["words"])
+    cfg["words"] = [w for w in cfg["words"] if w.lower() != word.lower()]
+    await bd_save_data()
+    await ctx.reply(f"🛡️ Removed **{before - len(cfg['words'])}** matching banned word(s).", mention_author=False)
+
+
+@prefix_automod_word.command(name="list")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_automod_word_list(ctx):
+    words = get_automod(ctx.guild.id)["words"]
+    await ctx.reply("Banned words: " + (", ".join(f"`{w}`" for w in words) if words else "*(none set)*"), mention_author=False)
+
+
+def _prefix_bool(value: str):
+    value = value.lower()
+    if value in {"on", "true", "yes", "enable", "enabled", "1"}: return True
+    if value in {"off", "false", "no", "disable", "disabled", "0"}: return False
+    return None
+
+
+@prefix_automod.command(name="spam")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_automod_spam(ctx, enabled: str):
+    value = _prefix_bool(enabled)
+    if value is None: return await ctx.reply("❌ Use `on` or `off`.", mention_author=False)
+    get_automod(ctx.guild.id)["spam"] = value
+    await bd_save_data()
+    await ctx.reply(f"🛡️ Spam detection **{'on' if value else 'off'}**.", mention_author=False)
+
+
+@prefix_automod.command(name="mentions")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_automod_mentions(ctx, enabled: str, threshold: int = 5):
+    value = _prefix_bool(enabled)
+    if value is None: return await ctx.reply("❌ Use `on` or `off`.", mention_author=False)
+    cfg = get_automod(ctx.guild.id)
+    cfg["mentions"] = value
+    cfg["mention_threshold"] = max(1, threshold)
+    await bd_save_data()
+    await ctx.reply(f"🛡️ Mass-mention detection **{'on' if value else 'off'}** at threshold **{max(1, threshold)}**.", mention_author=False)
+
+
+@prefix_automod.command(name="invites")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_automod_invites(ctx, enabled: str):
+    value = _prefix_bool(enabled)
+    if value is None: return await ctx.reply("❌ Use `on` or `off`.", mention_author=False)
+    get_automod(ctx.guild.id)["invites"] = value
+    await bd_save_data()
+    await ctx.reply(f"🛡️ Invite filter **{'on' if value else 'off'}**.", mention_author=False)
+
+
+# ---- Anti-raid --------------------------------------------------------------
+@bot.group(name="antiraid", invoke_without_command=True)
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_antiraid(ctx):
+    cfg = get_antiraid(ctx.guild.id)
+    await ctx.reply(f"🚨 Anti-raid is **{'on' if cfg.get('enabled') else 'off'}**. Use `?antiraid enable [threshold] [window]` or `?antiraid disable`.", mention_author=False)
+
+
+@prefix_antiraid.command(name="enable")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_antiraid_enable(ctx, threshold: int = 5, window_seconds: int = 10):
+    cfg = get_antiraid(ctx.guild.id)
+    cfg.update({"enabled": True, "threshold": max(2, threshold), "window": max(1, window_seconds)})
+    await bd_save_data()
+    await ctx.reply(f"🚨 Anti-raid alerts on: **{cfg['threshold']} joins / {cfg['window']}s**.", mention_author=False)
+
+
+@prefix_antiraid.command(name="disable")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_antiraid_disable(ctx):
+    get_antiraid(ctx.guild.id)["enabled"] = False
+    await bd_save_data()
+    await ctx.reply("🚨 Anti-raid alerts off.", mention_author=False)
+
+# ---- Self-assignable roles --------------------------------------------------
+@bot.group(name="reactionrole", invoke_without_command=True)
+@commands.guild_only()
+@commands.has_guild_permissions(manage_roles=True)
+async def prefix_reactionrole(ctx):
+    await ctx.reply("🏷️ Use `?reactionrole create @role [button text] [description]` or `?reactionrole remove @role`.", mention_author=False)
+
+
+@prefix_reactionrole.command(name="create")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_roles=True)
+@commands.bot_has_guild_permissions(manage_roles=True)
+async def prefix_reactionrole_create(ctx, role: discord.Role, label: str = "Toggle Role 🐾", *, description: str = None):
+    if role.is_default() or role.managed or role >= ctx.guild.me.top_role:
+        return await ctx.reply("❌ I can't manage that role because of role hierarchy or because it is managed.", mention_author=False)
+    embed = discord.Embed(title="🐾 Self-Assignable Role", description=description or f"Click below to toggle **{role.name}**.", color=0xFFB02E)
+    view = ReactionRoleView(role.id, label)
+    await ctx.reply(embed=embed, view=view, mention_author=False)
+    reaction_role_ids.add(role.id)
+    await bd_save_data()
+    bot.add_view(view)
+    await send_log(ctx.guild.id, title="🏷️ Reaction role created", category="roles", fields=[("Role", f"{role.name} ({role.id})"), ("Button label", label[:80]), ("Moderator", f"{ctx.author} ({ctx.author.id})")])
+
+
+@prefix_reactionrole.command(name="remove")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_roles=True)
+async def prefix_reactionrole_remove(ctx, role: discord.Role):
+    reaction_role_ids.discard(role.id)
+    await bd_save_data()
+    await ctx.reply(f"🐾 **{role.name}** is no longer tracked as self-assignable.", mention_author=False)
+    await send_log(ctx.guild.id, title="🏷️ Reaction role removed", category="roles", fields=[("Role", f"{role.name} ({role.id})"), ("Moderator", f"{ctx.author} ({ctx.author.id})")])
+
+
+# ---- Welcome / goodbye ------------------------------------------------------
+@bot.group(name="welcome", invoke_without_command=True)
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_welcome(ctx):
+    await ctx.reply("👋 Use `?welcome set #channel [message]` or `?welcome disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
+
+
+@prefix_welcome.command(name="set")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_welcome_set(ctx, channel: discord.TextChannel, *, message: str = "🐾 Welcome {member} to {server}! Glad you're here."):
+    error = _validate_template(message)
+    if error:
+        return await ctx.reply(error, mention_author=False)
+    welcome_config[ctx.guild.id] = {"channel_id": channel.id, "message": message}
+    await bd_save_data()
+    await ctx.reply(f"👋 Welcome messages will post in {channel.mention}.", mention_author=False)
+    await send_log(ctx.guild.id, title="👋 Welcome configuration changed", category="setup", fields=[("Channel", channel.mention), ("Message", message[:900]), ("Moderator", f"{ctx.author} ({ctx.author.id})")])
+
+
+@prefix_welcome.command(name="disable")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_welcome_disable(ctx):
+    welcome_config.pop(ctx.guild.id, None)
+    await bd_save_data()
+    await ctx.reply("👋 Welcome messages turned off.", mention_author=False)
+
+
+@bot.group(name="goodbye", invoke_without_command=True)
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_goodbye(ctx):
+    await ctx.reply("🚪 Use `?goodbye set #channel [message]` or `?goodbye disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
+
+
+@prefix_goodbye.command(name="set")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_goodbye_set(ctx, channel: discord.TextChannel, *, message: str = "🐾 {member} has left {server}. We'll miss you!"):
+    error = _validate_template(message)
+    if error:
+        return await ctx.reply(error, mention_author=False)
+    goodbye_config[ctx.guild.id] = {"channel_id": channel.id, "message": message}
+    await bd_save_data()
+    await ctx.reply(f"🚪 Goodbye messages will post in {channel.mention}.", mention_author=False)
+    await send_log(ctx.guild.id, title="🚪 Goodbye configuration changed", category="setup", fields=[("Channel", channel.mention), ("Message", message[:900]), ("Moderator", f"{ctx.author} ({ctx.author.id})")])
+
+
+@prefix_goodbye.command(name="disable")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_goodbye_disable(ctx):
+    goodbye_config.pop(ctx.guild.id, None)
+    await bd_save_data()
+    await ctx.reply("🚪 Goodbye messages turned off.", mention_author=False)
+
+# ---- AI/log moderation controls --------------------------------------------
+@bot.command(name="aichannel")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_channels=True)
+async def prefix_aichannel(ctx):
+    ai_channels[ctx.guild.id] = ctx.channel.id
+    await bd_save_data()
+    await ctx.reply(f"🤖 {ctx.channel.mention} is now Cinnamon's always-on AI channel.", mention_author=False)
+    await send_log(ctx.guild.id, title="⚙️ AI channel set", category="setup", fields=[("Channel", ctx.channel.mention), ("Moderator", f"{ctx.author} ({ctx.author.id})")])
+
+
+@bot.command(name="disableaichannel")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_channels=True)
+async def prefix_disableaichannel(ctx):
+    removed = ai_channels.pop(ctx.guild.id, None)
+    await bd_save_data()
+    await ctx.reply("🤖 Always-on AI channel disabled." if removed else "❌ No always-on AI channel was set.", mention_author=False)
+
+
+@bot.command(name="disableai")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_channels=True)
+async def prefix_disableai(ctx):
+    disabled_channels[ctx.guild.id].add(ctx.channel.id)
+    await bd_save_data()
+    await ctx.reply("🤫 Cinnamon will stay quiet in this channel, even when mentioned.", mention_author=False)
+
+
+@bot.command(name="enableai")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_channels=True)
+async def prefix_enableai(ctx):
+    disabled_channels[ctx.guild.id].discard(ctx.channel.id)
+    await bd_save_data()
+    await ctx.reply("🤖 Cinnamon can talk in this channel again.", mention_author=False)
+
+
+@bot.command(name="logchannel")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_logchannel(ctx, channel: discord.TextChannel = None):
+    channel = channel or ctx.channel
+    log_channels[ctx.guild.id] = channel.id
+    await bd_save_data()
+    await ctx.reply(f"📋 Main log channel set to {channel.mention}.", mention_author=False)
+    await send_log(ctx.guild.id, title="📋 Main log channel changed", category="setup", fields=[("Channel", channel.mention), ("Moderator", f"{ctx.author} ({ctx.author.id})")])
+
+
+@bot.command(name="disablelogchannel")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_disablelogchannel(ctx):
+    removed = log_channels.pop(ctx.guild.id, None)
+    await bd_save_data()
+    await ctx.reply("📋 Main logging disabled." if removed else "❌ No main log channel was set.", mention_author=False)
