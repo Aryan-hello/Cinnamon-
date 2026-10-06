@@ -530,6 +530,12 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
     # Dispatch ? commands before the regular AI/XP chat pipeline.
+    # Be forgiving about whitespace after the prefix so both `?work` and
+    # `? work` (including multiple spaces) invoke the same prefix command.
+    # This only normalizes messages that actually begin with the configured
+    # Cinnamon prefix, leaving ordinary chat untouched.
+    if message.content.startswith("?") and len(message.content) > 1 and message.content[1].isspace():
+        message.content = "?" + message.content[1:].lstrip()
     ctx = await bot.get_context(message)
     if ctx.valid:
         await bot.invoke(ctx)

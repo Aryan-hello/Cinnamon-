@@ -103,56 +103,36 @@ def economy_item_lines() -> str:
 
 
 def economy_shop_embed(guild_id: int, user: discord.abc.User, page: int = 0) -> discord.Embed:
-    """Build the public Cinnamon shop card. Inspired by the clean catalog style
-    used by established economy bots, but branded for Cinnamon.
-    """
-    items = list(ECONOMY_ITEMS.items())
-    per_page = 5
+    """Clean, app-like shop panel with one product block per visible item."""
+    items = list(ECONOMY_ITEMS.items()); per_page = 4
     total_pages = max(1, (len(items) + per_page - 1) // per_page)
-    page = max(0, min(page, total_pages - 1))
-    start = page * per_page
-    visible = items[start:start + per_page]
+    page = max(0, min(page, total_pages - 1)); visible = items[page*per_page:(page+1)*per_page]
     balance = economy_balance(guild_id, user.id)
-
-    embed = cinnamon_embed(
-        "🛒 Cinnamon's Catnip Shop",
-        "**Welcome to the shop.**\nSpend your Catnip on Cinnamon-approved supplies.\n\n"
-        "Select an item below to inspect it, then use `/economy buy` when you're ready.",
+    e = cinnamon_embed("🛒 Cinnamon's Shop",
+        "**Buy instantly** with the buttons below. One click buys one item.",
         color=CINNAMON_ORANGE, user=user,
-        footer=f"Cinnamon Economy • Shop • Page {page + 1}/{total_pages}",
-    )
-    cinnamon_field(embed, "🌿 Your Catnip", f"**{balance:,}**", True)
-    cinnamon_field(embed, "📦 Items in shop", f"**{len(items)}**", True)
-    cinnamon_field(embed, "🛍️ Page", f"**{page + 1} / {total_pages}**", True)
-
+        footer=cinnamon_page_footer("Shop", page+1, total_pages, f"{len(items)} items"))
+    cinnamon_field(e, "🌿 Catnip", f"**{balance:,}**", True)
+    cinnamon_field(e, "📦 Items", f"**{len(items)}**", True)
+    cinnamon_field(e, "🛍️ Page", f"**{page+1}/{total_pages}**", True)
     if not visible:
-        embed.description = "The shop is empty right now. Ask an administrator to add some items."
-        return cinnamon_polish_embed(embed)
-
-    for number, (item_id, item) in enumerate(visible, start=start + 1):
-        limit = int(item.get("max_per_person", 0))
-        limit_text = f" • Limit: **{limit}**" if limit else " • Limit: **Unlimited**"
-        owned = int(economy_inventory_for(guild_id, user.id).get(item_id, 0))
-        embed.add_field(
-            name=f"{number}. {item['emoji']} {item['name']}",
-            value=(
-                f"**{item['price']:,} Catnip**{limit_text}\n"
-                f"{item.get('description', 'No description provided.')}\n"
-                f"You own: **{owned}** • ID: `{item_id}`"
-            ),
-            inline=False,
-        )
-    return cinnamon_polish_embed(embed)
+        e.description = "The shop is empty right now. Ask an administrator to add some items."
+        return cinnamon_polish_embed(e)
+    for number, (item_id, item) in enumerate(visible, start=page*per_page+1):
+        limit=int(item.get("max_per_person",0)); owned=int(economy_inventory_for(guild_id,user.id).get(item_id,0))
+        limit_text=f" • limit {limit}" if limit else " • no limit"
+        e.add_field(
+            name=f"{item.get('emoji','🐾')}  {item.get('name',item_id)}",
+            value=(f"**{int(item.get('price',0)):,} Catnip**{limit_text}  •  own **{owned}**\n"
+                   f"{item.get('description','No description provided.')}")[:1024],
+            inline=False)
+    return cinnamon_polish_embed(e)
 
 
 class CinnamonShopView(discord.ui.View):
-    """Interactive shop catalog: pagination + an item inspector.
-
-    The controls never purchase anything by themselves, which prevents an
-    accidental click from spending Catnip.
-    """
+    """A screenshot-style shop: product buttons buy immediately, with pages."""
     def __init__(self, guild_id: int, user_id: int, page: int = 0):
-        super().__init__(timeout=180)
+        super().__init__(timeout=300)
         self.guild_id = guild_id
         self.user_id = user_id
         self.page = page
@@ -160,40 +140,31 @@ class CinnamonShopView(discord.ui.View):
 
     def _refresh_controls(self):
         items = list(ECONOMY_ITEMS.items())
-        per_page = 5
+        per_page = 4
         total_pages = max(1, (len(items) + per_page - 1) // per_page)
         self.page = max(0, min(self.page, total_pages - 1))
-
         self.clear_items()
-        start = self.page * per_page
-        visible = items[start:start + per_page]
-        options = [
-            discord.SelectOption(
-                label=str(item.get("name", item_id))[:100],
-                value=item_id,
-                description=f"{int(item.get('price', 0)):,} Catnip • {item_id}"[:100],
-                emoji=item.get("emoji") or "🐾",
-            )
-            for item_id, item in visible
-        ]
-        if options:
-            select = discord.ui.Select(
-                placeholder="🔎 Inspect an item...",
-                options=options,
-                custom_id=f"cinnamon_shop_select_{self.page}",
-            )
-            select.callback = self._inspect_callback
-            self.add_item(select)
+        visible = items[self.page * per_page:(self.page + 1) * per_page]
 
-        previous = discord.ui.Button(label="Previous", emoji="◀️", style=discord.ButtonStyle.secondary, disabled=self.page <= 0)
-        next_button = discord.ui.Button(label="Next", emoji="▶️", style=discord.ButtonStyle.secondary, disabled=self.page >= total_pages - 1)
-        close = discord.ui.Button(label="Close", emoji="✖️", style=discord.ButtonStyle.danger)
-        previous.callback = self._previous_callback
-        next_button.callback = self._next_callback
-        close.callback = self._close_callback
-        self.add_item(previous)
-        self.add_item(next_button)
-        self.add_item(close)
+        # One green button per product. A click always purchases exactly one.
+        for item_index, (item_id, item) in enumerate(visible):
+            button = discord.ui.Button(
+                label=f"Buy • {int(item.get('price', 0)):,}",
+                emoji=item.get('emoji') or "🐾",
+                style=discord.ButtonStyle.success,
+                row=item_index,
+                custom_id=f"cinnamon_shop_buy_{item_id}_{self.page}",
+            )
+            button.callback = self._make_buy_callback(item_id)
+            self.add_item(button)
+
+        previous = discord.ui.Button(label="Back", emoji="◀️", style=discord.ButtonStyle.secondary, disabled=self.page <= 0, row=4)
+        next_button = discord.ui.Button(label="Next", emoji="▶️", style=discord.ButtonStyle.primary, disabled=self.page >= total_pages - 1, row=4)
+        inventory = discord.ui.Button(label="Inventory", emoji="🎒", style=discord.ButtonStyle.secondary, row=4)
+        close = discord.ui.Button(label="Close", emoji="✖️", style=discord.ButtonStyle.danger, row=4)
+        previous.callback = self._previous_callback; next_button.callback = self._next_callback
+        inventory.callback = self._inventory_callback; close.callback = self._close_callback
+        self.add_item(previous); self.add_item(next_button); self.add_item(inventory); self.add_item(close)
 
     async def _guard(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -201,52 +172,79 @@ class CinnamonShopView(discord.ui.View):
             return False
         return True
 
-    async def _inspect_callback(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        item_id = interaction.data.get("values", [""])[0]
-        item = ECONOMY_ITEMS.get(item_id)
-        if not item:
-            await interaction.response.send_message("🐾 Cinnamon couldn't find that item anymore.", ephemeral=True)
-            return
-        owned = int(economy_inventory_for(self.guild_id, self.user_id).get(item_id, 0))
-        limit = int(item.get("max_per_person", 0))
-        embed = cinnamon_embed(
-            f"{item.get('emoji', '🐾')} {item.get('name', item_id)}",
-            item.get("description", "No description provided."),
-            color=CINNAMON_GOLD, footer="Cinnamon Economy • Item Details",
-        )
-        cinnamon_field(embed, "💸 Price", f"**{int(item.get('price', 0)):,} Catnip**", True)
-        cinnamon_field(embed, "🎒 You own", f"**{owned}**", True)
-        cinnamon_field(embed, "📦 Limit", f"**{limit}**" if limit else "**Unlimited**", True)
-        cinnamon_field(embed, "🏷️ Item ID", f"`{item_id}`", False)
-        cinnamon_field(embed, "🛒 Buy", f"`/economy buy item:{item_id} quantity:1`", False)
-        await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
+    def _make_buy_callback(self, item_id: str):
+        async def callback(interaction: discord.Interaction):
+            if not await self._guard(interaction):
+                return
+            data = ECONOMY_ITEMS.get(item_id)
+            if not data:
+                await interaction.response.send_message("🐾 Cinnamon couldn't find that item anymore.", ephemeral=True)
+                return
+            guild_id, user_id = self.guild_id, self.user_id
+            quantity = 1
+            current_qty = int(economy_inventory_for(guild_id, user_id).get(item_id, 0))
+            max_per_person = int(data.get("max_per_person", 0))
+            if max_per_person and current_qty + quantity > max_per_person:
+                await interaction.response.send_message(
+                    f"🐾 You reached the **{max_per_person}**-per-person limit for **{data['name']}**.", ephemeral=True
+                )
+                return
+            price = int(data.get("price", 0))
+            balance = economy_balance(guild_id, user_id)
+            if balance < price:
+                await interaction.response.send_message(
+                    f"🐾 You need **{price:,} Catnip**, but you only have **{balance:,}**.", ephemeral=True
+                )
+                return
+
+            economy_balances[(guild_id, user_id)] = balance - price
+            inv = economy_inventory_for(guild_id, user_id)
+            inv[item_id] = current_qty + 1
+            await bd_save_data()
+            await economy_log(
+                guild_id, title="🛒 Economy purchase",
+                fields=[
+                    ("User", f"{interaction.user} ({user_id})"),
+                    ("Item", f"{data['name']} (`{item_id}`)"),
+                    ("Quantity", "1"),
+                    ("Deducted", f"-{price:,} Catnip"),
+                    ("Balance before", f"{balance:,} Catnip"),
+                    ("Balance after", f"{balance-price:,} Catnip"),
+                    ("Item quantity after", str(inv[item_id])),
+                ],
+            )
+            embed = economy_shop_embed(guild_id, interaction.user, self.page)
+            await interaction.response.edit_message(embed=embed, view=self)
+            await interaction.followup.send(
+                f"🛒 Bought **1× {data.get('emoji', '🐾')} {data['name']}** for **{price:,} Catnip**!",
+                ephemeral=True,
+            )
+        return callback
 
     async def _previous_callback(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
+        if not await self._guard(interaction): return
         self.page -= 1
         self._refresh_controls()
         await interaction.response.edit_message(embed=economy_shop_embed(self.guild_id, interaction.user, self.page), view=self)
 
     async def _next_callback(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
+        if not await self._guard(interaction): return
         self.page += 1
         self._refresh_controls()
         await interaction.response.edit_message(embed=economy_shop_embed(self.guild_id, interaction.user, self.page), view=self)
 
+    async def _inventory_callback(self, interaction: discord.Interaction):
+        if not await self._guard(interaction): return
+        view = InventoryPageView(self.guild_id, self.user_id, 0)
+        await interaction.response.edit_message(embed=inventory_embed(self.guild_id, self.user_id, 0), view=view)
+
     async def _close_callback(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        for child in self.children:
-            child.disabled = True
+        if not await self._guard(interaction): return
+        for child in self.children: child.disabled = True
         await interaction.response.edit_message(view=self)
 
     async def on_timeout(self):
-        for child in self.children:
-            child.disabled = True
+        for child in self.children: child.disabled = True
 
 
 async def economy_do_work(guild_id: int, user: discord.abc.User) -> tuple[bool, int, str]:
@@ -328,26 +326,55 @@ async def economy_balance_cmd(interaction: discord.Interaction, member: discord.
     await bd_save_data()
 
 
+class InventoryPageView(discord.ui.View):
+    def __init__(self,guild_id,user_id,page=0):
+        super().__init__(timeout=300); self.guild_id=guild_id; self.user_id=user_id; self.page=page; self._refresh()
+    def _items(self):
+        inv=economy_inventory_for(self.guild_id,self.user_id)
+        return [(k,int(v)) for k,v in inv.items() if int(v)>0 and k in ECONOMY_ITEMS]
+    def _refresh(self):
+        pages=max(1,(len(self._items())+5)//6); self.page=max(0,min(self.page,pages-1)); self.clear_items()
+        p=discord.ui.Button(label="Back",emoji="◀️",style=discord.ButtonStyle.secondary,disabled=self.page==0,row=0)
+        n=discord.ui.Button(label="Next",emoji="▶️",style=discord.ButtonStyle.primary,disabled=self.page>=pages-1,row=0)
+        shop=discord.ui.Button(label="Shop",emoji="🛒",style=discord.ButtonStyle.success,row=0)
+        close=discord.ui.Button(label="Close",emoji="✖️",style=discord.ButtonStyle.danger,row=0)
+        p.callback=self._prev; n.callback=self._next; shop.callback=self._shop; close.callback=self._close
+        for b in (p,n,shop,close): self.add_item(b)
+    async def _guard(self,i):
+        if i.user.id!=self.user_id: await i.response.send_message("🐾 This panel belongs to the person who opened it.",ephemeral=True); return False
+        return True
+    async def _prev(self,i):
+        if not await self._guard(i): return
+        self.page-=1; self._refresh(); await i.response.edit_message(embed=inventory_embed(self.guild_id,self.user_id,self.page),view=self)
+    async def _next(self,i):
+        if not await self._guard(i): return
+        self.page+=1; self._refresh(); await i.response.edit_message(embed=inventory_embed(self.guild_id,self.user_id,self.page),view=self)
+    async def _shop(self,i):
+        if not await self._guard(i): return
+        view=CinnamonShopView(self.guild_id,self.user_id,0); await i.response.edit_message(embed=economy_shop_embed(self.guild_id,i.user,0),view=view)
+    async def _close(self,i):
+        if not await self._guard(i): return
+        for child in self.children: child.disabled=True
+        await i.response.edit_message(view=self)
+
+def inventory_embed(guild_id,user_id,page=0):
+    member=bot.get_guild(guild_id).get_member(user_id) if bot.get_guild(guild_id) else None
+    inv=economy_inventory_for(guild_id,user_id); items=[(k,int(v)) for k,v in inv.items() if int(v)>0 and k in ECONOMY_ITEMS]
+    per=6; pages=max(1,(len(items)+per-1)//per); page=max(0,min(page,pages-1)); chunk=items[page*per:(page+1)*per]
+    lines=[f"{ECONOMY_ITEMS[k]['emoji']} **{ECONOMY_ITEMS[k]['name']}**  × **{v}**" for k,v in chunk]
+    e=cinnamon_embed("🎒 Inventory", "Your collected Cinnamon items.", color=CINNAMON_BLUE, user=member, footer=cinnamon_page_footer("Inventory",page+1,pages))
+    cinnamon_field(e,"🌿 Catnip",f"**{economy_balance(guild_id,user_id):,}**",True)
+    cinnamon_field(e,"📦 Unique",f"**{len(items)}**",True)
+    cinnamon_field(e,"🔢 Total",f"**{sum(v for _,v in items):,}**",True)
+    e.add_field(name="Items",value="\n".join(lines) if lines else "Your inventory is empty. Open **Shop** below to start collecting.",inline=False)
+    return cinnamon_polish_embed(e)
+
+
 @economy_group.command(name="inventory", description="See your Cinnamon items")
 @app_commands.guild_only()
 async def economy_inventory_cmd(interaction: discord.Interaction, member: discord.Member | None = None):
-    member = member or interaction.user
-    inv = economy_inventory_for(interaction.guild.id, member.id)
-    lines = []
-    for item_id, qty in inv.items():
-        if qty > 0 and item_id in ECONOMY_ITEMS:
-            item = ECONOMY_ITEMS[item_id]
-            lines.append(f"{item['emoji']} **{item['name']}** × **{qty}** (`{item_id}`)")
-    embed = cinnamon_embed(
-        "🎒 Inventory",
-        f"**{member.mention}**\n\n" + ("\n".join(lines) if lines else "Your inventory is empty. Visit `/economy shop` to start collecting."),
-        color=CINNAMON_BLUE, user=member, footer="Cinnamon Economy • Inventory"
-    )
-    cinnamon_field(embed, "🌿 Catnip", f"**{economy_balance(interaction.guild.id, member.id):,}**", True)
-    cinnamon_field(embed, "📦 Total items", f"**{sum(int(v) for v in inv.values()):,}**", True)
-    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
-    inv_summary = "\n".join(f"{ECONOMY_ITEMS[k]['name']}: {int(v)}" for k, v in inv.items() if k in ECONOMY_ITEMS and int(v) > 0) or "Empty"
-    await economy_log(interaction.guild.id, title="🎒 Economy inventory viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Inventory", inv_summary[:1000]), ("Total items", str(sum(int(v) for v in inv.values()))), ("Catnip balance", f"{economy_balance(interaction.guild.id, member.id):,}")])
+    member=member or interaction.user; view=InventoryPageView(interaction.guild.id,member.id,0)
+    await interaction.response.send_message(embed=inventory_embed(interaction.guild.id,member.id,0),view=view,allowed_mentions=discord.AllowedMentions.none())
 
 
 @economy_group.command(name="shop", description="Open Cinnamon's interactive Catnip shop")
@@ -460,24 +487,34 @@ async def economy_give_cmd(interaction: discord.Interaction, member: discord.Mem
     await cinnamon_send(interaction, f"🎁 Gave **{amount:,} Catnip** to {member.mention}.")
 
 
+class EconomyLeaderboardView(discord.ui.View):
+    def __init__(self,guild_id,user_id,rows,page=0):
+        super().__init__(timeout=300); self.guild_id=guild_id; self.user_id=user_id; self.rows=rows; self.page=page; self._refresh()
+    def _refresh(self):
+        pages=max(1,(len(self.rows)+7)//8); self.page=max(0,min(self.page,pages-1)); self.clear_items(); p=discord.ui.Button(label="Back",emoji="◀️",style=discord.ButtonStyle.secondary,disabled=self.page==0,row=0); n=discord.ui.Button(label="Next",emoji="▶️",style=discord.ButtonStyle.primary,disabled=self.page>=pages-1,row=0); p.callback=self._prev; n.callback=self._next; self.add_item(p); self.add_item(n)
+    def _embed(self):
+        chunk=self.rows[self.page*10:(self.page+1)*10]; lines=[]
+        for i,(uid,bal) in enumerate(chunk,self.page*10+1):
+            m=bot.get_guild(self.guild_id).get_member(uid) if bot.get_guild(self.guild_id) else None; lines.append(f"**{i}.** {m.display_name if m else f'User {uid}'} — 🌿 **{bal:,}**")
+        e=cinnamon_embed("🏆 Catnip Leaderboard","The richest humans in this server, according to Cinnamon. 🐱\n\n"+"\n".join(lines),color=CINNAMON_GOLD,footer=f"Cinnamon Economy • Page {self.page+1}/{max(1,(len(self.rows)+9)//10)}")
+        return cinnamon_polish_embed(e)
+    async def _guard(self,i):
+        if i.user.id!=self.user_id: await i.response.send_message("🐾 This leaderboard belongs to the person who opened it.",ephemeral=True); return False
+        return True
+    async def _prev(self,i):
+        if not await self._guard(i): return
+        self.page-=1; self._refresh(); await i.response.edit_message(embed=self._embed(),view=self)
+    async def _next(self,i):
+        if not await self._guard(i): return
+        self.page+=1; self._refresh(); await i.response.edit_message(embed=self._embed(),view=self)
+
 @economy_group.command(name="leaderboard", description="Show the richest members")
 @app_commands.guild_only()
 async def economy_leaderboard_cmd(interaction: discord.Interaction):
-    guild_id = interaction.guild.id
-    rows = [(uid, bal) for (gid, uid), bal in economy_balances.items() if gid == guild_id]
-    rows.sort(key=lambda x: x[1], reverse=True)
-    lines = []
-    for i, (uid, bal) in enumerate(rows[:10], 1):
-        member = interaction.guild.get_member(uid)
-        name = member.display_name if member else f"User {uid}"
-        lines.append(f"**{i}.** {name} — 🌿 **{bal:,}**")
-    embed = cinnamon_embed("🏆 Catnip Leaderboard", "The richest humans in this server, according to Cinnamon. 🐱\n", color=CINNAMON_GOLD, user=interaction.user, footer="Cinnamon Economy • Top 10")
-    if lines:
-        embed.description += "\n".join(lines)
-    else:
-        embed.description += "No economy users yet. Start with `/economy daily` or `/economy work`."
-    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
-
+    guild_id=interaction.guild.id; rows=sorted([(uid,int(bal)) for (gid,uid),bal in economy_balances.items() if gid==guild_id],key=lambda x:x[1],reverse=True)
+    if not rows: return await cinnamon_send(interaction,"No economy users yet. Start with `/economy daily` or `/economy work`. ",ephemeral=True)
+    view=EconomyLeaderboardView(guild_id,interaction.user.id,rows,0)
+    await interaction.response.send_message(embed=view._embed(),view=view,allowed_mentions=discord.AllowedMentions.none())
 
 
 @economy_group.command(name="feed", description="Give Cinnamon an item")

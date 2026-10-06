@@ -99,10 +99,22 @@ async def award_xp(message: discord.Message):
     new_level = level_from_xp(new_xp)
     await achievement_record(guild_id, message.author.id, "level", new_level)
     gained = await sync_level_roles(message.author, new_level)
-    await send_log(message.guild.id, title="📈 XP changed", category="levels",
-                   fields=[("User", f"{message.author} ({message.author.id})"), ("XP before", str(old_xp)),
-                           ("XP gained", str(new_xp - old_xp)), ("XP after", str(new_xp)),
-                           ("Level", f"{old_level} → {new_level}"), ("New level roles", ", ".join(gained) if gained else "None")])
+    # Do not spam the level log with ordinary XP awards. Only record XP when
+    # the award actually caused a level-up or granted one/more configured
+    # level roles (including roles added later to an already-high-level user).
+    if new_level > old_level or gained:
+        await send_log(
+            message.guild.id,
+            title="📈 Level progress / role reward",
+            category="levels",
+            fields=[
+                ("User", f"{message.author} ({message.author.id})"),
+                ("XP gained", f"+{new_xp - old_xp:,}"),
+                ("XP", f"{old_xp:,} → {new_xp:,}"),
+                ("Level", f"{old_level} → {new_level}"),
+                ("Level roles granted", ", ".join(gained) if gained else "None"),
+            ],
+        )
     if new_level > old_level:
         text = f"🐾 {message.author.mention} just leveled up to **Level {new_level}**!"
         if gained:
@@ -180,14 +192,16 @@ async def rank(interaction: discord.Interaction, member: discord.Member = None):
     level = level_from_xp(xp)
     this_level_xp = total_xp_for_level(level)
     next_level_xp = total_xp_for_level(level + 1) if level < MAX_LEVEL else this_level_xp
-    embed = discord.Embed(title=f"🐾 {member.display_name}'s Rank", color=0xFFB02E)
-    embed.add_field(name="Level", value=str(level), inline=True)
-    embed.add_field(name="Total XP", value=str(xp), inline=True)
-    progress = "MAX LEVEL" if level >= MAX_LEVEL else f"{xp - this_level_xp}/{next_level_xp - this_level_xp} XP to next level"
-    embed.add_field(name="Progress", value=progress, inline=True)
+    progress = "MAX LEVEL" if level >= MAX_LEVEL else f"{xp - this_level_xp:,}/{next_level_xp - this_level_xp:,} XP to next level"
+    needed = 1 if level >= MAX_LEVEL else max(1, next_level_xp-this_level_xp)
+    current = needed if level >= MAX_LEVEL else max(0, xp-this_level_xp)
+    embed = cinnamon_embed(f"🐾 {member.display_name}","Your Cinnamon level card.",color=CINNAMON_ORANGE,user=member,footer="Cinnamon • Rank")
+    embed.add_field(name="⭐ Level",value=f"**{level}**",inline=True)
+    embed.add_field(name="✨ Total XP",value=f"**{xp:,}**",inline=True)
+    embed.add_field(name="📈 Progress",value=f"{cinnamon_progress_bar(current,needed,10)}\n**{progress}**",inline=False)
     reward = ECONOMY_LEVEL_REWARDS.get(level)
     if reward:
-        embed.add_field(name="🌿 Level reward", value=f"+{reward:,} Catnip at this level", inline=True)
+        embed.add_field(name="🌿 Level reward", value=f"**+{reward:,} Catnip**", inline=True)
     try:
         card = await _make_rank_card(member, xp, level)
         await interaction.response.send_message(embed=cinnamon_polish_embed(embed), file=discord.File(card, filename="cinnamon-rank.png"), allowed_mentions=discord.AllowedMentions.none())
@@ -195,6 +209,27 @@ async def rank(interaction: discord.Interaction, member: discord.Member = None):
         log.exception("Rank card rendering failed for %s", member.id)
         await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
+
+class LeaderboardPageView(discord.ui.View):
+    def __init__(self,rows,fmt,title,guild_id,user_id,category,page=0):
+        super().__init__(timeout=300); self.rows=rows; self.fmt=fmt; self.title=title; self.guild_id=guild_id; self.user_id=user_id; self.category=category; self.page=page; self._refresh()
+    def _refresh(self):
+        pages=max(1,(len(self.rows)+7)//8); self.page=max(0,min(self.page,pages-1)); self.clear_items(); p=discord.ui.Button(label="Back",emoji="◀️",style=discord.ButtonStyle.secondary,disabled=self.page==0,row=0); n=discord.ui.Button(label="Next",emoji="▶️",style=discord.ButtonStyle.primary,disabled=self.page>=pages-1,row=0); p.callback=self._prev; n.callback=self._next; self.add_item(p); self.add_item(n)
+    async def _guard(self,i):
+        if i.user.id!=self.user_id: await i.response.send_message("🐾 This leaderboard belongs to the person who opened it.",ephemeral=True); return False
+        return True
+    def _embed(self):
+        per=8; chunk=self.rows[self.page*per:(self.page+1)*per]; e=cinnamon_embed(self.title,"Top members in this category.",color=CINNAMON_GOLD,user=bot.get_guild(self.guild_id).get_member(self.user_id) if bot.get_guild(self.guild_id) else None,footer=cinnamon_page_footer("Leaderboard",self.page+1,max(1,(len(self.rows)+per-1)//per),f"{len(self.rows)} members")); medals=["🥇","🥈","🥉"]; lines=[]
+        for i,(uid,v) in enumerate(chunk,self.page*per+1): lines.append(f"{medals[i-1] if i<=3 else f'**{i}.**'} {self._member_name(uid)}  ·  **{self.fmt(uid,v)}**")
+        e.add_field(name="Rankings",value="\n".join(lines) if lines else "No rankings yet.",inline=False); return e
+    def _member_name(self,uid):
+        m=bot.get_guild(self.guild_id).get_member(uid) if bot.get_guild(self.guild_id) else None; return m.display_name if m else f"User {uid}"
+    async def _prev(self,i):
+        if not await self._guard(i): return
+        self.page-=1; self._refresh(); await i.response.edit_message(embed=self._embed(),view=self)
+    async def _next(self,i):
+        if not await self._guard(i): return
+        self.page+=1; self._refresh(); await i.response.edit_message(embed=self._embed(),view=self)
 
 @bot.tree.command(name="leaderboard", description="Show a Cinnamon server leaderboard")
 @app_commands.guild_only()
@@ -231,13 +266,13 @@ async def leaderboard(interaction: discord.Interaction, category: app_commands.C
         for (g,uid),fs in friendship_data.items():
             if g==gid and uid not in {x[0] for x in rows}: rows.append((uid,int(fs.get("points",0))))
         title="🐾 Cinnamon Friendship Leaderboard"; fmt=lambda uid,v:f"{v:,} Friendship XP"
-    rows=sorted(rows,key=lambda x:x[1],reverse=True)[:10]
+    rows=sorted(rows,key=lambda x:x[1],reverse=True)
     if not rows: return await cinnamon_send(interaction, "No leaderboard data yet. 🐾",ephemeral=True)
-    lines=[]
-    for i,(uid,v) in enumerate(rows,1):
-        m=interaction.guild.get_member(uid); name=m.display_name if m else f"User {uid}"
-        lines.append(f"**#{i}** {name} — {fmt(uid,v)}")
-    await interaction.response.send_message(embed=discord.Embed(title=title,description="\n".join(lines),color=0xFEE75C),allowed_mentions=discord.AllowedMentions.none())
+    per=10; pages=max(1,(len(rows)+per-1)//per); chunk=rows[:per]
+    embed=discord.Embed(title=title,description="\n".join(f"**#{i}** {interaction.guild.get_member(uid).display_name if interaction.guild.get_member(uid) else f'User {uid}'} — {fmt(uid,v)}" for i,(uid,v) in enumerate(chunk,1)),color=0xFEE75C)
+    embed.set_footer(text=f"Page 1/{pages} • {len(rows)} ranked members")
+    view=LeaderboardPageView(rows,fmt,title,interaction.guild.id,interaction.user.id,category,0)
+    await interaction.response.send_message(embed=embed,view=view,allowed_mentions=discord.AllowedMentions.none())
 
 
 # --- Level XP settings ----------------------------------------------------------

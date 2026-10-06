@@ -362,6 +362,13 @@ async def setup_cmd(interaction: discord.Interaction):
                 created_roles.append(role.mention)
             except discord.HTTPException as exc:
                 log.warning("Could not create Cinnamon reward role %r in guild %s: %s", role_name, guild.id, exc)
+    # Always restore the dedicated level log route, even on servers that ran an
+    # older setup before the level-log channel existed. _ensure_setup_channel
+    # above has already created/reused cinnamon-level-logs.
+    state_category_logs = category_log_channels.setdefault(guild.id, {})
+    state_category_logs["levels"] = channels["cinnamon-level-logs"].id
+    await bd_save_data()
+
     # Configure the systems that have dedicated channel settings.
     log_channels[guild.id] = channels["cinnamon-logs"].id
     economy_log_channels[guild.id] = channels["cinnamon-economy"].id
@@ -531,60 +538,57 @@ _HELP_ADMINS = (
 )
 
 
+class HelpPagesView(discord.ui.View):
+    def __init__(self, user_id: int, embeds: list[discord.Embed], page: int = 0):
+        super().__init__(timeout=300); self.user_id=user_id; self.embeds=embeds; self.page=page; self._refresh()
+    def _refresh(self):
+        self.page=max(0,min(self.page,len(self.embeds)-1)); self.clear_items()
+        back=discord.ui.Button(label="Back",emoji="◀️",style=discord.ButtonStyle.secondary,disabled=self.page==0,row=0)
+        nxt=discord.ui.Button(label="Next",emoji="▶️",style=discord.ButtonStyle.primary,disabled=self.page>=len(self.embeds)-1,row=0)
+        close=discord.ui.Button(label="Close",emoji="✖️",style=discord.ButtonStyle.danger,row=0)
+        back.callback=self._back; nxt.callback=self._next; close.callback=self._close
+        self.add_item(back); self.add_item(nxt); self.add_item(close)
+    async def _guard(self,i):
+        if i.user.id!=self.user_id:
+            await i.response.send_message("🐾 This help panel belongs to the person who opened it.",ephemeral=True); return False
+        return True
+    async def _back(self,i):
+        if not await self._guard(i): return
+        self.page-=1; self._refresh(); await i.response.edit_message(embed=self.embeds[self.page],view=self)
+    async def _next(self,i):
+        if not await self._guard(i): return
+        self.page+=1; self._refresh(); await i.response.edit_message(embed=self.embeds[self.page],view=self)
+    async def _close(self,i):
+        if not await self._guard(i): return
+        for child in self.children: child.disabled=True
+        await i.response.edit_message(view=self)
+
+
 @app_commands.guild_only()
 async def help_cmd(interaction: discord.Interaction):
-    commands_list = _all_leaf_commands()
-    pages = []
-    current_lines = []
-    current_len = 0
-    last_root = None
-
+    commands_list = _all_leaf_commands(); pages=[]; current_lines=[]; current_len=0; last_root=None
     for command in commands_list:
-        path = _command_path(command)
-        root = path.split()[0].lstrip("/")
-        description = getattr(command, "description", None) or "No description provided."
-        line = f"**{path}** — {description}"
-        if len(line) > 900:
-            line = line[:897] + "..."
-        heading = "" if root == last_root else f"\n**{root.replace('-', ' ').replace('_', ' ').title()}**"
-        extra = len(heading) + len(line) + 1
-        # Pack multiple command groups into each page so the help command can
-        # show the entire bot, not just the first few groups.
-        if current_lines and current_len + extra > 3500:
-            pages.append("\n".join(current_lines))
-            current_lines = []
-            current_len = 0
-            heading = f"**{root.replace('-', ' ').replace('_', ' ').title()}**"
-            extra = len(heading) + len(line) + 1
-        current_lines.append(heading)
-        current_lines.append(line)
-        current_len += extra
-        last_root = root
-    if current_lines:
-        pages.append("\n".join(current_lines))
+        path=_command_path(command); root=path.split()[0].lstrip("/"); description=getattr(command,"description",None) or "No description provided."
+        line=f"**{path}** — {description}"; line=line[:897]+"..." if len(line)>900 else line
+        heading="" if root==last_root else f"\n**{root.replace('-', ' ').replace('_', ' ').title()}**"
+        extra=len(heading)+len(line)+1
+        if current_lines and current_len+extra>3000:
+            pages.append("\n".join(current_lines)); current_lines=[]; current_len=0; heading=f"**{root.replace('-', ' ').replace('_', ' ').title()}**"; extra=len(heading)+len(line)+1
+        current_lines.extend([heading,line]); current_len+=extra; last_root=root
+    if current_lines: pages.append("\n".join(current_lines))
 
-    embeds = []
-    total = len(commands_list)
-    for index, body in enumerate(pages, start=1):
-        embed = discord.Embed(title=f"🐾 Cinnamon command directory ({index}/{len(pages)})", description=body, color=0xFFB02E)
-        embed.set_footer(text=f"/help • {total} commands • Use /setup for guided server setup")
-        embeds.append(embed)
-
-    # Add a compact guide as the final page if there is room.
-    guide = discord.Embed(
-        title="📖 How to use Cinnamon",
-        description=(
-            "**New server?** Run `/setup` first. It creates and configures the standard log/welcome/AI channels.\n\n"
-            "**Looking for something?** Discord's slash-command search also filters these commands as you type.\n\n"
-            "**Admin tools:** Most moderation, setup, logging, recovery, and configuration commands require the appropriate Discord permission.\n\n"
-            "**Reset protection:** Run `/economy snapshot` before a reset, then `/economy restore-snapshot` afterward.\n\n"
-            "**AI:** Mention Cinnamon or reply to her, or use the configured AI channel."
-        ),
-        color=discord.Color.blurple(),
-    )
-    if len(embeds) < 10:
-        embeds.append(guide)
-    await interaction.response.send_message(embeds=embeds, ephemeral=True)
+    embeds=[]; total=len(commands_list)
+    for index,body in enumerate(pages,start=1):
+        e=cinnamon_embed(f"📖 Cinnamon Help","Browse Cinnamon's commands with the buttons below.",color=CINNAMON_BLUE,footer=cinnamon_page_footer("Help",index,len(pages)+1,f"{total} commands"))
+        e.add_field(name="Commands",value=body,inline=False); embeds.append(e)
+    guide=cinnamon_embed("🐾 Using Cinnamon","A quick guide to the bot.",color=CINNAMON_ORANGE,footer=cinnamon_page_footer("Help",len(embeds)+1,len(embeds)+1,"Guide"))
+    guide.add_field(name="🚀 Start here",value="Run `/setup` in a new server. Then use `/help` whenever you need the command directory.",inline=False)
+    guide.add_field(name="🎮 Everyday",value="Use `/pet`, `/treat`, `/nap`, `/rank`, `/economy shop`, `/quests daily`, and `/achievement list` to explore Cinnamon.",inline=False)
+    guide.add_field(name="🛡️ Admin",value="Moderation, logging, recovery, and configuration commands require the appropriate Discord permissions.",inline=False)
+    guide.add_field(name="💾 Reset protection",value="Run `/economy snapshot` before a reset and restore it afterward if needed.",inline=False)
+    embeds.append(guide)
+    view=HelpPagesView(interaction.user.id,embeds,0)
+    await interaction.response.send_message(embed=embeds[0],view=view,ephemeral=True)
 
 
 # --- Data status / recovery -------------------------------------------------

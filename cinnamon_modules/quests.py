@@ -186,45 +186,71 @@ async def quest_reset_loop():
 async def _quest_reset_before_loop():
     await bot.wait_until_ready()
 
-@bot.tree.command(name="quest",description="View your current daily and weekly Cinnamon quests")
+class QuestPageView(discord.ui.View):
+    def __init__(self, guild_id:int, user_id:int, scope:str="daily", page:int=0):
+        super().__init__(timeout=300); self.guild_id=guild_id; self.user_id=user_id; self.scope=scope; self.page=page; self._refresh()
+    def _refresh(self):
+        defs=DAILY_QUESTS if self.scope=="daily" else WEEKLY_QUESTS; per=2; pages=max(1,(len(_guild(self.guild_id).get(self.scope+"_ids",[]))+per-1)//per); self.page=max(0,min(self.page,pages-1)); self.clear_items()
+        p=discord.ui.Button(label="Back",emoji="◀️",style=discord.ButtonStyle.secondary,disabled=self.page==0,row=0); n=discord.ui.Button(label="Next",emoji="▶️",style=discord.ButtonStyle.primary,disabled=self.page>=pages-1,row=0); p.callback=self._prev; n.callback=self._next; self.add_item(p); self.add_item(n)
+        daily=discord.ui.Button(label="Daily",emoji="☀️",style=discord.ButtonStyle.success if self.scope=="daily" else discord.ButtonStyle.secondary,row=1)
+        weekly=discord.ui.Button(label="Weekly",emoji="📅",style=discord.ButtonStyle.success if self.scope=="weekly" else discord.ButtonStyle.secondary,row=1)
+        progress=discord.ui.Button(label="Progress",emoji="📊",style=discord.ButtonStyle.secondary,row=1)
+        daily.callback=self._daily; weekly.callback=self._weekly; progress.callback=self._progress
+        self.add_item(daily); self.add_item(weekly); self.add_item(progress)
+    async def _guard(self,i):
+        if i.user.id!=self.user_id: await i.response.send_message("🐾 This quest page belongs to the person who opened it.",ephemeral=True); return False
+        return True
+    async def _prev(self,i):
+        if not await self._guard(i): return
+        self.page-=1; self._refresh(); await i.response.edit_message(embed=quest_scope_embed(self.guild_id,self.user_id,self.scope,self.page),view=self)
+    async def _next(self,i):
+        if not await self._guard(i): return
+        self.page+=1; self._refresh(); await i.response.edit_message(embed=quest_scope_embed(self.guild_id,self.user_id,self.scope,self.page),view=self)
+
+    async def _daily(self,i):
+        if not await self._guard(i): return
+        self.scope="daily"; self.page=0; self._refresh(); await i.response.edit_message(embed=quest_scope_embed(self.guild_id,self.user_id,"daily",0),view=self)
+    async def _progress(self,i):
+        if not await self._guard(i): return
+        u=_user(self.guild_id,self.user_id); d=_guild(self.guild_id); completed=len(u.get("completed_history",[]))
+        e=cinnamon_embed("📊 Quest Progress","Your current Cinnamon quest summary.",color=CINNAMON_BLUE,user=bot.get_guild(self.guild_id).get_member(self.user_id) if bot.get_guild(self.guild_id) else None,footer="Cinnamon • Quest Progress")
+        e.add_field(name="⭐ Quest Points",value=f"**{u.get('qp',0):,}**",inline=True)
+        e.add_field(name="☀️ Daily",value=f"**{len(d.get('daily_ids',[]))}/5** active",inline=True)
+        e.add_field(name="📅 Weekly",value=f"**{len(d.get('weekly_ids',[]))}/5** active",inline=True)
+        e.add_field(name="✅ Completed",value=f"**{completed:,}** quests",inline=False)
+        await i.response.edit_message(embed=cinnamon_polish_embed(e),view=self)
+
+    async def _weekly(self,i):
+        if not await self._guard(i): return
+        self.scope="weekly"; self.page=0; self._refresh(); await i.response.edit_message(embed=quest_scope_embed(self.guild_id,self.user_id,"weekly",0),view=self)
+
+def quest_scope_embed(guild_id,user_id,scope="daily",page=0):
+    d=_ensure_rolls(guild_id); u=_user(guild_id,user_id); defs=DAILY_QUESTS if scope=="daily" else WEEKLY_QUESTS; ids=d.get(scope+"_ids",[]); per=2; pages=max(1,(len(ids)+per-1)//per); page=max(0,min(page,pages-1)); chunk=ids[page*per:(page+1)*per]
+    title="☀️ Daily Quests" if scope=="daily" else "📅 Weekly Quests"; color=CINNAMON_ORANGE if scope=="daily" else 0x8E7CFF
+    e=cinnamon_embed(title,"Complete quests to earn Quest Points and XP.",color=color,user=bot.get_guild(guild_id).get_member(user_id) if bot.get_guild(guild_id) else None,footer=cinnamon_page_footer("Quests",page+1,pages,f"{u.get('qp',0):,} QP"))
+    for qid in chunk:
+        q=defs[qid]; p=_prog(u,scope,qid); target=int(q.get('target',p.get('value',0) or 1)); cur=int(p.get('count',p.get('value',0))); shown=min(cur,target); done=_completed(q,p)
+        e.add_field(name=f"{'✅' if done else '⬜'} {q['name']}",value=f"{cinnamon_progress_bar(shown,target,8)} **{shown}/{target}**\n{q['desc']}\n⭐ **{q['qp']:,} QP**  ·  ✨ **{q['xp']:,} XP**",inline=False)
+    return cinnamon_polish_embed(e)
+
+
+@bot.tree.command(name="quest",description="Open paginated daily and weekly Cinnamon quests")
 @app_commands.guild_only()
 async def quest_cmd(interaction):
-    d=_ensure_rolls(interaction.guild.id); u=_user(interaction.guild.id,interaction.user.id)
-    def lines(defs,ids,scope):
-        out=[]
-        for qid in ids:
-            q=defs[qid]; p=_prog(u,scope,qid); done="✅" if _completed(q,p) else "⬜"; cur=p.get("count",p.get("value",0)); out.append(f"{done} **{q['name']}** — {cur}/{q.get('target','✓')} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
-        return "\n\n".join(out)
-    e=discord.Embed(title="📜 Cinnamon Quests",color=discord.Color.blurple()); e.add_field(name="☀️ Daily",value=lines(DAILY_QUESTS,d.get("daily_ids",[]),"daily")[:3900] or "None"); e.add_field(name="📅 Weekly",value=lines(WEEKLY_QUESTS,d.get("weekly_ids",[]),"weekly")[:3900] or "None"); e.set_footer(text=f"Quest Points: {u['qp']:,} • Daily/weekly rolls persist across restarts")
-    await interaction.response.send_message(embed=cinnamon_polish_embed(e))
+    view=QuestPageView(interaction.guild.id,interaction.user.id,"daily",0)
+    await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"daily",0),view=view)
 
 @bot.tree.command(name="dailyquests",description="View your 5 active daily Cinnamon quests")
 @app_commands.guild_only()
 async def dailyquests_cmd(interaction):
-    d=_ensure_rolls(interaction.guild.id); u=_user(interaction.guild.id,interaction.user.id)
-    lines=[]
-    for qid in d.get("daily_ids",[]):
-        q=DAILY_QUESTS[qid]; p=_prog(u,"daily",qid); done="✅" if _completed(q,p) else "⬜"
-        cur=p.get("count",p.get("value",0))
-        target=q.get("target", "—")
-        lines.append(f"{done} **{q['name']}** — {cur}/{target} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
-    e=discord.Embed(title="☀️ Cinnamon Daily Quests",description="\n\n".join(lines)[:3900] or "No daily quests are active.",color=0xFFB02E)
-    e.set_footer(text=f"Quest Points: {u['qp']:,} • Daily quests reset with the server's Cinnamon day")
-    await interaction.response.send_message(embed=cinnamon_polish_embed(e))
+    view=QuestPageView(interaction.guild.id,interaction.user.id,"daily",0)
+    await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"daily",0),view=view)
 
 @bot.tree.command(name="weeklyquests",description="View your 5 active weekly Cinnamon quests")
 @app_commands.guild_only()
 async def weeklyquests_cmd(interaction):
-    d=_ensure_rolls(interaction.guild.id); u=_user(interaction.guild.id,interaction.user.id)
-    lines=[]
-    for qid in d.get("weekly_ids",[]):
-        q=WEEKLY_QUESTS[qid]; p=_prog(u,"weekly",qid); done="✅" if _completed(q,p) else "⬜"
-        cur=p.get("count",p.get("value",0))
-        target=q.get("target", "—")
-        lines.append(f"{done} **{q['name']}** — {cur}/{target} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
-    e=discord.Embed(title="📅 Cinnamon Weekly Quests",description="\n\n".join(lines)[:3900] or "No weekly quests are active.",color=0x8E7CFF)
-    e.set_footer(text=f"Quest Points: {u['qp']:,} • Weekly quests reset each Cinnamon week")
-    await interaction.response.send_message(embed=cinnamon_polish_embed(e))
+    view=QuestPageView(interaction.guild.id,interaction.user.id,"weekly",0)
+    await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"weekly",0),view=view)
 
 @bot.group(name="quest", aliases=["quests"], invoke_without_command=True)
 @commands.guild_only()
@@ -269,6 +295,58 @@ async def prefix_quest_progress(ctx):
     completed=len(u.get("completed_history",[]))
     await ctx.reply(f"📜 **Quest Progress**\n• Quest Points: **{u['qp']:,}**\n• Completed quests: **{completed}**\n• Active daily: **{len(d.get('daily_ids',[]))}/5**\n• Active weekly: **{len(d.get('weekly_ids',[]))}/5**",mention_author=False)
 
+
+# Compatibility aliases: keep the original top-level commands, while also
+# exposing the daily/weekly/progress views under /quests so users do not have
+# to remember which command spelling is installed.
+quests_view_group = app_commands.Group(name="quests", description="View Cinnamon's daily and weekly quests")
+
+@quests_view_group.command(name="daily", description="View your 5 active daily Cinnamon quests")
+@app_commands.guild_only()
+async def quests_daily_view_cmd(interaction):
+    d = _ensure_rolls(interaction.guild.id)
+    u = _user(interaction.guild.id, interaction.user.id)
+    lines = []
+    for qid in d.get("daily_ids", []):
+        q = DAILY_QUESTS[qid]
+        p = _prog(u, "daily", qid)
+        done = "✅" if _completed(q, p) else "⬜"
+        cur = p.get("count", p.get("value", 0))
+        lines.append(f"{done} **{q['name']}** — {cur}/{q.get('target','—')} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
+    e = discord.Embed(title="☀️ Cinnamon Daily Quests", description="\n\n".join(lines)[:3900] or "No daily quests are active.", color=0xFFB02E)
+    e.set_footer(text=f"Quest Points: {u['qp']:,} • Daily quests reset each Cinnamon day")
+    await interaction.response.send_message(embed=cinnamon_polish_embed(e))
+
+@quests_view_group.command(name="weekly", description="View your 5 active weekly Cinnamon quests")
+@app_commands.guild_only()
+async def quests_weekly_view_cmd(interaction):
+    d = _ensure_rolls(interaction.guild.id)
+    u = _user(interaction.guild.id, interaction.user.id)
+    lines = []
+    for qid in d.get("weekly_ids", []):
+        q = WEEKLY_QUESTS[qid]
+        p = _prog(u, "weekly", qid)
+        done = "✅" if _completed(q, p) else "⬜"
+        cur = p.get("count", p.get("value", 0))
+        lines.append(f"{done} **{q['name']}** — {cur}/{q.get('target','—')} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
+    e = discord.Embed(title="📅 Cinnamon Weekly Quests", description="\n\n".join(lines)[:3900] or "No weekly quests are active.", color=0x8E7CFF)
+    e.set_footer(text=f"Quest Points: {u['qp']:,} • Weekly quests reset each Cinnamon week")
+    await interaction.response.send_message(embed=cinnamon_polish_embed(e))
+
+@quests_view_group.command(name="progress", description="View your Cinnamon quest progress and Quest Points")
+@app_commands.guild_only()
+async def quests_progress_view_cmd(interaction):
+    d = _ensure_rolls(interaction.guild.id)
+    u = _user(interaction.guild.id, interaction.user.id)
+    completed = len(u.get("completed_history", []))
+    e = discord.Embed(title="📜 Cinnamon Quest Progress", color=0xFFB02E)
+    e.add_field(name="Quest Points", value=f"✨ **{u['qp']:,} QP**", inline=True)
+    e.add_field(name="Completed", value=f"🏆 **{completed}**", inline=True)
+    e.add_field(name="Active", value=f"☀️ {len(d.get('daily_ids', []))}/5 daily\n📅 {len(d.get('weekly_ids', []))}/5 weekly", inline=True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(e), ephemeral=True)
+
+bot.tree.add_command(quests_view_group)
+
 @bot.tree.command(name="questshop",description="Redeem Quest Points for Catnip, Golden Tuna, or the Quest Master role")
 @app_commands.guild_only()
 @app_commands.choices(reward=[app_commands.Choice(name=v["name"], value=k) for k,v in QUEST_SHOP.items()])
@@ -293,20 +371,7 @@ async def _assign_quest_role(g,u,name):
     try: await member.add_roles(roles[-1],reason="Quest Shop reward"); return True
     except discord.HTTPException: return False
 
-@bot.tree.command(name="questsetup",description="Admin: configure the Quest Master role")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def questsetup_cmd(interaction, role:discord.Role|None=None):
-    cfg=quest_config.setdefault(interaction.guild.id,{})
-    if role: cfg["quest_master_role"]=role.id
-    await bd_save_data(); await cinnamon_send(interaction, f"✅ Quest setup saved. Quest Master role: {role.mention if role else 'not changed'}",ephemeral=True)
-
-@bot.tree.command(name="questlist",description="Admin: list the full daily and weekly quest pools")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def questlist_cmd(interaction):
-    text="☀️ DAILY POOL\n"+"\n".join(f"• {q['name']} — {q['qp']} QP + {q['xp']} XP" for q in DAILY_QUESTS.values())+"\n\n📅 WEEKLY POOL\n"+"\n".join(f"• {q['name']} — {q['qp']} QP + {q['xp']} XP" for q in WEEKLY_QUESTS.values())
-    await cinnamon_send(interaction, text[:6000],ephemeral=True)
+# Quest configuration/definition management is dashboard-only.
 
 ECONOMY_QUESTS=DAILY_QUESTS
 

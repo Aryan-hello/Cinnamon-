@@ -333,31 +333,56 @@ async def achievement_command_listener(interaction, command):
 
 # Member commands
 achievement_group=app_commands.Group(name="achievement",description="Cinnamon's achievement system")
+class AchievementListView(discord.ui.View):
+    def __init__(self, guild_id: int, user_id: int, page: int = 0):
+        super().__init__(timeout=300)
+        self.guild_id, self.user_id, self.page = guild_id, user_id, page
+        self._refresh()
+
+    def _refresh(self):
+        ids=list(ACHIEVEMENTS.items()); per=6; pages=max(1,(len(ids)+per-1)//per)
+        self.page=max(0,min(self.page,pages-1)); self.clear_items()
+        prev=discord.ui.Button(label="Previous Page",emoji="◀️",style=discord.ButtonStyle.secondary,disabled=self.page==0,row=0)
+        nxt=discord.ui.Button(label="Next Page",emoji="▶️",style=discord.ButtonStyle.primary,disabled=self.page>=pages-1,row=0)
+        prev.callback=self._prev; nxt.callback=self._next; self.add_item(prev); self.add_item(nxt)
+
+    async def _guard(self,interaction):
+        if interaction.user.id!=self.user_id:
+            await interaction.response.send_message("🐾 This achievement page belongs to the person who opened it.",ephemeral=True); return False
+        return True
+    async def _prev(self,interaction):
+        if not await self._guard(interaction): return
+        self.page-=1; self._refresh(); await interaction.response.edit_message(embed=achievement_list_embed(self.guild_id,self.user_id,self.page),view=self)
+    async def _next(self,interaction):
+        if not await self._guard(interaction): return
+        self.page+=1; self._refresh(); await interaction.response.edit_message(embed=achievement_list_embed(self.guild_id,self.user_id,self.page),view=self)
+
+
+def achievement_list_embed(guild_id,user_id,page=0):
+    state=_state(guild_id,user_id); unlocked=set(state["unlocked"]); ids=list(ACHIEVEMENTS.items()); per=6; pages=max(1,(len(ids)+per-1)//per); page=max(0,min(page,pages-1)); chunk=ids[page*per:(page+1)*per]
+    e=cinnamon_embed("🏆 Achievements","Track your milestones. Secret achievements stay hidden until discovered.",color=CINNAMON_GOLD,user=bot.get_guild(guild_id).get_member(user_id) if bot.get_guild(guild_id) else None,footer=cinnamon_page_footer("Achievements",page+1,pages,f"{len(unlocked)}/{len(ACHIEVEMENTS)} unlocked"))
+    for aid,a in chunk:
+        val=_value(guild_id,user_id,a["metric"]); target=int(a["target"]); shown=min(val,target); status="✅" if aid in unlocked else "▫️"
+        bar=cinnamon_progress_bar(shown,target,8)
+        e.add_field(name=f"{status} {a['name']}",value=f"{bar} **{shown:,}/{target:,}**\n{a['description']}  ·  *{achievement_rarity(aid,a)}*",inline=False)
+    return cinnamon_polish_embed(e)
+
 @achievement_group.command(name="list",description="View normal achievements and progress")
 @app_commands.guild_only()
 async def achievement_list_cmd(interaction):
-    s=_state(interaction.guild.id,interaction.user.id); unlocked=set(s["unlocked"])
-    lines=[]
-    for aid,a in ACHIEVEMENTS.items():
-        val=_value(interaction.guild.id,interaction.user.id,a["metric"]); status="🏆" if aid in unlocked else "🔒"
-        lines.append(f"{status} **{a['name']}** · *{achievement_rarity(aid,a)}* — {min(val,int(a['target'])):,}/{int(a['target']):,} — {a['description']}")
-    e=discord.Embed(title="🏆 Achievements",description="\n".join(lines)[:4000],color=discord.Color.gold()); e.set_footer(text=f"Unlocked {len(unlocked)}/{len(ACHIEVEMENTS)} • Secret achievements hidden")
-    await interaction.response.send_message(embed=cinnamon_polish_embed(e))
+    view=AchievementListView(interaction.guild.id,interaction.user.id,0)
+    await interaction.response.send_message(embed=achievement_list_embed(interaction.guild.id,interaction.user.id,0),view=view)
 
 @achievement_group.command(name="profile",description="View your complete achievement profile")
 @app_commands.guild_only()
 async def achievement_profile_cmd(interaction):
     s=_state(interaction.guild.id,interaction.user.id); st=s["stats"]
-    e=discord.Embed(title=f"🏆 {interaction.user.display_name}'s Achievement Profile",color=discord.Color.gold())
-    e.add_field(name="Achievement Points",value=f"{s['points']:,}")
-    e.add_field(name="Unlocked",value=f"{len(s['unlocked'])}/{len(ACHIEVEMENTS)}")
-    e.add_field(name="Secrets",value=str(len(s['secret_unlocked'])))
-    e.add_field(name="Lifetime Catnip",value=f"{int(st.get('lifetime_catnip',0)):,}")
-    e.add_field(name="Messages",value=f"{int(st.get('messages',0)):,}")
-    e.add_field(name="Work",value=f"{int(st.get('work_sessions',0)):,}")
-    e.add_field(name="Cinnamon interactions",value=f"{int(st.get('interactions',0)):,}")
-    fs=friendship_state(interaction.guild.id,interaction.user.id); e.add_field(name="🐾 Friendship",value=f"{fs['level']} · {fs['points']:,} Friendship XP")
-    e.add_field(name="Quests",value=f"{int(st.get('quests_completed',0)):,}")
+    e=cinnamon_embed(f"🏆 {interaction.user.display_name}","Achievement profile and lifetime progress.",color=CINNAMON_GOLD,user=interaction.user,footer="Cinnamon • Achievement Profile")
+    e.add_field(name="🏆 Achievements",value=f"**{len(s['unlocked'])}/{len(ACHIEVEMENTS)}** unlocked\n**{s['points']:,}** AP",inline=True)
+    e.add_field(name="🕵️ Secrets",value=f"**{len(s['secret_unlocked'])}** discovered",inline=True)
+    e.add_field(name="🐾 Friendship",value=f"**{friendship_state(interaction.guild.id,interaction.user.id)['level']}**\n{friendship_state(interaction.guild.id,interaction.user.id)['points']:,} XP",inline=True)
+    e.add_field(name="📊 Activity",value=f"Messages **{int(st.get('messages',0)):,}**\nWork **{int(st.get('work_sessions',0)):,}**\nInteractions **{int(st.get('interactions',0)):,}**",inline=True)
+    e.add_field(name="🎯 Progress",value=f"Quests completed **{int(st.get('quests_completed',0)):,}**\nLifetime Catnip **{int(st.get('lifetime_catnip',0)):,}",inline=True)
     shown=[]
     for aid in s.get("showcase",[]):
         a=ACHIEVEMENTS.get(aid) or SECRET_ACHIEVEMENTS.get(aid)
@@ -576,139 +601,8 @@ economy_achievements=achievement_data
 async def unlock_economy_achievement(guild_id,user_id,achievement_id,reason=""): return await _unlock(guild_id,user_id,achievement_id,False,reason)
 async def check_economy_achievements(guild_id,user_id,**kwargs): await achievement_check_all(guild_id,user_id); return []
 
-# ---------------------------------------------------------------------------
-# Full admin management surface. The admin subgroup keeps Discord's 25-child
-# application-command limit from being exceeded while exposing the planned
-# create/edit/delete/enable/disable and secret-management tools.
-# ---------------------------------------------------------------------------
-achievement_role_overrides = {}
-
-async def _admin_achievement_find(term):
-    term=str(term).lower().strip()
-    for aid,a in {**ACHIEVEMENTS,**SECRET_ACHIEVEMENTS}.items():
-        if aid.lower()==term or str(a.get("name","")).lower()==term:
-            return aid,a
-    return None,None
-
-def _pool_for(aid):
-    return SECRET_ACHIEVEMENTS if aid in SECRET_ACHIEVEMENTS else ACHIEVEMENTS
-
-achievement_admin_group=app_commands.Group(name="admin",description="Admin controls for Cinnamon achievements",parent=achievement_group)
-
-@achievement_admin_group.command(name="create",description="Create a custom achievement")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_create(interaction, name:str, description:str, metric:str, target:int, catnip:int=0, xp:int=0, points:int=0, role:discord.Role|None=None, secret:bool=False):
-    pool=SECRET_ACHIEVEMENTS if secret else ACHIEVEMENTS
-    aid=re.sub(r"[^a-z0-9_]+","_",name.lower()).strip("_")[:50]
-    if not aid or aid in pool: return await cinnamon_send(interaction, "❌ An achievement with that ID/name already exists.",ephemeral=True)
-    pool[aid]={"name":name[:100],"description":description[:300],"metric":metric[:60],"target":max(1,int(target)),"catnip":max(0,int(catnip)),"xp":max(0,int(xp)),"points":max(0,int(points)),"enabled":True}
-    if role: pool[aid]["role"]=role.name
-    await bd_save_data(); await cinnamon_send(interaction, f"✅ Created {'secret ' if secret else ''}achievement **{name}**.",ephemeral=True)
-
-@achievement_admin_group.command(name="edit",description="Edit an achievement")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_edit(interaction, achievement:str, name:str|None=None, description:str|None=None, target:int|None=None, catnip:int|None=None, xp:int|None=None, points:int|None=None, role:discord.Role|None=None):
-    aid,a=await _admin_achievement_find(achievement)
-    if not a: return await cinnamon_send(interaction, "❌ Achievement not found.",ephemeral=True)
-    if name is not None: a["name"]=name[:100]
-    if description is not None: a["description"]=description[:300]
-    if target is not None: a["target"]=max(1,int(target))
-    if catnip is not None: a["catnip"]=max(0,int(catnip))
-    if xp is not None: a["xp"]=max(0,int(xp))
-    if points is not None: a["points"]=max(0,int(points))
-    if role is not None: a["role"]=role.name
-    await bd_save_data(); await cinnamon_send(interaction, "✅ Achievement updated.",ephemeral=True)
-
-@achievement_admin_group.command(name="delete",description="Delete an achievement")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_delete(interaction, achievement:str, confirm:bool=False):
-    if not confirm: return await cinnamon_send(interaction, "⚠️ Set **confirm** to true to delete the achievement definition.",ephemeral=True)
-    aid,a=await _admin_achievement_find(achievement)
-    if not a: return await cinnamon_send(interaction, "❌ Achievement not found.",ephemeral=True)
-    _pool_for(aid).pop(aid,None)
-    await bd_save_data(); await cinnamon_send(interaction, f"🗑️ Deleted **{a['name']}**. Existing user rewards are not clawed back.",ephemeral=True)
-
-@achievement_admin_group.command(name="enable",description="Enable an achievement")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_enable(interaction, achievement:str):
-    aid,a=await _admin_achievement_find(achievement)
-    if not a: return await cinnamon_send(interaction, "❌ Achievement not found.",ephemeral=True)
-    a["enabled"]=True; await bd_save_data(); await cinnamon_send(interaction, "✅ Achievement enabled.",ephemeral=True)
-
-@achievement_admin_group.command(name="disable",description="Disable an achievement")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_disable(interaction, achievement:str):
-    aid,a=await _admin_achievement_find(achievement)
-    if not a: return await cinnamon_send(interaction, "❌ Achievement not found.",ephemeral=True)
-    a["enabled"]=False; await bd_save_data(); await cinnamon_send(interaction, "✅ Achievement disabled.",ephemeral=True)
-
-@achievement_admin_group.command(name="role-set",description="Set a role override for an achievement")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_role_set(interaction, achievement:str, role:discord.Role):
-    aid,a=await _admin_achievement_find(achievement)
-    if not a: return await cinnamon_send(interaction, "❌ Achievement not found.",ephemeral=True)
-    achievement_role_overrides.setdefault(interaction.guild.id,{})[aid]=role.id; await bd_save_data(); await cinnamon_send(interaction, f"🎖️ **{a['name']}** will use {role.mention}.",ephemeral=True)
-
-@achievement_admin_group.command(name="role-remove",description="Remove an achievement role override")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_role_remove(interaction, achievement:str):
-    aid,a=await _admin_achievement_find(achievement)
-    if not a: return await cinnamon_send(interaction, "❌ Achievement not found.",ephemeral=True)
-    achievement_role_overrides.get(interaction.guild.id,{}).pop(aid,None); await bd_save_data(); await cinnamon_send(interaction, "✅ Role override removed.",ephemeral=True)
-
-@achievement_admin_group.command(name="secret-create",description="Create a secret achievement")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_secret_create(interaction, name:str, description:str, metric:str, target:int, catnip:int=0, xp:int=0, points:int=0, role:discord.Role|None=None):
-    await achievement_admin_create.callback(interaction,name,description,metric,target,catnip,xp,points,role,True)
-
-@achievement_admin_group.command(name="secret-edit",description="Edit a secret achievement")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_secret_edit(interaction, achievement:str, name:str|None=None, description:str|None=None, target:int|None=None, catnip:int|None=None, xp:int|None=None, points:int|None=None, role:discord.Role|None=None):
-    aid,a=await _admin_achievement_find(achievement)
-    if not a or aid not in SECRET_ACHIEVEMENTS: return await cinnamon_send(interaction, "❌ Secret achievement not found.",ephemeral=True)
-    if name is not None:a["name"]=name[:100]
-    if description is not None:a["description"]=description[:300]
-    if target is not None:a["target"]=max(1,int(target))
-    if catnip is not None:a["catnip"]=max(0,int(catnip))
-    if xp is not None:a["xp"]=max(0,int(xp))
-    if points is not None:a["points"]=max(0,int(points))
-    if role is not None:a["role"]=role.name
-    await bd_save_data(); await cinnamon_send(interaction, "✅ Secret achievement updated.",ephemeral=True)
-
-@achievement_admin_group.command(name="secret-delete",description="Delete a secret achievement")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_secret_delete(interaction, achievement:str, confirm:bool=False):
-    if not confirm:return await cinnamon_send(interaction, "⚠️ Set confirm to true.",ephemeral=True)
-    aid,a=await _admin_achievement_find(achievement)
-    if not a or aid not in SECRET_ACHIEVEMENTS:return await cinnamon_send(interaction, "❌ Secret achievement not found.",ephemeral=True)
-    SECRET_ACHIEVEMENTS.pop(aid,None); await bd_save_data(); await cinnamon_send(interaction, "🗑️ Secret achievement deleted.",ephemeral=True)
-
-@achievement_admin_group.command(name="secret-enable",description="Enable a secret achievement")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_secret_enable(interaction, achievement:str):
-    aid,a=await _admin_achievement_find(achievement)
-    if not a or aid not in SECRET_ACHIEVEMENTS:return await cinnamon_send(interaction, "❌ Secret achievement not found.",ephemeral=True)
-    a["enabled"]=True; await bd_save_data(); await cinnamon_send(interaction, "✅ Secret achievement enabled.",ephemeral=True)
-
-@achievement_admin_group.command(name="secret-disable",description="Disable a secret achievement")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def achievement_admin_secret_disable(interaction, achievement:str):
-    aid,a=await _admin_achievement_find(achievement)
-    if not a or aid not in SECRET_ACHIEVEMENTS:return await cinnamon_send(interaction, "❌ Secret achievement not found.",ephemeral=True)
-    a["enabled"]=False; await bd_save_data(); await cinnamon_send(interaction, "✅ Secret achievement disabled.",ephemeral=True)
-
+# Achievement definitions and role overrides are managed from the Cinnamon dashboard.
+# Discord does not register the old admin create/edit/delete/enable/disable surface.
 # Persist custom definitions and role overrides by extending the normal state serializer.
 _original_bd_encode = _bd_encode
 # We cannot replace the global persistence function wholesale here; dashboard_runtime
@@ -724,8 +618,6 @@ try:
     _bd_encode=_bd_encode_with_achievements
 except Exception: pass
 
-try: achievement_group.add_command(achievement_admin_group)
-except Exception: pass
 
 try:
     _original_bd_decode = _bd_decode
