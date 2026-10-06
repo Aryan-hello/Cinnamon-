@@ -59,6 +59,36 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(mes
 log = logging.getLogger("cinnamon")
 
 # ---------------------------------------------------------------------------
+# Cinnamon UI / Embed style
+# ---------------------------------------------------------------------------
+
+CINNAMON_EMBED_COLOR = 0xE6A23C
+CINNAMON_SUCCESS_COLOR = 0x57F287
+CINNAMON_ERROR_COLOR = 0xED4245
+CINNAMON_INFO_COLOR = 0x5865F2
+CINNAMON_GOLD_COLOR = 0xF1C40F
+
+def _cinnamon_embed_tone(text: str):
+    t = (text or "").lstrip()
+    if t.startswith(("❌", "🚫")): return CINNAMON_ERROR_COLOR, "⚠️ Cinnamon"
+    if t.startswith(("⚠️", "⛔")): return CINNAMON_GOLD_COLOR, "🐾 Cinnamon"
+    if t.startswith(("✅", "🎉", "💰", "🎁")): return CINNAMON_SUCCESS_COLOR, "🐾 Cinnamon"
+    if t.startswith(("ℹ️", "📌", "🔎", "📊")): return CINNAMON_INFO_COLOR, "🐾 Cinnamon"
+    return CINNAMON_EMBED_COLOR, "🐾 Cinnamon"
+
+def cinnamon_polish_embed(embed: discord.Embed, *, footer: str = "Cinnamon • Made with paws 🐾") -> discord.Embed:
+    if embed.color is None or embed.color.value == 0: embed.color = discord.Color(CINNAMON_EMBED_COLOR)
+    if embed.timestamp is None: embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
+    if not embed.footer or not embed.footer.text: embed.set_footer(text=footer)
+    return embed
+
+async def cinnamon_send(interaction: discord.Interaction, description: str, *, title: str | None = None, ephemeral: bool = False, allowed_mentions=None):
+    color, default_title = _cinnamon_embed_tone(description)
+    embed = discord.Embed(title=title or default_title, description=description, color=color, timestamp=datetime.datetime.now(datetime.timezone.utc))
+    embed.set_footer(text="Cinnamon • Made with paws 🐾")
+    return await interaction.response.send_message(embed=embed, ephemeral=ephemeral, allowed_mentions=allowed_mentions or discord.AllowedMentions.none())
+
+# ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
