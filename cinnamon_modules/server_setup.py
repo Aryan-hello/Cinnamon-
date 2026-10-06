@@ -307,7 +307,7 @@ def _all_leaf_commands() -> list:
 @bot.tree.command(name="setup", description="Guided first-time setup: create Cinnamon's channels and configure logging")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.checks.bot_has_permissions(manage_channels=True, manage_roles=True, send_messages=True, embed_links=True)
+@app_commands.checks.bot_has_permissions(manage_channels=True, send_messages=True, embed_links=True)
 async def setup_cmd(interaction: discord.Interaction):
     guild = interaction.guild
     await interaction.response.defer(ephemeral=True)
@@ -345,6 +345,9 @@ async def setup_cmd(interaction: discord.Interaction):
 
     # Create every non-level role used by achievements and the quest shop.
     # Level roles are intentionally excluded; those are configured separately with /level-rewards.
+    # Role creation is optional: /setup should still configure channels when the bot
+    # has Manage Channels but not Manage Roles.
+    can_manage_roles = bool(guild.me and guild.me.guild_permissions.manage_roles)
     achievement_role_names = sorted({
         str(a.get("role")).strip()
         for a in list(ACHIEVEMENTS.values()) + list(SECRET_ACHIEVEMENTS.values()) + [ADMIN_ACHIEVEMENT]
@@ -354,14 +357,15 @@ async def setup_cmd(interaction: discord.Interaction):
     achievement_role_names = list(dict.fromkeys(achievement_role_names))
     created_roles = []
     existing_roles = {r.name: r for r in guild.roles if not r.managed}
-    for role_name in achievement_role_names:
-        role = existing_roles.get(role_name)
-        if role is None:
-            try:
-                role = await guild.create_role(name=role_name, reason="Cinnamon achievement/quest setup")
-                created_roles.append(role.mention)
-            except discord.HTTPException as exc:
-                log.warning("Could not create Cinnamon reward role %r in guild %s: %s", role_name, guild.id, exc)
+    if can_manage_roles:
+        for role_name in achievement_role_names:
+            role = existing_roles.get(role_name)
+            if role is None:
+                try:
+                    role = await guild.create_role(name=role_name, reason="Cinnamon achievement/quest setup")
+                    created_roles.append(role.mention)
+                except discord.HTTPException as exc:
+                    log.warning("Could not create Cinnamon reward role %r in guild %s: %s", role_name, guild.id, exc)
     # Always restore the dedicated level log route, even on servers that ran an
     # older setup before the level-log channel existed. _ensure_setup_channel
     # above has already created/reused cinnamon-level-logs.
@@ -415,7 +419,7 @@ async def setup_cmd(interaction: discord.Interaction):
             "Running `/setup` again is safe and will reuse these channels.\n\n"
             f"**Created channels:** {created_text}\n\n"
             f"**Reward roles ready:** {len(achievement_role_names)} total"
-            + (f"\n**New reward roles:** {', '.join(created_roles)[:1800]}" if created_roles else "\nNo new reward roles were needed; existing roles were reused.")
+            + (f"\n**New reward roles:** {', '.join(created_roles)[:1800]}" if created_roles else ("\nNo new reward roles were needed; existing roles were reused." if can_manage_roles else "\n⚠️ I could not create reward roles because I do not have **Manage Roles**. Channels were configured normally."))
         ),
         color=discord.Color.green(),
     )
