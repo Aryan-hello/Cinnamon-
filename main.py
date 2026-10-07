@@ -354,57 +354,6 @@ for _cinnamon_module in _CINNAMON_MODULES:
 
 del _cinnamon_module
 
-def _discord_login_retry_delay(error: discord.HTTPException, attempt: int) -> int:
-    """Return a conservative delay for Discord/Cloudflare login throttles.
-
-    Discord may provide Retry-After on a 429 response. If it does not, use a
-    capped exponential backoff so Render cannot repeatedly hammer Discord while
-    the temporary Cloudflare/API ban is active.
-    """
-    retry_after = None
-    response = getattr(error, "response", None)
-    headers = getattr(response, "headers", None)
-    if headers:
-        raw = headers.get("Retry-After") or headers.get("retry-after")
-        try:
-            retry_after = float(raw) if raw is not None else None
-        except (TypeError, ValueError):
-            retry_after = None
-
-    # Login 429s are more safely handled with long waits than rapid retries.
-    exponential = min(300, 60 * (2 ** max(0, attempt - 1)))
-    if retry_after is not None:
-        return max(60, min(600, math.ceil(retry_after)))
-    return exponential
-
-
-def run_discord_with_retry():
-    """Start Cinnamon and avoid a crash-loop when Discord temporarily returns 429."""
-    attempt = 0
-    while True:
-        try:
-            log.info("Starting Cinnamon's Discord connection (attempt %d)", attempt + 1)
-            bot.run(DISCORD_TOKEN)
-            return
-        except discord.HTTPException as error:
-            if error.status != 429:
-                log.exception("Discord rejected Cinnamon's startup connection.")
-                raise
-
-            attempt += 1
-            delay = _discord_login_retry_delay(error, attempt)
-            log.warning(
-                "Discord/Cloudflare rate-limited Cinnamon during startup (HTTP 429). "
-                "Waiting %d seconds before the next login attempt. Do not repeatedly "
-                "restart/redeploy Cinnamon while this cooldown is active.",
-                delay,
-            )
-            time.sleep(delay)
-        except discord.LoginFailure:
-            log.exception("Discord rejected Cinnamon's token. Check DISCORD_TOKEN.")
-            raise
-
-
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
-    run_discord_with_retry()
+    bot.run(DISCORD_TOKEN)
