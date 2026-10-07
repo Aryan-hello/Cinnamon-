@@ -384,6 +384,12 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         category=_command_log_category(interaction.command.qualified_name if interaction.command else ""),
     )
 
+    await _send_admin_error_dm(
+        interaction.user,
+        command_name="/" + (interaction.command.qualified_name if interaction.command else "unknown"),
+        error=error,
+        context=f"Server: {interaction.guild.name if interaction.guild else 'DM'} | Channel: {getattr(interaction.channel, 'name', 'unknown')}",
+    )
 
 # ---------------------------------------------------------------------------
 # Keep-alive web server (Koyeb / Render free tiers expect something bound

@@ -306,10 +306,35 @@ def _all_leaf_commands() -> list:
 
 @bot.tree.command(name="setup", description="Guided first-time setup: create Cinnamon's channels and configure logging")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.checks.bot_has_permissions(manage_channels=True, send_messages=True, embed_links=True)
 async def setup_cmd(interaction: discord.Interaction):
+    # Do the permission checks inside the command instead of decorator checks.
+    # This guarantees that /setup is actually invokable and lets Cinnamon give
+    # a useful error instead of Discord silently rejecting the interaction.
     guild = interaction.guild
+    if guild is None:
+        return await interaction.response.send_message("🐾 /setup can only be used inside a server.", ephemeral=True)
+    user_perms = interaction.user.guild_permissions
+    if not (user_perms.manage_guild or user_perms.administrator):
+        return await interaction.response.send_message(
+            "🐾 You need **Manage Server** (or **Administrator**) to run `/setup`.",
+            ephemeral=True,
+        )
+    me = guild.me
+    if me is None:
+        return await interaction.response.send_message(
+            "🐾 I couldn't resolve my member permissions in this server. Please reinvite/restart Cinnamon and try again.",
+            ephemeral=True,
+        )
+    missing = []
+    if not me.guild_permissions.manage_channels:
+        missing.append("Manage Channels")
+    if not me.guild_permissions.send_messages:
+        missing.append("Send Messages")
+    if missing:
+        return await interaction.response.send_message(
+            "🐾 Cinnamon is missing: **" + ", ".join(missing) + "**. Give the bot role those permissions and run `/setup` again.",
+            ephemeral=True,
+        )
     await interaction.response.defer(ephemeral=True)
 
     category = discord.utils.get(guild.categories, name="Cinnamon • Logs & Setup")
@@ -337,11 +362,27 @@ async def setup_cmd(interaction: discord.Interaction):
     ]
     channels = {}
     created = []
+    failed = []
     for name, topic in specs:
-        channel, was_created = await _ensure_setup_channel(guild, category, name, topic)
-        channels[name] = channel
-        if was_created:
-            created.append(channel.mention)
+        try:
+            channel, was_created = await _ensure_setup_channel(guild, category, name, topic)
+            channels[name] = channel
+            if was_created:
+                created.append(channel.mention)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            failed.append(f"#{name}: {type(exc).__name__}")
+            log.warning("/setup could not prepare #%s in guild %s: %s", name, guild.id, exc)
+
+    # Every channel below is referenced later when routing Cinnamon's systems.
+    # If Discord blocked even one, stop here with the exact channel names rather
+    # than crashing later with a misleading KeyError.
+    missing_channels = [name for name, _topic in specs if name not in channels]
+    if missing_channels:
+        details = ", ".join(f"#{name}" for name in missing_channels)
+        raise RuntimeError(
+            f"Discord would not let Cinnamon create/access these setup channels: {details}. "
+            "Check Manage Channels and the bot role/category permissions."
+        )
 
     # Create every non-level role used by achievements and the quest shop.
     # Level roles are intentionally excluded; those are configured separately with /level-rewards.
@@ -412,12 +453,14 @@ async def setup_cmd(interaction: discord.Interaction):
 
     # Keep the setup message useful even if someone runs it again later.
     created_text = ", ".join(created) if created else "No channels needed to be created; the setup was already present."
+    failed_text = ", ".join(failed) if failed else "None"
     embed = discord.Embed(
         title="🐾 Cinnamon setup complete",
         description=(
             "I checked the server and configured the main Cinnamon systems. "
             "Running `/setup` again is safe and will reuse these channels.\n\n"
             f"**Created channels:** {created_text}\n\n"
+            f"**Channels that could not be prepared:** {failed_text}\n\n"
             f"**Reward roles ready:** {len(achievement_role_names)} total"
             + (f"\n**New reward roles:** {', '.join(created_roles)[:1800]}" if created_roles else ("\nNo new reward roles were needed; existing roles were reused." if can_manage_roles else "\n⚠️ I could not create reward roles because I do not have **Manage Roles**. Channels were configured normally."))
         ),
@@ -464,16 +507,57 @@ async def setup_cmd_error(interaction: discord.Interaction, error: app_commands.
     elif isinstance(original, discord.Forbidden):
         msg = (
             "🐾 Discord refused one of the setup actions. Cinnamon needs **Manage Channels**, "
-            "**Send Messages**, and **Embed Links**, and its role must not be blocked by a channel/category permission override."
+            "**Send Messages**, and its role must not be blocked by a channel/category permission override."
         )
+    elif isinstance(original, RuntimeError):
+        log.error("/setup failed: %s", original)
+        msg = f"🐾 `/setup` could not finish: **{str(original)[:1800]}**"
     else:
         log.exception("/setup failed", exc_info=original)
-        msg = "🐾 `/setup` hit an unexpected error. I logged the exact error in Render so it can be fixed without guessing."
+        msg = f"🐾 `/setup` hit **{type(original).__name__}**. Check Render logs for the exact Discord error."
 
     if interaction.response.is_done():
         await interaction.followup.send(msg, ephemeral=True)
     else:
         await interaction.response.send_message(msg, ephemeral=True)
+    await _send_admin_error_dm(
+        interaction.user,
+        command_name="/setup",
+        error=error,
+        context=f"Server: {interaction.guild.name if interaction.guild else 'DM'} | Setup command",
+    )
+
+
+@bot.command(name="setup")
+@commands.guild_only()
+async def prefix_setup(ctx: commands.Context):
+    """Fallback for servers where Discord has not refreshed /setup yet."""
+    if not (ctx.author.guild_permissions.manage_guild or ctx.author.guild_permissions.administrator):
+        msg = "🐾 You need **Manage Server** (or **Administrator**) to run `?setup`."
+        await ctx.reply(msg, mention_author=False)
+        await _send_admin_error_dm(ctx.author, command_name="?setup", error=commands.MissingPermissions(["manage_guild"]), context=f"Server: {ctx.guild.name} | Prefix setup")
+        return
+    me = ctx.guild.me
+    if me is None or not me.guild_permissions.manage_channels or not me.guild_permissions.send_messages:
+        msg = "🐾 Cinnamon needs **Manage Channels** and **Send Messages** before setup can run."
+        await ctx.reply(msg, mention_author=False)
+        missing = []
+        if me is None or not me.guild_permissions.manage_channels:
+            missing.append("manage_channels")
+        if me is None or not me.guild_permissions.send_messages:
+            missing.append("send_messages")
+        await _send_admin_error_dm(ctx.author, command_name="?setup", error=commands.BotMissingPermissions(missing), context=f"Server: {ctx.guild.name} | Prefix setup")
+        return
+
+    # The slash command contains the full setup workflow. The prefix fallback
+    # intentionally only handles the registration/cache problem: it tells the
+    # owner to use the slash command once Discord has refreshed its command list.
+    await ctx.reply(
+        "🐾 Cinnamon is online, but Discord's slash-command cache may be stale. "
+        "Use `/setup` from the slash-command menu after restarting Discord. "
+        "If `/setup` is still missing, check the Render log for **Guild-synced 55 Cinnamon slash commands**.",
+        mention_author=False,
+    )
 
 
 @bot.tree.command(name="setupstatus", description="Check Cinnamon's configured channels and systems")

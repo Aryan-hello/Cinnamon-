@@ -5,6 +5,41 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
+async def _send_admin_error_dm(user, *, command_name: str, error: BaseException, context: str = ""):
+    """Privately send useful diagnostics to a server Administrator after a command fails.
+
+    Never includes tokens, secrets, authorization codes, or full tracebacks. The normal
+    public error remains unchanged; this DM is only an administrator diagnostic.
+    """
+    try:
+        guild_perms = getattr(user, "guild_permissions", None)
+        if not guild_perms or not guild_perms.administrator:
+            return
+
+        original = error.original if isinstance(error, app_commands.CommandInvokeError) else error
+        detail = str(original).strip() or repr(original)
+        # Avoid accidentally exposing credentials/codes that might appear in an exception.
+        sensitive_words = ("token", "client_secret", "authorization", "access_token", "refresh_token")
+        if any(word in detail.lower() for word in sensitive_words):
+            detail = f"{type(original).__name__} (sensitive error details hidden)"
+        detail = detail[:1200]
+        context = (context or "").replace("@", "@\u200b")[:700]
+
+        message = (
+            "🔧 **Cinnamon command diagnostic**\n"
+            f"**Command:** `{command_name}`\n"
+            f"**Error type:** `{type(original).__name__}`\n"
+            f"**Reason:** `{detail}`"
+        )
+        if context:
+            message += f"\n**Context:** {context}"
+        message += "\n\nOnly you received this diagnostic because you have **Administrator** permission. The public error message was left unchanged."
+        await user.send(message)
+    except (discord.Forbidden, discord.HTTPException, AttributeError):
+        # DMs can be disabled; never turn a failed diagnostic DM into another command error.
+        pass
+
+
 def owner_mention(guild: "discord.Guild | None") -> str:
     """Best-effort mention for the bot's owner. A numeric OWNER_USER_ID always
     works; without one, we try to match the username in this server's member
@@ -191,6 +226,12 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
         await ctx.reply(message, mention_author=False)
     except discord.HTTPException:
         pass
+    await _send_admin_error_dm(
+        ctx.author,
+        command_name="?" + (ctx.command.qualified_name if ctx.command else "unknown"),
+        error=error,
+        context=f"Server: {ctx.guild.name if ctx.guild else 'DM'} | Channel: {getattr(ctx.channel, 'name', 'unknown')}",
+    )
 
 
 @bot.event
