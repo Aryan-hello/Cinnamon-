@@ -7,13 +7,13 @@ functions are injected by main.py through configure_dashboard().
 from __future__ import annotations
 
 import asyncio
-import base64
 import datetime as dt
 import html
 import json
 import logging
 import os
 import secrets
+import hashlib
 import time
 import urllib.error
 import urllib.parse
@@ -59,13 +59,22 @@ def _request_json(url, method="GET", data=None, headers=None):
         return json.loads(raw) if raw else {}
 
 
+def _oauth_redirect_uri():
+    # Keep the authorization request and token exchange byte-for-byte consistent.
+    # Discord requires the redirect_uri used during the code exchange to match
+    # the one used to obtain the authorization code.
+    return os.getenv("DASHBOARD_REDIRECT_URI", DEFAULT_REDIRECT).strip()
+
+
 def _token_exchange(data):
-    client_id = os.environ["DISCORD_CLIENT_ID"]
-    client_secret = os.environ["DISCORD_CLIENT_SECRET"]
-    basic = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode("ascii")
+    client_id = os.environ["DISCORD_CLIENT_ID"].strip()
+    client_secret = os.environ["DISCORD_CLIENT_SECRET"].strip()
+    payload = {"client_id": client_id, "client_secret": client_secret, **data}
     return _request_json(
-        f"{BASE_URL}/oauth2/token", method="POST", data=data,
-        headers={"Content-Type": "application/x-www-form-urlencoded", "Authorization": f"Basic {basic}"},
+        f"{BASE_URL}/oauth2/token",
+        method="POST",
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
 
 
@@ -625,7 +634,7 @@ def login():
     if not os.getenv("DISCORD_CLIENT_ID") or not os.getenv("DISCORD_CLIENT_SECRET"):
         return _page("<main class='main'><article class='card'><h1>Almost ready</h1><p>Add the Discord OAuth client settings to Render's environment variables.</p></article></main>","Cinnamon Login")
     state=secrets.token_urlsafe(32); session["oauth_state"]=state
-    params={"client_id":os.environ["DISCORD_CLIENT_ID"],"response_type":"code","redirect_uri":os.getenv("DASHBOARD_REDIRECT_URI",DEFAULT_REDIRECT),"scope":"identify guilds","state":state}
+    params={"client_id":os.environ["DISCORD_CLIENT_ID"].strip(),"response_type":"code","redirect_uri":_oauth_redirect_uri(),"scope":"identify guilds","state":state}
     return redirect("https://discord.com/oauth2/authorize?"+urllib.parse.urlencode(params))
 
 
@@ -639,7 +648,18 @@ def oauth_callback():
     code=request.args.get("code")
     if not code: return _page("<main class='main'><article class='card'><h1>Missing authorization code</h1><a class='btn' href='/login'>Try again</a></article></main>",status=400)
     try:
-        redirect_uri=os.getenv("DASHBOARD_REDIRECT_URI",DEFAULT_REDIRECT)
+        redirect_uri=_oauth_redirect_uri()
+        client_id_present=bool(os.getenv("DISCORD_CLIENT_ID", "").strip())
+        client_secret_present=bool(os.getenv("DISCORD_CLIENT_SECRET", "").strip())
+        log.info(
+            "Discord OAuth exchange starting status=%s redirect_uri=%s redirect_sha256=%s client_id_present=%s client_secret_present=%s code_length=%s",
+            "authorization_code",
+            redirect_uri,
+            hashlib.sha256(redirect_uri.encode("utf-8")).hexdigest()[:12],
+            client_id_present,
+            client_secret_present,
+            len(code),
+        )
         token=_token_exchange({"grant_type":"authorization_code","code":code,"redirect_uri":redirect_uri})
         user=_request_json(f"{BASE_URL}/users/@me",headers={"Authorization":"Bearer "+token["access_token"]})
         sid=secrets.token_urlsafe(32)
@@ -649,8 +669,15 @@ def oauth_callback():
     except urllib.error.HTTPError as exc:
         try: payload=json.loads(exc.read().decode("utf-8"))
         except Exception: payload={}
-        log.error("Discord OAuth HTTP error status=%s error=%s description=%s",exc.code,str(payload.get("error","unknown"))[:120],str(payload.get("error_description","unavailable"))[:240])
-        return _page("<main class='main'><article class='card'><h1>Discord login failed</h1><p class='muted'>Discord rejected the login exchange. Check Render logs for a sanitized error detail.</p><a class='btn' href='/login'>Try again</a></article></main>",status=502)
+        oauth_error=str(payload.get("error", "unknown"))[:120]
+        oauth_description=str(payload.get("error_description", "unavailable"))[:240]
+        log.error(
+            "Discord OAuth HTTP error status=%s error=%s description=%s redirect_sha256=%s",
+            exc.code, oauth_error, oauth_description,
+            hashlib.sha256(_oauth_redirect_uri().encode("utf-8")).hexdigest()[:12],
+        )
+        safe_error=html.escape(oauth_error, quote=True)
+        return _page(f"<main class='main'><article class='card'><h1>Discord login failed</h1><p class='muted'>Discord rejected the OAuth exchange.</p><p class='muted'><strong>Error:</strong> {safe_error}</p><p class='muted'>The sanitized Discord error is also in the Render logs.</p><a class='btn' href='/login'>Try again</a></article></main>",status=502)
     except Exception as exc:
         log.exception("Discord OAuth callback failed (%s)",type(exc).__name__)
         return _page("<main class='main'><article class='card'><h1>Discord login failed</h1><p class='muted'>An unexpected login error occurred. Check Render logs.</p><a class='btn' href='/login'>Try again</a></article></main>",status=502)
