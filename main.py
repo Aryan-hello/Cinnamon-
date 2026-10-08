@@ -378,76 +378,41 @@ for _cinnamon_module in _CINNAMON_MODULES:
 del _cinnamon_module
 
 async def _run_discord_safely():
-    """Keep Render alive while Discord/Cloudflare temporarily rejects login.
+    """Log in to Discord without ever hammering it.
 
-    Important: do not call bot.close() after a failed login. discord.py closes its
-    aiohttp session there, and trying to reuse the same Bot then produces
-    ``RuntimeError: Session is closed``. A failed login is safe to retry on the
-    existing client; if the HTTP layer reports a closed session, clear it before
-    the next attempt.
+    Flask stays online the whole time. If login fails (e.g. HTTP 429 from
+    Cloudflare), wait a long, fixed time and then restart the whole process
+    (Render restarts it automatically). discord.py's HTTP session cannot be
+    reused after a failed login ("Session is closed"), so a fresh process is
+    the only reliable retry. Restarts are spaced RETRY_SECONDS apart, so Discord
+    sees at most one login attempt per interval.
     """
-    retry_delay = 900  # 15 minutes: avoid hammering a Cloudflare 1015 block.
-    max_retry_delay = 3600  # 60 minutes.
+    RETRY_SECONDS = int(os.environ.get("DISCORD_RETRY_SECONDS", "1800"))  # 30 min
 
-    while True:
-        try:
-            await bot.start(DISCORD_TOKEN, reconnect=True)
-            log.warning("Cinnamon's Discord client stopped; leaving the web service running.")
-            return
+    try:
+        await bot.start(DISCORD_TOKEN, reconnect=True)
+        log.warning("Cinnamon's Discord client stopped; leaving the web service running.")
+        return
+    except asyncio.CancelledError:
+        raise
+    except discord.LoginFailure:
+        log.error("Discord rejected the bot token (check DISCORD_TOKEN). Not retrying.")
+        return
+    except discord.HTTPException as exc:
+        body = str(getattr(exc, "text", ""))[:200].replace("\n", " ")
+        log.warning(
+            "Discord login failed (HTTP %s). Response starts with: %r. "
+            "Restarting in %d seconds to try once more.",
+            getattr(exc, "status", "?"), body, RETRY_SECONDS,
+        )
+    except Exception as exc:
+        log.warning("Discord startup error (%s: %s). Restarting in %d seconds.",
+                    type(exc).__name__, exc, RETRY_SECONDS)
 
-        except discord.HTTPException as exc:
-            if getattr(exc, "status", None) == 429:
-                log.warning(
-                    "Discord/Cloudflare rate-limited Cinnamon during startup (HTTP 429). "
-                    "Keeping Flask online and retrying Discord login in %d seconds.",
-                    retry_delay,
-                )
-            else:
-                log.warning(
-                    "Discord HTTP error while starting Cinnamon (HTTP %s). "
-                    "Keeping the web service online and retrying in %d seconds.",
-                    getattr(exc, "status", "unknown"), retry_delay,
-                )
-
-            # Do NOT call bot.close() here. It closes the aiohttp session and
-            # leaves the Client in a closed state, which breaks the next retry.
-            try:
-                bot.http.clear()
-            except Exception:
-                log.exception("Could not clear the Discord HTTP client before retrying")
-
-            await asyncio.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, max_retry_delay)
-
-        except discord.LoginFailure:
-            log.warning(
-                "Discord rejected Cinnamon's bot token. Keeping the web service online "
-                "and retrying in %d seconds.", retry_delay,
-            )
-            try:
-                bot.http.clear()
-            except Exception:
-                log.exception("Could not clear the Discord HTTP client before retrying")
-            await asyncio.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, max_retry_delay)
-
-        except asyncio.CancelledError:
-            raise
-
-        except Exception as exc:
-            # A previous implementation closed the entire Bot here. If that
-            # happens to leave an aiohttp session closed, clear just the HTTP
-            # layer so the existing command tree/cogs remain intact.
-            log.warning(
-                "Unexpected Discord startup error (%s). Keeping the web service "
-                "online and retrying in %d seconds.", type(exc).__name__, retry_delay,
-            )
-            try:
-                bot.http.clear()
-            except Exception:
-                log.exception("Could not clear the Discord HTTP client before retrying")
-            await asyncio.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, max_retry_delay)
+    await asyncio.sleep(RETRY_SECONDS)
+    log.warning("Restarting process for a clean Discord login attempt...")
+    logging.shutdown()
+    os._exit(1)
 
 
 if __name__ == "__main__":
