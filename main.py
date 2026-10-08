@@ -59,6 +59,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(mes
 log = logging.getLogger("cinnamon")
 
 # ---------------------------------------------------------------------------
+# Early port binding (so Render's port scan passes even if module loading is slow)
+# ---------------------------------------------------------------------------
+import http.server as _http_server
+
+class _EarlyPing(_http_server.BaseHTTPRequestHandler):
+    def _ok(self):
+        self.send_response(200); self.send_header("Content-Type", "text/plain; charset=utf-8"); self.end_headers()
+    def do_HEAD(self): self._ok()
+    def do_GET(self):
+        self._ok(); self.wfile.write(b"Cinnamon is waking up.")
+    def log_message(self, *args): pass
+
+_early_server = None
+try:
+    _early_server = _http_server.ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", 8080))), _EarlyPing)
+    threading.Thread(target=_early_server.serve_forever, daemon=True).start()
+    log.info("Early keep-alive server listening on port %s", os.environ.get("PORT", 8080))
+except Exception:
+    log.exception("Could not start early keep-alive server")
+
+# ---------------------------------------------------------------------------
 # Cinnamon UI / Embed style
 # ---------------------------------------------------------------------------
 
@@ -344,9 +365,11 @@ def _load_cinnamon_module(filename: str) -> None:
     module_path = _CINNAMON_MODULE_DIR / filename
     if not module_path.is_file():
         raise FileNotFoundError(f"Missing Cinnamon module: {module_path}")
+    log.info("Loading module %s ...", filename)
     source = module_path.read_text(encoding="utf-8")
     code = compile(source, str(module_path), "exec")
     exec(code, globals(), globals())
+    log.info("Loaded module %s", filename)
 
 
 for _cinnamon_module in _CINNAMON_MODULES:
@@ -355,14 +378,16 @@ for _cinnamon_module in _CINNAMON_MODULES:
 del _cinnamon_module
 
 async def _run_discord_safely():
-    """Keep the Render process alive when Discord temporarily rate-limits login.
+    """Keep Render alive while Discord/Cloudflare temporarily rejects login.
 
-    Flask runs in its own thread, so a Discord login failure must not bring down
-    the website. We retry only after a long backoff and never print Discord's
-    large Cloudflare HTML error page into the Render logs.
+    Important: do not call bot.close() after a failed login. discord.py closes its
+    aiohttp session there, and trying to reuse the same Bot then produces
+    ``RuntimeError: Session is closed``. A failed login is safe to retry on the
+    existing client; if the HTTP layer reports a closed session, clear it before
+    the next attempt.
     """
-    retry_delay = 300  # 5 minutes; deliberately conservative for Cloudflare 1015/429.
-    max_retry_delay = 900  # 15 minutes.
+    retry_delay = 900  # 15 minutes: avoid hammering a Cloudflare 1015 block.
+    max_retry_delay = 3600  # 60 minutes.
 
     while True:
         try:
@@ -377,54 +402,57 @@ async def _run_discord_safely():
                     "Keeping Flask online and retrying Discord login in %d seconds.",
                     retry_delay,
                 )
-                try:
-                    await bot.close()
-                except Exception:
-                    log.exception("Error while closing the Discord client after HTTP 429")
-                await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, max_retry_delay)
-                continue
+            else:
+                log.warning(
+                    "Discord HTTP error while starting Cinnamon (HTTP %s). "
+                    "Keeping the web service online and retrying in %d seconds.",
+                    getattr(exc, "status", "unknown"), retry_delay,
+                )
 
-            log.exception(
-                "Discord HTTP error while starting Cinnamon (HTTP %s). "
-                "Keeping the web service online and retrying in %d seconds.",
-                getattr(exc, "status", "unknown"), retry_delay,
-            )
+            # Do NOT call bot.close() here. It closes the aiohttp session and
+            # leaves the Client in a closed state, which breaks the next retry.
             try:
-                await bot.close()
+                bot.http.clear()
             except Exception:
-                log.exception("Error while closing the Discord client after HTTP error")
+                log.exception("Could not clear the Discord HTTP client before retrying")
+
             await asyncio.sleep(retry_delay)
             retry_delay = min(retry_delay * 2, max_retry_delay)
 
         except discord.LoginFailure:
-            log.exception(
-                "Discord rejected Cinnamon's bot token. The web service will stay online; "
-                "retrying in %d seconds.", retry_delay
+            log.warning(
+                "Discord rejected Cinnamon's bot token. Keeping the web service online "
+                "and retrying in %d seconds.", retry_delay,
             )
             try:
-                await bot.close()
+                bot.http.clear()
             except Exception:
-                log.exception("Error while closing the Discord client after login failure")
+                log.exception("Could not clear the Discord HTTP client before retrying")
             await asyncio.sleep(retry_delay)
             retry_delay = min(retry_delay * 2, max_retry_delay)
 
         except asyncio.CancelledError:
             raise
 
-        except Exception:
-            log.exception(
-                "Unexpected Discord startup error. Keeping the web service online and "
-                "retrying in %d seconds.", retry_delay
+        except Exception as exc:
+            # A previous implementation closed the entire Bot here. If that
+            # happens to leave an aiohttp session closed, clear just the HTTP
+            # layer so the existing command tree/cogs remain intact.
+            log.warning(
+                "Unexpected Discord startup error (%s). Keeping the web service "
+                "online and retrying in %d seconds.", type(exc).__name__, retry_delay,
             )
             try:
-                await bot.close()
+                bot.http.clear()
             except Exception:
-                log.exception("Error while closing the Discord client after unexpected error")
+                log.exception("Could not clear the Discord HTTP client before retrying")
             await asyncio.sleep(retry_delay)
             retry_delay = min(retry_delay * 2, max_retry_delay)
 
 
 if __name__ == "__main__":
+    if _early_server is not None:
+        _early_server.shutdown()
+        _early_server.server_close()
     threading.Thread(target=run_flask, daemon=True).start()
     asyncio.run(_run_discord_safely())
