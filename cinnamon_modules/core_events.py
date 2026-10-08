@@ -234,8 +234,12 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     )
 
 
+_slash_commands_synced = False
+
+
 @bot.event
 async def on_ready():
+    global _slash_commands_synced
     if bot.get_cog("HangryGamesCog") is None:
         hg_cog = HangryGamesCog(bot)
         await hg_cog.async_init()
@@ -287,22 +291,24 @@ async def on_ready():
                 except Exception as e:
                     log.error(f"Hangry Games recovery failed for guild {guild.id}: {e}")
 
-    # Sync globally for normal Discord propagation, and also copy the same
-    # command tree into each current guild so setup/configuration commands are
-    # available immediately instead of waiting for global command propagation.
-    try:
-        synced = await bot.tree.sync()
-        log.info("Globally synced %d Cinnamon slash commands", len(synced))
-    except Exception:
-        log.exception("Global slash-command sync failed")
-
-    for guild in bot.guilds:
+    # Sync once per process. on_ready can fire again after reconnects, and
+    # repeating global + per-guild syncs can create unnecessary REST traffic.
+    if not _slash_commands_synced:
         try:
-            bot.tree.copy_global_to(guild=guild)
-            guild_synced = await bot.tree.sync(guild=guild)
-            log.info("Guild-synced %d Cinnamon slash commands to %s (%s)", len(guild_synced), guild.name, guild.id)
+            synced = await bot.tree.sync()
+            log.info("Globally synced %d Cinnamon slash commands", len(synced))
         except Exception:
-            log.exception("Guild slash-command sync failed for %s (%s)", guild.name, guild.id)
+            log.exception("Global slash-command sync failed")
+
+        for guild in bot.guilds:
+            try:
+                bot.tree.copy_global_to(guild=guild)
+                guild_synced = await bot.tree.sync(guild=guild)
+                log.info("Guild-synced %d Cinnamon slash commands to %s (%s)", len(guild_synced), guild.name, guild.id)
+            except Exception:
+                log.exception("Guild slash-command sync failed for %s (%s)", guild.name, guild.id)
+
+        _slash_commands_synced = True
 
     await bot.change_presence(activity=discord.Activity(
         type=discord.ActivityType.watching, name="for treats 🐟"))
