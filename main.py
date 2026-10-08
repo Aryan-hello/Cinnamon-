@@ -354,6 +354,77 @@ for _cinnamon_module in _CINNAMON_MODULES:
 
 del _cinnamon_module
 
+async def _run_discord_safely():
+    """Keep the Render process alive when Discord temporarily rate-limits login.
+
+    Flask runs in its own thread, so a Discord login failure must not bring down
+    the website. We retry only after a long backoff and never print Discord's
+    large Cloudflare HTML error page into the Render logs.
+    """
+    retry_delay = 300  # 5 minutes; deliberately conservative for Cloudflare 1015/429.
+    max_retry_delay = 900  # 15 minutes.
+
+    while True:
+        try:
+            await bot.start(DISCORD_TOKEN, reconnect=True)
+            log.warning("Cinnamon's Discord client stopped; leaving the web service running.")
+            return
+
+        except discord.HTTPException as exc:
+            if getattr(exc, "status", None) == 429:
+                log.warning(
+                    "Discord/Cloudflare rate-limited Cinnamon during startup (HTTP 429). "
+                    "Keeping Flask online and retrying Discord login in %d seconds.",
+                    retry_delay,
+                )
+                try:
+                    await bot.close()
+                except Exception:
+                    log.exception("Error while closing the Discord client after HTTP 429")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, max_retry_delay)
+                continue
+
+            log.exception(
+                "Discord HTTP error while starting Cinnamon (HTTP %s). "
+                "Keeping the web service online and retrying in %d seconds.",
+                getattr(exc, "status", "unknown"), retry_delay,
+            )
+            try:
+                await bot.close()
+            except Exception:
+                log.exception("Error while closing the Discord client after HTTP error")
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, max_retry_delay)
+
+        except discord.LoginFailure:
+            log.exception(
+                "Discord rejected Cinnamon's bot token. The web service will stay online; "
+                "retrying in %d seconds.", retry_delay
+            )
+            try:
+                await bot.close()
+            except Exception:
+                log.exception("Error while closing the Discord client after login failure")
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, max_retry_delay)
+
+        except asyncio.CancelledError:
+            raise
+
+        except Exception:
+            log.exception(
+                "Unexpected Discord startup error. Keeping the web service online and "
+                "retrying in %d seconds.", retry_delay
+            )
+            try:
+                await bot.close()
+            except Exception:
+                log.exception("Error while closing the Discord client after unexpected error")
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, max_retry_delay)
+
+
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
-    bot.run(DISCORD_TOKEN)
+    asyncio.run(_run_discord_safely())
