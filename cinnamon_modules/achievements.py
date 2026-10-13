@@ -126,6 +126,8 @@ def achievement_rarity(aid, a):
 
 _achievement_guard = set()
 first_interaction_claimed = False
+# guild_id -> {achievement_id: role_id}. Must exist before the save/load wrappers below run.
+achievement_role_overrides = {}
 
 def _key(g,u): return (int(g),int(u))
 def _state(g,u):

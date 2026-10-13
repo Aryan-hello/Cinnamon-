@@ -99,7 +99,9 @@ async def send_log(guild_id: int | None, *, title: str, description: str = "",
     # main log channel when that category has not been configured.
     if category is None:
         lowered = (title + " " + description).lower()
-        if any(x in lowered for x in ("economy", "catnip", "shop item", "income role", "cinnamon fed", "tuna")):
+        if any(x in lowered for x in ("dashboard", "message studio", "web dashboard", "slash help opened")):
+            category = "dashboard"
+        elif any(x in lowered for x in ("economy", "catnip", "shop item", "income role", "cinnamon fed", "tuna")):
             category = "economy"
         elif any(x in lowered for x in ("ai ", " ai", "gemini", "channel re-enabled for ai", "ai channel")):
             category = "ai"
@@ -374,9 +376,11 @@ async def prefix_help(ctx):
     e=discord.Embed(title="🐾 Cinnamon — Help",description="Use ? before a command. Mention or ID works for member arguments.",color=discord.Color.blurple())
     e.add_field(name="Moderation",value="`?kick`, `?ban`, `?unban`, `?mute`, `?unmute`, `?warn`, `?warnings`, `?clearwarnings`, `?purge`, `?slowmode`",inline=False)
     e.add_field(name="AI",value="`?ask <message>` (`?ai`, `?chat`)",inline=False)
-    e.add_field(name="Normal",value="`?ping`, `?botstatus`, `?userinfo [member]`, `?serverinfo`, `?afk [reason]`, `?rank [member]`, `?leaderboard`, `/achievement`, `/quest`",inline=False)
-    e.add_field(name="Economy",value="`?balance` (`?bal`, `?wallet`), `?inventory` (`?inv`), `?shop`, `?buy <item> [qty]`, `?daily`, `?work`, `?give <member> <amount>` (`?pay`), `?econlb`",inline=False)
+    e.add_field(name="Normal",value="`?ping`, `?botstatus`, `?userinfo [member]`, `?serverinfo`, `?afk [reason]`, `?rank [member]`, `/help`, `/dashboard`, `/leaderboard`, `/achievement`, `/quest`, `/craft`, `/mystery`, `/black-market`",inline=False)
+    e.add_field(name="Economy",value="`?balance` (`?bal`, `?wallet`), `?inventory` (`?inv`), `?shop`, `?buy <item> [qty]`, `?daily`, `?work`, `?give <member> <amount>` (`?pay`), `?econlb`, `?craft`, `?mystery`, `?blackmarket`",inline=False)
     await ctx.reply(embed=e,mention_author=False)
+    if ctx.guild:
+        await send_log(ctx.guild.id, title="📖 Prefix help opened", description=f"{ctx.author} ({ctx.author.id}) opened the prefix-command guide.", category="dashboard")
 
 @bot.command(name="ping")
 async def prefix_ping(ctx): await ctx.reply(f"🐾 Pong! {round(bot.latency*1000)} ms",mention_author=False)
@@ -533,8 +537,9 @@ async def prefix_daily(ctx):
     if rem:
         embed=cinnamon_embed("⏳ Daily Catnip Cooldown",f"Cinnamon has already given you today's reward.\n\nCome back in **{rem//3600}h {(rem%3600)//60}m**.",color=CINNAMON_MUTED,user=ctx.author,footer="Cinnamon Economy • Daily")
         return await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
-    economy_cooldowns[(gid,uid,"daily")]=time.time()+86400; economy_balances[(gid,uid)]=economy_balance(gid,uid)+ECONOMY_DAILY_REWARD; await achievement_record(gid,uid,"catnip_earned",ECONOMY_DAILY_REWARD); await achievement_record(gid,uid,"balance"); await quest_event(gid,uid,"balance",economy_balance(gid,uid)); await bd_save_data(); await economy_log(gid,title="🌿 Daily Catnip",fields=[("User",str(ctx.author)),("Amount",f"+{ECONOMY_DAILY_REWARD}")]); embed=cinnamon_embed("🌿 Daily Catnip Claimed","Cinnamon has approved your daily snack budget.\n\n**Come back tomorrow for another reward!**",color=CINNAMON_GREEN,user=ctx.author,footer="Cinnamon Economy • Daily Reward")
-    cinnamon_field(embed,"Reward",f"**+{ECONOMY_DAILY_REWARD:,} Catnip**",True); cinnamon_field(embed,"New balance",f"**{economy_balance(gid,uid):,} Catnip**",True)
+    economy_cooldowns[(gid,uid,"daily")]=time.time()+86400; economy_balances[(gid,uid)]=economy_balance(gid,uid)+ECONOMY_DAILY_REWARD; await achievement_record(gid,uid,"catnip_earned",ECONOMY_DAILY_REWARD); await achievement_record(gid,uid,"balance"); await quest_event(gid,uid,"balance",economy_balance(gid,uid)); box_awarded = await advanced_maybe_award_box(gid,ctx.author,"daily",chance=0.12) if "advanced_maybe_award_box" in globals() else False; await bd_save_data(); await economy_log(gid,title="🌿 Daily Catnip",fields=[("User",str(ctx.author)),("Amount",f"+{ECONOMY_DAILY_REWARD}"),("Mystery Box","Yes" if box_awarded else "No")]); embed=cinnamon_embed("🌿 Daily Catnip Claimed","Cinnamon has approved your daily snack budget.\n\n**Come back tomorrow for another reward!**",color=CINNAMON_GREEN,user=ctx.author,footer="Cinnamon Economy • Daily Reward")
+    cinnamon_field(embed,"Reward",f"**+{ECONOMY_DAILY_REWARD:,} Catnip**",True); cinnamon_field(embed,"New balance",f"**{economy_balance(gid,uid):,} Catnip**",True);
+    if box_awarded: cinnamon_field(embed,"🎁 Bonus", "**1 Mystery Box**", True)
     await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.command(name="work")

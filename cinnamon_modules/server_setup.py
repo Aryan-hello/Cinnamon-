@@ -213,7 +213,7 @@ categorylogs_group = app_commands.Group(name="categorylogs", description="Config
     app_commands.Choice(name="Giveaways & Polls", value="community"),
     app_commands.Choice(name="Roles", value="roles"),
     app_commands.Choice(name="Server Setup", value="setup"),
-    app_commands.Choice(name="General utilities", value="general"),
+    app_commands.Choice(name="General utilities", value="general"), app_commands.Choice(name="Dashboard audit trail", value="dashboard"),
 ])
 async def categorylogs_set(interaction: discord.Interaction, category: app_commands.Choice[str], channel: discord.TextChannel):
     category_log_channels.setdefault(interaction.guild.id, {})[category.value] = channel.id
@@ -224,7 +224,9 @@ async def categorylogs_set(interaction: discord.Interaction, category: app_comma
         log_channels[interaction.guild.id] = channel.id
     await bd_save_data()
     await cinnamon_send(interaction, f"✅ {category.name} logs will be sent to {channel.mention}.", ephemeral=True)
-    await send_log(interaction.guild.id, title="⚙️ Category log channel updated", description=f"{category.name} logging configured.", fields=[("Category", category.value), ("Channel", channel.mention), ("Changed by", f"{interaction.user} ({interaction.user.id})")])
+    await send_log(interaction.guild.id, title="⚙️ Category log channel updated", description=f"{category.name} logging configured.", fields=[("Category", category.value), ("Channel", channel.mention), ("Changed by", f"{interaction.user} ({interaction.user.id})")], category="dashboard" if category.value == "dashboard" else "setup")
+    if category.value != "dashboard":
+        await send_log(interaction.guild.id, title="🧭 Dashboard audit • Log route updated", description=f"{category.name} logging route changed to {channel.mention}.", fields=[("Changed by", f"{interaction.user} ({interaction.user.id})")], category="dashboard")
 
 @categorylogs_group.command(name="disable", description="Disable a category-specific log channel")
 @app_commands.guild_only()
@@ -234,13 +236,16 @@ async def categorylogs_set(interaction: discord.Interaction, category: app_comma
     app_commands.Choice(name="AI", value="ai"), app_commands.Choice(name="Levels & XP", value="levels"),
     app_commands.Choice(name="Achievements", value="achievements"), app_commands.Choice(name="Quests", value="quests"), app_commands.Choice(name="Cinnamon Friendship", value="friendship"),
     app_commands.Choice(name="Giveaways & Polls", value="community"), app_commands.Choice(name="Roles", value="roles"),
-    app_commands.Choice(name="Server Setup", value="setup"), app_commands.Choice(name="General utilities", value="general"),
+    app_commands.Choice(name="Server Setup", value="setup"), app_commands.Choice(name="General utilities", value="general"), app_commands.Choice(name="Dashboard audit trail", value="dashboard"),
 ])
 async def categorylogs_disable(interaction: discord.Interaction, category: app_commands.Choice[str]):
     removed = category_log_channels.get(interaction.guild.id, {}).get(category.value)
     if removed:
-        await send_log(interaction.guild.id, title="⚙️ Category log channel disabled", interaction=interaction, category=category.value,
+        await send_log(interaction.guild.id, title="⚙️ Category log channel disabled", interaction=interaction, category="dashboard" if category.value == "dashboard" else category.value,
                        fields=[("Category", category.value), ("Previous channel ID", str(removed))])
+        if category.value != "dashboard":
+            await send_log(interaction.guild.id, title="🧭 Dashboard audit • Log route disabled", description=f"The {category.name} category log route was disabled.", interaction=interaction, category="dashboard",
+                           fields=[("Category", category.value), ("Previous channel ID", str(removed))])
     category_log_channels.get(interaction.guild.id, {}).pop(category.value, None)
     if category.value == "economy": economy_log_channels.pop(interaction.guild.id, None)
     if category.value == "moderation": log_channels.pop(interaction.guild.id, None)
@@ -248,6 +253,23 @@ async def categorylogs_disable(interaction: discord.Interaction, category: app_c
     await cinnamon_send(interaction, f"Category-specific {category.name} logs {'disabled' if removed else 'were not configured'}. Existing general logs may still be used as fallback.", ephemeral=True)
 
 bot.tree.add_command(categorylogs_group)
+
+
+# --- Web dashboard entry point -------------------------------------------------
+
+@bot.tree.command(name="dashboard", description="Open Cinnamon's web control panel")
+@app_commands.guild_only()
+async def dashboard_cmd(interaction: discord.Interaction):
+    base_url = (os.environ.get("DASHBOARD_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://cinnamon-c328.onrender.com").rstrip("/")
+    url = f"{base_url}/dashboard"
+    embed = discord.Embed(title="🐾 Cinnamon Control", description=f"[Open the web dashboard]({url})\n\nManage server settings, moderation, progression, economy, Message Studio, analytics, and activity logs. Sign in with Discord; dashboard permissions are checked again on every request.", color=discord.Color(0xD97732))
+    embed.add_field(name="Audit trail", value="Dashboard actions are copied to the configured dashboard audit channel. Run `/setup` to create `#cinnamon-dashboard-logs`.", inline=False)
+    embed.set_footer(text="Cinnamon • Made with paws 🐾")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+    try:
+        await send_log(interaction.guild.id, title="🧭 Web dashboard opened", description=f"{interaction.user} ({interaction.user.id}) requested the dashboard link.", interaction=interaction, category="dashboard")
+    except Exception:
+        log.exception("Could not log dashboard command use")
 
 
 # --- Help + guided setup ------------------------------------------------------
@@ -356,6 +378,7 @@ async def setup_cmd(interaction: discord.Interaction):
         ("cinnamon-role-logs", "Role management and reaction-role configuration events."),
         ("cinnamon-setup-logs", "Welcome/goodbye, setup, and logging configuration changes."),
         ("cinnamon-general-logs", "General information and utility command usage."),
+        ("cinnamon-dashboard-logs", "Dashboard settings changes, Message Studio sends, and dashboard audit events."),
         ("cinnamon-welcome", "Cinnamon's member welcome messages."),
         ("cinnamon-goodbye", "Cinnamon's member goodbye messages."),
         ("cinnamon-ai", "Cinnamon's always-on AI chat channel."),
@@ -429,6 +452,7 @@ async def setup_cmd(interaction: discord.Interaction):
         "roles": channels["cinnamon-role-logs"].id,
         "setup": channels["cinnamon-setup-logs"].id,
         "general": channels["cinnamon-general-logs"].id,
+        "dashboard": channels["cinnamon-dashboard-logs"].id,
     }
     ai_channels[guild.id] = channels["cinnamon-ai"].id
     welcome_config[guild.id] = {
@@ -450,6 +474,10 @@ async def setup_cmd(interaction: discord.Interaction):
     await send_log(guild.id, title="⚙️ Cinnamon setup applied", category="setup",
                    fields=[("Main logs", channels["cinnamon-logs"].mention), ("Economy logs", channels["cinnamon-economy"].mention),
                            ("Hangry logs", channels["cinnamon-hangry"].mention), ("AI channel", channels["cinnamon-ai"].mention)])
+    await send_log(guild.id, title="🧭 Dashboard audit • Cinnamon setup applied", category="dashboard",
+                   description="The guided /setup flow configured Cinnamon's channels and logging routes.",
+                   fields=[("Dashboard audit log", channels["cinnamon-dashboard-logs"].mention),
+                           ("Setup actor", f"{interaction.user} ({interaction.user.id})")])
 
     # Keep the setup message useful even if someone runs it again later.
     created_text = ", ".join(created) if created else "No channels needed to be created; the setup was already present."
@@ -478,14 +506,15 @@ async def setup_cmd(interaction: discord.Interaction):
     embed.add_field(name="🏷️ Role logs", value=channels["cinnamon-role-logs"].mention, inline=True)
     embed.add_field(name="⚙️ Setup logs", value=channels["cinnamon-setup-logs"].mention, inline=True)
     embed.add_field(name="📌 General logs", value=channels["cinnamon-general-logs"].mention, inline=True)
+    embed.add_field(name="🧭 Dashboard audit", value=channels["cinnamon-dashboard-logs"].mention, inline=True)
     embed.add_field(name="👋 Welcome", value=channels["cinnamon-welcome"].mention, inline=True)
     embed.add_field(name="🚪 Goodbye", value=channels["cinnamon-goodbye"].mention, inline=True)
     embed.add_field(name="🐱 AI chat", value=channels["cinnamon-ai"].mention, inline=True)
     embed.add_field(
         name="Next steps",
         value=(
-            "Use `/help` to see every command and what it does. "
-            "Use `/economy snapshot` before a reset. "
+            "Use `/help` to see every command and what it does, or `/dashboard` to open Cinnamon Control. "
+            "Dashboard actions are recorded in the dashboard audit channel. Use `/economy snapshot` before a reset. "
             "Use `/economy restore-snapshot` after a reset if needed."
         ),
         inline=False,
@@ -696,13 +725,26 @@ async def help_cmd(interaction: discord.Interaction):
         e=cinnamon_embed(f"📖 Cinnamon Help","Browse Cinnamon's commands with the buttons below.",color=CINNAMON_BLUE,footer=cinnamon_page_footer("Help",index,len(pages)+1,f"{total} commands"))
         e.add_field(name="Commands",value=body,inline=False); embeds.append(e)
     guide=cinnamon_embed("🐾 Using Cinnamon","A quick guide to the bot.",color=CINNAMON_ORANGE,footer=cinnamon_page_footer("Help",len(embeds)+1,len(embeds)+1,"Guide"))
-    guide.add_field(name="🚀 Start here",value="Run `/setup` in a new server. Then use `/help` whenever you need the command directory.",inline=False)
+    guide.add_field(name="🚀 Start here",value="Run `/setup` in a new server. Then use `/help` whenever you need the command directory. Open the web control panel with `/dashboard`.",inline=False)
     guide.add_field(name="🎮 Everyday",value="Use `/pet`, `/treat`, `/nap`, `/rank`, `/economy shop`, `/quests daily`, and `/achievement list` to explore Cinnamon.",inline=False)
     guide.add_field(name="🛡️ Admin",value="Moderation, logging, recovery, and configuration commands require the appropriate Discord permissions.",inline=False)
+    guide.add_field(name="🧭 Web dashboard",value="`/dashboard` opens Cinnamon Control. Message Studio, analytics, activity logs, and every dashboard change are linked to the `cinnamon-dashboard-logs` audit channel created by `/setup`.",inline=False)
     guide.add_field(name="💾 Reset protection",value="Run `/economy snapshot` before a reset and restore it afterward if needed.",inline=False)
     embeds.append(guide)
     view=HelpPagesView(interaction.user.id,embeds,0)
     await interaction.response.send_message(embed=embeds[0],view=view,ephemeral=True)
+    try:
+        await send_log(interaction.guild.id, title="📖 Slash help opened", description=f"{interaction.user} ({interaction.user.id}) opened the slash-command guide.", interaction=interaction, category="dashboard")
+    except Exception:
+        log.exception("Could not log help command use")
+
+
+# Explicit registration is required because help_cmd uses a reusable callback
+# rather than the @bot.tree.command decorator.
+try:
+    bot.tree.add_command(app_commands.Command(name="help", description="Browse Cinnamon commands and dashboard guide", callback=help_cmd))
+except Exception as help_registration_error:
+    log.warning("Could not register slash /help command: %s", help_registration_error)
 
 
 # --- Data status / recovery -------------------------------------------------

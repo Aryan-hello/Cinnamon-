@@ -241,6 +241,12 @@ class LeaderboardPageView(discord.ui.View):
     app_commands.Choice(name="Messages",value="messages"),
     app_commands.Choice(name="Work Sessions",value="work"),
     app_commands.Choice(name="Cinnamon Friendship",value="friendship"),
+    app_commands.Choice(name="Quests Completed",value="quests"),
+    app_commands.Choice(name="Hangry Games Wins",value="hangry"),
+    app_commands.Choice(name="Items Collected",value="collection"),
+    app_commands.Choice(name="Items Crafted",value="crafted"),
+    app_commands.Choice(name="Mystery Boxes Opened",value="mystery"),
+    app_commands.Choice(name="Black Market Purchases",value="market"),
 ])
 async def leaderboard(interaction: discord.Interaction, category: app_commands.Choice[str] | None = None):
     category=(category.value if category else "xp")
@@ -261,6 +267,31 @@ async def leaderboard(interaction: discord.Interaction, category: app_commands.C
     elif category=="work":
         rows=[(uid,int(s.get("stats",{}).get("work_sessions",0))) for (g,uid),s in achievement_data.items() if g==gid]
         title="💼 Work Leaderboard"; fmt=lambda uid,v:f"{v:,} work sessions"
+    elif category=="quests":
+        rows=[]
+        qg=quest_data.get(gid,{})
+        for uid, state in qg.get("users", {}).items():
+            rows.append((int(uid), len(state.get("completed_history", []))))
+        title="📜 Quest Completion Leaderboard"; fmt=lambda uid,v:f"{v:,} quests"
+    elif category=="hangry":
+        hg=bot.get_cog("HangryGamesCog")
+        rows=[(uid,int(w)) for (g,uid),w in getattr(hg,"win_counts",{}).items() if g==gid] if hg else []
+        title="🎮 Hangry Games Wins Leaderboard"; fmt=lambda uid,v:f"{v:,} wins"
+    elif category=="collection":
+        rows=[(uid,sum(int(q) for q in inv.values())) for (g,uid),inv in economy_inventory.items() if g==gid]
+        title="📦 Collection Leaderboard"; fmt=lambda uid,v:f"{v:,} items"
+    elif category=="crafted":
+        af=globals().get("advanced_features_data",{}).get("crafted_counts",{})
+        rows=[(int(k.split(":",1)[1]),int(v)) for k,v in af.items() if k.startswith(str(gid)+":")]
+        title="🔨 Crafting Leaderboard"; fmt=lambda uid,v:f"{v:,} crafts"
+    elif category=="mystery":
+        af=globals().get("advanced_features_data",{}).get("mystery_opened",{})
+        rows=[(int(k.split(":",1)[1]),int(v)) for k,v in af.items() if k.startswith(str(gid)+":")]
+        title="🎁 Mystery Box Leaderboard"; fmt=lambda uid,v:f"{v:,} boxes opened"
+    elif category=="market":
+        af=globals().get("advanced_features_data",{}).get("black_market_purchases",{})
+        rows=[(int(k.split(":",1)[1]),int(v)) for k,v in af.items() if k.startswith(str(gid)+":")]
+        title="🕶️ Black Market Leaderboard"; fmt=lambda uid,v:f"{v:,} purchases"
     else:
         rows=[(uid,int(friendship_data.get((gid,uid),{}).get("points",0))) for (g,uid) in achievement_data if g==gid]
         for (g,uid),fs in friendship_data.items():
@@ -452,118 +483,255 @@ async def levelrole_list(interaction: discord.Interaction):
     await cinnamon_send(interaction, "\n".join(lines), ephemeral=True)
 
 
-# --- Standalone giveaways (persistent — survive restarts) --------------------------
-# State lives in active_giveaways (saved with everything else); the Enter button
-# is a persistent view matched by custom_id and looked up by message ID, so it
-# keeps working after a restart, and check_timers ends giveaways on schedule.
+# --- Cinnamon giveaways (persistent, configurable, restart-safe) -----------------
+# Giveaway entries are free; eligibility and extra-entry rules are transparent.
+# State is saved by dashboard_runtime.py alongside the rest of Cinnamon's data.
 
 def _giveaway_embed(gw: dict, winner_ids: list[int] | None = None) -> discord.Embed:
+    prize = str(gw.get("prize", "Giveaway"))[:200]
+    custom_title = str(gw.get("embed_title", "")).strip()[:256]
+    custom_description = str(gw.get("embed_description", "")).strip()[:3500]
+    color_value = gw.get("embed_color", 0xFEE75C)
+    try:
+        color_value = int(str(color_value).replace("#", ""), 16) if isinstance(color_value, str) else int(color_value)
+        color_value = max(0, min(0xFFFFFF, color_value))
+    except (TypeError, ValueError):
+        color_value = 0xFEE75C
     if winner_ids is None:
-        embed = discord.Embed(
-            title="🎉 Giveaway!", color=0xFEE75C,
-            description=f"**Prize:** {gw['prize']}\n**Winners:** {gw['winners']}\n"
-                        f"Ends <t:{int(gw['ends_at'])}:R>\nHosted by <@{gw['host_id']}>",
-        )
-    else:
-        won = " ".join(f"<@{u}>" for u in winner_ids) if winner_ids else "No one entered 🐾"
-        embed = discord.Embed(
-            title="🎉 Giveaway ended", color=0x99AAB5,
-            description=f"**Prize:** {gw['prize']}\n**Winner{'s' if len(winner_ids) > 1 else ''}:** {won}\n"
-                        f"Hosted by <@{gw['host_id']}>",
-        )
+        default_desc = (f"**Prize:** {prize}\n**Winners:** {int(gw.get('winners', 1))}\n"
+                        f"Ends <t:{int(gw.get('ends_at', time.time()))}:R>\nHosted by <@{int(gw.get('host_id', 0))}>")
+        desc = (custom_description + "\n\n" + default_desc) if custom_description else default_desc
+        embed = discord.Embed(title=custom_title or "🎉 Giveaway!", description=desc[:4096], color=color_value)
+        embed.add_field(name="Entries", value=str(len(set(gw.get("entrants", [])))), inline=True)
+        embed.add_field(name="Winners", value=str(int(gw.get("winners", 1))), inline=True)
+        embed.add_field(name="Ends", value=f"<t:{int(gw.get('ends_at', time.time()))}:R>", inline=True)
+        req = gw.get("required_roles", [])
+        if req:
+            embed.add_field(name="Entry requirement", value="One of the required roles", inline=False)
+        if int(gw.get("min_account_age_days", 0) or 0):
+            embed.add_field(name="Account age", value=f"At least {int(gw['min_account_age_days'])} days", inline=True)
+        if int(gw.get("min_server_age_days", 0) or 0):
+            embed.add_field(name="Server membership", value=f"At least {int(gw['min_server_age_days'])} days", inline=True)
+        embed.set_footer(text="Cinnamon • Tap Enter to join or leave • One person can win once")
+        return embed
+    won = " ".join(f"<@{u}>" for u in winner_ids) if winner_ids else "No eligible entries this time 🐾"
+    embed = discord.Embed(
+        title="🎉 Giveaway ended",
+        description=f"**Prize:** {prize}\n**Winner{'s' if len(winner_ids) != 1 else ''}:** {won}\nHosted by <@{int(gw.get('host_id', 0))}>",
+        color=0x57F287 if winner_ids else 0x99AAB5,
+    )
+    embed.set_footer(text="Cinnamon • Made with paws 🐾")
     return embed
 
 
+def _giveaway_eligibility(member, gw: dict) -> tuple[bool, str]:
+    """Return (eligible, reason). Blacklisted roles always override bypass roles."""
+    if getattr(member, "bot", False):
+        return False, "Bots cannot enter giveaways."
+    role_ids = {int(r.id) for r in getattr(member, "roles", [])}
+    blocked = {int(x) for x in gw.get("blacklisted_roles", []) if str(x).isdigit()}
+    if role_ids & blocked:
+        return False, str(gw.get("denied_message") or "A role on your account makes you ineligible for this giveaway.")[:300]
+    bypass = {int(x) for x in gw.get("bypass_roles", []) if str(x).isdigit()}
+    has_bypass = bool(role_ids & bypass)
+    if not has_bypass:
+        required = {int(x) for x in gw.get("required_roles", []) if str(x).isdigit()}
+        if required and not (role_ids & required):
+            return False, str(gw.get("denied_message") or "You need one of the required server roles to enter.")[:300]
+        account_days = max(0, int(gw.get("min_account_age_days", 0) or 0))
+        created_at = getattr(getattr(member, "_user", member), "created_at", None)
+        if account_days and created_at:
+            age = (datetime.datetime.now(datetime.timezone.utc) - created_at).total_seconds() / 86400
+            if age < account_days:
+                return False, str(gw.get("denied_message") or f"Your Discord account must be at least {account_days} days old.")[:300]
+        server_days = max(0, int(gw.get("min_server_age_days", 0) or 0))
+        joined_at = getattr(member, "joined_at", None)
+        if server_days and joined_at:
+            age = (datetime.datetime.now(datetime.timezone.utc) - joined_at).total_seconds() / 86400
+            if age < server_days:
+                return False, str(gw.get("denied_message") or f"You must be in this server for at least {server_days} days.")[:300]
+    return True, ""
+
+
+def _giveaway_emoji(value):
+    value = str(value or "🎉").strip()
+    try:
+        if value.startswith("<") and value.endswith(">"):
+            return discord.PartialEmoji.from_str(value)
+        return value or "🎉"
+    except (TypeError, ValueError):
+        return "🎉"
+
+
 class GiveawayView(discord.ui.View):
-    def __init__(self, disabled: bool = False):
-        super().__init__(timeout=None)  # persistent: registered on startup via bot.add_view
-        btn = discord.ui.Button(label="🎉 Enter", style=discord.ButtonStyle.success,
-                                custom_id="giveaway:enter", disabled=disabled)
-        btn.callback = self._enter
-        self.add_item(btn)
+    def __init__(self, disabled: bool = False, emoji: str | None = None):
+        super().__init__(timeout=None)
+        button = discord.ui.Button(label="Enter", emoji=_giveaway_emoji(emoji), style=discord.ButtonStyle.success,
+                                   custom_id="giveaway:enter", disabled=disabled)
+        button.callback = self._enter
+        self.add_item(button)
 
     async def _enter(self, interaction: discord.Interaction):
         gw = active_giveaways.get(interaction.message.id)
         if gw is None:
-            return await cinnamon_send(interaction, "This giveaway has ended.", ephemeral=True)
+            return await cinnamon_send(interaction, "This giveaway has ended or was cancelled.", ephemeral=True)
+        if interaction.guild is None or interaction.guild.id != int(gw.get("guild_id", 0)):
+            return await cinnamon_send(interaction, "This giveaway belongs to another server.", ephemeral=True)
+        eligible, reason = _giveaway_eligibility(interaction.user, gw)
         uid = interaction.user.id
-        if uid in gw["entrants"]:
-            gw["entrants"].remove(uid)
-            text = "You left the giveaway."
+        entrants = gw.setdefault("entrants", [])
+        if uid not in entrants and not eligible:
+            return await cinnamon_send(interaction, reason or "You can't enter this giveaway.", ephemeral=True)
+        if uid in entrants:
+            entrants.remove(uid)
+            text = str(gw.get("leave_message") or "You left the giveaway.")[:300]
+            action = "Left"
         else:
-            gw["entrants"].append(uid)
-            text = "🎉 You're entered! Click again to leave."
+            entrants.append(uid)
+            text = str(gw.get("entry_message") or "🎉 You're entered! Tap the button again if you want to leave.")[:300]
+            action = "Entered"
         await cinnamon_send(interaction, text, ephemeral=True)
-        if text.startswith("🎉 You're entered"):
-            await achievement_record(int(gw.get("guild_id",0)), interaction.user.id, "giveaway", 1)
-            await quest_event(int(gw.get("guild_id",0)), interaction.user.id, "giveaway", 1)
-        await bd_save_data()  # after responding: Discord only gives us 3s to answer
-        guild_id = gw.get("guild_id")
-        if guild_id:
-            await send_log(int(guild_id), title="🎉 Giveaway entry changed", category="community",
-                           fields=[("User", f"{interaction.user} ({interaction.user.id})"),
-                                   ("Giveaway message", str(interaction.message.id)),
-                                   ("Action", "Entered" if uid in gw["entrants"] else "Left"),
-                                   ("Entrants", str(len(gw["entrants"]))),
-                                   ("Prize", str(gw.get("prize", "Giveaway"))[:900])])
+        if action == "Entered":
+            await achievement_record(int(gw.get("guild_id", 0)), uid, "giveaway", 1)
+            await quest_event(int(gw.get("guild_id", 0)), uid, "giveaway", 1)
+        await bd_save_data()
+        await _refresh_giveaway_message(interaction.message, gw)
+        await send_log(int(gw.get("guild_id", 0)), title="🎉 Giveaway entry changed", category="community",
+                       fields=[("User", f"{interaction.user} ({uid})"), ("Giveaway message", str(interaction.message.id)),
+                               ("Action", action), ("Entrants", str(len(entrants))), ("Prize", str(gw.get("prize", "Giveaway"))[:900])])
+
+
+async def _refresh_giveaway_message(message, gw: dict):
+    try:
+        await message.edit(embed=_giveaway_embed(gw), view=GiveawayView(emoji=gw.get("entry_emoji")))
+    except (discord.HTTPException, AttributeError):
+        pass
+
+
+async def _create_giveaway(*, guild_id: int, channel_id: int, host_id: int, prize: str, winners: int,
+                           duration_minutes: int, config: dict | None = None) -> int:
+    config = dict(config or {})
+    gw = {
+        "guild_id": int(guild_id), "channel_id": int(channel_id), "host_id": int(host_id),
+        "winners": max(1, min(100, int(winners))), "prize": str(prize)[:200],
+        "ends_at": time.time() + max(1, min(525600, int(duration_minutes))) * 60, "entrants": [],
+    }
+    allowed = ("bonus_roles", "required_roles", "bypass_roles", "blacklisted_roles", "min_account_age_days",
+               "min_server_age_days", "entry_message", "leave_message", "denied_message", "embed_title",
+               "embed_description", "embed_color", "entry_emoji", "winner_role_id", "winner_role_minutes",
+               "winner_thread_minutes", "reaction_entries", "template_name")
+    for key in allowed:
+        if key in config:
+            gw[key] = config[key]
+    channel = bot.get_channel(int(channel_id))
+    if channel is None or not hasattr(channel, "send"):
+        raise ValueError("The giveaway channel is unavailable.")
+    message = await channel.send(embed=_giveaway_embed(gw), view=GiveawayView(emoji=gw.get("entry_emoji")),
+                                 allowed_mentions=discord.AllowedMentions.none())
+    active_giveaways[message.id] = gw
+    if gw.get("reaction_entries"):
+        try: await message.add_reaction(_giveaway_emoji(gw.get("entry_emoji") or "🎉"))
+        except discord.HTTPException: pass
+    await bd_save_data()
+    return message.id
 
 
 async def finish_giveaway(mid: int):
-    gw = active_giveaways.pop(mid, None)
+    gw = active_giveaways.pop(int(mid), None)
     if gw is None:
         return
-    await bd_save_data()
-    channel = bot.get_channel(gw["channel_id"])
-    if channel is None:
-        return
-    try:
-        message = await channel.fetch_message(mid)
-    except discord.HTTPException:
-        return  # message was deleted — nothing to update
-    entrants = list(dict.fromkeys(int(uid) for uid in gw.get("entrants", [])))
-    bonus_roles = gw.get("bonus_roles", {})
-    tickets = []
+    channel = bot.get_channel(int(gw.get("channel_id", 0)))
+    message = None
+    if channel is not None:
+        try:
+            message = await channel.fetch_message(int(mid))
+        except discord.HTTPException:
+            message = None
+    entrants = list(dict.fromkeys(int(uid) for uid in gw.get("entrants", []) if str(uid).isdigit()))
     guild = bot.get_guild(int(gw.get("guild_id", 0)))
+    bonus_roles = gw.get("bonus_roles", {}) or {}
+    tickets = []
     for uid in entrants:
         member = guild.get_member(uid) if guild else None
-        extra = 0
-        if member:
-            member_role_ids = {str(role.id) for role in member.roles}
-            extra = sum(max(0, min(20, int(count))) for role_id, count in bonus_roles.items() if str(role_id) in member_role_ids)
+        if member is None:
+            continue
+        eligible, _reason = _giveaway_eligibility(member, gw)
+        if not eligible:
+            continue
+        member_role_ids = {str(role.id) for role in member.roles}
+        extra = sum(max(0, min(20, int(count))) for role_id, count in bonus_roles.items()
+                    if str(role_id) in member_role_ids and str(count).lstrip("-").isdigit())
         tickets.extend([uid] * (1 + min(extra, 100)))
+    eligible_ids = sorted(set(tickets))
     winner_ids = []
-    while tickets and len(winner_ids) < min(int(gw.get("winners", 1)), len(entrants)):
+    while tickets and len(winner_ids) < min(int(gw.get("winners", 1)), len(eligible_ids)):
         winner = random.choice(tickets)
-        winner_ids.append(winner)
+        if winner not in winner_ids:
+            winner_ids.append(winner)
         tickets = [uid for uid in tickets if uid != winner]
-    try:
-        await message.edit(embed=_giveaway_embed(gw, winner_ids), view=GiveawayView(disabled=True))
-    except discord.HTTPException:
-        pass
+    if message is not None:
+        try:
+            await message.edit(embed=_giveaway_embed(gw, winner_ids), view=GiveawayView(disabled=True))
+        except discord.HTTPException:
+            pass
+    # Keep a small persistent history so rerolls are possible after the giveaway ends.
+    history = globals().setdefault("giveaway_history", {})
+    gw["winner_ids"] = winner_ids
+    gw["finished_at"] = time.time()
+    gw["eligible_entrants"] = eligible_ids
+    history[str(mid)] = gw
+    if len(history) > 250:
+        for old_id, _ in sorted(history.items(), key=lambda kv: float(kv[1].get("finished_at", 0)))[:len(history)-250]:
+            history.pop(old_id, None)
+    await bd_save_data()
     if winner_ids:
         text = f"🎉 Congrats {' '.join(f'<@{u}>' for u in winner_ids)}! You won **{gw['prize']}**!"
     else:
-        text = "🐾 No one entered the giveaway — no winners this time."
+        text = "🐾 No eligible entries this time — no winners selected."
+    if message is not None:
+        try:
+            await message.reply(text, allowed_mentions=discord.AllowedMentions(users=True))
+        except discord.HTTPException:
+            pass
+        # Optional winner role; duration is tracked for safe automatic removal.
+        role_id = gw.get("winner_role_id")
+        role = guild.get_role(int(role_id)) if guild and str(role_id).isdigit() else None
+        minutes = max(0, min(525600, int(gw.get("winner_role_minutes", 0) or 0)))
+        if role and minutes and guild:
+            for uid in winner_ids:
+                member = guild.get_member(uid)
+                if member:
+                    try:
+                        await member.add_roles(role, reason=f"Won Cinnamon giveaway {mid}")
+                        globals().setdefault("giveaway_timed_roles", []).append({"guild_id": guild.id, "user_id": uid,
+                            "role_id": role.id, "remove_at": time.time() + minutes * 60, "message_id": int(mid)})
+                    except discord.HTTPException:
+                        pass
+        thread_minutes = max(0, min(10080, int(gw.get("winner_thread_minutes", 0) or 0)))
+        if winner_ids and thread_minutes:
+            try:
+                thread = await message.create_thread(name=f"Winners • {str(gw['prize'])[:70]}", auto_archive_duration=60)
+                await thread.send(f"Congratulations {' '.join(f'<@{u}>' for u in winner_ids)}! Please coordinate your prize here.",
+                                   allowed_mentions=discord.AllowedMentions(users=True))
+                globals().setdefault("giveaway_timed_threads", []).append({"thread_id": thread.id, "archive_at": time.time() + thread_minutes * 60})
+            except (discord.HTTPException, AttributeError):
+                pass
     await send_log(int(gw.get("guild_id", 0)), title="🏁 Giveaway finished", category="community",
                    fields=[("Message", str(mid)), ("Prize", str(gw.get("prize", "Giveaway"))[:900]),
-                           ("Entrants", str(len(entrants))), ("Winners", ", ".join(str(x) for x in winner_ids) if winner_ids else "None")])
-    try:
-        await message.reply(text, allowed_mentions=discord.AllowedMentions(users=True))
-    except discord.HTTPException:
-        pass
-
+                           ("Eligible entrants", str(len(set(gw.get("eligible_entrants", []))))),
+                           ("Winners", ", ".join(str(x) for x in winner_ids) if winner_ids else "None")])
 
 
 async def cancel_giveaway(mid: int):
     """Cancel a giveaway without selecting winners."""
-    gw = active_giveaways.pop(mid, None)
+    gw = active_giveaways.pop(int(mid), None)
     if gw is None:
         return False
     await bd_save_data()
     channel = bot.get_channel(int(gw.get("channel_id", 0)))
     if channel is not None:
         try:
-            message = await channel.fetch_message(mid)
+            message = await channel.fetch_message(int(mid))
             embed = discord.Embed(title="🎉 Giveaway cancelled", description=f"**Prize:** {gw.get('prize', 'Giveaway')}\nThis giveaway was cancelled by a server manager.", color=0x99AAB5)
             await message.edit(embed=embed, view=GiveawayView(disabled=True))
         except discord.HTTPException:
@@ -573,42 +741,243 @@ async def cancel_giveaway(mid: int):
                            ("Entrants", str(len(gw.get("entrants", []))))])
     return True
 
-giveaway_group = app_commands.Group(name="giveaway", description="Run a simple prize giveaway")
+
+def _validate_giveaway_config(guild, *, bonus_roles="", required_roles="", bypass_roles="", blacklisted_roles="",
+                               min_account_age_days=0, min_server_age_days=0, winner_role_id="", winner_role_minutes=0,
+                               winner_thread_minutes=0, embed_color="FEE75C", entry_emoji="🎉", reaction_entries=False) -> dict:
+    def role_ids(raw, label, max_count=20):
+        ids=[]
+        for token in str(raw or "").replace(",", "\n").splitlines():
+            token=token.strip().replace("<@&", "").replace(">", "")
+            if not token: continue
+            if not token.isdigit(): raise ValueError(f"{label} must contain role IDs, separated by commas or lines.")
+            role=guild.get_role(int(token))
+            if not role or role.is_default() or role.managed: raise ValueError(f"{label} contains a role that is missing or cannot be assigned.")
+            ids.append(role.id)
+        if len(set(ids)) > max_count: raise ValueError(f"{label} supports at most {max_count} roles.")
+        return list(dict.fromkeys(ids))
+    bonus={}
+    for line in str(bonus_roles or "").splitlines():
+        if not line.strip(): continue
+        parts=line.strip().split(":",1)
+        if len(parts)!=2 or not parts[0].isdigit() or not parts[1].isdigit(): raise ValueError("Bonus roles must use ROLE_ID:EXTRA_ENTRIES, one per line.")
+        role=guild.get_role(int(parts[0])); extra=int(parts[1])
+        if not role or role.is_default() or role.managed or not 1<=extra<=20: raise ValueError("Each bonus role must exist and grant 1–20 extra entries.")
+        bonus[str(role.id)]=extra
+    if len(bonus)>20: raise ValueError("Use at most 20 bonus-entry roles.")
+    try:
+        min_account_age_days=int(min_account_age_days or 0); min_server_age_days=int(min_server_age_days or 0)
+        winner_role_minutes=int(winner_role_minutes or 0); winner_thread_minutes=int(winner_thread_minutes or 0)
+    except (ValueError, TypeError): raise ValueError("Giveaway age and duration values must be whole numbers.")
+    if not 0<=min_account_age_days<=3650 or not 0<=min_server_age_days<=3650: raise ValueError("Account/server age limits must be between 0 and 3,650 days.")
+    if not 0<=winner_role_minutes<=525600 or not 0<=winner_thread_minutes<=10080: raise ValueError("Winner role duration must be ≤1 year and winner thread duration ≤7 days.")
+    color=str(embed_color or "FEE75C").strip().lstrip("#")
+    if not re.fullmatch(r"[0-9a-fA-F]{6}", color): raise ValueError("Embed colour must be a six-digit hex value, like FEE75C.")
+    winner_role_id=str(winner_role_id or "").strip()
+    if winner_role_id:
+        if not winner_role_id.isdigit(): raise ValueError("Choose a valid winner role.")
+        winner_role=guild.get_role(int(winner_role_id))
+        if not winner_role or winner_role.is_default() or winner_role.managed: raise ValueError("Winner role is missing or cannot be assigned.")
+        if not guild.me or winner_role >= guild.me.top_role: raise ValueError("Move Cinnamon's highest role above the winner role first.")
+    emoji=str(entry_emoji or "🎉").strip()[:40] or "🎉"
+    return {"bonus_roles":bonus, "required_roles":role_ids(required_roles,"Required roles"),
+            "bypass_roles":role_ids(bypass_roles,"Bypass roles"), "blacklisted_roles":role_ids(blacklisted_roles,"Blacklisted roles"),
+            "min_account_age_days":min_account_age_days, "min_server_age_days":min_server_age_days,
+            "winner_role_id":winner_role_id, "winner_role_minutes":winner_role_minutes,
+            "winner_thread_minutes":winner_thread_minutes, "embed_color":color, "entry_emoji":emoji,
+            "reaction_entries":bool(reaction_entries)}
 
 
-@giveaway_group.command(name="start", description="Start a giveaway")
-@app_commands.describe(duration_minutes="How long the giveaway runs", winners="Number of winners", prize="What's being given away")
+giveaway_group = app_commands.Group(name="giveaway", description="Manage Cinnamon's server giveaways")
+
+
+@giveaway_group.command(name="start", description="Start a configurable giveaway in this channel")
+@app_commands.describe(duration_minutes="Duration in minutes (up to one year)", winners="Number of unique winners", prize="What's being given away")
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
-async def giveaway_start(interaction: discord.Interaction, duration_minutes: int,
-                          winners: int, prize: app_commands.Range[str, 1, 200]):
-    gw = {
-        "guild_id": interaction.guild.id, "channel_id": interaction.channel.id, "host_id": interaction.user.id,
-        "winners": winners, "prize": prize, "ends_at": time.time() + duration_minutes * 60, "entrants": [],
-    }
-    await interaction.response.send_message(embed=_giveaway_embed(gw), view=GiveawayView())
-    msg = await interaction.original_response()
-    active_giveaways[msg.id] = gw
-    await bd_save_data()
+async def giveaway_start(interaction: discord.Interaction,
+                         duration_minutes: app_commands.Range[int, 1, 525600],
+                         winners: app_commands.Range[int, 1, 100], prize: app_commands.Range[str, 1, 200]):
+    try:
+        mid=await _create_giveaway(guild_id=interaction.guild.id, channel_id=interaction.channel.id,
+                                   host_id=interaction.user.id, prize=prize, winners=winners,
+                                   duration_minutes=duration_minutes)
+    except (ValueError, discord.HTTPException) as exc:
+        return await cinnamon_send(interaction, f"Couldn't start that giveaway: {exc}", ephemeral=True)
+    await cinnamon_send(interaction, f"🎉 Giveaway started! Message ID: `{mid}` • {winners} winner(s) • {duration_minutes} minute(s).")
     await send_log(interaction.guild.id, title="🎉 Giveaway started", interaction=interaction, category="community",
-                   fields=[("Message", str(msg.id)), ("Prize", prize), ("Duration", f"{duration_minutes} minute(s)"),
-                           ("Winners", str(winners))])
+                   fields=[("Message", str(mid)), ("Prize", prize), ("Duration", f"{duration_minutes} minute(s)"), ("Winners", str(winners))])
 
 
-@giveaway_group.command(name="end", description="End a giveaway early and pick winners now")
+@giveaway_group.command(name="end", description="End an active giveaway and pick winners now")
 @app_commands.describe(message_id="The ID of the giveaway message")
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
 async def giveaway_end(interaction: discord.Interaction, message_id: str):
-    try:
-        mid = int(message_id)
-    except ValueError:
-        return await cinnamon_send(interaction, "That doesn't look like a valid message ID.", ephemeral=True)
-    gw = active_giveaways.get(mid)
-    if not gw or gw["guild_id"] != interaction.guild.id:
-        return await cinnamon_send(interaction, "No active giveaway with that message ID.", ephemeral=True)
-    await cinnamon_send(interaction, "Ending the giveaway now...", ephemeral=True)
+    if not message_id.isdigit(): return await cinnamon_send(interaction, "That doesn't look like a valid message ID.", ephemeral=True)
+    mid=int(message_id); gw=active_giveaways.get(mid)
+    if not gw or int(gw.get("guild_id",0))!=interaction.guild.id:
+        return await cinnamon_send(interaction, "No active giveaway with that message ID in this server.", ephemeral=True)
+    await cinnamon_send(interaction, "Ending the giveaway and selecting winners…", ephemeral=True)
     await finish_giveaway(mid)
+
+
+@giveaway_group.command(name="reroll", description="Choose a new winner from a recently finished giveaway")
+@app_commands.describe(message_id="The finished giveaway message ID")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def giveaway_reroll(interaction: discord.Interaction, message_id: str):
+    history=globals().setdefault("giveaway_history", {})
+    if not message_id.isdigit(): return await cinnamon_send(interaction, "Use the numeric giveaway message ID.", ephemeral=True)
+    mid=int(message_id); gw=history.get(str(mid)) or history.get(mid)
+    if not gw or int(gw.get("guild_id",0))!=interaction.guild.id:
+        return await cinnamon_send(interaction, "I couldn't find a finished giveaway from this server to reroll.", ephemeral=True)
+    old=set(int(x) for x in gw.get("winner_ids",[])); candidates=[int(x) for x in gw.get("eligible_entrants",gw.get("entrants",[])) if int(x) not in old]
+    if not candidates: return await cinnamon_send(interaction, "There are no eligible non-winning entrants left to reroll.", ephemeral=True)
+    winner=random.choice(candidates); gw.setdefault("winner_ids",[]).append(winner); gw["last_reroll_at"]=time.time()
+    await bd_save_data()
+    channel=bot.get_channel(int(gw.get("channel_id",0)))
+    if channel:
+        try:
+            message=await channel.fetch_message(mid)
+            await message.reply(f"🎉 Reroll winner: <@{winner}>! You won **{gw.get('prize','the giveaway prize')}**.", allowed_mentions=discord.AllowedMentions(users=True))
+        except discord.HTTPException: pass
+    await cinnamon_send(interaction, f"🎉 Rerolled successfully: <@{winner}> is the new winner.", allowed_mentions=discord.AllowedMentions(users=True))
+
+
+@giveaway_group.command(name="template-save", description="Save an active giveaway as a reusable template")
+@app_commands.describe(name="Short name for this template", message_id="The active giveaway message ID")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def giveaway_template_save(interaction: discord.Interaction, name: app_commands.Range[str,1,40], message_id: str):
+    if not message_id.isdigit(): return await cinnamon_send(interaction,"Use the numeric giveaway message ID.",ephemeral=True)
+    gw=active_giveaways.get(int(message_id))
+    if not gw or int(gw.get("guild_id",0))!=interaction.guild.id:
+        return await cinnamon_send(interaction,"That active giveaway wasn't found in this server.",ephemeral=True)
+    templates=globals().setdefault("giveaway_templates",{}).setdefault(interaction.guild.id,{})
+    key=name.strip().lower()
+    if not key: return await cinnamon_send(interaction,"Give the template a name.",ephemeral=True)
+    templates[key]={k:v for k,v in gw.items() if k not in {"guild_id","channel_id","host_id","ends_at","entrants","winner_ids","finished_at"}}
+    await bd_save_data()
+    await cinnamon_send(interaction,f"📌 Saved giveaway template **{name.strip()}**. Start it with `/giveaway template-start`.")
+
+
+@giveaway_group.command(name="template-list", description="List this server's saved giveaway templates")
+@app_commands.guild_only()
+async def giveaway_template_list(interaction: discord.Interaction):
+    templates=globals().setdefault("giveaway_templates",{}).get(interaction.guild.id,{}) or globals().setdefault("giveaway_templates",{}).get(str(interaction.guild.id),{})
+    if not templates: return await cinnamon_send(interaction,"No giveaway templates saved yet. Start a giveaway, then use `/giveaway template-save`.",ephemeral=True)
+    lines=[f"• **{name}** — {cfg.get('prize','Giveaway')} · {cfg.get('winners',1)} winner(s)" for name,cfg in sorted(templates.items())]
+    await cinnamon_send(interaction,"\n".join(lines[:30]),ephemeral=True)
+
+
+@giveaway_group.command(name="template-start", description="Start a giveaway from a saved template")
+@app_commands.describe(name="Saved template name", channel="Where to post it", duration_minutes="How long it runs")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def giveaway_template_start(interaction: discord.Interaction, name: app_commands.Range[str,1,40],
+                                   channel: discord.TextChannel, duration_minutes: app_commands.Range[int,1,525600]):
+    templates=globals().setdefault("giveaway_templates",{}).get(interaction.guild.id,{}) or globals().setdefault("giveaway_templates",{}).get(str(interaction.guild.id),{})
+    cfg=templates.get(name.strip().lower())
+    if not cfg: return await cinnamon_send(interaction,"Template not found. Run `/giveaway template-list` to see saved names.",ephemeral=True)
+    try:
+        mid=await _create_giveaway(guild_id=interaction.guild.id,channel_id=channel.id,host_id=interaction.user.id,
+                                   prize=str(cfg.get("prize","Giveaway")),winners=int(cfg.get("winners",1)),
+                                   duration_minutes=duration_minutes,config=cfg)
+    except (ValueError,discord.HTTPException) as exc:
+        return await cinnamon_send(interaction,f"Couldn't start the template: {exc}",ephemeral=True)
+    await cinnamon_send(interaction,f"🎉 Started **{name.strip()}** in {channel.mention}. Message ID: `{mid}`.")
+
+
+@giveaway_group.command(name="repeat", description="Schedule a recurring giveaway")
+@app_commands.describe(channel="Where to post", prize="Prize", winners="Number of winners", duration_minutes="Each giveaway duration", repeat_every_days="Days between giveaways (1–365)")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def giveaway_repeat(interaction: discord.Interaction, channel: discord.TextChannel,
+                          prize: app_commands.Range[str,1,200], winners: app_commands.Range[int,1,100],
+                          duration_minutes: app_commands.Range[int,1,525600], repeat_every_days: app_commands.Range[int,1,365]):
+    schedules=globals().setdefault("giveaway_schedules",{})
+    sid=f"{interaction.guild.id}-{int(time.time())}-{interaction.user.id}"
+    schedules[sid]={"guild_id":interaction.guild.id,"channel_id":channel.id,"host_id":interaction.user.id,
+                    "prize":prize,"winners":winners,"duration_minutes":duration_minutes,
+                    "repeat_every_days":repeat_every_days,"next_at":time.time()+repeat_every_days*86400,"enabled":True}
+    await bd_save_data()
+    await cinnamon_send(interaction,f"🔁 Recurring giveaway saved as `{sid}`. First run is scheduled <t:{int(schedules[sid]['next_at'])}:R>. Stop it with `/giveaway repeat-stop`.")
+
+
+@giveaway_group.command(name="repeat-stop", description="Stop a recurring giveaway schedule")
+@app_commands.describe(schedule_id="The schedule ID returned by /giveaway repeat")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def giveaway_repeat_stop(interaction: discord.Interaction, schedule_id: str):
+    schedules=globals().setdefault("giveaway_schedules",{}); cfg=schedules.get(schedule_id)
+    if not cfg or int(cfg.get("guild_id",0))!=interaction.guild.id:
+        return await cinnamon_send(interaction,"I couldn't find that recurring giveaway in this server.",ephemeral=True)
+    schedules.pop(schedule_id,None); await bd_save_data()
+    await cinnamon_send(interaction,"Recurring giveaway schedule stopped. Existing active giveaways are unchanged.")
+
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    """Optional reaction-based entry; disabled unless the giveaway explicitly enables it."""
+    if bot.user and payload.user_id == bot.user.id:
+        return
+    gw=active_giveaways.get(int(payload.message_id))
+    if not gw or not gw.get("reaction_entries"):
+        return
+    if str(payload.emoji) != str(gw.get("entry_emoji") or "🎉"):
+        return
+    guild=bot.get_guild(int(gw.get("guild_id",0)))
+    member=payload.member or (guild.get_member(int(payload.user_id)) if guild else None)
+    if member is None:
+        return
+    eligible, _reason=_giveaway_eligibility(member,gw)
+    if not eligible:
+        channel=bot.get_channel(int(gw.get("channel_id",0)))
+        if channel:
+            try:
+                message=await channel.fetch_message(int(payload.message_id))
+                await message.remove_reaction(payload.emoji,member)
+            except discord.HTTPException: pass
+        return
+    entrants=gw.setdefault("entrants",[])
+    if int(member.id) in entrants:
+        return
+    entrants.append(int(member.id))
+    await bd_save_data()
+    channel=bot.get_channel(int(gw.get("channel_id",0)))
+    if channel:
+        try:
+            message=await channel.fetch_message(int(payload.message_id))
+            await _refresh_giveaway_message(message,gw)
+        except discord.HTTPException: pass
+    try:
+        await achievement_record(int(gw.get("guild_id",0)),int(member.id),"giveaway",1)
+        await quest_event(int(gw.get("guild_id",0)),int(member.id),"giveaway",1)
+    except Exception as exc:
+        log.debug("Giveaway entry progress hook failed: %s",type(exc).__name__)
+    await send_log(int(gw.get("guild_id",0)),title="🎉 Giveaway reaction entry",category="community",
+                   fields=[("User",f"{member} ({member.id})"),("Message",str(payload.message_id)),("Entrants",str(len(entrants)))])
+
+
+@bot.event
+async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
+    gw=active_giveaways.get(int(payload.message_id))
+    if not gw or not gw.get("reaction_entries") or str(payload.emoji)!=str(gw.get("entry_emoji") or "🎉"):
+        return
+    uid=int(payload.user_id)
+    if uid not in gw.setdefault("entrants",[]):
+        return
+    gw["entrants"].remove(uid)
+    await bd_save_data()
+    channel=bot.get_channel(int(gw.get("channel_id",0)))
+    if channel:
+        try:
+            message=await channel.fetch_message(int(payload.message_id))
+            await _refresh_giveaway_message(message,gw)
+        except discord.HTTPException: pass
+    await send_log(int(gw.get("guild_id",0)),title="🎉 Giveaway reaction entry removed",category="community",
+                   fields=[("User ID",str(uid)),("Message",str(payload.message_id)),("Entrants",str(len(gw["entrants"])))])
 
 
 # --- Polls (persistent — survive restarts) ---------------------------------------
@@ -753,6 +1122,41 @@ async def check_timers():
                 await finish_poll(mid)
             except Exception as e:
                 log.error(f"Failed to finish poll {mid}: {e}")
+    # Run recurring giveaway schedules after their first due time. Advance next_at
+    # before posting so a temporary Discord failure doesn't create duplicates.
+    schedules = globals().setdefault("giveaway_schedules", {})
+    for sid, cfg in list(schedules.items()):
+        if not cfg.get("enabled", True) or float(cfg.get("next_at", 0)) > now:
+            continue
+        interval = max(1, min(365, int(cfg.get("repeat_every_days", 7)))) * 86400
+        while float(cfg.get("next_at", 0)) <= now:
+            cfg["next_at"] = float(cfg.get("next_at", now)) + interval
+        try:
+            await _create_giveaway(guild_id=int(cfg["guild_id"]), channel_id=int(cfg["channel_id"]),
+                host_id=int(cfg["host_id"]), prize=str(cfg["prize"]), winners=int(cfg["winners"]),
+                duration_minutes=int(cfg["duration_minutes"]))
+        except Exception as e:
+            log.error("Recurring giveaway %s failed: %s", sid, e)
+        await bd_save_data()
+    # Remove timed winner roles and archive winner threads when their timers expire.
+    timed_roles = globals().setdefault("giveaway_timed_roles", [])
+    for item in list(timed_roles):
+        if float(item.get("remove_at", 0)) > now: continue
+        guild = bot.get_guild(int(item.get("guild_id", 0)))
+        member = guild.get_member(int(item.get("user_id", 0))) if guild else None
+        role = guild.get_role(int(item.get("role_id", 0))) if guild else None
+        if member and role:
+            try: await member.remove_roles(role, reason="Cinnamon giveaway winner-role duration ended")
+            except discord.HTTPException: pass
+        timed_roles.remove(item); await bd_save_data()
+    timed_threads = globals().setdefault("giveaway_timed_threads", [])
+    for item in list(timed_threads):
+        if float(item.get("archive_at", 0)) > now: continue
+        thread=bot.get_channel(int(item.get("thread_id", 0)))
+        if thread:
+            try: await thread.edit(archived=True, locked=True)
+            except discord.HTTPException: pass
+        timed_threads.remove(item); await bd_save_data()
 
 
 # --- Anti-raid (join-rate spike alerts) -----------------------------------------

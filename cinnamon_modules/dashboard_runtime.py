@@ -53,6 +53,11 @@ def _bd_encode() -> dict:
         "level_roles": {str(g): {str(l): r for l, r in v.items()} for g, v in level_roles.items()},
         "active_giveaways": {str(k): v for k, v in active_giveaways.items()},
         "active_polls": {str(k): v for k, v in active_polls.items()},
+        "giveaway_history": globals().get("giveaway_history", {}),
+        "giveaway_templates": {str(g): cfg for g, cfg in globals().get("giveaway_templates", {}).items()},
+        "giveaway_schedules": globals().get("giveaway_schedules", {}),
+        "giveaway_timed_roles": globals().get("giveaway_timed_roles", []),
+        "giveaway_timed_threads": globals().get("giveaway_timed_threads", []),
         "economy_balances": {f"{g}:{u}": v for (g, u), v in economy_balances.items()},
         "economy_inventory": {f"{g}:{u}": v for (g, u), v in economy_inventory.items()},
         "economy_cooldowns": {f"{g}:{u}:{a}": v for (g, u, a), v in economy_cooldowns.items()},
@@ -65,6 +70,7 @@ def _bd_encode() -> dict:
         "friendship_data": {f"{g}:{u}": v for (g,u),v in friendship_data.items()},
         "quest_data": {str(g): v for g,v in quest_data_local.items()},
         "quest_config": {str(g): v for g,v in quest_config_local.items()},
+        "advanced_features": globals().get("advanced_features_data", {}),
         # Server configuration that should survive a restart/redeploy.
         "ai_channels": {str(k): v for k, v in ai_channels.items()},
         "disabled_channels": {str(k): list(v) for k, v in disabled_channels.items()},
@@ -79,7 +85,7 @@ def _bd_decode(raw: dict):
     global level_roles, active_giveaways, active_polls, ai_channels, disabled_channels, log_channels, category_log_channels
     global economy_balances, economy_inventory, economy_cooldowns, economy_log_channels
     global economy_level_rewards_claimed, economy_income_roles
-    global achievement_data, achievement_config, friendship_data, quest_data, quest_config
+    global achievement_data, achievement_config, friendship_data, quest_data, quest_config, advanced_features_data
     warnings_data = defaultdict(list, {tuple(map(int, k.split(":"))): v for k, v in raw.get("warnings", {}).items()})
     welcome_config = {int(k): v for k, v in raw.get("welcome_config", {}).items()}
     goodbye_config = {int(k): v for k, v in raw.get("goodbye_config", {}).items()}
@@ -94,6 +100,11 @@ def _bd_decode(raw: dict):
     level_roles = {int(g): {int(l): r for l, r in v.items()} for g, v in raw.get("level_roles", {}).items()}
     active_giveaways = {int(k): v for k, v in raw.get("active_giveaways", {}).items()}
     active_polls = {int(k): v for k, v in raw.get("active_polls", {}).items()}
+    globals()["giveaway_history"] = raw.get("giveaway_history", {}) if isinstance(raw.get("giveaway_history", {}), dict) else {}
+    globals()["giveaway_templates"] = {int(g): cfg for g, cfg in raw.get("giveaway_templates", {}).items() if str(g).isdigit()}
+    globals()["giveaway_schedules"] = raw.get("giveaway_schedules", {}) if isinstance(raw.get("giveaway_schedules", {}), dict) else {}
+    globals()["giveaway_timed_roles"] = raw.get("giveaway_timed_roles", []) if isinstance(raw.get("giveaway_timed_roles", []), list) else []
+    globals()["giveaway_timed_threads"] = raw.get("giveaway_timed_threads", []) if isinstance(raw.get("giveaway_timed_threads", []), list) else []
     economy_balances = {tuple(map(int, k.split(":"))): v for k, v in raw.get("economy_balances", {}).items()}
     economy_inventory = {tuple(map(int, k.split(":"))): v for k, v in raw.get("economy_inventory", {}).items()}
     economy_cooldowns = {}
@@ -127,6 +138,13 @@ def _bd_decode(raw: dict):
         if len(parts)==2: friendship_data[(int(parts[0]),int(parts[1]))]=v
     quest_data = {int(g):v for g,v in raw.get("quest_data", {}).items()}
     quest_config = {int(g):v for g,v in raw.get("quest_config", {}).items()}
+    # Update IN PLACE: advanced_economy.py keeps a reference to this same dict,
+    # so rebinding the name here would silently detach it and lose box/market data.
+    _af_raw = raw.get("advanced_features", {})
+    advanced_features_data.clear()
+    advanced_features_data.update(_af_raw if isinstance(_af_raw, dict) else {})
+    for _af_key_name in ("mystery_boxes", "crafted_counts", "mystery_opened", "black_market_purchases"):
+        advanced_features_data.setdefault(_af_key_name, {})
 async def bd_load_data():
     """Load persisted settings (warnings, welcome/goodbye, auto-mod config, XP,
     reaction roles, temp-bans, anti-raid config). Uses Upstash Redis if
@@ -182,7 +200,12 @@ def dashboard_state_provider() -> dict:
         "warnings_data": warnings_data, "welcome_config": welcome_config,
         "goodbye_config": goodbye_config, "automod_config": automod_config,
         "xp_data": xp_data, "xp_per_message": xp_per_message, "xp_channels": xp_channels, "level_roles": level_roles, "antiraid_config": antiraid_config,
-        "active_giveaways": active_giveaways, "economy_balances": economy_balances,
+        "active_giveaways": active_giveaways, "active_polls": active_polls, "economy_balances": economy_balances,
+        "giveaway_history": globals().get("giveaway_history", {}),
+        "giveaway_templates": globals().get("giveaway_templates", {}),
+        "giveaway_schedules": globals().get("giveaway_schedules", {}),
+        "giveaway_timed_roles": globals().get("giveaway_timed_roles", []),
+        "giveaway_timed_threads": globals().get("giveaway_timed_threads", []),
         "economy_inventory": economy_inventory,
         "economy_log_channels": economy_log_channels, "economy_income_roles": economy_income_roles,
         "ECONOMY_ITEMS": ECONOMY_ITEMS, "achievement_data": achievement_data, "friendship_data": friendship_data, "quest_data": quest_data,
@@ -202,7 +225,8 @@ def dashboard_state_provider() -> dict:
         "recall_guild_data": recall_guild_data,
         "level_from_xp": level_from_xp, "giveaway_embed": _giveaway_embed,
         "giveaway_view": GiveawayView, "finish_giveaway": finish_giveaway,
-        "cancel_giveaway": cancel_giveaway,
+        "cancel_giveaway": cancel_giveaway, "create_giveaway": _create_giveaway,
+        "validate_giveaway_config": _validate_giveaway_config,
         "hg_cog": hg,
     }
 

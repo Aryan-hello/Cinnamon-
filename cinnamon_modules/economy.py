@@ -55,11 +55,42 @@ def economy_inventory_for(guild_id: int, user_id: int) -> dict:
 
 
 
+def economy_level_reward_claimed(guild_id: int, user_id: int, level: int) -> bool:
+    """True if this member already received the Catnip reward for this level."""
+    return int(level) in economy_level_rewards_claimed.get((int(guild_id), int(user_id)), [])
+
+
+def mark_economy_level_reward_claimed(guild_id: int, user_id: int, level: int) -> None:
+    claimed = economy_level_rewards_claimed.setdefault((int(guild_id), int(user_id)), [])
+    if int(level) not in claimed:
+        claimed.append(int(level))
+        claimed.sort()
+
+
+def economy_income_role_lines(guild) -> str:
+    """Readable list of the server's Catnip income roles for /economy income list."""
+    configs = economy_income_roles.get(guild.id, {})
+    if not configs:
+        return "No income roles are configured yet.\nUse `/economy add-role-income` to create one."
+    lines = []
+    for role_id, cfg in configs.items():
+        role = guild.get_role(int(role_id))
+        label = role.mention if role else f"Deleted role ({role_id})"
+        seconds = int(cfg.get("cooldown", 3600))
+        if seconds % 604800 == 0: every = f"{seconds // 604800} week(s)"
+        elif seconds % 86400 == 0: every = f"{seconds // 86400} day(s)"
+        elif seconds % 3600 == 0: every = f"{seconds // 3600} hour(s)"
+        else: every = f"{max(1, seconds // 60)} minute(s)"
+        lines.append(f"{label}: **{int(cfg.get('amount', 0)):,}** Catnip every **{every}**")
+    return "\n".join(lines)
+
+
 def economy_user_snapshot(guild_id: int, user_id: int) -> dict:
     return {
         "balance": economy_balance(guild_id, user_id),
         "inventory": dict(economy_inventory_for(guild_id, user_id)),
-        "quests": dict(sanitize_economy_quests(guild_id, user_id)),
+        # Quest progress now lives in quests.py (quest_data); store a JSON-safe copy.
+        "quests": json.loads(json.dumps(sanitize_economy_quests(guild_id, user_id), default=str)),
         "achievements": list(economy_achievements.get((guild_id, user_id), [])),
         "level_rewards_claimed": list(economy_level_rewards_claimed.get((guild_id, user_id), [])),
     }
@@ -98,13 +129,13 @@ def economy_cooldown_remaining(guild_id: int, user_id: int, action: str) -> int:
 def economy_item_lines() -> str:
     return "\n".join(
         f"{item['emoji']} **{item['name']}** — `{item_id}` — **{item['price']:,} Catnip**\n{item['description']}"
-        for item_id, item in ECONOMY_ITEMS.items()
+        for item_id, item in ECONOMY_ITEMS.items() if item.get("shop_enabled", True)
     )
 
 
 def economy_shop_embed(guild_id: int, user: discord.abc.User, page: int = 0) -> discord.Embed:
     """Clean, app-like shop panel with one product block per visible item."""
-    items = list(ECONOMY_ITEMS.items()); per_page = 4
+    items = [(k, v) for k, v in ECONOMY_ITEMS.items() if v.get("shop_enabled", True)]; per_page = 4
     total_pages = max(1, (len(items) + per_page - 1) // per_page)
     page = max(0, min(page, total_pages - 1)); visible = items[page*per_page:(page+1)*per_page]
     balance = economy_balance(guild_id, user.id)
@@ -139,7 +170,7 @@ class CinnamonShopView(discord.ui.LayoutView):
         self._build()
 
     def _build(self):
-        items = list(ECONOMY_ITEMS.items())
+        items = [(k, v) for k, v in ECONOMY_ITEMS.items() if v.get("shop_enabled", True)]
         per_page = 5
         total_pages = max(1, (len(items) + per_page - 1) // per_page)
         self.page = max(0, min(self.page, total_pages - 1))
@@ -422,11 +453,14 @@ async def economy_daily_cmd(interaction: discord.Interaction):
     economy_cooldowns[(guild_id, user_id, "daily")] = time.time() + 86400
     balance_before = economy_balance(guild_id, user_id)
     economy_balances[(guild_id, user_id)] = balance_before + ECONOMY_DAILY_REWARD
+    box_awarded = await advanced_maybe_award_box(guild_id, interaction.user, "daily", chance=0.12) if "advanced_maybe_award_box" in globals() else False
     await bd_save_data()
     await economy_log(guild_id, title="🌿 Daily Catnip", fields=[("User", f"{interaction.user} ({user_id})"), ("Amount", f"+{ECONOMY_DAILY_REWARD} Catnip"), ("Balance before", f"{balance_before:,}"), ("Balance after", f"{balance_before+ECONOMY_DAILY_REWARD:,}")])
     embed = cinnamon_embed("🌿 Daily Catnip Claimed", "Cinnamon has approved your daily snack budget.\n\n**Come back tomorrow for another reward!**", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Daily Reward")
     cinnamon_field(embed, "Reward", f"**+{ECONOMY_DAILY_REWARD:,} Catnip**", True)
     cinnamon_field(embed, "New balance", f"**{balance_before + ECONOMY_DAILY_REWARD:,} Catnip**", True)
+    if box_awarded:
+        cinnamon_field(embed, "🎁 Bonus", "**1 Mystery Box**", True)
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
 
@@ -572,8 +606,9 @@ async def economy_snapshot_payload(guild_id: int) -> dict:
         if gid == guild_id: user_ids.add(uid)
     for (gid, uid) in economy_inventory:
         if gid == guild_id: user_ids.add(uid)
-    for (gid, uid) in economy_quests:
-        if gid == guild_id: user_ids.add(uid)
+    for uid_text in quest_data.get(guild_id, {}).get("users", {}):
+        try: user_ids.add(int(uid_text))
+        except (TypeError, ValueError): pass
     for uid in user_ids:
         users[str(uid)] = economy_user_snapshot(guild_id, uid)
     return {
@@ -671,13 +706,11 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
                     live_inventory.setdefault(item_id, quantity)
             else:
                 economy_inventory[key] = snap_inventory
-            snap_quests = {str(k): int(v) for k, v in user.get("quests", {}).items()}
-            if merge_only:
-                live_quests = economy_quests.setdefault(key, {})
-                for quest_id, progress in snap_quests.items():
-                    live_quests.setdefault(quest_id, progress)
-            else:
-                economy_quests[key] = snap_quests
+            snap_quests = user.get("quests", {})
+            if isinstance(snap_quests, dict) and any(k in snap_quests for k in ("qp", "daily", "weekly")):
+                quest_users = quest_data.setdefault(guild.id, {}).setdefault("users", {})
+                if not merge_only or str(uid) not in quest_users:
+                    quest_users[str(uid)] = json.loads(json.dumps(snap_quests))
             snap_levels = [int(x) for x in user.get("level_rewards_claimed", [])]
             if merge_only:
                 economy_level_rewards_claimed[key] = sorted(set(economy_level_rewards_claimed.get(key, [])) | set(snap_levels))
