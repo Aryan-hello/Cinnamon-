@@ -7,11 +7,13 @@ functions are injected by main.py through configure_dashboard().
 from __future__ import annotations
 
 import asyncio
+import copy
 import datetime as dt
 import html
 import json
 import logging
 import os
+import re
 import secrets
 import hashlib
 import time
@@ -20,7 +22,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from flask import Blueprint, abort, redirect, render_template_string, request, session, url_for
+from flask import Blueprint, abort, make_response, redirect, render_template_string, request, session, url_for
 
 log = logging.getLogger("cinnamon.dashboard")
 dashboard_bp = Blueprint("cinnamon_dashboard", __name__)
@@ -28,7 +30,7 @@ _bot = None
 _state_provider = None
 _tokens: dict[str, dict[str, Any]] = {}
 BASE_URL = "https://discord.com/api/v10"
-DEFAULT_REDIRECT = "https://cinnamon-c328.onrender.com/oauth/callback"
+DEFAULT_REDIRECT = (os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/") or "https://cinnamon-c328.onrender.com") + "/oauth/callback"
 
 
 def configure_dashboard(bot, state_provider=None):
@@ -159,6 +161,15 @@ def _audit(guild_id, actor, title, detail):
                     fields=[("Dashboard actor", str(actor)[:100])],
                     category=category,
                 ))
+            # Every dashboard mutation also gets a copy in the dedicated dashboard audit channel.
+            # This is separate from feature-specific logs so admins have one complete audit trail.
+            if category != "dashboard":
+                _run_bot(send_log(
+                    guild_id, title="🧭 Dashboard audit • " + title[:180],
+                    description=detail[:900],
+                    fields=[("Dashboard actor", str(actor)[:100]), ("Feature log category", category)],
+                    category="dashboard",
+                ))
         except Exception:
             log.exception("Dashboard audit log failed for guild %s", guild_id)
 
@@ -194,7 +205,7 @@ def _page(body, title="Cinnamon Dashboard", status=200):
 
 STYLE = r"""
 :root{--cream:#fbf2e4;--beige:#f7ebd9;--orange:#b96b2c;--orange2:#d88b45;--brown:#38251d;--taupe:#897765;--white:#fffdf9;--line:#e4d5c0;--green:#36734d;--red:#a53f32;--shadow:0 12px 34px #38251d0c}
-*{box-sizing:border-box}body{margin:0;background:var(--cream);color:var(--brown);font:15px Inter,system-ui,-apple-system,Segoe UI,sans-serif}a{color:inherit;text-decoration:none}button,input,select,textarea{font:inherit}.layout{min-height:100vh;display:grid;grid-template-columns:248px minmax(0,1fr)}.side{background:#f3e5d0;border-right:1px solid var(--line);padding:20px 14px;display:flex;flex-direction:column;gap:18px}.brand{display:flex;align-items:center;gap:11px;font-size:19px;font-weight:850;padding:4px 8px}.mascot{width:45px;height:45px;object-fit:cover;border-radius:15px;border:2px solid #ead7b8;background:var(--beige)}.serverbox{padding:12px;background:#fff9f0;border:1px solid var(--line);border-radius:14px}.serverbox label{display:block;font-size:11px;color:var(--taupe);font-weight:800;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px}.serverbox select{width:100%;border:1px solid var(--line);border-radius:9px;background:white;padding:10px;color:var(--brown)}.navlabel{font-size:11px;color:var(--taupe);font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:0 10px;margin:5px 0}.nav{display:grid;gap:4px}.nav a{padding:10px 12px;border-radius:10px;color:#654d3d;font-weight:650;display:flex;gap:10px;align-items:center}.nav a.active,.nav a:hover{background:#e9d5b8;color:var(--brown)}.sidefoot{margin-top:auto;font-size:12px;color:var(--taupe);padding:8px}.main{min-width:0;padding:24px clamp(16px,3vw,38px) 40px;max-width:1500px;width:100%;margin:auto}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:24px}.crumb{font-size:13px;color:var(--taupe)}.profile{display:flex;align-items:center;gap:10px;font-weight:700}.avatar{width:34px;height:34px;border-radius:50%;background:var(--beige)}h1,h2,h3,p{margin-top:0}h1{font:700 clamp(27px,3vw,36px) Georgia,serif;margin-bottom:7px}h2{font:700 23px Georgia,serif;margin-bottom:12px}h3{font-size:16px;margin-bottom:8px}.muted{color:var(--taupe);line-height:1.55}.hero{background:linear-gradient(115deg,#f7e6ce,#fff7e9);border:1px solid var(--line);border-radius:22px;padding:25px;display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:20px;box-shadow:var(--shadow)}.hero p{margin:0;color:#78624e}.heroimg{width:100px;height:100px;object-fit:cover;border-radius:24px}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px;margin:15px 0 22px}.card{grid-column:span 4;min-width:0;background:var(--white);border:1px solid var(--line);border-radius:17px;padding:18px;box-shadow:var(--shadow)}.card.half{grid-column:span 6}.card.full{grid-column:1/-1}.card.third{grid-column:span 4}.stat{font:700 30px Georgia,serif;margin:8px 0 2px}.statlabel{font-size:12px;color:var(--taupe);font-weight:750;text-transform:uppercase;letter-spacing:.06em}.iconbox{width:38px;height:38px;display:grid;place-items:center;background:#f7ead7;border-radius:12px;font-size:19px;margin-bottom:13px}.btn{display:inline-block;border:0;border-radius:10px;background:var(--orange);color:white;padding:10px 14px;font-weight:750;cursor:pointer}.btn:hover{background:#a75e26}.btn.secondary{background:#f0e2cd;color:var(--brown);border:1px solid var(--line)}.btn.danger{background:var(--red)}.btn.small{padding:7px 10px;font-size:13px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.formgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.field{display:grid;gap:6px;margin:10px 0}.field label{font-size:13px;font-weight:750}.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:10px;background:#fff;padding:11px 12px;color:var(--brown);min-width:0}.field textarea{min-height:92px;resize:vertical}.field small{font-size:12px;color:var(--taupe);line-height:1.4}.toggle{display:flex;gap:10px;align-items:flex-start;padding:12px 0;border-bottom:1px solid #f0e6d9}.toggle input{accent-color:var(--orange);width:17px;height:17px;margin-top:2px}.toggle span{display:grid;gap:3px}.toggle small{color:var(--taupe)}.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{border-collapse:collapse;width:100%;min-width:460px;background:#fffdf9}th,td{text-align:left;padding:11px 13px;border-bottom:1px solid #f0e6d9;font-size:13px}th{color:var(--taupe);background:#fbf4e9;text-transform:uppercase;font-size:11px;letter-spacing:.05em}tr:last-child td{border-bottom:0}.pill{display:inline-block;border-radius:30px;padding:4px 9px;background:#efe4d2;color:#6b543e;font-size:11px;font-weight:800}.pill.good{background:#e3f0e5;color:var(--green)}.pill.warn{background:#f9e8d9;color:#99591f}.notice{padding:12px 14px;border-radius:12px;background:#f4e8d4;border:1px solid var(--line);margin-bottom:15px;color:#6e553e}.empty{padding:25px;text-align:center;color:var(--taupe)}.rule{height:1px;background:var(--line);margin:16px 0}.sectionhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:23px 0 8px}.servericon{width:38px;height:38px;border-radius:12px;background:#f4e5cf;display:grid;place-items:center;font-weight:800;color:var(--orange);overflow:hidden;flex-shrink:0}.servericon img{width:100%;height:100%;object-fit:cover}.serverlist{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}.serveritem{background:var(--white);border:1px solid var(--line);padding:15px;border-radius:15px;display:flex;align-items:center;gap:12px}.serveritem .grow{flex:1;min-width:0}.serveritem h3{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 4px}.mobilebrand{display:none}.footer{font-size:12px;color:var(--taupe);margin-top:25px}.dangerzone{border-color:#e8c6be}.dangerzone h3{color:var(--red)}@media(max-width:900px){.layout{grid-template-columns:205px minmax(0,1fr)}.card{grid-column:span 6}.card.third{grid-column:span 6}}@media(max-width:650px){.layout{display:block}.side{position:sticky;top:0;z-index:4;border-right:0;border-bottom:1px solid var(--line);padding:9px 12px;display:block}.brand{padding:2px 4px;margin-bottom:8px}.brand .mascot{width:35px;height:35px}.serverbox{padding:8px;margin-bottom:7px}.serverbox label{display:none}.serverbox select{padding:8px}.navlabel{display:none}.nav{display:flex;overflow-x:auto;gap:5px;padding-bottom:3px}.nav a{white-space:nowrap;padding:8px 10px;font-size:12px}.sidefoot{display:none}.main{padding:17px 13px 30px}.top{margin-bottom:16px}.hero{padding:18px}.heroimg{width:68px;height:68px}.card,.card.half,.card.third{grid-column:1/-1}.formgrid{grid-template-columns:1fr}h1{font-size:28px}.stat{font-size:26px}}
+*{box-sizing:border-box}body{margin:0;background:var(--cream);color:var(--brown);font:15px "Trebuchet MS",system-ui,-apple-system,Segoe UI,sans-serif}a{color:inherit;text-decoration:none}button,input,select,textarea{font:inherit}.layout{min-height:100vh;display:grid;grid-template-columns:248px minmax(0,1fr)}.side{background:#f3e5d0;border-right:1px solid var(--line);padding:20px 14px;display:flex;flex-direction:column;gap:18px}.brand{display:flex;align-items:center;gap:11px;font-size:19px;font-weight:850;padding:4px 8px}.mascot{width:45px;height:45px;object-fit:cover;border-radius:15px;border:2px solid #ead7b8;background:var(--beige)}.serverbox{padding:12px;background:#fff9f0;border:1px solid var(--line);border-radius:14px}.serverbox label{display:block;font-size:11px;color:var(--taupe);font-weight:800;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px}.serverbox select{width:100%;border:1px solid var(--line);border-radius:9px;background:white;padding:10px;color:var(--brown)}.navlabel{font-size:11px;color:var(--taupe);font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:0 10px;margin:5px 0}.nav-search{margin:0 0 7px;padding:0 2px}.nav-search input{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:#fffdf9;color:var(--brown)}.nav{display:grid;gap:4px}.nav a{padding:10px 12px;border-radius:10px;color:#654d3d;font-weight:650;display:flex;gap:10px;align-items:center}.nav a.active,.nav a:hover{background:#e9d5b8;color:var(--brown)}.sidefoot{margin-top:auto;font-size:12px;color:var(--taupe);padding:8px}.main{min-width:0;padding:24px clamp(16px,3vw,38px) 40px;max-width:1500px;width:100%;margin:auto}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:24px}.crumb{font-size:13px;color:var(--taupe)}.profile{display:flex;align-items:center;gap:10px;font-weight:700}.avatar{width:34px;height:34px;border-radius:50%;background:var(--beige)}h1,h2,h3,p{margin-top:0}h1{font:700 clamp(27px,3vw,36px) Georgia,serif;margin-bottom:7px}h2{font:700 23px Georgia,serif;margin-bottom:12px}h3{font-size:16px;margin-bottom:8px}.muted{color:var(--taupe);line-height:1.55}.hero{background:linear-gradient(115deg,#f7e6ce,#fff7e9);border:1px solid var(--line);border-radius:22px;padding:25px;display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:20px;box-shadow:var(--shadow)}.hero p{margin:0;color:#78624e}.heroimg{width:100px;height:100px;object-fit:cover;border-radius:24px}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px;margin:15px 0 22px}.card{grid-column:span 4;min-width:0;background:var(--white);border:1px solid var(--line);border-radius:17px;padding:18px;box-shadow:var(--shadow)}.card.half{grid-column:span 6}.card.full{grid-column:1/-1}.card.third{grid-column:span 4}.stat{font:700 30px Georgia,serif;margin:8px 0 2px}.statlabel{font-size:12px;color:var(--taupe);font-weight:750;text-transform:uppercase;letter-spacing:.06em}.iconbox{width:38px;height:38px;display:grid;place-items:center;background:#f7ead7;border-radius:12px;font-size:19px;margin-bottom:13px}.btn{display:inline-block;border:0;border-radius:10px;background:var(--orange);color:white;padding:10px 14px;font-weight:750;cursor:pointer}.btn:hover{background:#a75e26}.btn.secondary{background:#f0e2cd;color:var(--brown);border:1px solid var(--line)}.btn.danger{background:var(--red)}.btn.small{padding:7px 10px;font-size:13px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.formgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.field{display:grid;gap:6px;margin:10px 0}.field label{font-size:13px;font-weight:750}.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:10px;background:#fff;padding:11px 12px;color:var(--brown);min-width:0}.field textarea{min-height:92px;resize:vertical}.field small{font-size:12px;color:var(--taupe);line-height:1.4}.toggle{display:flex;gap:10px;align-items:flex-start;padding:12px 0;border-bottom:1px solid #f0e6d9}.toggle input{accent-color:var(--orange);width:17px;height:17px;margin-top:2px}.toggle span{display:grid;gap:3px}.toggle small{color:var(--taupe)}.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{border-collapse:collapse;width:100%;min-width:460px;background:#fffdf9}th,td{text-align:left;padding:11px 13px;border-bottom:1px solid #f0e6d9;font-size:13px}th{color:var(--taupe);background:#fbf4e9;text-transform:uppercase;font-size:11px;letter-spacing:.05em}tr:last-child td{border-bottom:0}.pill{display:inline-block;border-radius:30px;padding:4px 9px;background:#efe4d2;color:#6b543e;font-size:11px;font-weight:800}.pill.good{background:#e3f0e5;color:var(--green)}.pill.warn{background:#f9e8d9;color:#99591f}.notice{padding:12px 14px;border-radius:12px;background:#f4e8d4;border:1px solid var(--line);margin-bottom:15px;color:#6e553e}.empty{padding:25px;text-align:center;color:var(--taupe)}.rule{height:1px;background:var(--line);margin:16px 0}.sectionhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:23px 0 8px}.servericon{width:38px;height:38px;border-radius:12px;background:#f4e5cf;display:grid;place-items:center;font-weight:800;color:var(--orange);overflow:hidden;flex-shrink:0}.servericon img{width:100%;height:100%;object-fit:cover}.serverlist{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}.serveritem{background:var(--white);border:1px solid var(--line);padding:15px;border-radius:15px;display:flex;align-items:center;gap:12px}.serveritem .grow{flex:1;min-width:0}.serveritem h3{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 4px}.mobilebrand{display:none}.footer{font-size:12px;color:var(--taupe);margin-top:25px}.dangerzone{border-color:#e8c6be}.dangerzone h3{color:var(--red)}@media(max-width:900px){.layout{grid-template-columns:205px minmax(0,1fr)}.card{grid-column:span 6}.card.third{grid-column:span 6}}@media(max-width:650px){.layout{display:block}.side{position:sticky;top:0;z-index:4;border-right:0;border-bottom:1px solid var(--line);padding:9px 12px;display:block}.brand{padding:2px 4px;margin-bottom:8px}.brand .mascot{width:35px;height:35px}.serverbox{padding:8px;margin-bottom:7px}.serverbox label{display:none}.serverbox select{padding:8px}.navlabel{display:none}.nav-search{margin:0 0 7px}.nav{display:flex;overflow-x:auto;gap:5px;padding-bottom:3px}.nav a{white-space:nowrap;padding:8px 10px;font-size:12px}.sidefoot{display:none}.main{padding:17px 13px 30px}.top{margin-bottom:16px}.hero{padding:18px}.heroimg{width:68px;height:68px}.card,.card.half,.card.third{grid-column:1/-1}.formgrid{grid-template-columns:1fr}h1{font-size:28px}.stat{font-size:26px}}
 /* Extra mobile ergonomics: safe-area spacing, touch targets, readable forms, and clear focus. */
 html{scroll-padding-top:150px;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{overflow-x:hidden}
@@ -238,19 +249,40 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   .side{position:relative}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
-
+/* Mobile navigation drawer: keep every category reachable on short screens. */
+.mobile-nav-toggle{display:none;border:1px solid var(--line);background:var(--white);color:var(--brown);border-radius:10px;min-height:42px;min-width:44px;padding:8px 12px;font-size:20px;line-height:1;cursor:pointer}
+.mobile-nav-close{display:none}
+.nav-backdrop{display:none}
+@media(max-width:650px){
+  body.nav-open{overflow:hidden}
+  .side{position:fixed!important;inset:0 auto 0 0;width:min(86vw,310px);height:100vh;height:100dvh;max-height:100dvh;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;touch-action:pan-y;transform:translateX(-105%);transition:transform .22s ease;z-index:100;display:flex!important;flex-direction:column;gap:14px;padding:calc(12px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom))!important;border-right:1px solid var(--line);border-bottom:0;box-shadow:12px 0 35px #38251d20}
+  .side.mobile-open{transform:translateX(0)}
+  .side>form,.side>div{flex-shrink:0}
+  .side .nav{display:grid!important;overflow:visible!important;flex-shrink:0;gap:4px;padding-bottom:8px;scroll-snap-type:none}
+  .side .nav a{white-space:normal;flex:initial;width:100%;min-height:44px;font-size:13px;padding:11px 12px;scroll-snap-align:none}
+  .side .navlabel{display:block}
+  .side .sidefoot{display:block;margin-top:auto;padding-top:12px}
+  .mobile-nav-toggle{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .top{justify-content:flex-start;flex-wrap:wrap}
+  .top .crumb{flex:1;min-width:0;align-self:center}
+  .profile{margin-left:auto}
+  .nav-backdrop{display:block;position:fixed;inset:0;background:rgba(38,25,18,.42);z-index:99;opacity:0;visibility:hidden;transition:opacity .2s,visibility .2s;border:0;padding:0}
+  .nav-backdrop.visible{opacity:1;visibility:visible}
+  .mobile-nav-close{display:inline-flex;align-items:center;justify-content:center;align-self:flex-end;border:1px solid var(--line);border-radius:9px;background:var(--white);color:var(--brown);min-height:40px;min-width:44px;font-size:20px;margin-bottom:-4px}
+}
 """
 
 
 def _header():
-    return "<header class='top'><div class='crumb'>Cinnamon / Server dashboard</div><div class='profile'>" + _esc(session.get("display_name", "Discord user")) + " <a class='btn secondary small' href='/logout'>Log out</a></div></header>"
+    return "<header class='top'><button class='mobile-nav-toggle' id='liveMenuBtn' type='button' aria-label='Open categories' aria-controls='liveSidebar' aria-expanded='false'>☰</button><div class='crumb'>Cinnamon / Server dashboard</div><div class='profile'>" + _esc(session.get("display_name", "Discord user")) + " <a class='btn secondary small' href='/logout'>Log out</a></div></header>"
 
 
 def _nav(guild_id, tab):
-    items = [("overview", "⌂", "Overview"), ("moderation", "🛡", "Moderation"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community"), ("system", "⚙", "Settings & Logs")]
-    return "<div class='navlabel'>Workspace</div><nav class='nav'>" + "".join(
+    items = [("overview", "⌂", "Overview"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
+    links = "".join(
         f"<a class='{'active' if tab == key else ''}' href='/dashboard?guild_id={guild_id}&tab={key}'><span>{ico}</span>{label}</a>" for key, ico, label in items
-    ) + "</nav>"
+    )
+    return "<div class='navlabel'>Workspace</div><label class='field nav-search'><input id='dashboardNavSearch' type='search' placeholder='Search settings…' aria-label='Search dashboard settings'></label><nav class='nav' id='dashboardNav'>" + links + "</nav>"
 
 
 def _shell(guild, guilds, tab, body, notice=None):
@@ -261,10 +293,11 @@ def _shell(guild, guilds, tab, body, notice=None):
             selected = " selected" if str(item.get("id")) == str(gid) else ""
             options.append(f"<option value='{_esc(item['id'])}'{selected}>{_esc(item.get('name','Server'))}</option>")
     select = "<form action='/dashboard' method='get'><input type='hidden' name='tab' value='overview'><div class='serverbox'><label>Selected server</label><select name='guild_id' onchange='this.form.submit()'>" + "".join(options) + "</select></div></form>"
-    side = "<aside class='side'><div class='brand'><img class='mascot' src='/static/cinnamon_mascot.jpg' alt=''><span>Cinnamon <span style='font-weight:500;color:var(--taupe)'>Control</span></span></div>" + select + _nav(gid, tab) + "<div class='sidefoot'>Cozy controls, careful paws. 🐾<br>Changes are logged where configured.</div></aside>"
+    side = "<aside class='side' id='liveSidebar' aria-label='Dashboard categories'><button class='mobile-nav-close' id='liveMenuClose' type='button' aria-label='Close categories'>×</button><div class='brand'><img class='mascot' src='/static/cinnamon_mascot.svg' alt=''><span>Cinnamon <span style='font-weight:500;color:var(--taupe)'>Control</span></span></div>" + select + _nav(gid, tab) + "<div class='sidefoot'>Cozy controls, careful paws. 🐾<br>Changes are logged where configured.</div></aside><button class='nav-backdrop' id='liveNavBackdrop' type='button' aria-label='Close categories'></button>"
     notice_html = f"<div class='notice'>{_esc(notice)}</div>" if notice else ""
     title = f"{guild.name} • Cinnamon Dashboard"
-    return _page("<div class='layout'>" + side + "<main class='main'>" + _header() + notice_html + body + "<div class='footer'>Cinnamon • Server controls are permission-checked. Keep your Discord account secure.</div></main></div>", title)
+    nav_script = "<script src='/static/dashboard-mobile.js' defer></script>"
+    return _page("<div class='layout'>" + side + "<main class='main'>" + _header() + notice_html + body + "<div class='footer'>Cinnamon • Server controls are permission-checked. Keep your Discord account secure.</div></main></div>" + nav_script, title)
 
 
 def _channel_select(guild, name, selected=None, allow_none=True, multiple=False, size=7):
@@ -309,9 +342,23 @@ def _role_select(guild, name, selected=None, allow_none=True):
     roles = sorted([r for r in guild.roles if not r.is_default() and not r.managed], key=lambda r: r.position, reverse=True)
     opts = ["<option value=''>— Not set —</option>"] if allow_none else []
     for role in roles:
-        sel = " selected" if selected is not None and int(selected) == role.id else ""
+        try: sel = " selected" if selected is not None and str(selected).isdigit() and int(selected) == role.id else ""
+        except (TypeError, ValueError): sel = ""
         opts.append(f"<option value='{role.id}'{sel}>@{_esc(role.name)}</option>")
     return f"<select name='{_esc(name)}'>" + "".join(opts) + "</select>"
+
+
+def _role_multi_select(guild, name, selected=None):
+    """Accessible checkbox picker that submits role IDs, not names typed by hand."""
+    try: selected_ids={int(x) for x in (selected or [])}
+    except (TypeError,ValueError): selected_ids=set()
+    roles=sorted([r for r in guild.roles if not r.is_default() and not r.managed],key=lambda r:r.position,reverse=True)
+    if not roles: return "<p class='muted'>No assignable roles found.</p>"
+    boxes=[]
+    for role in roles:
+        checked=" checked" if role.id in selected_ids else ""
+        boxes.append(f"<label style='display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:9px'><input type='checkbox' name='{_esc(name)}' value='{role.id}'{checked} style='width:17px;height:17px;accent-color:var(--orange)'><span>@{_esc(role.name)}</span></label>")
+    return "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;max-height:230px;overflow:auto;padding:2px'>"+"".join(boxes)+"</div>"
 
 
 def _form(guild_id, action, content, button="Save changes", danger=False):
@@ -367,11 +414,13 @@ def _overview(guild, state):
         ("AutoMod", bool(state.get("automod_config", {}).get(gid)), "moderation"),
         ("Anti-raid alerts", bool(state.get("antiraid_config", {}).get(gid, {}).get("enabled")), "moderation"),
         ("AI channel", bool(state.get("ai_channels", {}).get(gid)), "community"),
-        ("Economy feed quests", bool(state.get("ECONOMY_QUESTS")), "economy"),
         ("Hangry Games", bool(state.get("hg_cog")), "hangry"),
     ]
     status_cards = "".join(f"<div class='toggle'><span><b>{_esc(name)}</b><small>{'Configured / enabled' if enabled else 'Not configured / disabled'}</small></span><span class='pill {'good' if enabled else 'warn'}'>{'ON' if enabled else 'OFF'}</span></div>" for name,enabled,_ in flags)
-    body = f"<section class='hero'><div><h1>Welcome to { _esc(guild.name) }</h1><p>Here's a quick look at your server and Cinnamon's connected systems.</p><div class='actions'><a class='btn' href='/dashboard?guild_id={gid}&tab=moderation'>Manage moderation</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=system'>Configure Cinnamon</a></div></div><img class='heroimg' src='/static/cinnamon_mascot.jpg' alt='Cinnamon'></section><div class='grid'>{cards}<article class='card half'><h2>Feature status</h2>{status_cards}</article><article class='card half'><h2>Cinnamon health</h2><p class='muted'>Live connection status from the running bot.</p><div class='toggle'><b>Gateway</b><span class='pill good'>Online</span></div><div class='toggle'><b>Storage</b><span class='pill'>{'Upstash configured' if state.get('BD_UPSTASH_URL') and state.get('BD_UPSTASH_TOKEN') else 'Local file mode'}</span></div><div class='toggle'><b>Latency</b><span>{round(_bot.latency*1000)} ms</span></div><p class='muted'>For deeper diagnostics, use <b>/diagnostics</b> in Discord.</p></article></div>"
+    ready = bool(_bot and _bot.is_ready())
+    latency = f"{round(_bot.latency*1000)} ms" if ready else "Unavailable"
+    storage = "Upstash configured" if state.get("BD_UPSTASH_URL") and state.get("BD_UPSTASH_TOKEN") else "Local file mode — redeploys may reset data"
+    body = f"<section class='hero'><div><h1>Welcome to { _esc(guild.name) }</h1><p>Here's a quick look at your server and Cinnamon's connected systems.</p><div class='actions'><a class='btn' href='/dashboard?guild_id={gid}&tab=moderation'>Manage moderation</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=system'>Configure Cinnamon</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=message_studio'>Message Studio</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=analytics'>Analytics</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=activity_logs'>Activity logs</a></div></div><img class='heroimg' src='/static/cinnamon_mascot.svg' alt='Cinnamon'></section><div class='grid'>{cards}<article class='card half'><h2>Feature status</h2>{status_cards}</article><article class='card half'><h2>Cinnamon health</h2><p class='muted'>Live connection status from the running bot.</p><div class='toggle'><b>Gateway</b><span class='pill {'good' if ready else 'warn'}'>{'Online' if ready else 'Not ready'}</span></div><div class='toggle'><b>Storage</b><span class='pill {'good' if state.get('BD_UPSTASH_URL') and state.get('BD_UPSTASH_TOKEN') else 'warn'}'>{_esc(storage)}</span></div><div class='toggle'><b>Latency</b><span>{latency}</span></div><p class='muted'>For deeper diagnostics, use <b>/diagnostics</b> in Discord.</p></article></div>"
     return body
 
 
@@ -450,7 +499,7 @@ def _friendship(guild,state):
     entries.sort(key=lambda x:x[1],reverse=True); rows=''.join(f"<tr><td>{i}</td><td>{_esc(guild.get_member(u).display_name if guild.get_member(u) else 'Member '+str(u))}</td><td>{pts:,}</td><td>{lvl}</td></tr>" for i,(u,pts,lvl) in enumerate(entries[:25],1)) or "<tr><td colspan='4'>No friendship data yet.</td></tr>"
     log_id=state.get("category_log_channels",{}).get(gid,{}).get("friendship"); ch=guild.get_channel(log_id) if log_id else None
     levels=''.join(f"<div class='toggle'><b>{name}</b><span>{points:,} points</span></div>" for points,name in thresholds)
-    return f"<h1>Cinnamon Friendship</h1><p class='muted'>See friendship progress and server-level logging. Individual friendship interactions stay in Discord.</p><div class='grid'><article class='card third'><div class='statlabel'>Tracked humans</div><div class='stat'>{len(entries):,}</div></article><article class='card third'><div class='statlabel'>Friendship log</div><div class='stat'>{_esc(ch.name if ch else 'Off')}</div></article><article class='card third'><div class='statlabel'>Highest points</div><div class='stat'>{entries[0][1]:,}</div></article><article class='card half'><h2>Friendship levels</h2>{levels}</article><article class='card half'><h2>Leaderboard</h2><div class='tablewrap'><table><thead><tr><th>#</th><th>Member</th><th>Points</th><th>Level</th></tr></thead><tbody>{rows}</tbody></table></div></article></div>"
+    return f"<h1>Cinnamon Friendship</h1><p class='muted'>See friendship progress and server-level logging. Individual friendship interactions stay in Discord.</p><div class='grid'><article class='card third'><div class='statlabel'>Tracked humans</div><div class='stat'>{len(entries):,}</div></article><article class='card third'><div class='statlabel'>Friendship log</div><div class='stat'>{_esc(ch.name if ch else 'Off')}</div></article><article class='card third'><div class='statlabel'>Highest points</div><div class='stat'>{entries[0][1] if entries else 0:,}</div></article><article class='card half'><h2>Friendship levels</h2>{levels}</article><article class='card half'><h2>Leaderboard</h2><div class='tablewrap'><table><thead><tr><th>#</th><th>Member</th><th>Points</th><th>Level</th></tr></thead><tbody>{rows}</tbody></table></div></article></div>"
 
 
 def _economy(guild,state):
@@ -465,33 +514,107 @@ def _economy(guild,state):
     item_rows="".join(items) or "<tr><td colspan='3'>No shop items available.</td></tr>"
     add_form="<div class='formgrid'><div class='field'><label>Item ID (unique)</label><input name='item_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div><div class='field'><label>Name</label><input name='name' maxlength='80' required></div><div class='field'><label>Price</label><input name='price' type='number' min='1' max='10000000' required></div><div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='🐾'></div><div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='0'></div><div class='field'><label>Description</label><input name='description' maxlength='300'></div></div>"
     add_card="<article class='card full'><h2>Add shop item</h2>"+_form(gid,"economy_item_add",add_form,"Create item")+"</article>"
-    quests=state.get("ECONOMY_QUESTS",{}); qrows=[]
-    item_options="".join(f"<option value='{_esc(k)}'>{_esc(v.get('name',k))}</option>" for k,v in shop.items())
-    for qid,q in quests.items():
-        qcontent=f"<input type='hidden' name='quest_id' value='{_esc(qid)}'><div class='formgrid'><div class='field'><label>Quest name</label><input name='name' maxlength='80' value='{_esc(q.get('name',qid))}' required></div><div class='field'><label>Required item</label><select name='item'>{''.join(f"<option value='{_esc(k)}'{" selected" if k==q.get('item') else ""}>{_esc(v.get('name',k))}</option>" for k,v in shop.items())}</select></div><div class='field'><label>Quantity</label><input name='amount' type='number' min='1' max='999' value='{int(q.get('amount',1))}' required></div><div class='field'><label>Catnip reward</label><input name='reward' type='number' min='0' max='10000000' value='{int(q.get('reward',0))}' required></div><div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(q.get('description',''))}'></div></div>"
-        qform=_form(gid,"economy_quest_save",qcontent,"Save quest")
-        qremove=f"<form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='economy_quest_remove'><input type='hidden' name='quest_id' value='{_esc(qid)}'><button class='btn danger small'>Remove quest</button></form>"
-        qrows.append(f"<article class='card half'><h3>{_esc(q.get('name',qid))}</h3>{qform}{qremove}</article>")
-    qadd="<input type='hidden' name='quest_id' value=''><div class='formgrid'><div class='field'><label>Quest ID</label><input name='new_quest_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div><div class='field'><label>Quest name</label><input name='name' maxlength='80' required></div><div class='field'><label>Required item</label><select name='item' required>"+item_options+"</select></div><div class='field'><label>Quantity</label><input name='amount' type='number' min='1' max='999' value='1' required></div><div class='field'><label>Catnip reward</label><input name='reward' type='number' min='0' max='10000000' value='100' required></div><div class='field'><label>Description</label><input name='description' maxlength='300'></div></div>"
-    quest_card="<article class='card full'><h2>Add economy quest</h2>"+_form(gid,"economy_quest_add",qadd,"Create quest")+"</article>"
-    body=f"<h1>Catnip economy</h1><p class='muted'>Manage the shared shop catalog. Member balances and inventories are preserved.</p><div class='grid'><article class='card third'><div class='statlabel'>Economy members</div><div class='stat'>{users:,}</div></article><article class='card third'><div class='statlabel'>Total Catnip in circulation</div><div class='stat'>{total:,} 🌿</div></article><article class='card third'><div class='statlabel'>Shop items</div><div class='stat'>{len(shop)}</div></article><article class='card half'><h2>Top balances</h2><div class='tablewrap'><table><thead><tr><th>#</th><th>Member</th><th>Balance</th><th>Items</th></tr></thead><tbody>{rows}</tbody></table></div></article><article class='card half'><h2>Economy configuration</h2><p class='muted'>Daily reward: <b>{int(state.get('ECONOMY_DAILY_REWARD',150)):,} Catnip</b></p><p class='muted'>Work range: <b>{int(state.get('ECONOMY_WORK_MIN',50)):,}–{int(state.get('ECONOMY_WORK_MAX',150)):,}</b></p><p class='muted'>Work cooldown: <b>{int(state.get('ECONOMY_WORK_COOLDOWN',600))//60} minutes</b></p><p class='muted'>Economy logs: {_esc(guild.get_channel(state.get('economy_log_channels',{}).get(gid)).mention if guild.get_channel(state.get('economy_log_channels',{}).get(gid)) else 'Not configured')}</p></article><article class='card full'><h2>Catnip shop catalog</h2><div class='tablewrap'><table><thead><tr><th>Item</th><th colspan='2'>Edit fields</th></tr></thead><tbody>{item_rows}</tbody></table></div></article>{add_card}<article class='card full'><h2>Economy quests</h2><p class='muted'>These are the current feed-item quests. Daily/weekly quests and achievements are not implemented in this main.py.</p></article>{''.join(qrows)}{quest_card}</div>"
+    income_cfg=state.get("economy_income_roles",{}).get(gid,{}) or state.get("economy_income_roles",{}).get(str(gid),{})
+    income_rows=[]
+    for role_id,cfg in income_cfg.items():
+        role=guild.get_role(int(role_id)) if str(role_id).isdigit() else None
+        if not role: role_name=f"Missing role ({role_id})"
+        else: role_name=role.mention
+        amount=max(0,int(cfg.get("amount",0))); cooldown=max(60,int(cfg.get("cooldown",3600)))
+        interval=int(cfg.get("interval",max(1,cooldown//60))); unit=str(cfg.get("unit","minute"))
+        income_rows.append(f"<div class='toggle'><span><b>{_esc(role_name)}</b><small>{amount:,} Catnip every {interval} {_esc(unit)}(s)</small></span><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='economy_income_remove'><input type='hidden' name='role_id' value='{_esc(role_id)}'><button class='btn danger small' type='submit'>Remove</button></form></div>")
+    income_add="<div class='formgrid'><div class='field'><label>Income role</label>"+_role_select(guild,"role_id",allow_none=False)+"</div><div class='field'><label>Catnip per collection</label><input name='amount' type='number' min='1' max='1000000' value='100' required></div><div class='field'><label>Interval</label><input name='interval' type='number' min='1' max='1000' value='1' required></div><div class='field'><label>Time unit</label><select name='unit'><option value='minute'>Minutes</option><option value='hour'>Hours</option><option value='day'>Days</option><option value='week'>Weeks</option></select></div></div>"
+    income_card="<article class='card full'><h2>Role-based Catnip income</h2><p class='muted'>Members with a configured role can collect its recurring income using Cinnamon's existing collect command. Role income changes are audited and saved to the bot's data store.</p>"+(''.join(income_rows) or "<p class='muted'>No role income rules configured.</p>")+_form(gid,"economy_income_add",income_add,"Save role income")+"</article>"
+    body=f"<h1>Catnip economy</h1><p class='muted'>Manage the shared shop catalog, role income rules, and live economy statistics. Member balances and inventories are preserved.</p><div class='grid'><article class='card third'><div class='statlabel'>Economy members</div><div class='stat'>{users:,}</div></article><article class='card third'><div class='statlabel'>Total Catnip in circulation</div><div class='stat'>{total:,} 🌿</div></article><article class='card third'><div class='statlabel'>Shop items</div><div class='stat'>{len(shop)}</div></article><article class='card half'><h2>Top balances</h2><div class='tablewrap'><table><thead><tr><th>#</th><th>Member</th><th>Balance</th><th>Items</th></tr></thead><tbody>{rows}</tbody></table></div></article><article class='card half'><h2>Economy configuration</h2><p class='muted'>Daily reward: <b>{int(state.get('ECONOMY_DAILY_REWARD',150)):,} Catnip</b></p><p class='muted'>Work range: <b>{int(state.get('ECONOMY_WORK_MIN',50)):,}–{int(state.get('ECONOMY_WORK_MAX',150)):,}</b></p><p class='muted'>Work cooldown: <b>{int(state.get('ECONOMY_WORK_COOLDOWN',600))//60} minutes</b></p><p class='muted'>Economy logs: {_esc(guild.get_channel(state.get('economy_log_channels',{}).get(gid)).mention if guild.get_channel(state.get('economy_log_channels',{}).get(gid)) else 'Not configured')}</p></article><article class='card full'><h2>Catnip shop catalog</h2><div class='tablewrap'><table><thead><tr><th>Item</th><th colspan='2'>Edit fields</th></tr></thead><tbody>{item_rows}</tbody></table></article>{add_card}{income_card}</div>"
     return body
 
 
+def _automation(guild,state):
+    gid=guild.id
+    welcome=state.get("welcome_config",{}).get(gid,{}) or state.get("welcome_config",{}).get(str(gid),{})
+    goodbye=state.get("goodbye_config",{}).get(gid,{}) or state.get("goodbye_config",{}).get(str(gid),{})
+    ai=state.get("ai_channels",{}).get(gid) or state.get("ai_channels",{}).get(str(gid))
+    automod=state.get("automod_config",{}).get(gid,{}) or state.get("automod_config",{}).get(str(gid),{})
+    antiraid=state.get("antiraid_config",{}).get(gid,{}) or state.get("antiraid_config",{}).get(str(gid),{})
+    schedules=[cfg for cfg in (state.get("giveaway_schedules",{}) or {}).values() if int(cfg.get("guild_id",0))==gid and cfg.get("enabled",True)]
+    def pill(on): return "<span class='pill good'>Active</span>" if on else "<span class='pill warn'>Not configured</span>"
+    cards=(f"<article class='card third'><div class='statlabel'>Welcome messages</div><div class='stat'>{'On' if welcome else 'Off'}</div>{pill(bool(welcome))}</article>"
+           f"<article class='card third'><div class='statlabel'>Goodbye messages</div><div class='stat'>{'On' if goodbye else 'Off'}</div>{pill(bool(goodbye))}</article>"
+           f"<article class='card third'><div class='statlabel'>Always-on Cinnamon</div><div class='stat'>{'On' if ai else 'Off'}</div>{pill(bool(ai))}</article>"
+           f"<article class='card third'><div class='statlabel'>AutoMod rules</div><div class='stat'>{'On' if automod else 'Off'}</div>{pill(bool(automod))}</article>"
+           f"<article class='card third'><div class='statlabel'>Anti-raid</div><div class='stat'>{'On' if antiraid.get('enabled') else 'Off'}</div>{pill(bool(antiraid.get('enabled')))}</article>"
+           f"<article class='card third'><div class='statlabel'>Recurring giveaways</div><div class='stat'>{len(schedules)}</div>{pill(bool(schedules))}</article>")
+    welcome_content="<div class='formgrid'><div class='field'><label>Welcome channel</label>"+_channel_select(guild,"channel_id",welcome.get("channel_id"))+"</div><div class='field'><label>Message template</label><input name='message' maxlength='800' required value='"+_esc(welcome.get("message","Welcome {member} to {server}! 🐾"))+"'></div></div><p class='muted'>Supported placeholders: {member} and {server}.</p>"
+    goodbye_content="<div class='formgrid'><div class='field'><label>Goodbye channel</label>"+_channel_select(guild,"channel_id",goodbye.get("channel_id"))+"</div><div class='field'><label>Message template</label><input name='message' maxlength='800' required value='"+_esc(goodbye.get("message","Goodbye {member}. Thanks for visiting {server}! 🐾"))+"'></div></div><p class='muted'>Supported placeholders: {member} and {server}.</p>"
+    ai_content="<div class='field'><label>Always-on Cinnamon channel</label>"+_channel_select(guild,"channel_id",ai)+"</div><p class='muted'>Cinnamon responds to regular messages in the selected channel. Use the Community & AI page to configure related options.</p>"
+    quick="<div class='actions'><a class='btn secondary' href='/dashboard?guild_id="+str(gid)+"&tab=moderation'>Configure AutoMod & anti-raid</a><a class='btn secondary' href='/dashboard?guild_id="+str(gid)+"&tab=giveaways'>Manage giveaway schedules</a><a class='btn secondary' href='/dashboard?guild_id="+str(gid)+"&tab=system'>Manage logs & recovery</a></div>"
+    return ("<h1>Automation Studio</h1><p class='muted'>A single place to monitor Cinnamon's event-driven automations and jump into their detailed settings. Changes are permission-checked and saved through the existing bot data store.</p><div class='grid'>"+cards+"</div><div class='grid'><article class='card half'><h2>Welcome automation</h2>"+_form(gid,"welcome",welcome_content,"Save welcome rule")+"</article><article class='card half'><h2>Goodbye automation</h2>"+_form(gid,"goodbye",goodbye_content,"Save goodbye rule")+"</article><article class='card full'><h2>Always-on Cinnamon</h2>"+_form(gid,"ai_channel",ai_content,"Save AI channel")+"</article><article class='card full'><h2>Rule management</h2><p class='muted'>AutoMod, anti-raid, XP filters, scheduled giveaways, and log routing are managed by their dedicated pages. This hub shows their current state without pretending disabled rules are running.</p>"+quick+"</article></div>")
+
+
 def _giveaways(guild,state):
-    gid=guild.id; active=state.get("active_giveaways",{})
+    gid=guild.id; active=state.get("active_giveaways",{}) or {}; history=state.get("giveaway_history",{}) or {}
     cards=[]
     for mid,gw in active.items():
         if int(gw.get("guild_id",0))!=gid: continue
         remain=max(0,int((float(gw.get('ends_at',0))-time.time())//60))
-        content=f"<p class='muted'>Message ID: <code>{int(mid)}</code> · Entries: {len(gw.get('entrants',[]))} · Ends in approx. {remain} min</p><div class='formgrid'><div class='field'><label>Prize</label><input name='prize' maxlength='200' value='{_esc(gw.get('prize',''))}' required></div><div class='field'><label>Number of winners</label><input name='winners' type='number' min='1' max='20' value='{int(gw.get('winners',1))}' required></div><div class='field'><label>Reset duration (minutes from save)</label><input name='duration_minutes' type='number' min='1' max='43200' value='{max(1,remain)}' required></div><div class='field' style='grid-column:1/-1'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='1200' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'>{_esc(chr(10).join(f"{rid}:{count}" for rid,count in gw.get('bonus_roles',{}).items()))}</textarea><small>One role per line; use the numeric role ID followed by extra entries (1–20), e.g. 123456789012345678:2. Members with multiple listed roles receive each bonus.</small></div></div>"
+        content=(f"<p class='muted'>Message ID: <code>{int(mid)}</code> · Entries: {len(set(gw.get('entrants',[])))} · Ends in approx. {remain} min</p>"
+        f"<div class='formgrid'><div class='field'><label>Prize</label><input name='prize' maxlength='200' value='{_esc(gw.get('prize',''))}' required></div>"
+        f"<div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='{int(gw.get('winners',1))}' required></div>"
+        f"<div class='field'><label>Reset duration (minutes from save)</label><input name='duration_minutes' type='number' min='1' max='525600' value='{max(1,remain)}' required></div>"
+        f"<div class='field'><label>Entry button / reaction emoji</label><input name='entry_emoji' maxlength='40' value='{_esc(gw.get('entry_emoji','🎉'))}'></div>"
+        f"<div class='field'><label><input type='checkbox' name='reaction_entries' value='1'{(' checked' if gw.get('reaction_entries') else '')}> Also allow reaction entry</label><small>Bot must have Add Reactions and Manage Messages to remove ineligible entries.</small></div>"
+        f"<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'>{_esc(chr(10).join(f'{rid}:{count}' for rid,count in (gw.get('bonus_roles',{}) or {}).items()))}</textarea><small>Each listed role adds 1–20 entries. A member can receive bonuses from multiple roles.</small></div>"
+        f"<div class='field'><label>Minimum Discord account age (days, 0 = none)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='{int(gw.get('min_account_age_days',0) or 0)}'></div>"
+        f"<div class='field'><label>Minimum server membership (days, 0 = none)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='{int(gw.get('min_server_age_days',0) or 0)}'></div>"
+        f"<div class='field full'><label>Required roles (member needs at least one)</label>{_role_multi_select(guild,'required_roles',gw.get('required_roles',[]))}</div>"
+        f"<div class='field full'><label>Requirement-bypass roles (skip required roles and age checks)</label>{_role_multi_select(guild,'bypass_roles',gw.get('bypass_roles',[]))}</div>"
+        f"<div class='field full'><label>Blacklisted roles (always blocked, even if bypass role is present)</label>{_role_multi_select(guild,'blacklisted_roles',gw.get('blacklisted_roles',[]))}</div>"
+        f"<div class='field'><label>Winner role (optional)</label>{_role_select(guild,'winner_role_id',gw.get('winner_role_id'),True)}</div>"
+        f"<div class='field'><label>Remove winner role after (minutes, 0 = keep)</label><input name='winner_role_minutes' type='number' min='0' max='525600' value='{int(gw.get('winner_role_minutes',0) or 0)}'></div>"
+        f"<div class='field'><label>Winner thread auto-close (minutes, 0 = off)</label><input name='winner_thread_minutes' type='number' min='0' max='10080' value='{int(gw.get('winner_thread_minutes',0) or 0)}'></div>"
+        f"<div class='field'><label>Embed colour (hex)</label><input name='embed_color' maxlength='7' value='{_esc(str(gw.get('embed_color','FEE75C')).lstrip('#'))}'></div>"
+        f"<div class='field'><label>Embed title (optional)</label><input name='embed_title' maxlength='256' value='{_esc(gw.get('embed_title',''))}'></div>"
+        f"<div class='field full'><label>Embed description (optional)</label><textarea name='embed_description' maxlength='3500'>{_esc(gw.get('embed_description',''))}</textarea></div>"
+        f"<div class='field'><label>Entry confirmation</label><input name='entry_message' maxlength='300' value='{_esc(gw.get('entry_message','🎉 You\'re entered! Tap again to leave.'))}'></div>"
+        f"<div class='field'><label>Leave confirmation</label><input name='leave_message' maxlength='300' value='{_esc(gw.get('leave_message','You left the giveaway.'))}'></div>"
+        f"<div class='field full'><label>Eligibility-denied message</label><input name='denied_message' maxlength='300' value='{_esc(gw.get('denied_message','You do not meet this giveaway\'s entry requirements.'))}'></div></div>")
         edit=_form(gid,"giveaway_edit",f"<input type='hidden' name='message_id' value='{int(mid)}'>{content}","Save giveaway")
-        end=f"<form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_end'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn secondary small'>End & pick winners</button></form><form method='post' action='/dashboard/action' onsubmit='return confirm(&quot;Cancel this giveaway without winners?&quot;);'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_cancel'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn danger small'>Cancel giveaway</button></form>"
-        cards.append(f"<article class='card half'><h3>{_esc(gw.get('prize','Giveaway'))}</h3>{edit}<div class='actions'>{end}</div></article>")
+        template_form=_form(gid,"giveaway_template_save",f"<input type='hidden' name='message_id' value='{int(mid)}'><div class='field'><label>Template name</label><input name='template_name' maxlength='40' required placeholder='e.g. Monthly Tuna'></div>","Save as template")
+        end=(f"<form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_end'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn secondary small'>End & pick winners</button></form>"
+             f"<form method='post' action='/dashboard/action' onsubmit='return confirm(&quot;Cancel this giveaway without winners?&quot;);'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_cancel'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn danger small'>Cancel giveaway</button></form>")
+        cards.append(f"<article class='card full'><h3>🎉 {_esc(gw.get('prize','Giveaway'))}</h3>{edit}<div class='grid'><article class='card half'><h3>Reusable template</h3>{template_form}</article><article class='card half'><h3>Finish or cancel</h3><div class='actions'>{end}</div></article></div></article>")
     channels=_channel_select(guild,"channel_id",allow_none=False)
-    create="<div class='formgrid'><div class='field'><label>Post in</label>"+channels+"</div><div class='field'><label>Prize</label><input name='prize' maxlength='200' required></div><div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='20' value='1' required></div><div class='field'><label>Duration (minutes)</label><input name='duration_minutes' type='number' min='1' max='43200' value='60' required></div><div class='field' style='grid-column:1/-1'><label>Bonus entries by role (optional)</label><textarea name='bonus_roles' maxlength='1200' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'></textarea><small>Use role ID:extra entries (1–20), one per line. Members with multiple listed roles receive each bonus.</small></div></div>"
-    create_card="<article class='card full'><h2>Create giveaway</h2>"+_form(gid,"giveaway_create",create,"Start giveaway")+"<p class='muted'>Role-based bonus entries are not supported by the current giveaway entry data model, so this dashboard does not display a nonfunctional option.</p></article>"
-    body="<h1>Giveaways</h1><p class='muted'>Create, edit the prize or duration, and end active giveaways. Existing entrants are retained when editing.</p><div class='grid'>"+(''.join(cards) or "<article class='card full'><div class='empty'>No active giveaways in this server.</div></article>")+create_card+"</div>"
+    create=("<div class='formgrid'><div class='field'><label>Post in</label>"+channels+"</div><div class='field'><label>Prize</label><input name='prize' maxlength='200' required></div>"
+    "<div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='1' required></div><div class='field'><label>Duration (minutes; max 1 year)</label><input name='duration_minutes' type='number' min='1' max='525600' value='60' required></div>"
+    "<div class='field'><label>Entry button / reaction emoji</label><input name='entry_emoji' maxlength='40' value='🎉'></div><div class='field'><label>Embed colour (hex)</label><input name='embed_color' maxlength='7' value='FEE75C'></div>"
+    "<div class='field'><label><input type='checkbox' name='reaction_entries' value='1'> Also allow reaction entry</label><small>Bot needs Add Reactions and Manage Messages to remove ineligible entries.</small></div>"
+    "<div class='field'><label>Minimum account age (days)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='0'></div><div class='field'><label>Minimum server membership (days)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='0'></div>"
+    "<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'></textarea><small>Role IDs can be copied from Discord with Developer Mode enabled. Each listed role adds 1–20 entries.</small></div>"
+    "<div class='field full'><label>Required roles (member needs at least one)</label>"+_role_multi_select(guild,"required_roles")+"</div>"
+    "<div class='field full'><label>Requirement-bypass roles</label>"+_role_multi_select(guild,"bypass_roles")+"</div>"
+    "<div class='field full'><label>Blacklisted roles (always blocked)</label>"+_role_multi_select(guild,"blacklisted_roles")+"</div>"
+    "<div class='field'><label>Winner role (optional)</label>"+_role_select(guild,"winner_role_id",None,True)+"</div><div class='field'><label>Remove winner role after (minutes; 0 = keep)</label><input name='winner_role_minutes' type='number' min='0' max='525600' value='0'></div>"
+    "<div class='field'><label>Winner thread auto-close (minutes; 0 = off)</label><input name='winner_thread_minutes' type='number' min='0' max='10080' value='0'></div><div class='field'><label>Embed title (optional)</label><input name='embed_title' maxlength='256'></div>"
+    "<div class='field full'><label>Embed description (optional)</label><textarea name='embed_description' maxlength='3500' placeholder='Additional details for your giveaway'></textarea></div>"
+    "<div class='field'><label>Entry confirmation</label><input name='entry_message' maxlength='300' value='🎉 You are entered! Tap again to leave.'></div><div class='field'><label>Leave confirmation</label><input name='leave_message' maxlength='300' value='You left the giveaway.'></div>"
+    "<div class='field full'><label>Eligibility-denied message</label><input name='denied_message' maxlength='300' value='You do not meet this giveaway\'s entry requirements.'></div></div>")
+    create_card="<article class='card full'><h2>Create giveaway</h2>"+_form(gid,"giveaway_create",create,"Start giveaway")+"<p class='muted'>Features include eligibility rules, bypass/blacklisted roles, bonus entries, custom embeds and messages, timed winner roles, winner threads, reusable templates, recurring schedules, and rerolls.</p></article>"
+    schedules=state.get("giveaway_schedules",{}) or {}; schedule_rows=[]
+    for sid,cfg in schedules.items():
+        if int(cfg.get("guild_id",0))!=gid: continue
+        ch=guild.get_channel(int(cfg.get("channel_id",0))); next_at=int(cfg.get("next_at",0))
+        schedule_rows.append(f"<div class='toggle'><span><b>{_esc(cfg.get('prize','Giveaway'))}</b><small>{_esc('#'+ch.name if ch else 'Missing channel')} · every {int(cfg.get('repeat_every_days',7))} day(s) · next <t:{next_at}:R></small><small>ID: <code>{_esc(sid)}</code></small></span><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_repeat_stop'><input type='hidden' name='schedule_id' value='{_esc(sid)}'><button class='btn danger small'>Stop</button></form></div>")
+    repeat_form=("<div class='formgrid'><div class='field'><label>Post in</label>"+_channel_select(guild,"channel_id",allow_none=False)+"</div><div class='field'><label>Prize</label><input name='prize' maxlength='200' required></div><div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='1' required></div><div class='field'><label>Giveaway duration (minutes)</label><input name='duration_minutes' type='number' min='1' max='525600' value='1440' required></div><div class='field'><label>Repeat every (days)</label><input name='repeat_every_days' type='number' min='1' max='365' value='7' required></div></div>")
+    repeat_card="<article class='card half'><h2>Recurring giveaways</h2><p class='muted'>Schedules are saved with bot data and continue after restarts.</p>"+(''.join(schedule_rows) or "<p class='muted'>No recurring giveaways configured.</p>")+_form(gid,"giveaway_repeat_create",repeat_form,"Save recurring schedule")+"</article>"
+    templates=state.get("giveaway_templates",{}) or {}; templates=templates.get(gid,templates.get(str(gid),{})) or {}; template_rows=[]
+    for name,cfg in sorted(templates.items()):
+        template_rows.append(f"<div class='toggle'><span><b>{_esc(name)}</b><small>{_esc(cfg.get('prize','Giveaway'))} · {int(cfg.get('winners',1))} winner(s)</small></span><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_template_delete'><input type='hidden' name='template_name' value='{_esc(name)}'><button class='btn danger small'>Delete</button></form></div>")
+    template_card="<article class='card half'><h2>Saved templates</h2>"+(''.join(template_rows) or "<p class='muted'>Save any active giveaway as a reusable template.</p>")+"</article>"
+    finished=[(mid,gw) for mid,gw in history.items() if int(gw.get('guild_id',0))==gid]
+    finished.sort(key=lambda x:float(x[1].get('finished_at',0)),reverse=True)
+    hist_rows=''.join(f"<tr><td>{_esc(gw.get('prize','Giveaway'))}</td><td>{len(set(gw.get('eligible_entrants',gw.get('entrants',[]))))}</td><td>{', '.join(str(x) for x in gw.get('winner_ids',[])) or 'No winner'}</td><td><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_reroll'><input type='hidden' name='message_id' value='{_esc(mid)}'><button class='btn secondary small'>Reroll</button></form></td></tr>" for mid,gw in finished[:20]) or "<tr><td colspan='4'>No finished giveaways in history yet.</td></tr>"
+    history_card="<article class='card full'><h2>Recent finished giveaways</h2><div class='tablewrap'><table><thead><tr><th>Prize</th><th>Eligible entries</th><th>Winner IDs</th><th>Action</th></tr></thead><tbody>"+hist_rows+"</tbody></table></div><p class='muted'>Reroll selects a different eligible entrant from the saved history. History keeps the latest 250 finished giveaways.</p></article>"
+    body="<h1>Giveaways</h1><p class='muted'>Manage entry rules, schedule recurring events, reuse templates, and handle winners from one place.</p><div class='grid'>"+(''.join(cards) or "<article class='card full'><div class='empty'>No active giveaways in this server.</div></article>")+create_card+repeat_card+template_card+history_card+"</div>"
     return body
 
 
@@ -523,7 +646,7 @@ def _community(guild,state):
 
 def _system(guild,state):
     gid=guild.id; hg=state.get("hg_cog"); category_channels=state.get("category_log_channels",{}).get(gid,{})
-    categories=[("moderation","Main moderation"),("economy","Economy"),("ai","AI"),("levels","Levels & XP"),("achievements","Achievements"),("quests","Quests"),("friendship","Cinnamon Friendship"),("community","Giveaways & polls"),("roles","Role management"),("setup","Server setup"),("general","General utilities")]
+    categories=[("moderation","Main moderation"),("economy","Economy"),("ai","AI"),("levels","Levels & XP"),("achievements","Achievements"),("quests","Quests"),("friendship","Cinnamon Friendship"),("community","Giveaways & polls"),("roles","Role management"),("setup","Server setup"),("general","General utilities"),("dashboard","Dashboard audit trail")]
     configured=[]
     for key,label in categories:
         cid=state.get("log_channels",{}).get(gid) if key=="moderation" else (state.get("economy_log_channels",{}).get(gid) if key=="economy" else category_channels.get(key))
@@ -540,8 +663,10 @@ def _system(guild,state):
     setup="<article class='card full'><h2>Guided Cinnamon setup</h2><p class='muted'>Run the same idempotent setup flow as <b>/setup</b>. It creates/reuses Cinnamon's managed log channels and achievement/quest reward roles, but never creates level roles.</p>"+_form(gid,'run_setup',setup_content,'Run /setup from dashboard')+"</article>"
     recall_content="<p class='muted'>Best-effort recovery. Deleted Discord history cannot be recovered.</p>"
     recall="<p class='muted'>Scan configured log channels and merge recoverable warnings, XP, economy state, achievements, quests and Hangry data without intentionally overwriting existing account balances.</p>"+_form(gid,'recall',recall_content,'Run recovery scan')
+    backup_form=(f"<form method='post' action='/dashboard/action' enctype='multipart/form-data'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='config_backup_restore'><div class='field'><label>Choose a Cinnamon configuration backup (.json)</label><input type='file' name='backup_file' accept='.json,application/json' required></div><p class='muted'>Only settings for this server are restored. Balances, inventories, user data, active giveaways, tokens, and secrets are never overwritten by a configuration import.</p><div class='actions'><button class='btn secondary' type='submit'>Validate & restore configuration</button></div></form>")
+    backup=(f"<article class='card full'><h2>Configuration backup</h2><p class='muted'>Export this server's dashboard settings to a JSON file before making major changes. Import accepts only validated configuration keys for this same server.</p><div class='actions'><a class='btn' href='/dashboard/backup?guild_id={gid}'>Download configuration backup</a></div><div class='rule'></div>{backup_form}</article>")
     gateway_pill="<span class='pill good'>Connected</span>" if status else "<span class='pill warn'>Not ready</span>"
-    return f"<h1>Settings & system</h1><p class='muted'>Cinnamon's server control center: logging, setup, persistence and recovery.</p><div class='grid'><article class='card half'><h2>Log routing</h2>{_form(gid,'category_log_set',editor,'Save log route')}{disable}</article><article class='card half'><h2>System health</h2><div class='toggle'><b>Bot Gateway</b>{gateway_pill}</div><div class='toggle'><b>Storage</b><span>{storage}</span></div><div class='toggle'><b>Guild ID</b><span>{gid}</span></div><p class='muted'>Use <b>/diagnostics</b> in Discord for the complete permission/runtime diagnostic.</p></article><article class='card full'><h2>Configured log channels</h2>{items}</article>{setup}<article class='card full'><h2>Recovery</h2>{recall}</article></div>"
+    return f"<h1>Settings & system</h1><p class='muted'>Cinnamon's server control center: logging, setup, persistence and recovery.</p><div class='grid'><article class='card half'><h2>Log routing</h2>{_form(gid,'category_log_set',editor,'Save log route')}{disable}</article><article class='card half'><h2>System health</h2><div class='toggle'><b>Bot Gateway</b>{gateway_pill}</div><div class='toggle'><b>Storage</b><span>{storage}</span></div><div class='toggle'><b>Guild ID</b><span>{gid}</span></div><p class='muted'>Use <b>/diagnostics</b> in Discord for the complete permission/runtime diagnostic.</p></article><article class='card full'><h2>Configured log channels</h2>{items}</article>{setup}<article class='card full'><h2>Recovery</h2>{recall}</article>{backup}</div>"
 
 
 async def _dashboard_setup(guild,state):
@@ -562,6 +687,7 @@ async def _dashboard_setup(guild,state):
         ("cinnamon-role-logs","Role management events."),
         ("cinnamon-setup-logs","Setup and configuration changes."),
         ("cinnamon-general-logs","General utility command usage."),
+        ("cinnamon-dashboard-logs","Dashboard changes, Message Studio sends and audit events."),
         ("cinnamon-welcome","Cinnamon member welcome messages."),
         ("cinnamon-goodbye","Cinnamon member goodbye messages."),
         ("cinnamon-ai","Cinnamon's always-on AI chat channel."),
@@ -585,7 +711,7 @@ async def _dashboard_setup(guild,state):
             try: await guild.create_role(name=name,reason="Cinnamon achievement/quest setup")
             except Exception: pass
     gid=guild.id; state.setdefault("log_channels",{})[gid]=channels["cinnamon-logs"].id; state.setdefault("economy_log_channels",{})[gid]=channels["cinnamon-economy"].id
-    state.setdefault("category_log_channels",{})[gid]={"moderation":channels["cinnamon-logs"].id,"economy":channels["cinnamon-economy"].id,"ai":channels["cinnamon-ai-logs"].id,"levels":channels["cinnamon-level-logs"].id,"achievements":channels["cinnamon-achievement-logs"].id,"quests":channels["cinnamon-quest-logs"].id,"friendship":channels["cinnamon-friendship-logs"].id,"community":channels["cinnamon-community-logs"].id,"roles":channels["cinnamon-role-logs"].id,"setup":channels["cinnamon-setup-logs"].id,"general":channels["cinnamon-general-logs"].id}
+    state.setdefault("category_log_channels",{})[gid]={"moderation":channels["cinnamon-logs"].id,"economy":channels["cinnamon-economy"].id,"ai":channels["cinnamon-ai-logs"].id,"levels":channels["cinnamon-level-logs"].id,"achievements":channels["cinnamon-achievement-logs"].id,"quests":channels["cinnamon-quest-logs"].id,"friendship":channels["cinnamon-friendship-logs"].id,"community":channels["cinnamon-community-logs"].id,"roles":channels["cinnamon-role-logs"].id,"setup":channels["cinnamon-setup-logs"].id,"general":channels["cinnamon-general-logs"].id,"dashboard":channels["cinnamon-dashboard-logs"].id}
     state.setdefault("ai_channels",{})[gid]=channels["cinnamon-ai"].id
     state.setdefault("welcome_config",{})[gid]={"channel_id":channels["cinnamon-welcome"].id,"message":"🐾 Welcome {member} to **{server}**! Cinnamon hopes you brought snacks."}
     state.setdefault("goodbye_config",{})[gid]={"channel_id":channels["cinnamon-goodbye"].id,"message":"🐾 {member} left **{server}**. Cinnamon will miss the head pats!"}
@@ -683,6 +809,319 @@ def oauth_callback():
         return _page("<main class='main'><article class='card'><h1>Discord login failed</h1><p class='muted'>An unexpected login error occurred. Check Render logs.</p><a class='btn' href='/login'>Try again</a></article></main>",status=502)
 
 
+def _analytics(guild, state):
+    """Live, read-only analytics based on the running bot's current state."""
+    gid = guild.id
+    xp = state.get("xp_data", {})
+    xp_users = [(key, value) for key, value in xp.items() if isinstance(key, tuple) and len(key) >= 2 and key[0] == gid]
+    total_xp = sum(max(0, int(value or 0)) for _, value in xp_users)
+    warns = state.get("warnings_data", {})
+    warning_count = sum(len(value) for key, value in warns.items() if isinstance(key, tuple) and key[0] == gid and isinstance(value, list))
+    ach = state.get("achievement_data", {})
+    ach_users = [(key, value) for key, value in ach.items() if isinstance(key, tuple) and len(key) >= 2 and key[0] == gid and isinstance(value, dict)]
+    unlocked = sum(len(value.get("unlocked", [])) for _, value in ach_users)
+    qdata = state.get("quest_data", {})
+    quest_users = [(key, value) for key, value in qdata.items() if isinstance(key, tuple) and len(key) >= 2 and key[0] == gid]
+    balances = state.get("economy_balances", {})
+    guild_balances = [(key, value) for key, value in balances.items() if isinstance(key, tuple) and len(key) >= 2 and key[0] == gid]
+    total_catnip = sum(max(0, int(value or 0)) for _, value in guild_balances)
+    giveaways = state.get("active_giveaways", {})
+    active_giveaways = sum(1 for value in giveaways.values() if isinstance(value, dict) and int(value.get("guild_id", 0) or 0) == gid)
+    polls = state.get("active_polls", {})
+    active_polls = sum(1 for value in polls.values() if isinstance(value, dict) and int(value.get("guild_id", 0) or 0) == gid)
+    cards = [
+        ("Members", guild.member_count or len(guild.members), "Server size"),
+        ("Members with XP", len(xp_users), f"{total_xp:,} total XP tracked"),
+        ("Warnings", warning_count, "Tracked moderation warnings"),
+        ("Achievements", unlocked, f"Across {len(ach_users)} tracked member records"),
+        ("Quest profiles", len(quest_users), "Members with quest state"),
+        ("Catnip in circulation", total_catnip, f"Across {len(guild_balances)} tracked accounts"),
+        ("Active giveaways", active_giveaways, "Currently tracked giveaways"),
+        ("Active polls", active_polls, "Currently tracked polls"),
+    ]
+    card_html = "".join(f"<article class='card third'><div class='statlabel'>{_esc(label)}</div><div class='stat'>{int(value):,}</div><p class='muted'>{_esc(note)}</p></article>" for label, value, note in cards)
+    body = ("<h1>Server analytics</h1><p class='muted'>Live counters read from Cinnamon's current runtime. These are not historical charts; counters may reset if the bot's non-persistent state is lost.</p>"
+            f"<div class='grid'>{card_html}<article class='card full'><h2>Explore a feature</h2><p class='muted'>Jump into the live controls behind each metric.</p><div class='actions'><a class='btn' href='/dashboard?guild_id={gid}&tab=engagement'>Levels & XP</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=achievements'>Achievements</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=quests'>Quests</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=economy'>Catnip economy</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=activity_logs'>Activity logs</a></div></article></div>")
+    return body
+
+
+def _message_studio(guild, state):
+    gid = guild.id
+    channel_select = _channel_select(guild, "channel_id", allow_none=False)
+    form = ("<div class='formgrid'><div class='field'><label>Destination channel</label>" + channel_select + "<small>Choose a text channel Cinnamon can send messages to.</small></div>"
+            "<div class='field'><label>Embed accent colour</label><input name='embed_color' type='color' value='#D97732' required></div>"
+            "<div class='field'><label>Embed title</label><input name='embed_title' maxlength='256' placeholder='A message from Cinnamon' required></div>"
+            "<div class='field'><label>Footer</label><input name='embed_footer' maxlength='200' value='Cinnamon • Made with paws 🐾'></div>"
+            "<div class='field' style='grid-column:1/-1'><label>Message text</label><textarea name='embed_description' maxlength='4000' rows='5' placeholder='Write the message content here…' required></textarea><small>Discord embed descriptions support up to 4,000 characters. Mentions are disabled for safety.</small></div>"
+            "<div class='field' style='grid-column:1/-1'><label>Optional image URL (HTTPS)</label><input name='embed_image' type='url' maxlength='500' placeholder='https://…'><small>Optional. Only HTTPS image URLs are accepted.</small></div></div>"
+            "<label class='toggle'><input type='checkbox' name='send_confirmation' value='yes' required><span><b>I checked the destination and message</b><small>Sending is immediate and cannot be undone.</small></span></label>")
+    guide = ("<article class='card half'><h2>Embed checklist</h2><div class='toggle'><span><b>Readable title</b><small>Short, specific and easy to scan.</small></span></div>"
+             "<div class='toggle'><span><b>Clear body text</b><small>Use line breaks and avoid walls of text.</small></span></div>"
+             "<div class='toggle'><span><b>Consistent Cinnamon look</b><small>Warm orange accent, friendly footer, no surprise mentions.</small></span></div>"
+             "<div class='rule'></div><p class='muted'>The studio sends a real Discord embed. The dashboard action and destination are recorded in the dedicated dashboard audit log.</p></article>")
+    return ("<h1>Message Studio</h1><p class='muted'>Compose and publish a polished Cinnamon embed to a channel in this server.</p><div class='grid'>"
+            "<article class='card half'><h2>Compose an embed</h2>" + _form(gid, "message_send", form, "Send embed") + "</article>" + guide + "</div>")
+
+
+def _activity_logs(guild, state):
+    gid = guild.id
+    routes = state.get("category_log_channels", {}).get(gid, {}) or state.get("category_log_channels", {}).get(str(gid), {})
+    configured = []
+    for category, channel_id in routes.items():
+        channel = guild.get_channel(int(channel_id)) if str(channel_id).isdigit() else None
+        if channel and hasattr(channel, "history"):
+            configured.append((str(category), channel))
+    # Include the legacy main/economy/Hangry channels even if not in category routes.
+    for category, channel_id in [("moderation", state.get("log_channels", {}).get(gid)), ("economy", state.get("economy_log_channels", {}).get(gid))]:
+        channel = guild.get_channel(int(channel_id)) if channel_id and str(channel_id).isdigit() else None
+        if channel and hasattr(channel, "history") and all(ch.id != channel.id for _, ch in configured):
+            configured.append((category, channel))
+    hg = state.get("hg_cog")
+    if hg:
+        channel = guild.get_channel(hg.hg_log_channels.get(gid, 0))
+        if channel and hasattr(channel, "history") and all(ch.id != channel.id for _, ch in configured):
+            configured.append(("hangry", channel))
+    if not configured:
+        return ("<h1>Activity logs</h1><p class='muted'>No configured log channels are visible to Cinnamon. Run <b>/setup</b> or open Settings & Logs.</p>"
+                f"<div class='actions'><a class='btn' href='/dashboard?guild_id={gid}&tab=system'>Open Settings & Logs</a></div>")
+    async def read_recent():
+        rows = []
+        for category, channel in configured[:15]:
+            try:
+                async for message in channel.history(limit=8, oldest_first=False):
+                    if not message.embeds:
+                        continue
+                    for embed in message.embeds[:1]:
+                        rows.append((message.created_at, category, channel.name, embed.title or "Cinnamon log event", embed.description or "", str(message.jump_url)))
+            except Exception as exc:
+                rows.append((None, category, channel.name, "Could not read this log channel", type(exc).__name__, ""))
+        rows.sort(key=lambda item: item[0] or dt.datetime.min.replace(tzinfo=dt.timezone.utc), reverse=True)
+        return rows[:40]
+    try:
+        entries = _run_bot(read_recent(), timeout=25)
+    except Exception:
+        log.exception("Dashboard activity log read failed")
+        entries = []
+    query = request.args.get("q", "").strip()[:100].casefold()
+    category_filter = request.args.get("category", "all").strip().casefold()
+    allowed_categories = {category.casefold() for category, _ in configured}
+    if category_filter not in allowed_categories and category_filter != "all":
+        category_filter = "all"
+    if category_filter != "all":
+        entries = [row for row in entries if row[1].casefold() == category_filter]
+    if query:
+        entries = [row for row in entries if query in " ".join((row[1], row[2], row[3], row[4])).casefold()]
+    category_options = "<option value='all'>All categories</option>" + "".join(
+        f"<option value='{_esc(category.casefold())}'{' selected' if category.casefold() == category_filter else ''}>{_esc(category.title())}</option>"
+        for category, _channel in configured if category.casefold() != "all"
+    )
+    filters_html = (f"<form method='get' action='/dashboard' class='formgrid'><input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='tab' value='activity_logs'>"
+                    f"<div class='field'><label>Search recent events</label><input name='q' maxlength='100' value='{_esc(query)}' placeholder='Search title, detail, channel…'></div>"
+                    f"<div class='field'><label>Category</label><select name='category'>{category_options}</select></div><div class='field'><label>&nbsp;</label><button class='btn' type='submit'>Filter events</button> <a class='btn secondary' href='/dashboard?guild_id={gid}&tab=activity_logs'>Clear</a></div></form>")
+    if not entries:
+        rows_html = "<tr><td colspan='4'>No recent embed-based log entries found. This view reads up to 8 recent messages from each configured log channel.</td></tr>"
+    else:
+        rows = []
+        for when, category, channel_name, title, description, jump_url in entries:
+            timestamp = when.strftime("%Y-%m-%d %H:%M UTC") if when else "Unavailable"
+            link = f"<a class='btn secondary small' href='{_esc(jump_url)}' target='_blank' rel='noopener noreferrer'>Open in Discord</a>" if jump_url.startswith("https://discord.com/") else "—"
+            rows.append(f"<tr><td>{_esc(timestamp)}</td><td>{_esc(category.title())}<br><small>#{_esc(channel_name)}</small></td><td><b>{_esc(title[:180])}</b><br><small>{_esc(description[:260])}</small></td><td>{link}</td></tr>")
+        rows_html = "".join(rows)
+    channel_list = "".join(f"<span class='pill'>{_esc(category.title())}: #{_esc(channel.name)}</span> " for category, channel in configured)
+    return ("<h1>Activity logs</h1><p class='muted'>Recent embed-based events from the channels Cinnamon is configured to read. This is a viewer, not a replacement for Discord's full message history.</p>"
+            f"<article class='card full'><h2>Sources</h2><div class='actions'>{channel_list}</div><p class='muted'>Up to 8 recent messages are checked per configured channel, then the newest 40 events are shown. Use the link to open an entry in Discord.</p></article>"
+            f"<article class='card full'><h2>Find an event</h2>{filters_html}<p class='muted'>Filters apply to the recent events currently retrieved from configured channels.</p></article>"
+            f"<article class='card full'><h2>Recent events</h2><div class='tablewrap'><table><thead><tr><th>Time</th><th>Category / channel</th><th>Event</th><th>Link</th></tr></thead><tbody>{rows_html}</tbody></table></div></article>"
+            f"<div class='actions'><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=system'>Manage log routing</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=analytics'>View analytics</a></div>")
+
+
+def _backup_guild_value(state, key, gid):
+    mapping=state.get(key,{}) or {}
+    return mapping.get(gid, mapping.get(str(gid)))
+
+
+def _backup_json_safe(value):
+    if isinstance(value,dict): return {str(k):_backup_json_safe(v) for k,v in value.items()}
+    if isinstance(value,(set,tuple,list)): return [_backup_json_safe(v) for v in value]
+    if value is None or isinstance(value,(str,int,float,bool)): return value
+    return str(value)
+
+
+def _guild_config_payload(guild, state):
+    gid=int(guild.id)
+    keys=("welcome_config","goodbye_config","automod_config","antiraid_config","xp_per_message","xp_channels",
+          "level_roles","achievement_config","quest_config","ai_channels","disabled_channels","log_channels",
+          "category_log_channels","economy_log_channels","economy_income_roles")
+    config={}
+    for key in keys:
+        value=_backup_guild_value(state,key,gid)
+        if value is not None:
+            config[key]=_backup_json_safe(value)
+    templates=state.get("giveaway_templates",{}) or {}
+    config["giveaway_templates"]=_backup_json_safe(templates.get(gid,templates.get(str(gid),{})) or {})
+    schedules=state.get("giveaway_schedules",{}) or {}
+    config["giveaway_schedules"]=_backup_json_safe({str(k):v for k,v in schedules.items() if int(v.get("guild_id",0))==gid})
+    return {"format":"cinnamon-config-backup","schema_version":1,"guild_id":gid,
+            "guild_name":str(guild.name),"created_at":dt.datetime.now(dt.timezone.utc).isoformat(),
+            "notes":"Configuration only. Balances, inventories, user progress, active giveaways, tokens and secrets are excluded.",
+            "config":config}
+
+
+@dashboard_bp.get("/dashboard/backup")
+def dashboard_backup_download():
+    sid=session.get("dash_sid")
+    if not sid or sid not in _tokens: return redirect(url_for("cinnamon_dashboard.login"))
+    context=_dashboard_context()
+    if not context: return redirect(url_for("cinnamon_dashboard.login"))
+    sid,guilds,eligible=context
+    if not eligible: abort(403)
+    guild_id=request.args.get("guild_id") or eligible[0]["id"]
+    guild,_=_get_access(sid,guilds,guild_id)
+    payload=_guild_config_payload(guild,_state())
+    response=make_response(json.dumps(payload,ensure_ascii=False,indent=2))
+    response.headers["Content-Type"]="application/json; charset=utf-8"
+    response.headers["Content-Disposition"]=f'attachment; filename="cinnamon-config-{guild.id}.json"'
+    return response
+
+
+def _restore_guild_config_impl(guild, state, payload):
+    if not isinstance(payload,dict) or payload.get("format")!="cinnamon-config-backup" or payload.get("schema_version")!=1:
+        raise ValueError("This file is not a supported Cinnamon configuration backup.")
+    if str(payload.get("guild_id"))!=str(guild.id):
+        raise ValueError("This backup belongs to a different Discord server. Nothing was changed.")
+    config=payload.get("config")
+    if not isinstance(config,dict): raise ValueError("The backup's config section is missing or invalid.")
+    allowed={"welcome_config","goodbye_config","automod_config","antiraid_config","xp_per_message","xp_channels",
+             "level_roles","achievement_config","quest_config","ai_channels","disabled_channels","log_channels",
+             "category_log_channels","economy_log_channels","economy_income_roles"}
+    changed=[]
+    for key in allowed:
+        if key not in config: continue
+        value=config[key]
+        target=state.setdefault(key,{})
+        if key in {"welcome_config","goodbye_config"}:
+            if value is not None:
+                if not isinstance(value,dict) or not str(value.get("message","")) or len(str(value.get("message","")))>800:
+                    raise ValueError(f"Backup section {key} has an invalid message template.")
+                channel_id=value.get("channel_id")
+                if not str(channel_id).isdigit() or not guild.get_channel(int(channel_id)):
+                    raise ValueError(f"Backup section {key} refers to a channel that is not in this server.")
+                value={"channel_id":int(channel_id),"message":str(value["message"])}
+        elif key in {"ai_channels","log_channels","economy_log_channels"}:
+            if value is not None:
+                if not str(value).isdigit() or not guild.get_channel(int(value)):
+                    raise ValueError(f"Backup section {key} refers to a channel that is not in this server.")
+                value=int(value)
+        elif key in {"xp_per_message"}:
+            if not isinstance(value,int) or isinstance(value,bool) or not 0<=value<=100:
+                raise ValueError("XP per message must be a whole number between 0 and 100.")
+        elif key in {"xp_channels","disabled_channels"}:
+            if not isinstance(value,list): raise ValueError(f"Backup section {key} must be a list of channel IDs.")
+            clean=[]
+            for item in value:
+                if str(item).isdigit() and guild.get_channel(int(item)):
+                    clean.append(int(item))
+            value=set(dict.fromkeys(clean))
+        elif key=="level_roles":
+            if not isinstance(value,dict): raise ValueError("Level roles must be a mapping of level to role ID.")
+            clean={}
+            for level,role_id in value.items():
+                if not str(level).isdigit() or not 1<=int(level)<=200 or not str(role_id).isdigit(): continue
+                role=guild.get_role(int(role_id))
+                if role and not role.is_default() and not role.managed and guild.me and role < guild.me.top_role:
+                    clean[int(level)]=role.id
+            value=clean
+        elif key=="category_log_channels":
+            if not isinstance(value,dict): raise ValueError("Category log routing must be an object.")
+            value={str(category):int(channel_id) for category,channel_id in value.items()
+                   if str(channel_id).isdigit() and guild.get_channel(int(channel_id))}
+        elif key=="economy_income_roles":
+            if not isinstance(value,dict): raise ValueError("Role income settings must be an object.")
+            clean={}
+            for role_id,cfg in value.items():
+                role=guild.get_role(int(role_id)) if str(role_id).isdigit() else None
+                if not role or role.is_default() or role.managed or not isinstance(cfg,dict): continue
+                try: amount=int(cfg.get("amount",0)); cooldown=int(cfg.get("cooldown",3600))
+                except (TypeError,ValueError): continue
+                if 1<=amount<=1_000_000 and 60<=cooldown<=31_536_000:
+                    clean[role.id]={"amount":amount,"cooldown":cooldown,
+                                    "interval":max(1,int(cfg.get("interval",max(1,cooldown//60)))),
+                                    "unit":str(cfg.get("unit","minute"))[:10]}
+            value=clean
+        elif key in {"automod_config","antiraid_config","achievement_config","quest_config"}:
+            if not isinstance(value,dict): raise ValueError(f"Backup section {key} must be an object.")
+            if key=="automod_config":
+                words=value.get("words",[])
+                if not isinstance(words,list): words=[]
+                value={"words":[str(w)[:100] for w in words[:50] if str(w).strip()],
+                       "spam":bool(value.get("spam")),"mentions":bool(value.get("mentions")),
+                       "invites":bool(value.get("invites")),"mention_threshold":max(2,min(20,int(value.get("mention_threshold",5))))}
+            elif key=="antiraid_config":
+                value={"enabled":bool(value.get("enabled")),"threshold":max(2,min(100,int(value.get("threshold",5)))),
+                       "window":max(2,min(300,int(value.get("window",10))))}
+        if value is None:
+            target.pop(guild.id,None); target.pop(str(guild.id),None)
+        else:
+            target[guild.id]=value
+        changed.append(key)
+    if "giveaway_templates" in config:
+        templates=config["giveaway_templates"]
+        if not isinstance(templates,dict) or len(templates)>100: raise ValueError("Giveaway templates must be an object with at most 100 entries.")
+        clean={}
+        for name,cfg in templates.items():
+            if not isinstance(cfg,dict): continue
+            name=str(name).strip().lower()[:40]
+            prize=str(cfg.get("prize","Giveaway"))[:200]
+            try: winners=max(1,min(100,int(cfg.get("winners",1))))
+            except (TypeError,ValueError): winners=1
+            clean[name]=dict(cfg,prize=prize,winners=winners)
+        state.setdefault("giveaway_templates",{})[guild.id]=clean
+        changed.append("giveaway_templates")
+    if "giveaway_schedules" in config:
+        schedules=config["giveaway_schedules"]
+        if not isinstance(schedules,dict) or len(schedules)>50: raise ValueError("Recurring giveaway schedules must be an object with at most 50 entries.")
+        target=state.setdefault("giveaway_schedules",{})
+        for sid,item in list(target.items()):
+            if int(item.get("guild_id",0))==guild.id: target.pop(sid,None)
+        for sid,item in schedules.items():
+            if not isinstance(item,dict) or int(item.get("guild_id",0))!=guild.id: continue
+            try:
+                channel_id=int(item.get("channel_id",0)); winners=max(1,min(100,int(item.get("winners",1))))
+                duration=max(1,min(525600,int(item.get("duration_minutes",1440))))
+                repeat_days=max(1,min(365,int(item.get("repeat_every_days",7))))
+                next_at=max(time.time()+60,float(item.get("next_at",time.time()+86400)))
+            except (TypeError,ValueError): continue
+            channel=guild.get_channel(channel_id); prize=str(item.get("prize",""))[:200]
+            if not channel or not prize: continue
+            target[str(sid)]=dict(item,channel_id=channel_id,prize=prize,guild_id=guild.id,winners=winners,
+                duration_minutes=duration,repeat_every_days=repeat_days,next_at=next_at,enabled=bool(item.get("enabled",True)))
+        changed.append("giveaway_schedules")
+    return sorted(set(changed))
+
+
+def _restore_guild_config(guild, state, payload):
+    """Restore config atomically: invalid files must not leave partial changes in memory."""
+    keys=("welcome_config","goodbye_config","automod_config","antiraid_config","xp_per_message","xp_channels",
+          "level_roles","achievement_config","quest_config","ai_channels","disabled_channels","log_channels",
+          "category_log_channels","economy_log_channels","economy_income_roles","giveaway_templates","giveaway_schedules")
+    present={key for key in keys if key in state}
+    snapshots={key:copy.deepcopy(state[key]) for key in present if isinstance(state[key],dict)}
+    try:
+        return _restore_guild_config_impl(guild,state,payload)
+    except Exception:
+        for key in keys:
+            if key not in present:
+                state.pop(key,None)
+                continue
+            snapshot=snapshots.get(key)
+            current=state.get(key)
+            if snapshot is not None and isinstance(current,dict):
+                current.clear(); current.update(snapshot)
+            elif snapshot is not None:
+                state[key]=snapshot
+        raise
+
+
 @dashboard_bp.get("/dashboard")
 def dashboard_home():
     sid=session.get("dash_sid")
@@ -695,15 +1134,16 @@ def dashboard_home():
     if not context: return redirect(url_for("cinnamon_dashboard.login"))
     sid,guilds,eligible=context
     if not eligible:
-        body="<section class='hero'><div><h1>No manageable server found</h1><p>Add Cinnamon to a server where you have Manage Server or Administrator permission, then reload.</p></div><img class='heroimg' src='/static/cinnamon_mascot.jpg' alt='Cinnamon'></section>"
+        body="<section class='hero'><div><h1>No manageable server found</h1><p>Add Cinnamon to a server where you have Manage Server or Administrator permission, then reload.</p></div><img class='heroimg' src='/static/cinnamon_mascot.svg' alt='Cinnamon'></section>"
         return _page("<main class='main'>"+_header()+body+"</main>")
     guild_id=request.args.get("guild_id") or eligible[0]["id"]
     guild,guild_item=_get_access(sid,guilds,guild_id)
-    tab=request.args.get("tab","overview"); allowed={"overview","moderation","engagement","achievements","quests","friendship","economy","giveaways","hangry","community","system"}
+    tab=request.args.get("tab","overview"); allowed={"overview","automation","moderation","engagement","achievements","quests","friendship","economy","giveaways","hangry","community","message_studio","analytics","activity_logs","system"}
     if tab not in allowed: tab="overview"
     state=_state(); notice=session.pop("dashboard_notice",None)
-    pages={"overview":_overview,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"hangry":_hangry,"community":_community,"system":_system}
+    pages={"overview":_overview,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
     return _shell(guild,eligible,tab,pages[tab](guild,state),notice)
+
 
 
 @dashboard_bp.post("/dashboard/action")
@@ -719,7 +1159,7 @@ def dashboard_action():
         guild,_=_get_access(sid,guilds,guild_id)
         gid=guild.id; state=_state(); action=request.form.get("action","")
         actor=_tokens[sid]["user"].get("username","dashboard user")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_quest_add","economy_quest_save","economy_quest_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","hangry_logs","recall"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action in {"welcome","goodbye"}:
             channel_id=request.form.get("channel_id","").strip(); message=request.form.get("message","")
@@ -806,7 +1246,7 @@ def dashboard_action():
             session["dashboard_notice"]="XP channel removed."
         elif action=="category_log_set":
             category=request.form.get("log_category","").strip(); channel_id=request.form.get("channel_id","").strip()
-            allowed={"moderation","economy","ai","levels","achievements","quests","friendship","community","roles","setup","general"}
+            allowed={"moderation","economy","ai","levels","achievements","quests","friendship","community","roles","setup","general","dashboard"}
             if category not in allowed: raise ValueError("Unknown log category.")
             if not channel_id.isdigit() or not isinstance(guild.get_channel(int(channel_id)),__import__("discord").TextChannel): raise ValueError("Choose a valid text channel.")
             cid=int(channel_id); state.setdefault("category_log_channels",{}).setdefault(gid,{})[category]=cid
@@ -814,7 +1254,7 @@ def dashboard_action():
             if category=="economy": state.setdefault("economy_log_channels",{})[gid]=cid
             _save(); _audit(gid,actor,"Dashboard: log route updated",f"{category} -> {cid}"); session["dashboard_notice"]=f"{category.title()} log channel saved."
         elif action=="category_log_disable":
-            category=request.form.get("log_category","").strip(); allowed={"moderation","economy","ai","levels","achievements","quests","friendship","community","roles","setup","general"}
+            category=request.form.get("log_category","").strip(); allowed={"moderation","economy","ai","levels","achievements","quests","friendship","community","roles","setup","general","dashboard"}
             if category not in allowed: raise ValueError("Unknown log category.")
             state.setdefault("category_log_channels",{}).setdefault(gid,{}).pop(category,None)
             if category=="moderation": state.setdefault("log_channels",{}).pop(gid,None)
@@ -849,74 +1289,120 @@ def dashboard_action():
             item_id=request.form.get("item_id","").strip()
             if item_id not in state["ECONOMY_ITEMS"]: raise ValueError("That shop item no longer exists.")
             state["ECONOMY_ITEMS"].pop(item_id)
-            quests=state.get("ECONOMY_QUESTS",{})
-            removed_quests=[qid for qid,q in quests.items() if q.get("item")==item_id]
-            for qid in removed_quests: quests.pop(qid,None)
-            _save(); _audit(gid,actor,"Dashboard: shop item removed",f"Removed catalog item {item_id} and {len(removed_quests)} dependent economy quest(s); member inventories were preserved.")
-            session["dashboard_notice"]="Shop item removed. Existing inventories were preserved; quests requiring it were also removed."
-        elif action in {"economy_quest_add","economy_quest_save"}:
-            quest_id=(request.form.get("new_quest_id","") if action=="economy_quest_add" else request.form.get("quest_id"," ")).strip().lower()
-            quests=state["ECONOMY_QUESTS"]; item_id=request.form.get("item","").strip()
-            name=request.form.get("name","").strip(); amount=int(request.form.get("amount","0")); reward=int(request.form.get("reward","-1"))
-            if not quest_id or len(quest_id)>40 or not all(c.isalnum() or c in "_-" for c in quest_id): raise ValueError("Quest ID must use letters, numbers, _ or - (max 40).")
-            if action=="economy_quest_add" and quest_id in quests: raise ValueError("That quest ID already exists.")
-            if action=="economy_quest_save" and quest_id not in quests: raise ValueError("That quest no longer exists.")
-            if item_id not in state["ECONOMY_ITEMS"] or not name or len(name)>80 or not 1<=amount<=999 or not 0<=reward<=10000000: raise ValueError("Check quest item, name, quantity (1–999), and reward (0–10,000,000).")
-            quests[quest_id]={"name":name,"item":item_id,"amount":amount,"reward":reward,"description":request.form.get("description","")[:300]}
-            _save(); _audit(gid,actor,"Dashboard: economy quest saved",f"{quest_id}: {name}; reward {reward} Catnip")
-            session["dashboard_notice"]="Economy quest saved."
-        elif action=="economy_quest_remove":
-            quest_id=request.form.get("quest_id","").strip()
-            if quest_id not in state["ECONOMY_QUESTS"]: raise ValueError("That quest no longer exists.")
-            state["ECONOMY_QUESTS"].pop(quest_id); _save(); _audit(gid,actor,"Dashboard: economy quest removed",quest_id)
-            session["dashboard_notice"]="Economy quest removed."
-        elif action=="giveaway_create":
-            channel_id=request.form.get("channel_id","").strip(); channel=guild.get_channel(int(channel_id)) if channel_id.isdigit() else None
-            prize=request.form.get("prize","").strip(); winners=int(request.form.get("winners","1")); duration=int(request.form.get("duration_minutes","60"))
-            if not isinstance(channel, __import__("discord").TextChannel): raise ValueError("Choose a valid text channel in this server.")
-            if not prize or len(prize)>200 or not 1<=winners<=20 or not 1<=duration<=43200: raise ValueError("Check prize (1–200 chars), winners (1–20), and duration (1–43,200 minutes).")
-            bonus_roles={}
-            for line in request.form.get("bonus_roles","").splitlines():
-                if not line.strip(): continue
-                parts=line.strip().split(":",1)
-                if len(parts)!=2 or not parts[0].isdigit(): raise ValueError("Bonus roles must use ROLE_ID:EXTRA_ENTRIES format.")
-                role=guild.get_role(int(parts[0])); extra=int(parts[1])
-                if not role or role.is_default() or role.managed or not 1<=extra<=20: raise ValueError("Each bonus role must exist in this server and have 1–20 extra entries.")
-                bonus_roles[str(role.id)]=extra
-            if len(bonus_roles)>10: raise ValueError("Set bonus entries for no more than 10 roles.")
-            async def create_giveaway():
-                import time as _time
-                gw={"guild_id":gid,"channel_id":channel.id,"host_id":int(_tokens[sid]["user"]["id"]),"winners":winners,"prize":prize,"ends_at":_time.time()+duration*60,"entrants":[],"bonus_roles":bonus_roles}
-                message=await channel.send(embed=state["giveaway_embed"](gw),view=state["giveaway_view"]())
-                state["active_giveaways"][message.id]=gw
-                await state["bd_save_data"]()
-                return message.id
-            mid=_run_bot(create_giveaway()); _audit(gid,actor,"Dashboard: giveaway created",f"Message {mid}; prize {prize}; {winners} winner(s); {duration} minutes.")
-            session["dashboard_notice"]="Giveaway created in Discord."
-        elif action=="giveaway_edit":
-            mid=int(request.form.get("message_id","0")); gw=state["active_giveaways"].get(mid)
-            if not gw or int(gw.get("guild_id",0))!=gid: raise ValueError("Active giveaway not found in this server.")
-            prize=request.form.get("prize","").strip(); winners=int(request.form.get("winners","1")); duration=int(request.form.get("duration_minutes","60"))
-            if not prize or len(prize)>200 or not 1<=winners<=20 or not 1<=duration<=43200: raise ValueError("Check prize, winners (1–20), and duration (1–43,200 minutes).")
-            bonus_roles={}
-            for line in request.form.get("bonus_roles","").splitlines():
-                if not line.strip(): continue
-                parts=line.strip().split(":",1)
-                if len(parts)!=2 or not parts[0].isdigit(): raise ValueError("Bonus roles must use ROLE_ID:EXTRA_ENTRIES format.")
-                role=guild.get_role(int(parts[0])); extra=int(parts[1])
-                if not role or role.is_default() or role.managed or not 1<=extra<=20: raise ValueError("Each bonus role must exist in this server and have 1–20 extra entries.")
-                bonus_roles[str(role.id)]=extra
-            if len(bonus_roles)>10: raise ValueError("Set bonus entries for no more than 10 roles.")
-            async def update_giveaway():
-                import time as _time
-                channel=_bot.get_channel(int(gw["channel_id"]))
+            _save(); _audit(gid,actor,"Dashboard: shop item removed",f"Removed catalog item {item_id}; existing member inventories were preserved.")
+            session["dashboard_notice"]="Shop item removed. Existing inventories were preserved."
+        elif action=="economy_income_add":
+            role_id=request.form.get("role_id","").strip(); role=guild.get_role(int(role_id)) if role_id.isdigit() else None
+            try: amount=int(request.form.get("amount","0")); interval=int(request.form.get("interval","0"))
+            except ValueError: raise ValueError("Income amount and interval must be whole numbers.")
+            unit=request.form.get("unit","minute"); multipliers={"minute":60,"hour":3600,"day":86400,"week":604800}
+            if not role or role.is_default() or role.managed: raise ValueError("Choose a valid, assignable server role.")
+            if not 1<=amount<=1000000 or not 1<=interval<=1000 or unit not in multipliers: raise ValueError("Use 1–1,000,000 Catnip and an interval from 1–1,000 minutes/hours/days/weeks.")
+            state.setdefault("economy_income_roles",{}).setdefault(gid,{})[role.id]={"amount":amount,"cooldown":interval*multipliers[unit],"interval":interval,"unit":unit}
+            _save(); _audit(gid,actor,"Dashboard: role income saved",f"Role {role.name} ({role.id}); {amount} Catnip every {interval} {unit}(s).")
+            session["dashboard_notice"]=f"Role income saved for {role.name}."
+        elif action=="economy_income_remove":
+            role_id=request.form.get("role_id","").strip(); cfg=state.setdefault("economy_income_roles",{}).setdefault(gid,{})
+            if not role_id.isdigit() or cfg.pop(int(role_id),None) is None: raise ValueError("That role income rule no longer exists.")
+            _save(); _audit(gid,actor,"Dashboard: role income removed",f"Role ID {role_id}.")
+            session["dashboard_notice"]="Role income rule removed."
+        elif action in {"giveaway_create","giveaway_edit"}:
+            prize=request.form.get("prize","").strip()
+            try: winners=int(request.form.get("winners","1")); duration=int(request.form.get("duration_minutes","60"))
+            except ValueError: raise ValueError("Winner count and duration must be whole numbers.")
+            if not prize or len(prize)>200 or not 1<=winners<=100 or not 1<=duration<=525600:
+                raise ValueError("Check prize (1–200 chars), winners (1–100), and duration (1–525,600 minutes).")
+            validate=state.get("validate_giveaway_config")
+            if not callable(validate): raise RuntimeError("Giveaway settings validation is not available.")
+            role_text=lambda field: "\n".join(request.form.getlist(field))
+            config=validate(guild, bonus_roles=request.form.get("bonus_roles",""),
+                required_roles=role_text("required_roles"), bypass_roles=role_text("bypass_roles"),
+                blacklisted_roles=role_text("blacklisted_roles"),
+                min_account_age_days=request.form.get("min_account_age_days","0"),
+                min_server_age_days=request.form.get("min_server_age_days","0"),
+                winner_role_id=request.form.get("winner_role_id",""),
+                winner_role_minutes=request.form.get("winner_role_minutes","0"),
+                winner_thread_minutes=request.form.get("winner_thread_minutes","0"),
+                embed_color=request.form.get("embed_color","FEE75C"), entry_emoji=request.form.get("entry_emoji","🎉"),
+                reaction_entries="reaction_entries" in request.form)
+            config.update({"entry_message":request.form.get("entry_message","")[:300],
+                "leave_message":request.form.get("leave_message","")[:300],
+                "denied_message":request.form.get("denied_message","")[:300],
+                "embed_title":request.form.get("embed_title","")[:256],
+                "embed_description":request.form.get("embed_description","")[:3500]})
+            if action=="giveaway_create":
+                channel_id=request.form.get("channel_id","").strip(); channel=guild.get_channel(int(channel_id)) if channel_id.isdigit() else None
+                if not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Choose a valid text channel in this server.")
+                mid=_run_bot(state["create_giveaway"](guild_id=gid,channel_id=channel.id,
+                    host_id=int(_tokens[sid]["user"]["id"]),prize=prize,winners=winners,duration_minutes=duration,config=config))
+                _audit(gid,actor,"Dashboard: giveaway created",f"Message {mid}; prize {prize}; {winners} winner(s); {duration} minutes; eligibility rules configured.")
+                session["dashboard_notice"]="Giveaway created in Discord with the selected entry rules."
+            else:
+                raw_mid=request.form.get("message_id","0")
+                if not raw_mid.isdigit(): raise ValueError("Invalid giveaway message ID.")
+                mid=int(raw_mid); gw=state["active_giveaways"].get(mid)
+                if not gw or int(gw.get("guild_id",0))!=gid: raise ValueError("Active giveaway not found in this server.")
+                channel=_bot.get_channel(int(gw.get("channel_id",0)))
                 if channel is None: raise ValueError("Giveaway channel is unavailable.")
-                msg=await channel.fetch_message(mid)
-                gw.update({"prize":prize,"winners":winners,"ends_at":_time.time()+duration*60,"bonus_roles":bonus_roles})
-                await msg.edit(embed=state["giveaway_embed"](gw),view=state["giveaway_view"]())
+                async def update_giveaway():
+                    msg=await channel.fetch_message(mid)
+                    gw.update(config); gw.update({"prize":prize,"winners":winners,"ends_at":time.time()+duration*60})
+                    await msg.edit(embed=state["giveaway_embed"](gw),view=state["giveaway_view"](emoji=gw.get("entry_emoji")))
+                    await state["bd_save_data"]()
+                _run_bot(update_giveaway())
+                _audit(gid,actor,"Dashboard: giveaway edited",f"Message {mid}; prize, duration, entry rules and embed settings updated.")
+                session["dashboard_notice"]="Giveaway updated. Existing entrants were retained; entry rules apply to future entries and final eligibility."
+        elif action=="giveaway_template_save":
+            raw_mid=request.form.get("message_id","0"); name=request.form.get("template_name","").strip()
+            if not raw_mid.isdigit() or not name or len(name)>40: raise ValueError("Choose an active giveaway and a template name (1–40 characters).")
+            gw=state.get("active_giveaways",{}).get(int(raw_mid))
+            if not gw or int(gw.get("guild_id",0))!=gid: raise ValueError("Active giveaway not found in this server.")
+            templates=state.setdefault("giveaway_templates",{}).setdefault(gid,{})
+            template_key=name.lower()
+            templates[template_key]={k:v for k,v in gw.items() if k not in {"guild_id","channel_id","host_id","ends_at","entrants","winner_ids","finished_at","eligible_entrants"}}
+            _save(); _audit(gid,actor,"Dashboard: giveaway template saved",f"Template {name}; prize {gw.get('prize','Giveaway')}")
+            session["dashboard_notice"]=f"Saved giveaway template '{name}'."
+        elif action=="giveaway_template_delete":
+            name=request.form.get("template_name","").strip().lower(); templates=state.setdefault("giveaway_templates",{}).setdefault(gid,{})
+            if not name or templates.pop(name,None) is None: raise ValueError("That giveaway template no longer exists.")
+            _save(); _audit(gid,actor,"Dashboard: giveaway template deleted",name)
+            session["dashboard_notice"]="Giveaway template deleted."
+        elif action=="giveaway_repeat_create":
+            channel_id=request.form.get("channel_id","").strip(); channel=guild.get_channel(int(channel_id)) if channel_id.isdigit() else None
+            prize=request.form.get("prize","").strip()
+            try: winners=int(request.form.get("winners","1")); duration=int(request.form.get("duration_minutes","1440")); repeat_days=int(request.form.get("repeat_every_days","7"))
+            except ValueError: raise ValueError("Recurring giveaway values must be whole numbers.")
+            if not isinstance(channel,__import__("discord").TextChannel) or not prize or len(prize)>200 or not 1<=winners<=100 or not 1<=duration<=525600 or not 1<=repeat_days<=365:
+                raise ValueError("Choose a valid channel and prize, 1–100 winners, duration up to 1 year, and repeat interval 1–365 days.")
+            schedules=state.setdefault("giveaway_schedules",{}); schedule_id=f"{gid}-{int(time.time())}-{secrets.token_hex(2)}"
+            schedules[schedule_id]={"guild_id":gid,"channel_id":channel.id,"host_id":int(_tokens[sid]["user"]["id"]),"prize":prize,
+                "winners":winners,"duration_minutes":duration,"repeat_every_days":repeat_days,"next_at":time.time()+repeat_days*86400,"enabled":True}
+            _save(); _audit(gid,actor,"Dashboard: recurring giveaway scheduled",f"{prize}; every {repeat_days} day(s); schedule {schedule_id}")
+            session["dashboard_notice"]="Recurring giveaway schedule saved."
+        elif action=="giveaway_repeat_stop":
+            schedule_id=request.form.get("schedule_id",""); schedules=state.setdefault("giveaway_schedules",{}); cfg=schedules.get(schedule_id)
+            if not cfg or int(cfg.get("guild_id",0))!=gid: raise ValueError("That recurring giveaway schedule was not found.")
+            schedules.pop(schedule_id,None); _save(); _audit(gid,actor,"Dashboard: recurring giveaway stopped",schedule_id)
+            session["dashboard_notice"]="Recurring giveaway schedule stopped. Existing active giveaways are unchanged."
+        elif action=="giveaway_reroll":
+            raw_mid=request.form.get("message_id","")
+            if not raw_mid.isdigit(): raise ValueError("Invalid giveaway message ID.")
+            mid=int(raw_mid); history=state.setdefault("giveaway_history",{}); gw=history.get(str(mid)) or history.get(mid)
+            if not gw or int(gw.get("guild_id",0))!=gid: raise ValueError("Finished giveaway not found in this server.")
+            old=set(int(x) for x in gw.get("winner_ids",[])); candidates=[int(x) for x in gw.get("eligible_entrants",gw.get("entrants",[])) if int(x) not in old]
+            if not candidates: raise ValueError("No eligible non-winning entrants remain to reroll.")
+            import random as _random
+            winner=_random.choice(candidates); gw.setdefault("winner_ids",[]).append(winner); gw["last_reroll_at"]=time.time()
+            channel=_bot.get_channel(int(gw.get("channel_id",0)))
+            async def post_reroll():
+                if channel:
+                    try:
+                        msg=await channel.fetch_message(mid)
+                        await msg.reply(f"🎉 Reroll winner: <@{winner}>! You won **{gw.get('prize','the giveaway prize')}**.",allowed_mentions=__import__("discord").AllowedMentions(users=True))
+                    except __import__("discord").HTTPException: pass
                 await state["bd_save_data"]()
-            _run_bot(update_giveaway()); _audit(gid,actor,"Dashboard: giveaway edited",f"Message {mid}; prize/winner count/end time updated.")
-            session["dashboard_notice"]="Giveaway updated; current entrants were retained."
+            _run_bot(post_reroll()); _audit(gid,actor,"Dashboard: giveaway rerolled",f"Message {mid}; new winner {winner}")
+            session["dashboard_notice"]=f"Rerolled giveaway. New winner ID: {winner}."
         elif action=="giveaway_end":
             mid=int(request.form.get("message_id","0")); gw=state["active_giveaways"].get(mid)
             if not gw or int(gw.get("guild_id",0))!=gid: raise ValueError("Active giveaway not found in this server.")
@@ -927,6 +1413,17 @@ def dashboard_action():
             if not gw or int(gw.get("guild_id",0))!=gid: raise ValueError("Active giveaway not found in this server.")
             _run_bot(state["cancel_giveaway"](mid)); _audit(gid,actor,"Dashboard: giveaway cancelled",f"Message {mid}")
             session["dashboard_notice"]="Giveaway cancelled without selecting winners."
+        elif action=="config_backup_restore":
+            upload=request.files.get("backup_file")
+            if not upload or not upload.filename or not upload.filename.lower().endswith(".json"):
+                raise ValueError("Choose a .json Cinnamon configuration backup file.")
+            raw=upload.stream.read(1_000_001)
+            if len(raw)>1_000_000: raise ValueError("Backup file is too large (maximum 1 MB).")
+            try: payload=json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError,json.JSONDecodeError): raise ValueError("Backup file is not valid UTF-8 JSON.")
+            changed=_restore_guild_config(guild,state,payload)
+            _save(); _audit(gid,actor,"Dashboard: configuration backup restored",f"Sections restored: {', '.join(changed) or 'none'}")
+            session["dashboard_notice"]="Configuration restored for this server. Member balances, inventories, progress, active giveaways and secrets were preserved."
         elif action=="hangry_logs":
             cog=state.get("hg_cog"); value=request.form.get("channel_id","").strip()
             if not cog: raise ValueError("Hangry Games is not ready.")
@@ -955,17 +1452,53 @@ def dashboard_action():
                 f"{result.get('achievements_restored',0)} achievement(s), {result.get('quests_restored',0)} completed quest(s); "
                 f"Hangry Games #{result.get('hangry_game_count',0)} with {result.get('hangry_wins_seen',0)} win(s) found. "
                 "Only retained logs/snapshots can be recovered.")
+        elif action=="message_send":
+            if not request.form.get("send_confirmation"):
+                raise ValueError("Confirm the destination and message before sending.")
+            channel_id=request.form.get("channel_id","").strip()
+            channel=guild.get_channel(int(channel_id)) if channel_id.isdigit() else None
+            discord=__import__("discord")
+            if not isinstance(channel, discord.TextChannel): raise ValueError("Choose a valid text channel in this server.")
+            title=request.form.get("embed_title","").strip()
+            description=request.form.get("embed_description","").strip()
+            footer=request.form.get("embed_footer","Cinnamon • Made with paws 🐾").strip()
+            color_text=request.form.get("embed_color","#D97732").strip()
+            image_url=request.form.get("embed_image","").strip()
+            if not title or len(title)>256: raise ValueError("Embed title must be 1–256 characters.")
+            if not description or len(description)>4000: raise ValueError("Message text must be 1–4,000 characters.")
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", color_text): raise ValueError("Choose a valid six-digit hex accent colour.")
+            if len(footer)>200: raise ValueError("Footer must be no longer than 200 characters.")
+            # Discord limits the combined text across embed title, description, footer,
+            # author and fields to 6,000 characters. This studio currently creates no
+            # author/fields, so validate the complete text we actually send.
+            total_embed_text = len(title) + len(description) + len(footer)
+            if total_embed_text > 6000:
+                raise ValueError(f"Embed text totals {total_embed_text:,} characters; Discord allows 6,000 across the embed.")
+            if image_url and (not image_url.startswith("https://") or len(image_url)>500): raise ValueError("Optional image must be an HTTPS URL under 500 characters.")
+            bot_member=guild.me
+            perms=channel.permissions_for(bot_member) if bot_member else None
+            if not perms or not perms.send_messages or not perms.embed_links:
+                raise PermissionError("Cinnamon needs Send Messages and Embed Links in the selected channel.")
+            embed=discord.Embed(title=title,description=description,color=int(color_text[1:],16))
+            if footer: embed.set_footer(text=footer)
+            if image_url: embed.set_image(url=image_url)
+            embed.timestamp=dt.datetime.now(dt.timezone.utc)
+            async def send_studio_embed():
+                return await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            message=_run_bot(send_studio_embed(),timeout=25)
+            _audit(gid,actor,"Dashboard: Message Studio embed sent",f"Destination #{channel.name} ({channel.id}); title: {title[:150]}; message ID {message.id}.")
+            session["dashboard_notice"]=f"Embed sent to #{channel.name}."
         elif action=="moderate":
             target,mod_action=_moderate(guild,_tokens[sid]["user"]["id"],request.form)
             _audit(gid,actor,f"Dashboard moderation: {mod_action}",f"Target {target}; reason: {request.form.get('reason','No reason provided')[:350]}")
             session["dashboard_notice"]=f"{mod_action.title()} action completed for {target}."
         else:
             raise ValueError("Unknown dashboard action.")
-        tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_quest_add":"economy","economy_quest_save":"economy","economy_quest_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system"}.get(action,"overview")
+        tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice"]=str(exc)[:300]
-        return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_quest_add":"economy","economy_quest_save":"economy","economy_quest_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","hangry_logs":"hangry","moderate":"moderation","automod":"moderation","antiraid":"moderation","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system"}.get(request.form.get("action"),"community")))
+        return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","moderate":"moderation","automod":"moderation","antiraid":"moderation","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","message_send":"message_studio"}.get(request.form.get("action"),"community")))
     except Exception as exc:
         log.exception("Dashboard action failed (%s)",type(exc).__name__)
         session["dashboard_notice"]="The change could not be completed. Check Cinnamon's Render logs and bot permissions."

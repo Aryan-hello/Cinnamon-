@@ -213,6 +213,7 @@ xp_per_message = {}                     # guild_id -> fixed XP awarded per eligi
 xp_channels = defaultdict(set)           # guild_id -> channel IDs allowed to earn XP; empty means all channels
 active_giveaways = {}                   # message_id -> {"guild_id","channel_id","host_id","winners","prize","ends_at","entrants":[user_ids]}
 active_polls = {}                       # message_id -> {"guild_id","channel_id","host_id","host_name","question","options","votes":{user_id_str: idx},"ends_at"}
+advanced_features_data = {}            # Mystery Boxes, crafting, Black Market persistent state
 
 # --- Economy ---------------------------------------------------------------
 # Server-local economy. Currency is Catnip; balances and inventory are persisted
@@ -355,6 +356,7 @@ _CINNAMON_MODULES = (
     # Economy is loaded before the quest/achievement modules so all shared
     # economy state/helpers exist when those systems are registered.
     "economy.py",
+    "advanced_economy.py",
     "quests.py",
     "achievements.py",
     "hangry_games.py",
