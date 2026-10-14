@@ -405,6 +405,24 @@ async def economy_shop_cmd(interaction: discord.Interaction):
     )
 
 
+async def autocomplete_shop_item_ids(interaction: discord.Interaction, current: str):
+    """Search item IDs and display names while passing the stable item ID."""
+    current = (current or "").lower().strip()
+    choices = []
+    ranked = []
+    for item_id, item in ECONOMY_ITEMS.items():
+        name = str(item.get("name", item_id))
+        if current and current not in item_id.lower() and current not in name.lower():
+            continue
+        # Prefer prefix matches, while still allowing partial-name searches.
+        rank = 0 if name.lower().startswith(current) or item_id.lower().startswith(current) else 1
+        ranked.append((rank, name.lower(), item_id, name))
+    for _, _, item_id, name in sorted(ranked)[:25]:
+        choices.append(app_commands.Choice(name=f"{name[:65]} · {item_id}"[:100], value=item_id))
+    return choices
+
+
+
 @economy_group.command(name="buy", description="Buy an item with Catnip")
 @app_commands.autocomplete(item=autocomplete_shop_item_ids)
 @app_commands.describe(item="Item ID or item name from /economy shop", quantity="How many to buy")
@@ -938,23 +956,6 @@ async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: s
     await bd_save_data()
     await economy_log(interaction.guild.id, title="🛒 Shop item added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{emoji} {name}"), ("ID", item_id), ("Price", f"{price:,} Catnip"), ("Per-person limit", per_person_limit or "Unlimited")])
     await cinnamon_send(interaction, f"✅ Added **{emoji} {name}** (`{item_id}`) to the shop.", ephemeral=True)
-
-
-async def autocomplete_shop_item_ids(interaction: discord.Interaction, current: str):
-    """Search item IDs and display names while passing the stable item ID."""
-    current = (current or "").lower().strip()
-    choices = []
-    ranked = []
-    for item_id, item in ECONOMY_ITEMS.items():
-        name = str(item.get("name", item_id))
-        if current and current not in item_id.lower() and current not in name.lower():
-            continue
-        # Prefer prefix matches, while still allowing partial-name searches.
-        rank = 0 if name.lower().startswith(current) or item_id.lower().startswith(current) else 1
-        ranked.append((rank, name.lower(), item_id, name))
-    for _, _, item_id, name in sorted(ranked)[:25]:
-        choices.append(app_commands.Choice(name=f"{name[:65]} · {item_id}"[:100], value=item_id))
-    return choices
 
 
 @economy_group.command(name="edit-shop-item", description="Admin: edit a Catnip shop item")
