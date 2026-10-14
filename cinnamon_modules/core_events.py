@@ -296,21 +296,24 @@ async def on_ready():
     # Sync once per process. on_ready can fire again after reconnects, and
     # repeating global + per-guild syncs can create unnecessary REST traffic.
     if not _slash_commands_synced:
+        # Use global registration as the single source of truth. Clear legacy
+        # guild-scoped copies before syncing globals. Do not mark the operation
+        # complete unless the global sync succeeds, so reconnects can retry.
+        for guild in bot.guilds:
+            try:
+                # A guild sync publishes the tree's guild commands; clear this
+                # guild-specific registration by syncing an empty guild tree.
+                bot.tree.clear_commands(guild=guild)
+                guild_synced = await bot.tree.sync(guild=guild)
+                log.info("Cleared legacy guild-scoped command registrations for %s (%s): %d remaining", guild.name, guild.id, len(guild_synced))
+            except Exception:
+                log.exception("Could not clear legacy guild commands for %s (%s)", guild.name, guild.id)
         try:
             synced = await bot.tree.sync()
             log.info("Globally synced %d Cinnamon slash commands", len(synced))
+            _slash_commands_synced = True
         except Exception:
-            log.exception("Global slash-command sync failed")
-
-        for guild in bot.guilds:
-            try:
-                bot.tree.copy_global_to(guild=guild)
-                guild_synced = await bot.tree.sync(guild=guild)
-                log.info("Guild-synced %d Cinnamon slash commands to %s (%s)", len(guild_synced), guild.name, guild.id)
-            except Exception:
-                log.exception("Guild slash-command sync failed for %s (%s)", guild.name, guild.id)
-
-        _slash_commands_synced = True
+            log.exception("Global slash-command sync failed; will retry on a later on_ready event")
 
     await bot.change_presence(activity=discord.Activity(
         type=discord.ActivityType.watching, name="for treats 🐟"))
