@@ -18,7 +18,7 @@ Cinnamon is a single `discord.py` bot with modular feature files and a Flask das
 - Start and end giveaways with up to 100 winners and durations up to one year.
 - Button entry and optional reaction entry, using a configurable entry emoji.
 - Required roles, bypass roles, blacklisted roles, minimum Discord account age, and minimum time in the server.
-- Bonus entries by role (1–20 extra entries per configured role; role bonuses stack, and a person can win only once).
+- Bonus entries by role (1–250 extra entries per configured role; role bonuses stack by default and can be disabled per giveaway; a person can win only once).
 - Custom embed title/description/colour and custom entry, leave, and denied-entry messages.
 - Optional timed winner role and optional winner thread with auto-close.
 - Reusable templates (`/giveaway template-save`, `/giveaway template-list`, `/giveaway template-start`).
