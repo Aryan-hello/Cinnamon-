@@ -675,12 +675,25 @@ def _giveaway_weighted_pick(members, gw: dict, excluded=None):
     return random.choices(candidates, weights=weights, k=1)[0]
 
 
+giveaway_finishing = globals().setdefault("giveaway_finishing", set())
+
 async def finish_giveaway(mid: int):
+    # Guard against the timer and a manual /giveaway end racing and announcing twice.
+    mid = int(mid)
+    if mid in giveaway_finishing:
+        return
     # Do not remove it from active state until winner selection/history are ready. If an
     # exception occurs earlier, the timer can retry instead of losing the giveaway.
     gw = active_giveaways.get(int(mid))
     if gw is None:
         return
+    giveaway_finishing.add(mid)
+    try:
+        await _finish_giveaway_once(mid, gw)
+    finally:
+        giveaway_finishing.discard(mid)
+
+async def _finish_giveaway_once(mid: int, gw: dict):
     channel = bot.get_channel(int(gw.get("channel_id", 0)))
     message = None
     if channel is not None:
@@ -861,6 +874,144 @@ async def autocomplete_giveaway_schedules(interaction: discord.Interaction, curr
         if len(choices) >= 25:
             break
     return choices
+
+
+class GiveawayPreviewView(discord.ui.View):
+    def __init__(self, owner_id: int, config: dict, timeout: float = 900):
+        super().__init__(timeout=timeout)
+        self.owner_id = int(owner_id)
+        self.config = dict(config)
+        self.started = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await cinnamon_send(interaction, "Only the person who created this preview can use these buttons.", ephemeral=True)
+            return False
+        if self.started:
+            await cinnamon_send(interaction, "This preview has already been used.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Edit", emoji="🛠️", style=discord.ButtonStyle.primary)
+    async def edit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = GiveawayQuickEditModal(self)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="Start", emoji="▶️", style=discord.ButtonStyle.success)
+    async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.guild is None or interaction.channel is None:
+            return await cinnamon_send(interaction, "Run this in a server channel.", ephemeral=True)
+        cfg = dict(self.config)
+        self.started = True
+        for child in self.children:
+            child.disabled = True
+        try:
+            mid = await _create_giveaway(guild_id=interaction.guild.id, channel_id=int(cfg["channel_id"]),
+                host_id=interaction.user.id, prize=cfg["prize"], winners=cfg["winners"],
+                duration_minutes=cfg["duration_minutes"], config=cfg.get("config", {}))
+        except Exception as exc:
+            self.started = False
+            for child in self.children: child.disabled = False
+            return await cinnamon_send(interaction, f"Couldn't start the giveaway: {str(exc)[:300]}", ephemeral=True)
+        await interaction.response.edit_message(content=f"🎉 Giveaway started in <#{cfg['channel_id']}>! Message ID: `{mid}`", view=self)
+        await send_log(interaction.guild.id, title="🎉 Giveaway started", interaction=interaction, category="community",
+            fields=[("Message", str(mid)), ("Prize", cfg["prize"]), ("Duration", f"{cfg['duration_minutes']} minute(s)"), ("Winners", str(cfg["winners"]))])
+
+    @discord.ui.button(label="Cancel", emoji="❌", style=discord.ButtonStyle.danger)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.started = True
+        for child in self.children: child.disabled = True
+        await interaction.response.edit_message(content="Giveaway creation cancelled.", embed=None, view=self)
+
+    async def on_timeout(self):
+        for child in self.children: child.disabled = True
+
+
+class GiveawayQuickEditModal(discord.ui.Modal, title="Edit giveaway preview"):
+    prize = discord.ui.TextInput(label="Prize", max_length=200, required=True)
+    duration = discord.ui.TextInput(label="Duration in minutes", max_length=6, required=True)
+    winners = discord.ui.TextInput(label="Number of winners", max_length=3, required=True)
+
+    def __init__(self, preview: GiveawayPreviewView):
+        super().__init__(timeout=300)
+        self.preview = preview
+        self.prize.default = preview.config["prize"]
+        self.duration.default = str(preview.config["duration_minutes"])
+        self.winners.default = str(preview.config["winners"])
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            duration, winners = int(self.duration.value), int(self.winners.value)
+            if not 1 <= duration <= 525600: raise ValueError("Duration must be between 1 minute and 1 year.")
+            if not 1 <= winners <= 100: raise ValueError("Winners must be between 1 and 100.")
+            self.preview.config["prize"] = self.prize.value.strip()
+            self.preview.config["duration_minutes"] = duration
+            self.preview.config["winners"] = winners
+            cfg = self.preview.config
+            embed = discord.Embed(title="🎉 Review your giveaway", description=(
+                f"**Prize:** {cfg['prize']}\n**Winners:** {winners}\n**Duration:** {duration} minute(s)\n"
+                f"**Ends at:** <t:{int(time.time()+duration*60)}:F>\n\nPress **Start** to publish it. This preview expires in 15 minutes."), color=0x5865F2)
+            await interaction.response.edit_message(embed=embed, view=self.preview)
+        except ValueError as exc:
+            await cinnamon_send(interaction, str(exc), ephemeral=True)
+
+
+@giveaway_group.command(name="create", description="Preview, edit, and then start a giveaway")
+@app_commands.describe(duration="How long it lasts in minutes", winners="Number of winners", prize="The prize",
+    channel="Where to post the giveaway", extra_entries="Extra entries for everyone (0–250)",
+    required_roles="Required role IDs, comma-separated", bypass_roles="Role IDs that bypass requirements",
+    blacklisted_roles="Role IDs that cannot enter", required_level="Minimum Cinnamon level (0 disables)",
+    required_daily_messages="Minimum messages today (0 disables)", required_weekly_messages="Minimum messages this week (0 disables)",
+    required_monthly_messages="Minimum messages this month (0 disables)", required_total_messages="Minimum total messages (0 disables)",
+    required_server_boosts="Minimum server boosts (0 disables)", require_server_tag="Require a server profile tag (where supported)",
+    giveaway_create_message="Custom giveaway description", giveaway_winners_role="Role to grant to winners", claim_time="Claim deadline in minutes")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def giveaway_create(interaction: discord.Interaction,
+    duration: app_commands.Range[int, 1, 525600], winners: app_commands.Range[int, 1, 100],
+    prize: app_commands.Range[str, 1, 200], channel: discord.TextChannel = None,
+    extra_entries: app_commands.Range[int, 0, 250] = 0, required_roles: str = "", bypass_roles: str = "",
+    blacklisted_roles: str = "", required_level: app_commands.Range[int, 0, 200] = 0,
+    required_daily_messages: app_commands.Range[int, 0, 1000000] = 0,
+    required_weekly_messages: app_commands.Range[int, 0, 1000000] = 0,
+    required_monthly_messages: app_commands.Range[int, 0, 1000000] = 0,
+    required_total_messages: app_commands.Range[int, 0, 100000000] = 0,
+    required_server_boosts: app_commands.Range[int, 0, 100] = 0, require_server_tag: bool = False,
+    giveaway_create_message: str = "", giveaway_winners_role: discord.Role = None,
+    claim_time: app_commands.Range[int, 0, 10080] = 0):
+    target = channel or interaction.channel
+    if not isinstance(target, (discord.TextChannel, discord.Thread)):
+        return await cinnamon_send(interaction, "Choose a text channel for the giveaway.", ephemeral=True)
+    if giveaway_winners_role and (giveaway_winners_role.is_default() or giveaway_winners_role.managed or not interaction.guild.me or giveaway_winners_role >= interaction.guild.me.top_role):
+        return await cinnamon_send(interaction, "Cinnamon needs a role above the winner role to assign it.", ephemeral=True)
+    config = {"entry_message": "🎉 You're entered!", "bonus_roles": {}, "required_roles": [],
+              "bypass_roles": [], "blacklisted_roles": [], "required_level": required_level,
+              "required_daily_messages": required_daily_messages, "required_weekly_messages": required_weekly_messages,
+              "required_monthly_messages": required_monthly_messages, "required_total_messages": required_total_messages,
+              "required_server_boosts": required_server_boosts, "require_server_tag": require_server_tag,
+              "embed_description": giveaway_create_message, "winner_role_id": str(giveaway_winners_role.id) if giveaway_winners_role else "",
+              "claim_time": claim_time, "extra_entries": extra_entries}
+    # Validate role IDs early so invalid input is caught before the preview is shown.
+    try:
+        for field in ("required_roles", "bypass_roles", "blacklisted_roles"):
+            raw = locals().get(field, "")
+            ids=[]
+            for token in raw.replace(",", " ").split():
+                token=token.replace("<@&", "").replace(">", "")
+                if not token.isdigit() or not interaction.guild.get_role(int(token)):
+                    raise ValueError(f"{field.replace('_',' ').title()} must contain valid role IDs.")
+                ids.append(int(token))
+            config[field]=ids
+    except ValueError as exc:
+        return await cinnamon_send(interaction, str(exc), ephemeral=True)
+    preview = GiveawayPreviewView(interaction.user.id, {"channel_id": target.id, "prize": prize,
+        "winners": winners, "duration_minutes": duration, "config": config})
+    embed = discord.Embed(title="🎉 Review your giveaway", description=(
+        f"**Prize:** {prize}\n**Winners:** {winners}\n**Duration:** {duration} minute(s)\n"
+        f"**Channel:** {target.mention}\n**Ends at:** <t:{int(time.time()+duration*60)}:F>\n"
+        f"**Extra entries:** {extra_entries}\n**Claim time:** {claim_time or 'No deadline'} minutes\n\n"
+        "Press **Start** to publish it. This preview expires in 15 minutes."), color=0x5865F2)
+    await interaction.response.send_message(embed=embed, view=preview, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 @giveaway_group.command(name="start", description="Start a configurable giveaway in this channel")
