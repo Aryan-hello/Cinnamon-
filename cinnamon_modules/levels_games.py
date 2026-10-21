@@ -513,7 +513,7 @@ def _giveaway_embed(gw: dict, winner_ids: list[int] | None = None) -> discord.Em
             embed.add_field(name="Account age", value=f"At least {int(gw['min_account_age_days'])} days", inline=True)
         if int(gw.get("min_server_age_days", 0) or 0):
             embed.add_field(name="Server membership", value=f"At least {int(gw['min_server_age_days'])} days", inline=True)
-        embed.set_footer(text="Cinnamon • Tap Enter to join or leave • One person can win once")
+        embed.set_footer(text="Cinnamon • Tap Enter to join • Entries lock until the giveaway ends")
         return embed
     won = " ".join(f"<@{u}>" for u in winner_ids) if winner_ids else "No eligible entries this time 🐾"
     embed = discord.Embed(
@@ -564,6 +564,60 @@ def _giveaway_emoji(value):
         return "🎉"
 
 
+class GiveawayParticipantsView(discord.ui.View):
+    """Ephemeral, paginated participant list shown to the person who clicks Participants."""
+    def __init__(self, guild, gw: dict, page: int = 0):
+        super().__init__(timeout=180)
+        self.guild = guild
+        self.gw = gw
+        self.page = max(0, page)
+        entrants = list(dict.fromkeys(int(uid) for uid in gw.get("entrants", [])))
+        self.entrants = entrants
+        self.pages = max(1, (len(entrants) + 9) // 10)
+        self.page = min(self.page, self.pages - 1)
+        self.previous.disabled = self.page <= 0
+        self.next.disabled = self.page >= self.pages - 1
+        self.goto.disabled = self.pages <= 1
+
+    def embed(self):
+        start = self.page * 10
+        subset = self.entrants[start:start + 10]
+        rows = []
+        for index, uid in enumerate(subset, start=start + 1):
+            member = self.guild.get_member(uid)
+            name = member.mention if member else f"<@{uid}>"
+            bonus = _giveaway_bonus_for_member(member, self.gw) if member else 0
+            entries = 1 + bonus
+            rows.append(f"**{index}.** {name} ({entries} {'entries' if entries != 1 else 'entry'})")
+        desc = "\\n".join(rows) if rows else "Nobody has entered yet. Be the first! 🐾"
+        embed = discord.Embed(title=f"👥 Giveaway Participants (Page {self.page + 1}/{self.pages})",
+                              description=f"Participants in **{str(self.gw.get('prize', 'Giveaway'))[:150]}**:\\n\\n{desc}",
+                              color=0x5865F2)
+        total_entries = sum(1 + (_giveaway_bonus_for_member(self.guild.get_member(uid), self.gw)
+                                 if self.guild.get_member(uid) else 0) for uid in self.entrants)
+        embed.add_field(name="Total Participants", value=str(len(self.entrants)), inline=True)
+        embed.add_field(name="Total Entries", value=str(total_entries), inline=True)
+        embed.set_footer(text="Cinnamon • Giveaway participants 🐾")
+        return embed
+
+    async def update_page(self, interaction):
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page = max(0, self.page - 1)
+        await self.update_page(interaction)
+
+    @discord.ui.button(label="Go To Page", style=discord.ButtonStyle.secondary)
+    async def goto(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(f"You're viewing page {self.page + 1} of {self.pages}. Use the arrows to navigate.", ephemeral=True)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page = min(self.pages - 1, self.page + 1)
+        await self.update_page(interaction)
+
+
 class GiveawayView(discord.ui.View):
     def __init__(self, disabled: bool = False, emoji: str | None = None):
         super().__init__(timeout=None)
@@ -571,6 +625,19 @@ class GiveawayView(discord.ui.View):
                                    custom_id="giveaway:enter", disabled=disabled)
         button.callback = self._enter
         self.add_item(button)
+        participants = discord.ui.Button(label="Participants", emoji="👥", style=discord.ButtonStyle.secondary,
+                                         custom_id="giveaway:participants", disabled=disabled)
+        participants.callback = self._participants
+        self.add_item(participants)
+
+    async def _participants(self, interaction: discord.Interaction):
+        gw = active_giveaways.get(interaction.message.id)
+        if gw is None:
+            return await cinnamon_send(interaction, "This giveaway has ended or was cancelled.", ephemeral=True)
+        if interaction.guild is None or interaction.guild.id != int(gw.get("guild_id", 0)):
+            return await cinnamon_send(interaction, "This giveaway belongs to another server.", ephemeral=True)
+        view = GiveawayParticipantsView(interaction.guild, gw)
+        await interaction.response.send_message(embed=view.embed(), view=view, ephemeral=True)
 
     async def _enter(self, interaction: discord.Interaction):
         gw = active_giveaways.get(interaction.message.id)
@@ -581,25 +648,20 @@ class GiveawayView(discord.ui.View):
         eligible, reason = _giveaway_eligibility(interaction.user, gw)
         uid = interaction.user.id
         entrants = gw.setdefault("entrants", [])
-        if uid not in entrants and not eligible:
-            return await cinnamon_send(interaction, reason or "You can't enter this giveaway.", ephemeral=True)
         if uid in entrants:
-            entrants.remove(uid)
-            text = str(gw.get("leave_message") or "You left the giveaway.")[:300]
-            action = "Left"
-        else:
-            entrants.append(uid)
-            text = str(gw.get("entry_message") or "🎉 You're entered! Tap the button again if you want to leave.")[:300]
-            action = "Entered"
+            return await cinnamon_send(interaction, "🐾 You're already entered! Your entry is locked in until the giveaway ends.", ephemeral=True)
+        if not eligible:
+            return await cinnamon_send(interaction, reason or "You can't enter this giveaway.", ephemeral=True)
+        entrants.append(uid)
+        text = str(gw.get("entry_message") or "🎉 You're entered! Good luck!")[:300]
         await cinnamon_send(interaction, text, ephemeral=True)
-        if action == "Entered":
-            await achievement_record(int(gw.get("guild_id", 0)), uid, "giveaway", 1)
-            await quest_event(int(gw.get("guild_id", 0)), uid, "giveaway", 1)
+        await achievement_record(int(gw.get("guild_id", 0)), uid, "giveaway", 1)
+        await quest_event(int(gw.get("guild_id", 0)), uid, "giveaway", 1)
         await bd_save_data()
         await _refresh_giveaway_message(interaction.message, gw)
-        await send_log(int(gw.get("guild_id", 0)), title="🎉 Giveaway entry changed", category="community",
+        await send_log(int(gw.get("guild_id", 0)), title="🎉 Giveaway entry added", category="community",
                        fields=[("User", f"{interaction.user} ({uid})"), ("Giveaway message", str(interaction.message.id)),
-                               ("Action", action), ("Entrants", str(len(entrants))), ("Prize", str(gw.get("prize", "Giveaway"))[:900])])
+                               ("Action", "Entered"), ("Entrants", str(len(entrants))), ("Prize", str(gw.get("prize", "Giveaway"))[:900])])
 
 
 async def _refresh_giveaway_message(message, gw: dict):
