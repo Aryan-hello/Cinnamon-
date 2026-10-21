@@ -6,6 +6,7 @@ Do not run this file directly.
 """
 
 import io
+import re
 
 MAX_LEVEL = 200
 DEFAULT_XP_PER_MESSAGE = 20
@@ -619,7 +620,10 @@ async def _create_giveaway(*, guild_id: int, channel_id: int, host_id: int, priz
     allowed = ("bonus_roles", "required_roles", "bypass_roles", "blacklisted_roles", "min_account_age_days",
                "min_server_age_days", "entry_message", "leave_message", "denied_message", "embed_title",
                "embed_description", "embed_color", "entry_emoji", "winner_role_id", "winner_role_minutes",
-               "winner_thread_minutes", "reaction_entries", "template_name", "stack_bonus_entries")
+               "winner_thread_minutes", "reaction_entries", "template_name", "stack_bonus_entries",
+               "required_level", "required_daily_messages", "required_weekly_messages",
+               "required_monthly_messages", "required_total_messages", "required_server_boosts",
+               "require_server_tag", "claim_time", "extra_entries")
     for key in allowed:
         if key in config:
             gw[key] = config[key]
@@ -894,8 +898,10 @@ class GiveawayPreviewView(discord.ui.View):
 
     @discord.ui.button(label="Edit", emoji="🛠️", style=discord.ButtonStyle.primary)
     async def edit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = GiveawayQuickEditModal(self)
-        await interaction.response.send_modal(modal)
+        self.preview_message = interaction.message
+        await interaction.response.send_message(
+            "Choose which part of the giveaway you want to edit. You can edit every setting before pressing Start.",
+            view=GiveawayEditView(self), ephemeral=True)
 
     @discord.ui.button(label="Start", emoji="▶️", style=discord.ButtonStyle.success)
     async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -927,40 +933,172 @@ class GiveawayPreviewView(discord.ui.View):
         for child in self.children: child.disabled = True
 
 
-class GiveawayQuickEditModal(discord.ui.Modal, title="Edit giveaway preview"):
-    prize = discord.ui.TextInput(label="Prize", max_length=200, required=True)
-    duration = discord.ui.TextInput(label="Duration in minutes", max_length=6, required=True)
-    winners = discord.ui.TextInput(label="Number of winners", max_length=3, required=True)
+def _parse_giveaway_duration(value: str) -> int:
+    """Parse human durations such as 1h, 1day, 1 week, 56h, or 2d 4h into minutes."""
+    raw = (value or "").strip().lower()
+    if not raw:
+        raise ValueError("Enter a duration like `1h`, `1day`, `1 week`, `56h`, or `2d 4h`.")
+    token_re = re.compile(r"(\d+)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|months?|mo|years?|y)", re.I)
+    matches = list(token_re.finditer(raw))
+    if not matches or re.sub(r"[\s,]+", "", "".join(m.group(0) for m in matches)) != re.sub(r"[\s,]+", "", raw):
+        raise ValueError("Use a duration like `1h`, `1day`, `1 week`, `56h`, `30m`, or `2d 4h`.")
+    minutes = 0
+    for m in matches:
+        amount = int(m.group(1)); unit = m.group(2).lower()
+        if unit.startswith("s"): minutes += max(1, (amount + 59) // 60)
+        elif unit == "m" or unit.startswith("min"): minutes += amount
+        elif unit == "mo" or unit.startswith("month"): minutes += amount * 43200
+        elif unit.startswith("h"): minutes += amount * 60
+        elif unit.startswith("d"): minutes += amount * 1440
+        elif unit.startswith("w"): minutes += amount * 10080
+        elif unit.startswith("y"): minutes += amount * 525600
+    if not 1 <= minutes <= 525600:
+        raise ValueError("Duration must be at least 1 minute and no longer than 1 year.")
+    return minutes
 
-    def __init__(self, preview: GiveawayPreviewView):
+
+def _preview_embed(cfg: dict) -> discord.Embed:
+    duration = int(cfg.get("duration_minutes", 60))
+    conf = cfg.get("config", {})
+    bonus = conf.get("bonus_roles", {}) or {}
+    bonus_text = ", ".join(f"<@&{rid}>: +{count}" for rid, count in bonus.items()) or "None"
+    required = ", ".join(f"<@&{rid}>" for rid in conf.get("required_roles", [])) or "None"
+    channel_id = int(cfg.get("channel_id", 0))
+    description = (f"**Prize:** {cfg.get('prize','Giveaway')}\n**Winners:** {cfg.get('winners',1)}\n"
+        f"**Duration:** {duration} minute(s)\n**Channel:** <#{channel_id}>\n"
+        f"**Ends at:** <t:{int(time.time()+duration*60)}:F>\n**Role extra entries:** {bonus_text}\n"
+        f"**Required roles:** {required}\n**Required level:** {conf.get('required_level',0)}\n"
+        f"**Daily / weekly / monthly / total messages:** {conf.get('required_daily_messages',0)} / "
+        f"{conf.get('required_weekly_messages',0)} / {conf.get('required_monthly_messages',0)} / {conf.get('required_total_messages',0)}\n"
+        f"**Server boosts required:** {conf.get('required_server_boosts',0)}\n"
+        f"**Claim time:** {conf.get('claim_time',0) or 'No deadline'} minutes\n\n"
+        "Press **Start** to publish it. This preview expires in 15 minutes.")
+    return discord.Embed(title=conf.get("embed_title") or "🎉 Review your giveaway", description=description[:4000], color=0x5865F2)
+
+
+class GiveawayEditView(discord.ui.View):
+    def __init__(self, preview):
         super().__init__(timeout=300)
         self.preview = preview
-        self.prize.default = preview.config["prize"]
-        self.duration.default = str(preview.config["duration_minutes"])
-        self.winners.default = str(preview.config["winners"])
+        options = [
+            discord.SelectOption(label="Basics", value="basics", description="Prize, duration, winners, channel"),
+            discord.SelectOption(label="Roles", value="roles", description="Bonus, required, bypass, and blocked roles"),
+            discord.SelectOption(label="Requirements", value="requirements", description="Level, messages, boosts, server tag"),
+            discord.SelectOption(label="Messages & appearance", value="messages", description="Entry text, embed title and description"),
+            discord.SelectOption(label="Advanced", value="advanced", description="Claim time, winner role, emoji, colors"),
+        ]
+        select = discord.ui.Select(placeholder="Choose settings to edit…", min_values=1, max_values=1, options=options)
+        async def chosen(interaction: discord.Interaction):
+            category = select.values[0]
+            modal_cls = {"basics": GiveawayBasicsModal, "roles": GiveawayRolesModal,
+                         "requirements": GiveawayRequirementsModal, "messages": GiveawayMessagesModal,
+                         "advanced": GiveawayAdvancedModal}[category]
+            await interaction.response.send_modal(modal_cls(self.preview))
+        select.callback = chosen
+        self.add_item(select)
+
+
+class _GiveawayEditModal(discord.ui.Modal):
+    def __init__(self, preview, title, fields):
+        super().__init__(title=title, timeout=300)
+        self.preview = preview
+        self.inputs = {}
+        cfg = preview.config
+        conf = cfg.setdefault("config", {})
+        for key, label, default, max_length in fields:
+            item = discord.ui.TextInput(label=label, default=str(default or "")[:max_length], max_length=max_length, required=False)
+            self.inputs[key] = item
+            self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
+        cfg = self.preview.config; conf = cfg.setdefault("config", {})
         try:
-            duration, winners = int(self.duration.value), int(self.winners.value)
-            if not 1 <= duration <= 525600: raise ValueError("Duration must be between 1 minute and 1 year.")
-            if not 1 <= winners <= 100: raise ValueError("Winners must be between 1 and 100.")
-            self.preview.config["prize"] = self.prize.value.strip()
-            self.preview.config["duration_minutes"] = duration
-            self.preview.config["winners"] = winners
-            cfg = self.preview.config
-            embed = discord.Embed(title="🎉 Review your giveaway", description=(
-                f"**Prize:** {cfg['prize']}\n**Winners:** {winners}\n**Duration:** {duration} minute(s)\n"
-                f"**Ends at:** <t:{int(time.time()+duration*60)}:F>\n\nPress **Start** to publish it. This preview expires in 15 minutes."), color=0x5865F2)
-            await interaction.response.edit_message(embed=embed, view=self.preview)
-        except ValueError as exc:
+            for key, item in self.inputs.items():
+                value = item.value.strip()
+                if key == "prize":
+                    if not value: raise ValueError("Prize cannot be empty.")
+                    cfg[key] = value[:200]
+                elif key == "duration": cfg["duration_minutes"] = _parse_giveaway_duration(value)
+                elif key == "winners":
+                    n=int(value)
+                    if not 1 <= n <= 100: raise ValueError("Winners must be between 1 and 100.")
+                    cfg[key]=n
+                elif key == "channel":
+                    match=re.fullmatch(r"<?#?(\d+)>?", value)
+                    if not match: raise ValueError("Channel must be a channel mention or numeric channel ID.")
+                    cfg["channel_id"]=int(match.group(1))
+                elif key in ("bonus_roles", "required_roles", "bypass_roles", "blacklisted_roles"):
+                    parsed={}
+                    for token in value.split(","):
+                        token=token.strip()
+                        if not token: continue
+                        if key == "bonus_roles":
+                            match=re.fullmatch(r"<?@&(\d+)>?\s+(\d{1,3})\+?", token)
+                            if not match: raise ValueError("Extra entries format: `@Role 3, @VIP 5`.")
+                            rid,count=match.group(1),int(match.group(2))
+                            if not 1 <= count <= 250: raise ValueError("Each role bonus must be 1–250.")
+                            parsed[rid]=count
+                        else:
+                            match=re.fullmatch(r"<?@&(\d+)>?", token)
+                            if not match: raise ValueError("Mention roles separated by commas, e.g. `@Level 1, @VIP`.")
+                            parsed[match.group(1)]=int(match.group(1))
+                    if key == "bonus_roles": conf[key]=parsed
+                    else: conf[key]=list(parsed.values())
+                elif key in ("required_level", "required_daily_messages", "required_weekly_messages", "required_monthly_messages", "required_total_messages", "required_server_boosts", "claim_time", "winner_role_minutes", "winner_thread_minutes"):
+                    n=int(value or "0")
+                    if n < 0: raise ValueError(f"{key.replace('_',' ').title()} cannot be negative.")
+                    conf[key]=n
+                elif key == "require_server_tag": conf[key]=value.lower() in ("yes","true","1","on")
+                elif key == "winner_role_id":
+                    match=re.fullmatch(r"<?@&(\d+)>?", value) if value else None
+                    conf[key]=match.group(1) if match else ""
+                elif key == "embed_color":
+                    if value:
+                        value=value.lstrip("#")
+                        if not re.fullmatch(r"[0-9a-fA-F]{6}", value): raise ValueError("Embed color must be a hex color like `#E8A34A`.")
+                        conf[key]=int(value,16)
+                    else: conf[key]=0x5865F2
+                elif key == "entry_emoji": conf[key]=value or "🎉"
+                elif key in ("entry_message", "leave_message", "denied_message", "embed_title", "embed_description"):
+                    conf[key]=value
+            preview_message = getattr(self.preview, "preview_message", None)
+            if preview_message is not None:
+                await preview_message.edit(embed=_preview_embed(self.preview.config), view=self.preview, allowed_mentions=discord.AllowedMentions.none())
+            await interaction.response.send_message("Settings updated. Choose another category to edit more, or return to the original preview and press **Start**.", view=GiveawayEditView(self.preview), ephemeral=True)
+        except (ValueError, TypeError) as exc:
             await cinnamon_send(interaction, str(exc), ephemeral=True)
 
 
+class GiveawayBasicsModal(_GiveawayEditModal):
+    def __init__(self,p):
+        c=p.config.get("config",{})
+        super().__init__(p,"Edit giveaway basics",[("prize","Prize",p.config.get("prize",""),200),("duration","Duration (e.g. 1h, 1day, 1 week)",f"{p.config.get('duration_minutes',60)}m",30),("winners","Number of winners",p.config.get("winners",1),3),("channel","Channel mention or ID",f"<#{p.config.get('channel_id',0)}>",30)])
+class GiveawayRolesModal(_GiveawayEditModal):
+    def __init__(self,p):
+        c=p.config.get("config",{})
+        bonus=", ".join(f"<@&{r}> {n}" for r,n in c.get("bonus_roles",{}).items())
+        super().__init__(p,"Edit giveaway roles",[("bonus_roles","Extra entries: @Role 3, @VIP 5",bonus,400),("required_roles","Required roles (comma-separated)",", ".join(f"<@&{r}>" for r in c.get("required_roles",[])),400),("bypass_roles","Bypass roles (comma-separated)",", ".join(f"<@&{r}>" for r in c.get("bypass_roles",[])),400),("blacklisted_roles","Blocked roles (comma-separated)",", ".join(f"<@&{r}>" for r in c.get("blacklisted_roles",[])),400)])
+class GiveawayRequirementsModal(_GiveawayEditModal):
+    def __init__(self,p):
+        c=p.config.get("config",{})
+        fields=[(k,k.replace("required_","Required ").replace("_"," ").title(),c.get(k,0),12) for k in ("required_level","required_daily_messages","required_weekly_messages","required_monthly_messages","required_total_messages")]
+        super().__init__(p,"Edit eligibility requirements",fields)
+class GiveawayMessagesModal(_GiveawayEditModal):
+    def __init__(self,p):
+        c=p.config.get("config",{})
+        super().__init__(p,"Edit messages and appearance",[("entry_message","Entry confirmation",c.get("entry_message","🎉 You're entered!"),400),("leave_message","Leave message",c.get("leave_message","You left the giveaway."),400),("denied_message","Denied message",c.get("denied_message","You can't enter this giveaway."),400),("embed_title","Embed title",c.get("embed_title",""),200),("embed_description","Embed description",c.get("embed_description",""),400)])
+class GiveawayAdvancedModal(_GiveawayEditModal):
+    def __init__(self,p):
+        c=p.config.get("config",{})
+        super().__init__(p,"Edit advanced settings",[("claim_time","Claim deadline in minutes (0=off)",c.get("claim_time",0),6),("winner_role_id","Winner role mention (optional)",f"<@&{c['winner_role_id']}>" if c.get("winner_role_id") else "",30),("winner_role_minutes","Winner role duration minutes",c.get("winner_role_minutes",0),7),("required_server_boosts","Required server boosts",c.get("required_server_boosts",0),4),("entry_emoji","Entry emoji",c.get("entry_emoji","🎉"),50)])
+
+
 @giveaway_group.command(name="create", description="Preview, edit, and then start a giveaway")
-@app_commands.describe(duration="How long it lasts in minutes", winners="Number of winners", prize="The prize",
-    channel="Where to post the giveaway", extra_entries="Extra entries for everyone (0–250)",
-    required_roles="Required role IDs, comma-separated", bypass_roles="Role IDs that bypass requirements",
-    blacklisted_roles="Role IDs that cannot enter", required_level="Minimum Cinnamon level (0 disables)",
+@app_commands.describe(duration="How long it lasts, e.g. 1h, 1day, 1 week, 56h", winners="Number of winners", prize="The prize",
+    channel="Where to post the giveaway", extra_entries="Role bonuses, e.g. @Level 1 3, @VIP 5",
+    required_roles="Required roles, mention them separated by commas",
+    bypass_roles="Roles that bypass requirements, comma-separated mentions",
+    blacklisted_roles="Roles that cannot enter, comma-separated mentions", required_level="Minimum Cinnamon level (0 disables)",
     required_daily_messages="Minimum messages today (0 disables)", required_weekly_messages="Minimum messages this week (0 disables)",
     required_monthly_messages="Minimum messages this month (0 disables)", required_total_messages="Minimum total messages (0 disables)",
     required_server_boosts="Minimum server boosts (0 disables)", require_server_tag="Require a server profile tag (where supported)",
@@ -968,9 +1106,9 @@ class GiveawayQuickEditModal(discord.ui.Modal, title="Edit giveaway preview"):
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
 async def giveaway_create(interaction: discord.Interaction,
-    duration: app_commands.Range[int, 1, 525600], winners: app_commands.Range[int, 1, 100],
+    duration: str, winners: app_commands.Range[int, 1, 100],
     prize: app_commands.Range[str, 1, 200], channel: discord.TextChannel = None,
-    extra_entries: app_commands.Range[int, 0, 250] = 0, required_roles: str = "", bypass_roles: str = "",
+    extra_entries: str = "", required_roles: str = "", bypass_roles: str = "",
     blacklisted_roles: str = "", required_level: app_commands.Range[int, 0, 200] = 0,
     required_daily_messages: app_commands.Range[int, 0, 1000000] = 0,
     required_weekly_messages: app_commands.Range[int, 0, 1000000] = 0,
@@ -979,6 +1117,10 @@ async def giveaway_create(interaction: discord.Interaction,
     required_server_boosts: app_commands.Range[int, 0, 100] = 0, require_server_tag: bool = False,
     giveaway_create_message: str = "", giveaway_winners_role: discord.Role = None,
     claim_time: app_commands.Range[int, 0, 10080] = 0):
+    try:
+        duration_minutes = _parse_giveaway_duration(duration)
+    except ValueError as exc:
+        return await cinnamon_send(interaction, str(exc), ephemeral=True)
     target = channel or interaction.channel
     if not isinstance(target, (discord.TextChannel, discord.Thread)):
         return await cinnamon_send(interaction, "Choose a text channel for the giveaway.", ephemeral=True)
@@ -990,46 +1132,52 @@ async def giveaway_create(interaction: discord.Interaction,
               "required_monthly_messages": required_monthly_messages, "required_total_messages": required_total_messages,
               "required_server_boosts": required_server_boosts, "require_server_tag": require_server_tag,
               "embed_description": giveaway_create_message, "winner_role_id": str(giveaway_winners_role.id) if giveaway_winners_role else "",
-              "claim_time": claim_time, "extra_entries": extra_entries}
-    # Validate role IDs early so invalid input is caught before the preview is shown.
+              "claim_time": claim_time, "extra_entries": 0, "stack_bonus_entries": True}
+    # Parse role mentions as comma-separated entries. Bonus format: @Role 3, @OtherRole 5.
     try:
         for field in ("required_roles", "bypass_roles", "blacklisted_roles"):
-            raw = locals().get(field, "")
+            raw = locals().get(field, "") or ""
             ids=[]
-            for token in raw.replace(",", " ").split():
-                token=token.replace("<@&", "").replace(">", "")
-                if not token.isdigit() or not interaction.guild.get_role(int(token)):
-                    raise ValueError(f"{field.replace('_',' ').title()} must contain valid role IDs.")
-                ids.append(int(token))
+            for token in raw.split(","):
+                token = token.strip()
+                if not token:
+                    continue
+                match = re.fullmatch(r"(?:<@&)?(\d+)>?", token)
+                if not match:
+                    raise ValueError(f"{field.replace('_',' ').title()}: mention each role and separate multiple roles with commas.")
+                role = interaction.guild.get_role(int(match.group(1)))
+                if role is None:
+                    raise ValueError(f"Could not find role `{token}` in this server.")
+                if role.id not in ids:
+                    ids.append(role.id)
             config[field]=ids
+        bonuses = {}
+        for token in (extra_entries or "").split(","):
+            token = token.strip()
+            if not token:
+                continue
+            match = re.fullmatch(r"(?:<@&)?(\d+)>?\s+(\d{1,3})\+?", token)
+            if not match:
+                raise ValueError("Extra entries format: mention a role followed by a number, e.g. `@Level 1 3, @VIP 5`.")
+            role_id, count = int(match.group(1)), int(match.group(2))
+            role = interaction.guild.get_role(role_id)
+            if role is None:
+                raise ValueError(f"Could not find bonus role `{role_id}` in this server.")
+            if not 1 <= count <= 250:
+                raise ValueError("Each role's extra entries must be between 1 and 250.")
+            bonuses[str(role_id)] = count
+        config["bonus_roles"] = bonuses
     except ValueError as exc:
         return await cinnamon_send(interaction, str(exc), ephemeral=True)
     preview = GiveawayPreviewView(interaction.user.id, {"channel_id": target.id, "prize": prize,
-        "winners": winners, "duration_minutes": duration, "config": config})
+        "winners": winners, "duration_minutes": duration_minutes, "config": config})
     embed = discord.Embed(title="🎉 Review your giveaway", description=(
-        f"**Prize:** {prize}\n**Winners:** {winners}\n**Duration:** {duration} minute(s)\n"
+        f"**Prize:** {prize}\n**Winners:** {winners}\n**Duration:** {duration_minutes} minute(s)\n"
         f"**Channel:** {target.mention}\n**Ends at:** <t:{int(time.time()+duration*60)}:F>\n"
-        f"**Extra entries:** {extra_entries}\n**Claim time:** {claim_time or 'No deadline'} minutes\n\n"
+        f"**Role extra entries:** {', '.join(f'<@&{rid}>: +{count}' for rid, count in config['bonus_roles'].items()) or 'None'}\n"
+        f"**Claim time:** {claim_time or 'No deadline'} minutes\n\n"
         "Press **Start** to publish it. This preview expires in 15 minutes."), color=0x5865F2)
     await interaction.response.send_message(embed=embed, view=preview, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
-
-
-@giveaway_group.command(name="start", description="Start a configurable giveaway in this channel")
-@app_commands.describe(duration_minutes="Duration in minutes (up to one year)", winners="Number of unique winners", prize="What's being given away")
-@app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.guild_only()
-async def giveaway_start(interaction: discord.Interaction,
-                         duration_minutes: app_commands.Range[int, 1, 525600],
-                         winners: app_commands.Range[int, 1, 100], prize: app_commands.Range[str, 1, 200]):
-    try:
-        mid=await _create_giveaway(guild_id=interaction.guild.id, channel_id=interaction.channel.id,
-                                   host_id=interaction.user.id, prize=prize, winners=winners,
-                                   duration_minutes=duration_minutes)
-    except (ValueError, discord.HTTPException) as exc:
-        return await cinnamon_send(interaction, f"Couldn't start that giveaway: {exc}", ephemeral=True)
-    await cinnamon_send(interaction, f"🎉 Giveaway started! Message ID: `{mid}` • {winners} winner(s) • {duration_minutes} minute(s).")
-    await send_log(interaction.guild.id, title="🎉 Giveaway started", interaction=interaction, category="community",
-                   fields=[("Message", str(mid)), ("Prize", prize), ("Duration", f"{duration_minutes} minute(s)"), ("Winners", str(winners))])
 
 
 @giveaway_group.command(name="end", description="End an active giveaway and pick winners now")
