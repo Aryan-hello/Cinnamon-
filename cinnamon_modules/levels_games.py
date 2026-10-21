@@ -966,7 +966,7 @@ def _preview_embed(cfg: dict) -> discord.Embed:
     channel_id = int(cfg.get("channel_id", 0))
     description = (f"**Prize:** {cfg.get('prize','Giveaway')}\n**Winners:** {cfg.get('winners',1)}\n"
         f"**Duration:** {duration} minute(s)\n**Channel:** <#{channel_id}>\n"
-        f"**Ends at:** <t:{int(time.time()+duration*60)}:F>\n**Role extra entries:** {bonus_text}\n"
+        f"**Ends at:** <t:{int(time.time() + duration_minutes * 60)}:F>\n**Role extra entries:** {bonus_text}\n"
         f"**Required roles:** {required}\n**Required level:** {conf.get('required_level',0)}\n"
         f"**Daily / weekly / monthly / total messages:** {conf.get('required_daily_messages',0)} / "
         f"{conf.get('required_weekly_messages',0)} / {conf.get('required_monthly_messages',0)} / {conf.get('required_total_messages',0)}\n"
@@ -1173,7 +1173,7 @@ async def giveaway_create(interaction: discord.Interaction,
         "winners": winners, "duration_minutes": duration_minutes, "config": config})
     embed = discord.Embed(title="🎉 Review your giveaway", description=(
         f"**Prize:** {prize}\n**Winners:** {winners}\n**Duration:** {duration_minutes} minute(s)\n"
-        f"**Channel:** {target.mention}\n**Ends at:** <t:{int(time.time()+duration*60)}:F>\n"
+        f"**Channel:** {target.mention}\n**Ends at:** <t:{int(time.time() + duration_minutes * 60)}:F>\n"
         f"**Role extra entries:** {', '.join(f'<@&{rid}>: +{count}' for rid, count in config['bonus_roles'].items()) or 'None'}\n"
         f"**Claim time:** {claim_time or 'No deadline'} minutes\n\n"
         "Press **Start** to publish it. This preview expires in 15 minutes."), color=0x5865F2)
