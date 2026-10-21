@@ -234,11 +234,41 @@ def quest_scope_embed(guild_id,user_id,scope="daily",page=0):
     return cinnamon_polish_embed(e)
 
 
-@bot.tree.command(name="quest",description="Open paginated daily and weekly Cinnamon quests")
+# Slash-command group so the requested `/quest daily`, `/quest weekly`, and
+# `/quest progress` paths are real application commands (the old implementation
+# only exposed these as prefix commands and separately under `/quests`).
+quest_slash_group = app_commands.Group(name="quest", description="View and track Cinnamon quests")
+
+@quest_slash_group.command(name="overview", description="Open the paginated daily and weekly quest board")
 @app_commands.guild_only()
-async def quest_cmd(interaction):
+async def quest_overview_cmd(interaction: discord.Interaction):
     view=QuestPageView(interaction.guild.id,interaction.user.id,"daily",0)
     await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"daily",0),view=view)
+
+@quest_slash_group.command(name="daily", description="View your active daily Cinnamon quests")
+@app_commands.guild_only()
+async def quest_daily_slash_cmd(interaction: discord.Interaction):
+    view=QuestPageView(interaction.guild.id,interaction.user.id,"daily",0)
+    await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"daily",0),view=view)
+
+@quest_slash_group.command(name="weekly", description="View your active weekly Cinnamon quests")
+@app_commands.guild_only()
+async def quest_weekly_slash_cmd(interaction: discord.Interaction):
+    view=QuestPageView(interaction.guild.id,interaction.user.id,"weekly",0)
+    await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"weekly",0),view=view)
+
+@quest_slash_group.command(name="progress", description="View your quest points and completed quests")
+@app_commands.guild_only()
+async def quest_progress_slash_cmd(interaction: discord.Interaction):
+    d=_ensure_rolls(interaction.guild.id); u=_user(interaction.guild.id,interaction.user.id)
+    completed=len(u.get("completed_history",[]))
+    e=discord.Embed(title="📜 Cinnamon Quest Progress",color=0xFFB02E)
+    e.add_field(name="Quest Points",value=f"✨ **{u['qp']:,} QP**",inline=True)
+    e.add_field(name="Completed",value=f"🏆 **{completed}**",inline=True)
+    e.add_field(name="Active quests",value=f"☀️ {len(d.get('daily_ids',[]))}/5 daily\\n📅 {len(d.get('weekly_ids',[]))}/5 weekly",inline=True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(e),ephemeral=True)
+
+bot.tree.add_command(quest_slash_group)
 
 @bot.tree.command(name="dailyquests",description="View your 5 active daily Cinnamon quests")
 @app_commands.guild_only()

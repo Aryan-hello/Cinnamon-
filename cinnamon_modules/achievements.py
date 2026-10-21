@@ -335,6 +335,30 @@ async def achievement_command_listener(interaction, command):
 
 # Member commands
 achievement_group=app_commands.Group(name="achievement",description="Cinnamon's achievement system")
+
+
+async def autocomplete_achievement_ids(interaction: discord.Interaction, current: str):
+    """Search achievement IDs and display names, returning readable labels."""
+    needle = (current or "").lower().strip()
+    pool = list(ACHIEVEMENTS.items())
+    # Include secrets only for admin management; public info lookup suggestions
+    # should not reveal undiscovered secret achievements.
+    command_name = getattr(getattr(interaction, "command", None), "name", "")
+    if command_name in {"award", "revoke"}:
+        pool += list(SECRET_ACHIEVEMENTS.items())
+    else:
+        state = _state(interaction.guild.id, interaction.user.id) if interaction.guild else {}
+        unlocked_secret = set(state.get("secret_unlocked", []))
+        pool += [(aid, a) for aid, a in SECRET_ACHIEVEMENTS.items() if aid in unlocked_secret]
+    choices = []
+    for aid, achievement in pool:
+        name = str(achievement.get("name", aid))
+        if needle and needle not in aid.lower() and needle not in name.lower():
+            continue
+        choices.append(app_commands.Choice(name=f"{name[:70]} ({aid})", value=aid))
+        if len(choices) >= 25:
+            break
+    return choices
 class AchievementListView(discord.ui.View):
     def __init__(self, guild_id: int, user_id: int, page: int = 0):
         super().__init__(timeout=300)
@@ -368,26 +392,6 @@ def achievement_list_embed(guild_id,user_id,page=0):
         bar=cinnamon_progress_bar(shown,target,8)
         e.add_field(name=f"{status} {a['name']}",value=f"{bar} **{shown:,}/{target:,}**\n{a['description']}  ·  *{achievement_rarity(aid,a)}*",inline=False)
     return cinnamon_polish_embed(e)
-
-async def achievement_name_autocomplete(interaction, current: str):
-    """Autocomplete achievement display names while returning canonical IDs."""
-    term = (current or "").lower().strip()
-    pool = {**ACHIEVEMENTS, **SECRET_ACHIEVEMENTS, "admin_favourite": ADMIN_ACHIEVEMENT}
-    matches = []
-    for aid, definition in pool.items():
-        name = str(definition.get("name", aid))
-        # Keep undiscovered secret achievements hidden from ordinary lookups.
-        if aid in SECRET_ACHIEVEMENTS:
-            state = _state(interaction.guild.id, interaction.user.id)
-            if aid not in state.get("secret_unlocked", []):
-                continue
-        if term and term not in aid.lower() and term not in name.lower():
-            continue
-        rank = 0 if name.lower().startswith(term) or aid.lower().startswith(term) else 1
-        matches.append((rank, name.lower(), aid, name))
-    return [app_commands.Choice(name=f"{name[:70]} · {aid}"[:100], value=aid)
-            for _, _, aid, name in sorted(matches)[:25]]
-
 
 @achievement_group.command(name="list",description="View normal achievements and progress")
 @app_commands.guild_only()
@@ -437,7 +441,6 @@ async def achievement_showcase_cmd(interaction):
     await interaction.response.send_message(embed=cinnamon_polish_embed(e))
 
 @achievement_group.command(name="showcase-set",description="Set up to five achievements for your profile showcase")
-@app_commands.autocomplete(slot1=achievement_name_autocomplete, slot2=achievement_name_autocomplete, slot3=achievement_name_autocomplete, slot4=achievement_name_autocomplete, slot5=achievement_name_autocomplete)
 @app_commands.guild_only()
 @app_commands.describe(slot1="First featured achievement",slot2="Second featured achievement",slot3="Third featured achievement",slot4="Fourth featured achievement",slot5="Fifth featured achievement")
 async def achievement_showcase_set_cmd(interaction, slot1:str=None, slot2:str=None, slot3:str=None, slot4:str=None, slot5:str=None):
@@ -472,7 +475,7 @@ async def achievement_secret_cmd(interaction):
     await interaction.response.send_message(embed=discord.Embed(title="🕵️ Discovered Secrets",description=text[:4000],color=discord.Color.purple()))
 
 @achievement_group.command(name="info",description="View an achievement's details")
-@app_commands.autocomplete(achievement=achievement_name_autocomplete)
+@app_commands.autocomplete(achievement=autocomplete_achievement_ids)
 @app_commands.guild_only()
 async def achievement_info_cmd(interaction, achievement:str):
     term=achievement.lower().strip(); pool={**ACHIEVEMENTS,**SECRET_ACHIEVEMENTS}; found=None
@@ -516,7 +519,7 @@ async def achievement_setup_status_cmd(interaction):
     await cinnamon_send(interaction, f"🏆 Enabled: **{cfg.get('enabled',True)}**\n🧾 Log channel: {('<#'+str(cfg['log_channel'])+'>') if cfg.get('log_channel') else 'Not configured'}\n🏆 Definitions: **{len(ACHIEVEMENTS)}** + **{len(SECRET_ACHIEVEMENTS)}** secrets",ephemeral=True)
 
 @achievement_group.command(name="award",description="Admin: manually award an achievement")
-@app_commands.autocomplete(achievement=achievement_name_autocomplete)
+@app_commands.autocomplete(achievement=autocomplete_achievement_ids)
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def achievement_award_cmd(interaction, member:discord.Member, achievement:str):
@@ -535,7 +538,7 @@ async def _unlock_custom_admin(g,u):
     return True
 
 @achievement_group.command(name="revoke",description="Admin: revoke an achievement (rewards are not clawed back)")
-@app_commands.autocomplete(achievement=achievement_name_autocomplete)
+@app_commands.autocomplete(achievement=autocomplete_achievement_ids)
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def achievement_revoke_cmd(interaction, member:discord.Member, achievement:str):

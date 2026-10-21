@@ -36,11 +36,31 @@ def economy_key(guild_id: int, user_id: int) -> tuple[int, int]:
 
 
 def economy_balance(guild_id: int, user_id: int) -> int:
-    key = economy_key(guild_id, user_id)
-    if key not in economy_balances:
-        economy_balances[key] = ECONOMY_STARTING_BALANCE
-    return int(economy_balances[key])
+    """Read a balance without materializing a default account.
 
+    A read-only command must not create a fake persisted balance: doing so
+    prevents /recall from recognizing that the account is missing after a
+    storage reset. The starting balance is materialized naturally on the
+    first transaction that writes to economy_balances.
+    """
+    key = economy_key(guild_id, user_id)
+    return int(economy_balances.get(key, ECONOMY_STARTING_BALANCE))
+
+
+
+
+async def autocomplete_shop_items(interaction: discord.Interaction, current: str):
+    """Search custom and built-in shop items by either display name or ID."""
+    current = (current or "").lower().strip()
+    choices = []
+    for item_id, item in ECONOMY_ITEMS.items():
+        name = str(item.get("name", item_id))
+        if current and current not in item_id.lower() and current not in name.lower():
+            continue
+        choices.append(app_commands.Choice(name=f"{name[:70]} ({item_id})", value=item_id))
+        if len(choices) >= 25:
+            break
+    return choices
 
 def economy_inventory_for(guild_id: int, user_id: int) -> dict:
     key = economy_key(guild_id, user_id)
@@ -405,26 +425,7 @@ async def economy_shop_cmd(interaction: discord.Interaction):
     )
 
 
-async def autocomplete_shop_item_ids(interaction: discord.Interaction, current: str):
-    """Search item IDs and display names while passing the stable item ID."""
-    current = (current or "").lower().strip()
-    choices = []
-    ranked = []
-    for item_id, item in ECONOMY_ITEMS.items():
-        name = str(item.get("name", item_id))
-        if current and current not in item_id.lower() and current not in name.lower():
-            continue
-        # Prefer prefix matches, while still allowing partial-name searches.
-        rank = 0 if name.lower().startswith(current) or item_id.lower().startswith(current) else 1
-        ranked.append((rank, name.lower(), item_id, name))
-    for _, _, item_id, name in sorted(ranked)[:25]:
-        choices.append(app_commands.Choice(name=f"{name[:65]} · {item_id}"[:100], value=item_id))
-    return choices
-
-
-
 @economy_group.command(name="buy", description="Buy an item with Catnip")
-@app_commands.autocomplete(item=autocomplete_shop_item_ids)
 @app_commands.describe(item="Item ID or item name from /economy shop", quantity="How many to buy")
 @app_commands.guild_only()
 async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity: int = 1):
@@ -553,13 +554,13 @@ async def economy_leaderboard_cmd(interaction: discord.Interaction):
 
 
 @economy_group.command(name="feed", description="Give Cinnamon an item")
-@app_commands.describe(item="Item to give Cinnamon", quantity="How many to give")
-@app_commands.choices(item=[app_commands.Choice(name=v["name"], value=k) for k, v in ECONOMY_ITEMS.items()])
+@app_commands.describe(item="Search by item name or shop ID", quantity="How many to give")
+@app_commands.autocomplete(item=autocomplete_shop_items)
 @app_commands.guild_only()
-async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.Choice[str], quantity: app_commands.Range[int, 1, 99] = 1):
+async def economy_feed_cmd(interaction: discord.Interaction, item: str, quantity: app_commands.Range[int, 1, 99] = 1):
     try:
         guild_id, user_id = interaction.guild.id, interaction.user.id
-        item_id = str(item.value)
+        item_id = str(item).lower().strip()
         data = ECONOMY_ITEMS.get(item_id)
         if not data:
             await cinnamon_send(interaction, "❌ That item no longer exists. Refresh the command choices and try again.", ephemeral=True)
@@ -716,8 +717,17 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
             uid = int(uid_text)
             key = (guild.id, uid)
             had_balance = key in economy_balances
-            if not merge_only or not had_balance:
-                economy_balances[key] = int(user.get("balance", ECONOMY_STARTING_BALANCE))
+            snapshot_balance = int(user.get("balance", ECONOMY_STARTING_BALANCE))
+            current_balance = economy_balances.get(key)
+            repaired_default = (
+                merge_only and had_balance
+                and int(current_balance) == int(ECONOMY_STARTING_BALANCE)
+                and snapshot_balance != int(ECONOMY_STARTING_BALANCE)
+            )
+            if not merge_only or not had_balance or repaired_default:
+                economy_balances[key] = snapshot_balance
+            if not had_balance or repaired_default:
+                restored += 1
             snap_inventory = {str(k): int(v) for k, v in user.get("inventory", {}).items() if int(v) > 0}
             if merge_only:
                 live_inventory = economy_inventory.setdefault(key, {})
@@ -740,8 +750,6 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
                 economy_achievements[key] = sorted(set(economy_achievements.get(key, [])) | set(snap_achievements))
             else:
                 economy_achievements[key] = snap_achievements
-            if not had_balance:
-                restored += 1
         except (ValueError, TypeError):
             continue
     snapshot_income = latest.get("income_roles")
@@ -888,10 +896,10 @@ async def collect_cmd(interaction: discord.Interaction):
 
 
 @economy_group.command(name="item-add", description="Admin: add an item directly to a member's inventory")
+@app_commands.autocomplete(item=autocomplete_shop_items)
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.autocomplete(item=autocomplete_shop_item_ids)
-@app_commands.describe(member="Member receiving the item", item="Search item by name", quantity="Number of items to add")
+@app_commands.describe(member="Member receiving the item", item="Item ID or item name", quantity="Number of items to add")
 async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: int = 1):
     item_id = item.lower().strip()
     if item_id not in ECONOMY_ITEMS:
@@ -915,10 +923,10 @@ async def economy_item_add_cmd(interaction: discord.Interaction, member: discord
 
 
 @economy_group.command(name="item-remove", description="Admin: remove an item from a member's inventory")
+@app_commands.autocomplete(item=autocomplete_shop_items)
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.autocomplete(item=autocomplete_shop_item_ids)
-@app_commands.describe(member="Member losing the item", item="Search item by name", quantity="Number of items to remove")
+@app_commands.describe(member="Member losing the item", item="Item ID or item name", quantity="Number of items to remove")
 async def economy_item_remove_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: int = 1):
     item_id = item.lower().strip()
     if item_id not in ECONOMY_ITEMS:
@@ -958,11 +966,26 @@ async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: s
     await cinnamon_send(interaction, f"✅ Added **{emoji} {name}** (`{item_id}`) to the shop.", ephemeral=True)
 
 
+async def autocomplete_shop_item_ids(interaction: discord.Interaction, current: str):
+    current = current.lower().strip()
+    choices = []
+    for item_id, item in ECONOMY_ITEMS.items():
+        if current and current not in item_id.lower() and current not in str(item.get("name", "")).lower():
+            continue
+        choices.append(app_commands.Choice(
+            name=f"{str(item.get('name', item_id))[:80]} ({item_id})",
+            value=item_id,
+        ))
+        if len(choices) >= 25:
+            break
+    return choices
+
+
 @economy_group.command(name="edit-shop-item", description="Admin: edit a Catnip shop item")
 @app_commands.autocomplete(item_id=autocomplete_shop_item_ids)
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.describe(item_id="Search item by name", name="New name", price="New price", description="New description", per_person_limit="New per-person limit; 0 means unlimited", emoji="New emoji")
+@app_commands.describe(item_id="Item ID to edit", name="New name", price="New price", description="New description", per_person_limit="New per-person limit; 0 means unlimited", emoji="New emoji")
 async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: str, name: str | None = None, price: int | None = None, description: str | None = None, per_person_limit: int | None = None, emoji: str | None = None):
     item_id = item_id.lower().strip()
     item = ECONOMY_ITEMS.get(item_id)
@@ -985,8 +1008,7 @@ async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: 
 @economy_group.command(name="remove-item-shop", description="Admin: remove an item from the Catnip shop")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.autocomplete(item_id=autocomplete_shop_item_ids)
-@app_commands.describe(item_id="Search item by name", remove_from_inventories="Whether all copies should also be removed from member inventories")
+@app_commands.describe(item_id="Item ID to remove", remove_from_inventories="Whether all copies should also be removed from member inventories")
 async def economy_remove_item_shop_cmd(interaction: discord.Interaction, item_id: str, remove_from_inventories: bool = False):
     guild_id = interaction.guild.id
     item_id = item_id.lower().strip()
@@ -1032,7 +1054,7 @@ async def economy_remove_role_income_cmd(interaction: discord.Interaction, role:
 
 
 @economy_group.command(name="iteminfo", description="Show complete information about a Catnip item")
-@app_commands.autocomplete(item=autocomplete_shop_item_ids)
+@app_commands.autocomplete(item=autocomplete_shop_items)
 @app_commands.guild_only()
 @app_commands.describe(item="Item ID or item name")
 async def economy_iteminfo_cmd(interaction: discord.Interaction, item: str):
