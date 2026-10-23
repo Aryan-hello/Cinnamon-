@@ -563,8 +563,7 @@ def _giveaways(guild,state):
         f"<div class='field'><label>Reset duration (minutes from save)</label><input name='duration_minutes' type='number' min='1' max='525600' value='{max(1,remain)}' required></div>"
         f"<div class='field'><label>Entry button / reaction emoji</label><input name='entry_emoji' maxlength='40' value='{_esc(gw.get('entry_emoji','🎉'))}'></div>"
         f"<div class='field'><label><input type='checkbox' name='reaction_entries' value='1'{(' checked' if gw.get('reaction_entries') else '')}> Also allow reaction entry</label><small>Bot must have Add Reactions and Manage Messages to remove ineligible entries.</small></div>"
-        f"<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'>{_esc(chr(10).join(f'{rid}:{count}' for rid,count in (gw.get('bonus_roles',{}) or {}).items()))}</textarea><small>Each role adds 1–250 extra entries.</small></div>"
-        f"<div class='field'><label><input type='checkbox' name='stack_bonus_entries' value='1'{(' checked' if gw.get('stack_bonus_entries', True) else '')}> Stack extra entries from multiple roles</label><small>When enabled, matching role bonuses add together; when disabled, only the largest bonus applies.</small></div>"
+        f"<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'>{_esc(chr(10).join(f'{rid}:{count}' for rid,count in (gw.get('bonus_roles',{}) or {}).items()))}</textarea><small>Each listed role adds 1–20 entries. A member can receive bonuses from multiple roles.</small></div>"
         f"<div class='field'><label>Minimum Discord account age (days, 0 = none)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='{int(gw.get('min_account_age_days',0) or 0)}'></div>"
         f"<div class='field'><label>Minimum server membership (days, 0 = none)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='{int(gw.get('min_server_age_days',0) or 0)}'></div>"
         f"<div class='field full'><label>Required roles (member needs at least one)</label>{_role_multi_select(guild,'required_roles',gw.get('required_roles',[]))}</div>"
@@ -590,8 +589,7 @@ def _giveaways(guild,state):
     "<div class='field'><label>Entry button / reaction emoji</label><input name='entry_emoji' maxlength='40' value='🎉'></div><div class='field'><label>Embed colour (hex)</label><input name='embed_color' maxlength='7' value='FEE75C'></div>"
     "<div class='field'><label><input type='checkbox' name='reaction_entries' value='1'> Also allow reaction entry</label><small>Bot needs Add Reactions and Manage Messages to remove ineligible entries.</small></div>"
     "<div class='field'><label>Minimum account age (days)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='0'></div><div class='field'><label>Minimum server membership (days)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='0'></div>"
-    "<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'></textarea><small>Role IDs can be copied from Discord with Developer Mode enabled. Each role adds 1–250 extra entries.</small></div>"
-    "<div class='field'><label><input type='checkbox' name='stack_bonus_entries' value='1' checked> Stack extra entries from multiple roles</label><small>When enabled, matching role bonuses add together; when disabled, only the largest bonus applies.</small></div>"
+    "<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'></textarea><small>Role IDs can be copied from Discord with Developer Mode enabled. Each listed role adds 1–20 entries.</small></div>"
     "<div class='field full'><label>Required roles (member needs at least one)</label>"+_role_multi_select(guild,"required_roles")+"</div>"
     "<div class='field full'><label>Requirement-bypass roles</label>"+_role_multi_select(guild,"bypass_roles")+"</div>"
     "<div class='field full'><label>Blacklisted roles (always blocked)</label>"+_role_multi_select(guild,"blacklisted_roles")+"</div>"
@@ -759,22 +757,10 @@ def _moderate(guild, actor_id, form):
 
 @dashboard_bp.get("/login")
 def login():
-    if not os.getenv("DISCORD_CLIENT_ID", "").strip() or not os.getenv("DISCORD_CLIENT_SECRET", "").strip():
-        return _page("<main class='main'><article class='card'><h1>Almost ready</h1><p>Add non-empty <code>DISCORD_CLIENT_ID</code> and <code>DISCORD_CLIENT_SECRET</code> values to Render's environment variables.</p></article></main>","Cinnamon Login")
-    redirect_uri = _oauth_redirect_uri()
-    parsed_redirect = urllib.parse.urlparse(redirect_uri)
-    if (parsed_redirect.scheme != "https" or not parsed_redirect.netloc
-            or parsed_redirect.path.rstrip("/") != "/oauth/callback"
-            or parsed_redirect.query or parsed_redirect.fragment):
-        shown = html.escape(redirect_uri, quote=True)
-        return _page(
-            "<main class='main'><article class='card'><h1>OAuth callback URL needs fixing</h1>"
-            "<p><code>DASHBOARD_REDIRECT_URI</code> must be the exact public HTTPS callback URL.</p>"
-            f"<p><code>{shown}</code></p><p>For this dashboard, the callback path is <code>/oauth/callback</code>. "
-            "Use the same exact URL in the Discord Developer Portal OAuth2 Redirects list.</p>"
-            "<a class='btn' href='/login'>Try again</a></article></main>", "Cinnamon Login", status=500)
+    if not os.getenv("DISCORD_CLIENT_ID") or not os.getenv("DISCORD_CLIENT_SECRET"):
+        return _page("<main class='main'><article class='card'><h1>Almost ready</h1><p>Add the Discord OAuth client settings to Render's environment variables.</p></article></main>","Cinnamon Login")
     state=secrets.token_urlsafe(32); session["oauth_state"]=state
-    params={"client_id":os.environ["DISCORD_CLIENT_ID"].strip(),"response_type":"code","redirect_uri":redirect_uri,"scope":"identify guilds","state":state}
+    params={"client_id":os.environ["DISCORD_CLIENT_ID"].strip(),"response_type":"code","redirect_uri":_oauth_redirect_uri(),"scope":"identify guilds","state":state}
     return redirect("https://discord.com/oauth2/authorize?"+urllib.parse.urlencode(params))
 
 
@@ -1338,8 +1324,7 @@ def dashboard_action():
                 winner_role_minutes=request.form.get("winner_role_minutes","0"),
                 winner_thread_minutes=request.form.get("winner_thread_minutes","0"),
                 embed_color=request.form.get("embed_color","FEE75C"), entry_emoji=request.form.get("entry_emoji","🎉"),
-                reaction_entries="reaction_entries" in request.form,
-                stack_bonus_entries="stack_bonus_entries" in request.form)
+                reaction_entries="reaction_entries" in request.form)
             config.update({"entry_message":request.form.get("entry_message","")[:300],
                 "leave_message":request.form.get("leave_message","")[:300],
                 "denied_message":request.form.get("denied_message","")[:300],
@@ -1404,23 +1389,10 @@ def dashboard_action():
             if not raw_mid.isdigit(): raise ValueError("Invalid giveaway message ID.")
             mid=int(raw_mid); history=state.setdefault("giveaway_history",{}); gw=history.get(str(mid)) or history.get(mid)
             if not gw or int(gw.get("guild_id",0))!=gid: raise ValueError("Finished giveaway not found in this server.")
-            old=set()
-            for value in gw.get("winner_ids", []):
-                try: old.add(int(value))
-                except (TypeError, ValueError): pass
-            bot_guild=_bot.get_guild(gid); candidates=[]
-            for value in gw.get("eligible_entrants",gw.get("entrants",[])):
-                try: uid=int(value)
-                except (TypeError,ValueError): continue
-                if uid in old: continue
-                member=bot_guild.get_member(uid) if bot_guild else None
-                if member is None: continue
-                eligible,_reason=state["giveaway_eligibility"](member,gw)
-                if eligible: candidates.append(member)
-            pick=state.get("giveaway_weighted_pick")
-            winner=pick(candidates,gw,old) if callable(pick) else None
-            if winner is None: raise ValueError("No currently eligible non-winning entrants remain to reroll.")
-            gw.setdefault("winner_ids",[]).append(winner); gw["last_reroll_at"]=time.time()
+            old=set(int(x) for x in gw.get("winner_ids",[])); candidates=[int(x) for x in gw.get("eligible_entrants",gw.get("entrants",[])) if int(x) not in old]
+            if not candidates: raise ValueError("No eligible non-winning entrants remain to reroll.")
+            import random as _random
+            winner=_random.choice(candidates); gw.setdefault("winner_ids",[]).append(winner); gw["last_reroll_at"]=time.time()
             channel=_bot.get_channel(int(gw.get("channel_id",0)))
             async def post_reroll():
                 if channel:

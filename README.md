@@ -18,7 +18,7 @@ Cinnamon is a single `discord.py` bot with modular feature files and a Flask das
 - Start and end giveaways with up to 100 winners and durations up to one year.
 - Button entry and optional reaction entry, using a configurable entry emoji.
 - Required roles, bypass roles, blacklisted roles, minimum Discord account age, and minimum time in the server.
-- Bonus entries by role (1–250 extra entries per configured role; role bonuses stack by default and can be disabled per giveaway; a person can win only once).
+- Bonus entries by role (1–20 extra entries per configured role; role bonuses stack, and a person can win only once).
 - Custom embed title/description/colour and custom entry, leave, and denied-entry messages.
 - Optional timed winner role and optional winner thread with auto-close.
 - Reusable templates (`/giveaway template-save`, `/giveaway template-list`, `/giveaway template-start`).
@@ -68,3 +68,51 @@ These are offline/static checks, not a live Discord integration test. Real permi
 - The configuration restore form validates and restores supported settings, but it does not yet provide a persistent staged review page that survives a process restart.
 - Message Studio currently sends an embed with title, description, footer, colour and optional HTTPS image; editable fields/buttons and saved template versioning are not included in this release.
 - Offline checks cannot prove that Discord OAuth, gateway events, slash-command registration, bot role hierarchy, or Render storage work in your live environment.
+
+
+## Fishing & Cooking integration
+
+Fishing is loaded as a module inside the existing Cinnamon bot. Fish catches and cooked dishes are stored in the normal economy inventory, not in a separate spendable item bag. Therefore `/economy feed` can feed a caught fish or cooked dish to Cinnamon, and the existing feeding quest/achievement hooks run normally. Fishing species and recipes are registered as non-shop items; players obtain them by fishing/cooking rather than buying duplicates from the shop. `/fish sell` and `/cook sell` remove items from that same inventory before paying Catnip. Older fishing data with separate fish/dish bags is migrated once into the shared inventory. Cooked dishes sell below the base value of their ingredients to prevent cooking from creating Catnip from nothing.
+
+## Fishing and Cinnamon Memory
+
+- `/fish catch`, `/fish inventory`, `/fish journal`, `/fish sell`, `/fish stats`, `/fish odds`, `/fish points`, `/fish upgrades`, `/fish upgrade`, and `/fish bond`.
+- `/economy feed` supports the fish in the shared inventory. Feeding higher-rarity fish builds Cinnamon Memory and improves fishing luck.
+- Fishing Points can be spent on Lucky Rod, Quick Cast, Angler's Instinct, Steady Hands, Golden Hook, and Market Sense upgrades.
+- Fish and dishes are not shop stock in this version. Fish can be caught, fed to Cinnamon, or sold for Catnip.
+- `/cookbook`, `/cook make`, `/cook inventory`, and `/cook sell` retain the 20-recipe cooking system.
+
+
+Fish selling: each fish now sells for 3× its original base value (a 200% increase). Market Sense bonuses apply afterward; cooked-dish prices remain unchanged.
+
+## Cinnamon: Wildlands — new exploration and crafting game
+
+Wildlands is a persistent, server-specific adventure module built into Cinnamon. Its design uses general patterns found in established Discord RPGs: a compact button-led hub, quick encounters, area-based gathering, permanent crafting progression, achievements, and community discovery records. This release keeps Cinnamon's friendly cat theme and connects adventure play to the existing fishing, cooking, Catnip economy, daily/weekly quests, and achievements.
+
+### Start playing
+
+1. Use `/adventure start` once to create your explorer and receive starter supplies.
+2. Use `/adventure play` to open your personal button-driven hub. **Explore** starts or resumes an encounter; **Status**, **Map**, **Pack**, and **Journal** open compact views without adding extra public messages.
+3. Choose **Gather supplies**, **Investigate**, or **Follow tracks** for each encounter. The routes have different trade-offs: gathering is steadier, investigation leans toward clues, and tracks lean toward secrets.
+4. Use `/adventure recipes`, `/adventure craft`, and `/adventure camp` to turn materials and Catnip into permanent gear and camp improvements.
+5. Use `/adventure map` and `/adventure travel` to move through six areas as new gear and discoveries unlock them.
+6. Use `/fish catch` and `/cook make` as usual. `/adventure pack` consumes one cooked dish from the same shared inventory for a bonus on your next expedition. Fish and meals are not duplicated into a separate Wildlands inventory.
+
+### Wildlands commands
+
+- `/adventure play`, `/adventure start`, `/adventure help` — the hub, account setup, and quick guide.
+- `/adventure explore`, `/adventure status`, `/adventure map`, `/adventure travel` — encounters, progress, and area routes.
+- `/adventure inventory`, `/adventure journal`, `/adventure leaderboard` — gathered materials, shared fishing/cooking items, personal discoveries, and server-first records.
+- `/adventure recipes`, `/adventure craft`, `/adventure camp` — blueprints, permanent equipment, and camp upgrades.
+- `/adventure pack`, `/adventure sell` — use cooked food for an expedition bonus or trade spare gathered materials for modest Catnip.
+
+### Progress and fairness
+
+- Wildlands progress is stored under Cinnamon's existing `advanced_features_data` persistence. It follows the same storage durability rules as the rest of the bot: configure Upstash for durable state on a Render service whose local disk can reset during a redeploy.
+- Players have their own supplies and discoveries. The server records the first person to discover each unique secret, so exploration can create friendly competition without taking away another player's progress.
+- Energy restores one point every two minutes. An unfinished encounter can be resumed with `/adventure explore` or the hub's Explore button without charging energy again. Encounters do not destroy already-collected materials.
+- Wildlands awards XP, achievement progress, and selected daily/weekly quest progress. Milestone interactions are only recorded once per newly found clue, secret, or crafted blueprint to avoid turning repeated button clicks into free interaction farming.
+
+### Validation status
+
+All shipped Python files passed `py_compile` and AST parsing, and static checks confirmed that the Wildlands module is in the runtime load list with quest/achievement hooks. A live Discord integration test was **not** possible in this environment because the `discord.py` package was not installed and network access to install it was unavailable. After adding the ZIP to your repository, confirm slash-command sync and interaction behaviour in a private test server before relying on it in your main server.
