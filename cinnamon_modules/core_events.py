@@ -239,39 +239,6 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
 _slash_commands_synced = False
 
 
-@bot.tree.error
-async def cinnamon_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    """Report slash-command failures clearly and retain a useful server-side traceback."""
-    original = getattr(error, "original", error)
-    command_name = getattr(getattr(interaction, "command", None), "qualified_name", "unknown")
-    if isinstance(error, app_commands.MissingPermissions):
-        message = "🐾 You don't have the Discord permissions required for that command."
-    elif isinstance(error, app_commands.BotMissingPermissions):
-        message = "🐾 Cinnamon is missing permissions needed for that action. Check her role and channel permissions."
-    elif isinstance(error, app_commands.CheckFailure):
-        message = "🐾 You can't use that command here or with your current permissions."
-    elif isinstance(error, app_commands.TransformerError):
-        message = "🐾 One of those values couldn't be read. Please choose it again from the command's suggestions."
-    else:
-        log.error(
-            "Slash command /%s failed for user=%s guild=%s (%s)",
-            command_name,
-            getattr(interaction.user, "id", "unknown"),
-            getattr(interaction.guild, "id", "DM"),
-            type(original).__name__,
-            exc_info=(type(original), original, original.__traceback__),
-        )
-        message = f"🐾 `/ {command_name}` ran into an unexpected error. I've logged the details so it can be fixed."
-        message = message.replace("/ ", "/")
-    try:
-        if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
-        else:
-            await interaction.response.send_message(message, ephemeral=True)
-    except discord.HTTPException:
-        log.debug("Could not send slash-command error response for /%s", command_name)
-
-
 @bot.event
 async def on_ready():
     global _slash_commands_synced
@@ -326,27 +293,24 @@ async def on_ready():
                 except Exception as e:
                     log.error(f"Hangry Games recovery failed for guild {guild.id}: {e}")
 
-    # Register commands globally only. Copying every global command into each
-    # guild creates a second guild-scoped copy, which Discord displays beside
-    # the global command (the "same command appears twice" bug).
-    #
-    # Clear old guild-scoped copies left behind by earlier versions, then sync
-    # the canonical global tree. All Cinnamon commands in this project are
-    # global commands with guild_only checks, not guild-scoped registrations.
+    # Sync once per process. on_ready can fire again after reconnects, and
+    # repeating global + per-guild syncs can create unnecessary REST traffic.
     if not _slash_commands_synced:
-        for guild in bot.guilds:
-            try:
-                bot.tree.clear_commands(guild=guild)
-                await bot.tree.sync(guild=guild)
-                log.info("Cleared stale guild-scoped Cinnamon commands in %s (%s)", guild.name, guild.id)
-            except Exception:
-                log.exception("Could not clear stale guild-scoped commands in %s (%s)", guild.name, guild.id)
         try:
             synced = await bot.tree.sync()
             log.info("Globally synced %d Cinnamon slash commands", len(synced))
-            _slash_commands_synced = True
         except Exception:
             log.exception("Global slash-command sync failed")
+
+        for guild in bot.guilds:
+            try:
+                bot.tree.copy_global_to(guild=guild)
+                guild_synced = await bot.tree.sync(guild=guild)
+                log.info("Guild-synced %d Cinnamon slash commands to %s (%s)", len(guild_synced), guild.name, guild.id)
+            except Exception:
+                log.exception("Guild slash-command sync failed for %s (%s)", guild.name, guild.id)
+
+        _slash_commands_synced = True
 
     await bot.change_presence(activity=discord.Activity(
         type=discord.ActivityType.watching, name="for treats 🐟"))

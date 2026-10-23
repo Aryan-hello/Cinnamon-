@@ -202,8 +202,6 @@ def dashboard_state_provider() -> dict:
         "xp_data": xp_data, "xp_per_message": xp_per_message, "xp_channels": xp_channels, "level_roles": level_roles, "antiraid_config": antiraid_config,
         "active_giveaways": active_giveaways, "active_polls": active_polls, "economy_balances": economy_balances,
         "giveaway_history": globals().get("giveaway_history", {}),
-        "giveaway_eligibility": globals().get("_giveaway_eligibility"),
-        "giveaway_weighted_pick": globals().get("_giveaway_weighted_pick"),
         "giveaway_templates": globals().get("giveaway_templates", {}),
         "giveaway_schedules": globals().get("giveaway_schedules", {}),
         "giveaway_timed_roles": globals().get("giveaway_timed_roles", []),

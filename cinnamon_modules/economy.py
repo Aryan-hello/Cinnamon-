@@ -36,31 +36,11 @@ def economy_key(guild_id: int, user_id: int) -> tuple[int, int]:
 
 
 def economy_balance(guild_id: int, user_id: int) -> int:
-    """Read a balance without materializing a default account.
-
-    A read-only command must not create a fake persisted balance: doing so
-    prevents /recall from recognizing that the account is missing after a
-    storage reset. The starting balance is materialized naturally on the
-    first transaction that writes to economy_balances.
-    """
     key = economy_key(guild_id, user_id)
-    return int(economy_balances.get(key, ECONOMY_STARTING_BALANCE))
+    if key not in economy_balances:
+        economy_balances[key] = ECONOMY_STARTING_BALANCE
+    return int(economy_balances[key])
 
-
-
-
-async def autocomplete_shop_items(interaction: discord.Interaction, current: str):
-    """Search custom and built-in shop items by either display name or ID."""
-    current = (current or "").lower().strip()
-    choices = []
-    for item_id, item in ECONOMY_ITEMS.items():
-        name = str(item.get("name", item_id))
-        if current and current not in item_id.lower() and current not in name.lower():
-            continue
-        choices.append(app_commands.Choice(name=f"{name[:70]} ({item_id})", value=item_id))
-        if len(choices) >= 25:
-            break
-    return choices
 
 def economy_inventory_for(guild_id: int, user_id: int) -> dict:
     key = economy_key(guild_id, user_id)
@@ -553,14 +533,36 @@ async def economy_leaderboard_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=view._embed(),view=view,allowed_mentions=discord.AllowedMentions.none())
 
 
-@economy_group.command(name="feed", description="Give Cinnamon an item")
-@app_commands.describe(item="Search by item name or shop ID", quantity="How many to give")
-@app_commands.autocomplete(item=autocomplete_shop_items)
+async def economy_feed_item_autocomplete(interaction: discord.Interaction, current: str):
+    """Search items by readable name, including fishing catches and cooked dishes."""
+    if not interaction.guild:
+        return []
+    inv = economy_inventory_for(interaction.guild.id, interaction.user.id)
+    query = (current or "").casefold()
+    options = []
+    for item_id, data in ECONOMY_ITEMS.items():
+        # Only offer items the member currently owns; validate again on submit.
+        if int(inv.get(item_id, 0)) <= 0:
+            continue
+        name = str(data.get("name", item_id))
+        if query and query not in name.casefold() and query not in item_id.casefold():
+            continue
+        options.append(app_commands.Choice(name=f"{data.get('emoji', '🐾')} {name} ×{int(inv[item_id])}"[:100], value=item_id))
+    return options[:25]
+
+
+@economy_group.command(name="feed", description="Give Cinnamon an item you own")
+@app_commands.describe(item="Search for an item you own", quantity="How many to give")
+@app_commands.autocomplete(item=economy_feed_item_autocomplete)
 @app_commands.guild_only()
 async def economy_feed_cmd(interaction: discord.Interaction, item: str, quantity: app_commands.Range[int, 1, 99] = 1):
     try:
         guild_id, user_id = interaction.guild.id, interaction.user.id
-        item_id = str(item).lower().strip()
+        item_id = str(item).strip()
+        if item_id not in ECONOMY_ITEMS:
+            normalized = item_id.casefold()
+            item_id = next((key for key, value in ECONOMY_ITEMS.items()
+                            if str(value.get("name", "")).casefold() == normalized), item_id)
         data = ECONOMY_ITEMS.get(item_id)
         if not data:
             await cinnamon_send(interaction, "❌ That item no longer exists. Refresh the command choices and try again.", ephemeral=True)
@@ -572,6 +574,26 @@ async def economy_feed_cmd(interaction: discord.Interaction, item: str, quantity
             return
         balance_before = economy_balance(guild_id, user_id)
         inv[item_id] = have - quantity
+        # Feeding a Rare, Epic, Legendary, or Mythical fish builds Cinnamon Memory.
+        # Memory is persistent and slightly improves the player's future fishing odds.
+        memory_note = ""
+        fish_species = globals().get("FISH_SPECIES", {})
+        rarity_order = globals().get("FISH_RARITY_ORDER", {})
+        fish_meta = fish_species.get(item_id)
+        if fish_meta and rarity_order.get(fish_meta.get("rarity", "Common"), 1) >= rarity_order.get("Rare", 3):
+            fishing_rec = _fish_player(guild_id, user_id)
+            old_memory = max(0, int(fishing_rec.get("cinnamon_memory", 0)))
+            rarity = fish_meta.get("rarity", "Rare")
+            # Higher-rarity fish are more memorable, but memory is capped to keep luck balanced.
+            memory_per_fish = {"Rare": 1, "Epic": 2, "Legendary": 3, "Mythical": 5}.get(rarity, 1)
+            requested_gain = memory_per_fish * quantity
+            fishing_rec["rare_fish_fed"] = int(fishing_rec.get("rare_fish_fed", 0)) + quantity
+            fishing_rec["cinnamon_memory"] = min(100, old_memory + requested_gain)
+            gained = int(fishing_rec["cinnamon_memory"]) - old_memory
+            await _quest_progress(guild_id, user_id, "rare_fish_fed", quantity, fish_id=item_id, rarity=rarity)
+            memory_note = (f"\n💗 Cinnamon will remember this! **Cinnamon Memory +{gained}** "
+                           f"(now {fishing_rec['cinnamon_memory']}/100). {rarity} fish give more memory. "
+                           f"Your bond improves future fishing odds by up to +20%.")
         completed, quest_reward = await apply_quest_progress(guild_id, user_id, item_id, quantity)
         if quest_reward:
             economy_balances[(guild_id, user_id)] = economy_balance(guild_id, user_id) + quest_reward
@@ -581,7 +603,7 @@ async def economy_feed_cmd(interaction: discord.Interaction, item: str, quantity
             guild_id, user_id, fed=True, completed_quest=bool(completed), member=interaction.user
         )
         await economy_log(guild_id, title="🐟 Cinnamon fed", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity fed", quantity), ("Quantity remaining", inv.get(item_id, 0)), ("Catnip before", f"{balance_before:,}"), ("Catnip after", f"{economy_balance(guild_id, user_id):,}"), ("Quest rewards", ", ".join(completed) if completed else "None"), ("Achievements", ", ".join(unlocked) if unlocked else "None")])
-        text = f"🐾 Cinnamon happily accepted **{quantity}× {data['name']}**!"
+        text = f"🐾 Cinnamon happily accepted **{quantity}× {data['name']}**!" + memory_note
         if completed:
             text += "\n🎉 Quest complete: " + ", ".join(completed)
         if unlocked:
@@ -717,17 +739,8 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
             uid = int(uid_text)
             key = (guild.id, uid)
             had_balance = key in economy_balances
-            snapshot_balance = int(user.get("balance", ECONOMY_STARTING_BALANCE))
-            current_balance = economy_balances.get(key)
-            repaired_default = (
-                merge_only and had_balance
-                and int(current_balance) == int(ECONOMY_STARTING_BALANCE)
-                and snapshot_balance != int(ECONOMY_STARTING_BALANCE)
-            )
-            if not merge_only or not had_balance or repaired_default:
-                economy_balances[key] = snapshot_balance
-            if not had_balance or repaired_default:
-                restored += 1
+            if not merge_only or not had_balance:
+                economy_balances[key] = int(user.get("balance", ECONOMY_STARTING_BALANCE))
             snap_inventory = {str(k): int(v) for k, v in user.get("inventory", {}).items() if int(v) > 0}
             if merge_only:
                 live_inventory = economy_inventory.setdefault(key, {})
@@ -750,6 +763,8 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
                 economy_achievements[key] = sorted(set(economy_achievements.get(key, [])) | set(snap_achievements))
             else:
                 economy_achievements[key] = snap_achievements
+            if not had_balance:
+                restored += 1
         except (ValueError, TypeError):
             continue
     snapshot_income = latest.get("income_roles")
@@ -896,7 +911,6 @@ async def collect_cmd(interaction: discord.Interaction):
 
 
 @economy_group.command(name="item-add", description="Admin: add an item directly to a member's inventory")
-@app_commands.autocomplete(item=autocomplete_shop_items)
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(member="Member receiving the item", item="Item ID or item name", quantity="Number of items to add")
@@ -923,7 +937,6 @@ async def economy_item_add_cmd(interaction: discord.Interaction, member: discord
 
 
 @economy_group.command(name="item-remove", description="Admin: remove an item from a member's inventory")
-@app_commands.autocomplete(item=autocomplete_shop_items)
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(member="Member losing the item", item="Item ID or item name", quantity="Number of items to remove")
@@ -1054,7 +1067,6 @@ async def economy_remove_role_income_cmd(interaction: discord.Interaction, role:
 
 
 @economy_group.command(name="iteminfo", description="Show complete information about a Catnip item")
-@app_commands.autocomplete(item=autocomplete_shop_items)
 @app_commands.guild_only()
 @app_commands.describe(item="Item ID or item name")
 async def economy_iteminfo_cmd(interaction: discord.Interaction, item: str):

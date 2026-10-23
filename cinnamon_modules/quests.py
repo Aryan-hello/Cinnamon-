@@ -26,6 +26,9 @@ DAILY_QUESTS = {
 "active_citizen":{"name":"Active Citizen","desc":"Cast a vote on any active server poll.","kind":"counter","metric":"poll_votes","target":1,"qp":75,"xp":250},
 "checking_in":{"name":"Checking In","desc":"Run /economy balance and /rank to review your profile.","kind":"combo2","needs":{"balance_cmd":1,"rank_cmd":1},"qp":70,"xp":200},
 "generous_tip":{"name":"Generous Tip","desc":"Send at least 1,000 Catnip to another member using /economy give.","kind":"give_single","target":1000,"qp":100,"xp":350},
+"wildlands_roamer":{"name":"Wildlands Roamer","desc":"Complete 2 Wildlands expeditions.","kind":"counter","metric":"wildlands_explore","target":2,"qp":150,"xp":450},
+"wildlands_clue_hunter":{"name":"Clue Hunter","desc":"Find 1 clue during a Wildlands expedition.","kind":"counter","metric":"wildlands_clue","target":1,"qp":150,"xp":450},
+"wildlands_field_collector":{"name":"Field Collector","desc":"Gather 8 materials in the Wildlands.","kind":"counter","metric":"wildlands_material_units","target":8,"qp":180,"xp":500},
 }
 WEEKLY_QUESTS = {
 "tuna_wholesale":{"name":"Tuna Wholesale","desc":"Feed 10 Tuna to Cinnamon.","kind":"feed","item":"tuna","target":10,"qp":800,"xp":3500},
@@ -47,6 +50,9 @@ WEEKLY_QUESTS = {
 "community_supporter":{"name":"Community Supporter","desc":"Transfer Catnip to other members 5 times.","kind":"counter","metric":"give_count","target":5,"qp":400,"xp":2000},
 "generous_patron":{"name":"Generous Patron","desc":"Transfer at least 10,000 Catnip total to server members.","kind":"counter","metric":"transferred","target":10000,"qp":500,"xp":3000},
 "kibble_tycoon":{"name":"Kibble Tycoon","desc":"Reach or hold an active balance of at least 50,000 Catnip.","kind":"live","metric":"balance","target":50000,"qp":600,"xp":3500},
+"wildlands_weekly_roamer":{"name":"The Long Trail","desc":"Complete 12 Wildlands expeditions during the week.","kind":"counter","metric":"wildlands_explore","target":12,"qp":550,"xp":2500},
+"wildlands_weekly_lorekeeper":{"name":"Archive Runner","desc":"Collect 5 Wildlands clues during the week.","kind":"counter","metric":"wildlands_clue","target":5,"qp":650,"xp":3000},
+"wildlands_weekly_maker":{"name":"Camp Craftsman","desc":"Craft 3 Wildlands gear pieces during the week.","kind":"counter","metric":"wildlands_craft","target":3,"qp":600,"xp":2800},
 }
 
 QUEST_SHOP={"250_catnip":{"name":"Starter cash-out","qp":250,"catnip":2500},"1000_catnip":{"name":"Bulk tier","qp":1000,"catnip":11500},"2500_catnip":{"name":"Major milestone tier","qp":2500,"catnip":30000},"golden_tuna":{"name":"Golden Tuna","qp":2000,"item":"golden_tuna","item_qty":1},"quest_master":{"name":"Quest Master Role","qp":7500,"role":"Quest Master"}}
@@ -234,41 +240,11 @@ def quest_scope_embed(guild_id,user_id,scope="daily",page=0):
     return cinnamon_polish_embed(e)
 
 
-# Slash-command group so the requested `/quest daily`, `/quest weekly`, and
-# `/quest progress` paths are real application commands (the old implementation
-# only exposed these as prefix commands and separately under `/quests`).
-quest_slash_group = app_commands.Group(name="quest", description="View and track Cinnamon quests")
-
-@quest_slash_group.command(name="overview", description="Open the paginated daily and weekly quest board")
+@bot.tree.command(name="quest",description="Open paginated daily and weekly Cinnamon quests")
 @app_commands.guild_only()
-async def quest_overview_cmd(interaction: discord.Interaction):
+async def quest_cmd(interaction):
     view=QuestPageView(interaction.guild.id,interaction.user.id,"daily",0)
     await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"daily",0),view=view)
-
-@quest_slash_group.command(name="daily", description="View your active daily Cinnamon quests")
-@app_commands.guild_only()
-async def quest_daily_slash_cmd(interaction: discord.Interaction):
-    view=QuestPageView(interaction.guild.id,interaction.user.id,"daily",0)
-    await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"daily",0),view=view)
-
-@quest_slash_group.command(name="weekly", description="View your active weekly Cinnamon quests")
-@app_commands.guild_only()
-async def quest_weekly_slash_cmd(interaction: discord.Interaction):
-    view=QuestPageView(interaction.guild.id,interaction.user.id,"weekly",0)
-    await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"weekly",0),view=view)
-
-@quest_slash_group.command(name="progress", description="View your quest points and completed quests")
-@app_commands.guild_only()
-async def quest_progress_slash_cmd(interaction: discord.Interaction):
-    d=_ensure_rolls(interaction.guild.id); u=_user(interaction.guild.id,interaction.user.id)
-    completed=len(u.get("completed_history",[]))
-    e=discord.Embed(title="📜 Cinnamon Quest Progress",color=0xFFB02E)
-    e.add_field(name="Quest Points",value=f"✨ **{u['qp']:,} QP**",inline=True)
-    e.add_field(name="Completed",value=f"🏆 **{completed}**",inline=True)
-    e.add_field(name="Active quests",value=f"☀️ {len(d.get('daily_ids',[]))}/5 daily\\n📅 {len(d.get('weekly_ids',[]))}/5 weekly",inline=True)
-    await interaction.response.send_message(embed=cinnamon_polish_embed(e),ephemeral=True)
-
-bot.tree.add_command(quest_slash_group)
 
 @bot.tree.command(name="dailyquests",description="View your 5 active daily Cinnamon quests")
 @app_commands.guild_only()

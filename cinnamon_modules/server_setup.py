@@ -715,10 +715,7 @@ async def help_cmd(interaction: discord.Interaction):
         line=f"**{path}** — {description}"; line=line[:897]+"..." if len(line)>900 else line
         heading="" if root==last_root else f"\n**{root.replace('-', ' ').replace('_', ' ').title()}**"
         extra=len(heading)+len(line)+1
-        # Each Discord embed field is limited to 1,024 characters. Keep
-        # the packed command list safely below that limit; 3,000 was the
-        # embed-description limit and caused /help to fail when used as a field.
-        if current_lines and current_len+extra>900:
+        if current_lines and current_len+extra>3000:
             pages.append("\n".join(current_lines)); current_lines=[]; current_len=0; heading=f"**{root.replace('-', ' ').replace('_', ' ').title()}**"; extra=len(heading)+len(line)+1
         current_lines.extend([heading,line]); current_len+=extra; last_root=root
     if current_lines: pages.append("\n".join(current_lines))
@@ -729,7 +726,7 @@ async def help_cmd(interaction: discord.Interaction):
         e.add_field(name="Commands",value=body,inline=False); embeds.append(e)
     guide=cinnamon_embed("🐾 Using Cinnamon","A quick guide to the bot.",color=CINNAMON_ORANGE,footer=cinnamon_page_footer("Help",len(embeds)+1,len(embeds)+1,"Guide"))
     guide.add_field(name="🚀 Start here",value="Run `/setup` in a new server. Then use `/help` whenever you need the command directory. Open the web control panel with `/dashboard`.",inline=False)
-    guide.add_field(name="🎮 Everyday",value="Use `/pet`, `/treat`, `/nap`, `/rank`, `/economy shop`, `/quest daily`, `/quest weekly`, and `/achievement list` to explore Cinnamon. Use `/quest overview` for the full quest board.",inline=False)
+    guide.add_field(name="🎮 Everyday",value="Use `/pet`, `/treat`, `/nap`, `/rank`, `/economy shop`, `/quests daily`, and `/achievement list` to explore Cinnamon.",inline=False)
     guide.add_field(name="🛡️ Admin",value="Moderation, logging, recovery, and configuration commands require the appropriate Discord permissions.",inline=False)
     guide.add_field(name="🧭 Web dashboard",value="`/dashboard` opens Cinnamon Control. Message Studio, analytics, activity logs, and every dashboard change are linked to the `cinnamon-dashboard-logs` audit channel created by `/setup`.",inline=False)
     guide.add_field(name="💾 Reset protection",value="Run `/economy snapshot` before a reset and restore it afterward if needed.",inline=False)
@@ -872,17 +869,8 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
             if uid not in seen_balances:
                 seen_balances.add(uid)
                 key = (guild.id, uid)
-                current_balance = economy_balances.get(key)
-                # Older builds materialized the default balance just by viewing
-                # /economy balance. After a reset this left a fake 100-Catnip
-                # record that blocked recovery. Treat that exact default as
-                # recoverable when an absolute transaction log has a newer
-                # recorded balance; preserve all other live balances.
-                if current_balance is None or (
-                    int(current_balance) == int(ECONOMY_STARTING_BALANCE)
-                    and int(balance_after) != int(ECONOMY_STARTING_BALANCE)
-                ):
-                    economy_balances[key] = max(0, int(balance_after))
+                if uid not in economy_keys_before and key not in economy_balances:
+                    economy_balances[key] = max(0, balance_after)
                     result["economy_users_from_events"] += 1
 
         # Absolute item quantity after/remaining values recover individual item counts.
