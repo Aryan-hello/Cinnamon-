@@ -52,12 +52,6 @@ ACHIEVEMENTS = {
     "feeling_lucky": {"name":"Feeling Lucky","description":"Enter 10 giveaways.","metric":"giveaways_entered","target":10,"catnip":2000,"xp":1000,"points":0},
     "generous_paws": {"name":"Generous Paws","description":"Transfer a cumulative 10,000 Catnip to other members.","metric":"transferred","target":10000,"catnip":0,"xp":4000,"role":"Benefactor","points":0},
     "clocking_in": {"name":"Clocking In","description":"Collect Catnip from an income role 25 times.","metric":"income_collects","target":25,"catnip":5000,"xp":2500,"points":0},
-    "wildlands_explorer": {"name":"Into the Wildlands","description":"Complete 10 Wildlands expeditions.","metric":"wildlands_explores","target":10,"catnip":2000,"xp":1000,"points":0},
-    "wildlands_pathfinder": {"name":"Pathfinder","description":"Visit 4 different Wildlands areas.","metric":"wildlands_zones","target":4,"catnip":3500,"xp":1500,"points":0},
-    "wildlands_lorekeeper": {"name":"Lorekeeper","description":"Collect 5 Wildlands clues.","metric":"wildlands_clues","target":5,"catnip":4500,"xp":2000,"points":0},
-    "wildlands_secret_finder": {"name":"The Hidden Places","description":"Discover 3 unique Wildlands locations.","metric":"wildlands_secrets","target":3,"catnip":6000,"xp":2500,"points":0},
-    "wildlands_craftsman": {"name":"Trail Engineer","description":"Craft 4 Wildlands gear blueprints.","metric":"wildlands_crafted","target":4,"catnip":5000,"xp":2500,"points":0},
-    "wildlands_camp_builder": {"name":"A Place to Return","description":"Build 2 Wildlands camp upgrades.","metric":"wildlands_camp_upgrades","target":2,"catnip":4000,"xp":2000,"points":0},
 }
 
 ADMIN_ACHIEVEMENT = {"name":"Cinnamon's Favourite Human","description":"Manually awarded by an Administrator.","metric":"manual","target":1,"catnip":100000,"xp":50000,"role":"Cinnamon's Favourite Human","points":0}
@@ -286,19 +280,6 @@ async def achievement_record(g,u,event,value=1,**kw):
         await friendship_add(g,u,8,"Pet Cinnamon")
         st["pet_count"]=int(st.get("pet_count",0))+int(value)
     elif event=="level": st["level"]=max(int(st.get("level",0)),int(value))
-    elif event=="wildlands_explore": st["wildlands_explores"]=int(st.get("wildlands_explores",0))+int(value)
-    elif event=="wildlands_material_units": st["wildlands_material_units"]=int(st.get("wildlands_material_units",0))+int(value)
-    elif event=="wildlands_clue": st["wildlands_clues"]=int(st.get("wildlands_clues",0))+int(value)
-    elif event=="wildlands_secret": st["wildlands_secrets"]=int(st.get("wildlands_secrets",0))+int(value)
-    elif event=="wildlands_craft": st["wildlands_crafted"]=int(st.get("wildlands_crafted",0))+int(value)
-    elif event=="wildlands_camp_upgrade": st["wildlands_camp_upgrades"]=int(st.get("wildlands_camp_upgrades",0))+int(value)
-    elif event=="wildlands_ration": st["wildlands_rations"]=int(st.get("wildlands_rations",0))+int(value)
-    elif event=="wildlands_zone":
-        st.setdefault("wildlands_zone_ids", [])
-        zone=str(kw.get("zone", ""))
-        if zone and zone not in st["wildlands_zone_ids"]:
-            st["wildlands_zone_ids"].append(zone)
-        st["wildlands_zones"]=len(st["wildlands_zone_ids"])
     elif event=="hangry":
         for k in ("hangry_kills","hangry_wins","hangry_played"): st.setdefault(k,0)
         st["hangry_kills"]+=int(kw.get("kills",0)); st["hangry_played"]+=1; st["hangry_wins"]+=int(kw.get("win",0))
