@@ -1,0 +1,355 @@
+{
+  "version": 1,
+  "images": [
+    {
+      "key": "cutout_01",
+      "label": "Background-free cutout 01",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_01.webp",
+      "runway_task_id": "7f0dfaae-3596-4bb1-9341-08a9453449b0"
+    },
+    {
+      "key": "cutout_02",
+      "label": "Background-free cutout 02",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_02.webp",
+      "runway_task_id": "c0af3f1e-fb81-41d9-b371-4e041fa365ed"
+    },
+    {
+      "key": "cutout_03",
+      "label": "Background-free cutout 03",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_03.webp",
+      "runway_task_id": "71aaca52-98f8-44a8-b854-eb72f8b6ba11"
+    },
+    {
+      "key": "cutout_04",
+      "label": "Background-free cutout 04",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_04.webp",
+      "runway_task_id": "287f24dc-847e-4170-a9d0-8fb1f0199bcf"
+    },
+    {
+      "key": "cutout_05",
+      "label": "Background-free cutout 05",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_05.webp",
+      "runway_task_id": "8728366d-a28c-49db-bc06-02b0f7a170d6"
+    },
+    {
+      "key": "cutout_06",
+      "label": "Background-free cutout 06",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_06.webp",
+      "runway_task_id": "8df33260-31bc-48cc-9e28-64cc534b8428"
+    },
+    {
+      "key": "cutout_07",
+      "label": "Background-free cutout 07",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_07.webp",
+      "runway_task_id": "1e4596f6-26e4-4783-96fa-fdf45919d5ca"
+    },
+    {
+      "key": "cutout_08",
+      "label": "Background-free cutout 08",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_08.webp",
+      "runway_task_id": "6433f8a1-ff35-4741-871f-e959dca99dea"
+    },
+    {
+      "key": "cutout_09",
+      "label": "Background-free cutout 09",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_09.webp",
+      "runway_task_id": "6cedef96-4391-4720-96b3-c1efda66e283"
+    },
+    {
+      "key": "cutout_10",
+      "label": "Background-free cutout 10",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_10.webp",
+      "runway_task_id": "af42aceb-486d-4430-b463-4f0e63f18cdf"
+    },
+    {
+      "key": "cutout_11",
+      "label": "Background-free cutout 11",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_11.webp",
+      "runway_task_id": "c44f71e1-9bed-4a97-82b2-f65f31e6c6a6"
+    },
+    {
+      "key": "cutout_12",
+      "label": "Background-free cutout 12",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_12.webp",
+      "runway_task_id": "289a97aa-8ff6-4b3c-91a0-2d15d1c3295a"
+    },
+    {
+      "key": "cutout_13",
+      "label": "Background-free cutout 13",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_13.webp",
+      "runway_task_id": "03607d68-b672-47d2-abfb-2f413ed31533"
+    },
+    {
+      "key": "cutout_14",
+      "label": "Background-free cutout 14",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_14.webp",
+      "runway_task_id": "e2a7371b-8b75-4a1c-b3a4-956049bddc53"
+    },
+    {
+      "key": "cutout_15",
+      "label": "Background-free cutout 15",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_15.webp",
+      "runway_task_id": "7c3ff87b-5837-4a0f-8119-bef26be3b428"
+    },
+    {
+      "key": "cutout_16",
+      "label": "Background-free cutout 16",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_16.webp",
+      "runway_task_id": "e44ffa59-ba09-49e2-8b0b-b5415ae70695"
+    },
+    {
+      "key": "cutout_17",
+      "label": "Background-free cutout 17",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_17.webp",
+      "runway_task_id": "23609507-7727-4a57-a3a7-a4e50c9db98d"
+    },
+    {
+      "key": "cutout_18",
+      "label": "Background-free cutout 18",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_18.webp",
+      "runway_task_id": "8c8ba449-e44d-4f65-8a4c-d58d33d77288"
+    },
+    {
+      "key": "cutout_19",
+      "label": "Background-free cutout 19",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_19.webp",
+      "runway_task_id": "8b7fc508-fe33-4c5b-ac9a-c54f9c01bd72"
+    },
+    {
+      "key": "cutout_20",
+      "label": "Background-free cutout 20",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_20.webp",
+      "runway_task_id": "ae5fd0b0-69cc-4520-adde-02df06285500"
+    },
+    {
+      "key": "cutout_21",
+      "label": "Background-free cutout 21",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_21.webp",
+      "runway_task_id": "425d1413-e82e-4dfa-af50-b99318ac693b"
+    },
+    {
+      "key": "cutout_22",
+      "label": "Background-free cutout 22",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_22.webp",
+      "runway_task_id": "0222986d-aca7-4ec2-83a1-31a2e280fc9a"
+    },
+    {
+      "key": "cutout_23",
+      "label": "Background-free cutout 23",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_23.webp",
+      "runway_task_id": "ff8f8dec-9dfd-4985-8756-7ef59e7312bf"
+    },
+    {
+      "key": "cutout_24",
+      "label": "Background-free cutout 24",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_24.webp",
+      "runway_task_id": "d3c80cc0-f576-4ba9-93e3-b7b34a6e74cc"
+    },
+    {
+      "key": "cutout_25",
+      "label": "Background-free cutout 25",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_25.webp",
+      "runway_task_id": "a7eec88d-455a-4405-9444-458fa6b57f31"
+    },
+    {
+      "key": "cutout_26",
+      "label": "Background-free cutout 26",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_26.webp",
+      "runway_task_id": "b86cde16-f486-48cc-abb4-9fd213e21d2d"
+    },
+    {
+      "key": "cutout_27",
+      "label": "Background-free cutout 27",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_27.webp",
+      "runway_task_id": "dcc210e4-cb68-422b-9506-711d639bcb35"
+    },
+    {
+      "key": "cutout_28",
+      "label": "Background-free cutout 28",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_28.webp",
+      "runway_task_id": "44b6a3ac-acc8-45eb-be61-49de063d30b5"
+    },
+    {
+      "key": "cutout_29",
+      "label": "Background-free cutout 29",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_29.webp",
+      "runway_task_id": "a12838de-6761-4f72-ad04-ba0c5585ee42"
+    },
+    {
+      "key": "cutout_30",
+      "label": "Background-free cutout 30",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_30.webp",
+      "runway_task_id": "156ae721-4525-4adc-9a50-1386e0d1f3d1"
+    },
+    {
+      "key": "cutout_31",
+      "label": "Background-free cutout 31",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_31.webp",
+      "runway_task_id": "e8a76e1c-9789-4e66-b285-e2c968edd1d0"
+    },
+    {
+      "key": "cutout_32",
+      "label": "Background-free cutout 32",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_32.webp",
+      "runway_task_id": "902d122a-d4cf-45a9-aa8c-20fd2c654970"
+    },
+    {
+      "key": "cutout_33",
+      "label": "Background-free cutout 33",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_33.webp",
+      "runway_task_id": "345f4535-2151-4070-9dcf-51ef7c56f844"
+    },
+    {
+      "key": "cutout_34",
+      "label": "Background-free cutout 34",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_34.webp",
+      "runway_task_id": "dc081f15-10c1-4d1c-8ebb-09db117532c2"
+    },
+    {
+      "key": "cutout_35",
+      "label": "Background-free cutout 35",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_35.webp",
+      "runway_task_id": "4bcc8f96-c5ea-4c20-9260-0f3ca550d996"
+    },
+    {
+      "key": "cutout_36",
+      "label": "Background-free cutout 36",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_36.webp",
+      "runway_task_id": "0dab1a9d-52da-4d37-b518-f32df710587e"
+    },
+    {
+      "key": "cutout_37",
+      "label": "Background-free cutout 37",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_37.webp",
+      "runway_task_id": "1f6aa2be-cc93-4200-b661-e2855e07ddba"
+    },
+    {
+      "key": "cutout_38",
+      "label": "Background-free cutout 38",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_38.webp",
+      "runway_task_id": "afab78f8-0dc2-4d31-ad1e-62c00ddeda3c"
+    },
+    {
+      "key": "cutout_39",
+      "label": "Background-free cutout 39",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_39.webp",
+      "runway_task_id": "6c6940cc-8265-45f5-a85b-fb4eb52590e3"
+    },
+    {
+      "key": "cutout_40",
+      "label": "Background-free cutout 40",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_40.webp",
+      "runway_task_id": "ed2df686-2b0d-4c25-8bc0-1a27d71e7ad5"
+    },
+    {
+      "key": "cutout_41",
+      "label": "Background-free cutout 41",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_41.webp",
+      "runway_task_id": "b0bcb928-8130-40ae-bb45-a63c6322421a"
+    },
+    {
+      "key": "cutout_42",
+      "label": "Background-free cutout 42",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_42.webp",
+      "runway_task_id": "8a64945d-e1e3-4da5-bef3-a00e48e67ca0"
+    },
+    {
+      "key": "cutout_43",
+      "label": "Background-free cutout 43",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_43.webp",
+      "runway_task_id": "7191ef8e-139a-4661-bd3a-80459897d14e"
+    },
+    {
+      "key": "cutout_44",
+      "label": "Background-free cutout 44",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_44.webp",
+      "runway_task_id": "978e137c-c3da-4609-a337-672e87c768b0"
+    },
+    {
+      "key": "cutout_45",
+      "label": "Background-free cutout 45",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_45.webp",
+      "runway_task_id": "3bb4b119-8ee0-45cb-b0e7-e3bd152ead29"
+    },
+    {
+      "key": "cutout_46",
+      "label": "Background-free cutout 46",
+      "kind": "unmapped_cutout",
+      "file": "cutouts/cutout_46.webp",
+      "runway_task_id": "2d2572da-679a-4f3a-9aab-3e2eaa8928d1"
+    },
+    {
+      "key": "ruins_fishing_pool",
+      "label": "Ruins Fishing Pool",
+      "kind": "fishing_place",
+      "file": "places/ruins_fishing_pool.webp",
+      "runway_task_id": "58c7f9a2-70a4-4e92-89ae-441534df7a75"
+    },
+    {
+      "key": "frostfall_fishing_spot",
+      "label": "Frostfall Fishing Spot",
+      "kind": "fishing_place",
+      "file": "places/frostfall_fishing_spot.webp",
+      "runway_task_id": "3826e9bb-9a23-4ee3-b859-5de53cb27c7b"
+    },
+    {
+      "key": "moonlit_fishing_pool",
+      "label": "Moonlit Fishing Pool",
+      "kind": "fishing_place",
+      "file": "places/moonlit_fishing_pool.webp",
+      "runway_task_id": "97f308c6-71c1-4c3e-a4f9-5d6540affefa"
+    },
+    {
+      "key": "woodland_fishing_pier",
+      "label": "Woodland Fishing Pier",
+      "kind": "fishing_place",
+      "file": "places/woodland_fishing_pier.webp",
+      "runway_task_id": "8374403b-4a16-4f30-addc-bfdb0ae929c6"
+    }
+  ]
+}
