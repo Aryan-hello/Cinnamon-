@@ -361,6 +361,7 @@ _CINNAMON_MODULES = (
     "achievements.py",
     "hangry_games.py",
     "wildlands_art.py",
+    "wildlands_fishing.py",
 )
 
 
