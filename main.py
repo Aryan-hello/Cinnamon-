@@ -358,12 +358,9 @@ _CINNAMON_MODULES = (
     "economy.py",
     "advanced_economy.py",
     "quests.py",
-    "fishing.py",
     "achievements.py",
     "hangry_games.py",
-    # Wildlands loads last so it can reuse the shared economy, fishing/cooking,
-    # quests, achievements, Catnip wallet and persistence helpers.
-    "wildlands.py",
+    "wildlands_art.py",
 )
 
 
