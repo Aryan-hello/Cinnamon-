@@ -107,7 +107,7 @@ def _wl_card(path, title, summary, subtitle):
         except (OSError, ValueError):
             path = None
     if path is None:
-        d.text((86, 151), '🐾  Art pending', font=_wl_font(23, True), fill='#6E5443')
+        d.text((77, 151), 'Art pending', font=_wl_font(23, True), fill='#6E5443')
     d.rounded_rectangle((348, 34, 540, 70), radius=11, fill='#FFE2BB')
     d.text((360, 42), subtitle.upper()[:19], font=_wl_font(18, True), fill='#805327')
     title_font = _wl_font(37, True)
@@ -195,7 +195,12 @@ wildlands_art_group = app_commands.Group(name='wildlands', description='Cinnamon
 async def wildlands_places(interaction: discord.Interaction):
     view = WildlandsArtView(interaction.user.id, 'fishing_place')
     embed, file = view.make_message()
-    await interaction.response.send_message(embed=embed, file=file, view=view, ephemeral=False)
+    # discord.py expects the `file` parameter to be omitted when it is absent.
+    # Passing file=None caused NoneType.to_dict on some deployed versions.
+    kwargs = {'embed': embed, 'view': view, 'ephemeral': False}
+    if file is not None:
+        kwargs['file'] = file
+    await interaction.response.send_message(**kwargs)
 
 
 @wildlands_art_group.command(name='art-vault', description='Admin: review saved background-free Wildlands artwork')
@@ -204,7 +209,10 @@ async def wildlands_places(interaction: discord.Interaction):
 async def wildlands_art_vault(interaction: discord.Interaction, number: app_commands.Range[int, 1, 46] = 1):
     view = WildlandsArtView(interaction.user.id, 'unmapped_cutout', number-1)
     embed, file = view.make_message()
-    await interaction.response.send_message(embed=embed, file=file, view=view, ephemeral=True)
+    kwargs = {'embed': embed, 'view': view, 'ephemeral': True}
+    if file is not None:
+        kwargs['file'] = file
+    await interaction.response.send_message(**kwargs)
 
 
 @wildlands_art_group.command(name='art-status', description='See whether the saved Runway artwork is installed')

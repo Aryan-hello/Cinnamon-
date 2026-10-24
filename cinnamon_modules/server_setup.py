@@ -418,6 +418,8 @@ async def setup_cmd(interaction: discord.Interaction):
         if a.get("role")
     })
     achievement_role_names.append("Quest Master")
+    # Fishing titles and the two server-wide merchants are core Wildlands roles.
+    achievement_role_names.extend(_wlf_required_roles())
     achievement_role_names = list(dict.fromkeys(achievement_role_names))
     created_roles = []
     existing_roles = {r.name: r for r in guild.roles if not r.managed}
@@ -513,7 +515,8 @@ async def setup_cmd(interaction: discord.Interaction):
     embed.add_field(
         name="Next steps",
         value=(
-            "Use `/help` to see every command and what it does, or `/dashboard` to open Cinnamon Control. "
+            "Use `/fishing start` and `/wildlands gather` for Wildlands fishing, or `/help` for all commands. "
+            "Use `/dashboard` to open Cinnamon Control. "
             "Dashboard actions are recorded in the dashboard audit channel. Use `/economy snapshot` before a reset. "
             "Use `/economy restore-snapshot` after a reset if needed."
         ),
@@ -726,7 +729,7 @@ async def help_cmd(interaction: discord.Interaction):
         e.add_field(name="Commands",value=body,inline=False); embeds.append(e)
     guide=cinnamon_embed("🐾 Using Cinnamon","A quick guide to the bot.",color=CINNAMON_ORANGE,footer=cinnamon_page_footer("Help",len(embeds)+1,len(embeds)+1,"Guide"))
     guide.add_field(name="🚀 Start here",value="Run `/setup` in a new server. Then use `/help` whenever you need the command directory. Open the web control panel with `/dashboard`.",inline=False)
-    guide.add_field(name="🎮 Everyday",value="Use `/pet`, `/treat`, `/nap`, `/rank`, `/economy shop`, `/quests daily`, and `/achievement list` to explore Cinnamon.",inline=False)
+    guide.add_field(name="🎮 Everyday",value="Use `/pet`, `/treat`, `/nap`, `/rank`, `/economy shop`, `/quests daily`, and `/achievement list` to explore Cinnamon. Wildlands fishing starts with `/fishing start`; gather with `/wildlands gather`.",inline=False)
     guide.add_field(name="🛡️ Admin",value="Moderation, logging, recovery, and configuration commands require the appropriate Discord permissions.",inline=False)
     guide.add_field(name="🧭 Web dashboard",value="`/dashboard` opens Cinnamon Control. Message Studio, analytics, activity logs, and every dashboard change are linked to the `cinnamon-dashboard-logs` audit channel created by `/setup`.",inline=False)
     guide.add_field(name="💾 Reset protection",value="Run `/economy snapshot` before a reset and restore it afterward if needed.",inline=False)
