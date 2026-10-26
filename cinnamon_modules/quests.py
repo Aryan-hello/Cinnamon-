@@ -240,17 +240,8 @@ async def quest_cmd(interaction):
     view=QuestPageView(interaction.guild.id,interaction.user.id,"daily",0)
     await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"daily",0),view=view)
 
-@bot.tree.command(name="dailyquests",description="View your 5 active daily Cinnamon quests")
-@app_commands.guild_only()
-async def dailyquests_cmd(interaction):
-    view=QuestPageView(interaction.guild.id,interaction.user.id,"daily",0)
-    await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"daily",0),view=view)
-
-@bot.tree.command(name="weeklyquests",description="View your 5 active weekly Cinnamon quests")
-@app_commands.guild_only()
-async def weeklyquests_cmd(interaction):
-    view=QuestPageView(interaction.guild.id,interaction.user.id,"weekly",0)
-    await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"weekly",0),view=view)
+# Canonical daily/weekly quest commands are /quests daily and /quests weekly.
+# /quest remains a convenient paginated entrypoint.
 
 @bot.group(name="quest", aliases=["quests"], invoke_without_command=True)
 @commands.guild_only()
@@ -296,42 +287,27 @@ async def prefix_quest_progress(ctx):
     await ctx.reply(f"📜 **Quest Progress**\n• Quest Points: **{u['qp']:,}**\n• Completed quests: **{completed}**\n• Active daily: **{len(d.get('daily_ids',[]))}/5**\n• Active weekly: **{len(d.get('weekly_ids',[]))}/5**",mention_author=False)
 
 
-# Compatibility aliases: keep the original top-level commands, while also
-# exposing the daily/weekly/progress views under /quests so users do not have
-# to remember which command spelling is installed.
+# Canonical grouped commands; the old redundant /dailyquests and
+# /weeklyquests top-level aliases were retired to avoid command clutter.
 quests_view_group = app_commands.Group(name="quests", description="View Cinnamon's daily and weekly quests")
 
 @quests_view_group.command(name="daily", description="View your 5 active daily Cinnamon quests")
 @app_commands.guild_only()
 async def quests_daily_view_cmd(interaction):
-    d = _ensure_rolls(interaction.guild.id)
-    u = _user(interaction.guild.id, interaction.user.id)
-    lines = []
-    for qid in d.get("daily_ids", []):
-        q = DAILY_QUESTS[qid]
-        p = _prog(u, "daily", qid)
-        done = "✅" if _completed(q, p) else "⬜"
-        cur = p.get("count", p.get("value", 0))
-        lines.append(f"{done} **{q['name']}** — {cur}/{q.get('target','—')} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
-    e = discord.Embed(title="☀️ Cinnamon Daily Quests", description="\n\n".join(lines)[:3900] or "No daily quests are active.", color=0xFFB02E)
-    e.set_footer(text=f"Quest Points: {u['qp']:,} • Daily quests reset each Cinnamon day")
-    await interaction.response.send_message(embed=cinnamon_polish_embed(e))
+    view = QuestPageView(interaction.guild.id, interaction.user.id, "daily", 0)
+    await interaction.response.send_message(
+        embed=quest_scope_embed(interaction.guild.id, interaction.user.id, "daily", 0),
+        view=view, ephemeral=True)
+
 
 @quests_view_group.command(name="weekly", description="View your 5 active weekly Cinnamon quests")
 @app_commands.guild_only()
 async def quests_weekly_view_cmd(interaction):
-    d = _ensure_rolls(interaction.guild.id)
-    u = _user(interaction.guild.id, interaction.user.id)
-    lines = []
-    for qid in d.get("weekly_ids", []):
-        q = WEEKLY_QUESTS[qid]
-        p = _prog(u, "weekly", qid)
-        done = "✅" if _completed(q, p) else "⬜"
-        cur = p.get("count", p.get("value", 0))
-        lines.append(f"{done} **{q['name']}** — {cur}/{q.get('target','—')} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
-    e = discord.Embed(title="📅 Cinnamon Weekly Quests", description="\n\n".join(lines)[:3900] or "No weekly quests are active.", color=0x8E7CFF)
-    e.set_footer(text=f"Quest Points: {u['qp']:,} • Weekly quests reset each Cinnamon week")
-    await interaction.response.send_message(embed=cinnamon_polish_embed(e))
+    view = QuestPageView(interaction.guild.id, interaction.user.id, "weekly", 0)
+    await interaction.response.send_message(
+        embed=quest_scope_embed(interaction.guild.id, interaction.user.id, "weekly", 0),
+        view=view, ephemeral=True)
+
 
 @quests_view_group.command(name="progress", description="View your Cinnamon quest progress and Quest Points")
 @app_commands.guild_only()

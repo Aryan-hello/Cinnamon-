@@ -1,15 +1,16 @@
-name: Cinnamon Wildlands checks
+name: Cinnamon integrity and Wildlands checks
 
 on:
   push:
     branches:
-      - feature/wildlands-billion-catnip-story
+      - main
+      - "feature/**"
+      - "cleanup/**"
   pull_request:
     paths:
       - "main.py"
-      - "cinnamon_modules/wildlands_story.py"
-      - "cinnamon_modules/wildlands_fishing.py"
-      - "tests/test_wildlands_story.py"
+      - "cinnamon_modules/**"
+      - "tests/**"
       - ".github/workflows/wildlands-checks.yml"
 
 permissions:
