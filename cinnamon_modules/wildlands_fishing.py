@@ -499,44 +499,144 @@ async def fishing_start(interaction: discord.Interaction):
     await interaction.response.send_message(embed=e, ephemeral=True)
 
 
-@_wlf_group.command(name='cast', description='Use your rod and bait to catch a local fish')
+# Each reel click validates inventory/cooldown under one user-specific lock.
+# Showing a cast panel does not spend bait; timed-out views cannot waste items.
+_WLF_CAST_LOCKS = {}
+
+
+class _WLFReelView(discord.ui.View):
+    def __init__(self, guild_id, owner_id):
+        super().__init__(timeout=180)
+        self.guild_id, self.owner_id = guild_id, owner_id
+        self.used = False
+        self.bait_id = None
+        self.refresh_bait()
+
+    def refresh_bait(self):
+        self.clear_items()
+        p = _wlf_player(self.guild_id, self.owner_id)
+        available = [b for b in _WLF_BAIT if int(p["bait"].get(b["id"], 0)) > 0]
+        if not available:
+            return
+        if self.bait_id not in {b["id"] for b in available}:
+            self.bait_id = available[0]["id"]  # default to cheapest bait, not most expensive.
+        options = [
+            discord.SelectOption(label=b["name"][:100], value=b["id"],
+                description=f'{int(p["bait"][b["id"]])} owned • Luck +{b["bonus"]:.1f}',
+                default=b["id"] == self.bait_id)
+            for b in available
+        ]
+        picker = discord.ui.Select(placeholder="Choose which bait to use",
+                                  options=options, row=0)
+        async def selected(interaction):
+            self.bait_id = picker.values[0]
+            self.refresh_bait()
+            await interaction.response.edit_message(embed=self.render(), view=self)
+        picker.callback = selected
+        self.add_item(picker)
+        for label, emoji, technique, style in [
+            ("Reel gently", "🍃", "gentle", discord.ButtonStyle.secondary),
+            ("Keep steady", "🎣", "steady", discord.ButtonStyle.primary),
+            ("YANK!", "⚡", "yank", discord.ButtonStyle.secondary),
+        ]:
+            button = discord.ui.Button(label=label, emoji=emoji, style=style, row=1)
+            async def reel(interaction, chosen=technique):
+                await self.finish(interaction, chosen)
+            button.callback = reel
+            self.add_item(button)
+
+    def render(self):
+        p = _wlf_player(self.guild_id, self.owner_id)
+        rod = next((r for r in _WLF_RODS if r["id"] == p["rod"]), _WLF_RODS[0])
+        bait = next((b for b in _WLF_BAIT if b["id"] == self.bait_id), _WLF_BAIT[0])
+        mood = _cm_tier(self.guild_id)
+        details = (f'**🗺️ Water:** {_wlf_area(p["area"])[1]}\n'
+                   f'**🎣 Rod:** {rod["name"]} (+{rod["bonus"]:.1f} luck)\n'
+                   f'**🪱 Bait:** {bait["name"]} × {p["bait"].get(bait["id"],0)}\n'
+                   f'**🐈 Cinnamon:** {mood.title()} — fishing luck {"boosted" if mood=="delighted" else "reduced" if mood=="grumpy" else "normal"}\n'
+                   f'**📓 Journal:** {len(p["seen"])}/{len(_WLF_FISH)} species\n\n'
+                   'A ripple appears! Choose your bait, then decide how to reel. '
+                   '**Your choice changes Cinnamon’s reaction, not the fish’s rarity.** '
+                   'No bait is spent until you reel.')
+        return _wlf_embed("🎣 A Suspicious Bite!", details)
+
+    async def interaction_check(self, interaction):
+        if not interaction.guild or interaction.guild.id != self.guild_id or interaction.user.id != self.owner_id:
+            await interaction.response.send_message("🐈 This fishing rod belongs to someone else! Use /fishing cast.", ephemeral=True)
+            return False
+        return True
+
+    async def finish(self, interaction, technique):
+        if self.used:
+            return await interaction.response.send_message("🐈 Already reeled in! Start a fresh cast.", ephemeral=True)
+        key = (self.guild_id, self.owner_id)
+        lock = _WLF_CAST_LOCKS.setdefault(key, asyncio.Lock())
+        async with lock:
+            p = _wlf_player(self.guild_id, self.owner_id)
+            cooldown = max(0, _wlf_math.ceil(p["next_cast"] - _wlf_time.time()))
+            if cooldown:
+                return await interaction.response.send_message(
+                    f"🎣 Give the water a moment! Cast again in **{cooldown}s**.", ephemeral=True)
+            if int(p["bait"].get(self.bait_id, 0)) < 1:
+                self.refresh_bait()
+                return await interaction.response.edit_message(
+                    embed=self.render(), view=self)
+            self.used = True  # set before persistence so repeated button clicks cannot duplicate fish.
+            for child in self.children:
+                child.disabled = True
+            # Roll exactly once AFTER verifying permissions and inventory.
+            bait = next(b for b in _WLF_BAIT if b["id"] == self.bait_id)
+            rod = next((r for r in _WLF_RODS if r["id"] == p["rod"]), _WLF_RODS[0])
+            idx = _wlf_roll(rod["bonus"] + bait["bonus"] + _cm_fishing_bonus(self.guild_id))
+            fish_key = f'{p["area"]}:{idx}'
+            fish = _WLF_FISH[fish_key]
+            p["bait"][self.bait_id] -= 1
+            p["fish"][fish_key] = int(p["fish"].get(fish_key, 0)) + 1
+            new = fish_key not in p["seen"]
+            if new:
+                p["seen"].append(fish_key)
+            p["next_cast"] = _wlf_time.time() + 30
+            await bd_save_data()
+
+        extra = await _wlf_award_rare_role(interaction, fish)
+        quips = {
+            "gentle": "🍃 *Cinnamon whispers* Quietly! The fish might be royalty.",
+            "steady": "🎣 *Cinnamon nods* Professional. Suspiciously professional.",
+            "yank": "⚡ *Cinnamon crashes into the tackle box* THIS WAS A STRATEGY?!",
+        }
+        desc = (f'**🐟 {fish["name"]}**\n**Rarity:** {fish["rarity"]}\n'
+                f'**Value:** {fish["value"]:,} Catnip · **Owned:** {p["fish"][fish_key]}\n'
+                f'**Region:** {_wlf_area(p["area"])[1]}\n'
+                f'**Gear:** {rod["name"]} · {bait["name"]}\n\n'
+                f'{quips.get(technique, quips["steady"])}' +
+                ('\n📖 **NEW JOURNAL ENTRY!**' if new else '') + extra)
+        self.stop()
+        await interaction.response.edit_message(embed=_wlf_embed("🏆 Fishing Catch!", desc, interaction=interaction), view=None)
+        if fish["rarity"] in ("Legendary", "Mythical"):
+            try:
+                await _cp_good_event(interaction.guild, interaction.user, "Rare Wildlands fish caught", points=2)
+                await _cp_react(interaction.guild, interaction.user, interaction.channel, "rare_fish", detail=fish["name"])
+            except Exception:
+                log.exception("Optional rare-fish reaction could not be posted")
+
+
+@_wlf_group.command(name='cast', description='Interactive cast: choose bait and reel in a local fish')
 @app_commands.guild_only()
 async def fishing_cast(interaction: discord.Interaction):
-    g, u = interaction.guild.id, interaction.user.id
-    p = _wlf_player(g, u)
-    if p['area'] not in p['areas']:
-        p['area'] = 'whispering_woods'
-    remaining = max(0, _wlf_math.ceil(p['next_cast'] - _wlf_time.time()))
-    if remaining:
-        return await interaction.response.send_message(f'🎣 Give the water a moment! Cast again in **{remaining}s**.', ephemeral=True)
-    bait_id = next((b['id'] for b in reversed(_WLF_BAIT) if int(p['bait'].get(b['id'], 0)) > 0), None)
-    if bait_id is None:
-        return await interaction.response.send_message('🐟 Out of bait! Gather with `/wildlands gather`, or buy bait using `/fishing buy-bait`.', ephemeral=True)
-    bait = next(b for b in _WLF_BAIT if b['id'] == bait_id)
-    rod = next((r for r in _WLF_RODS if r['id'] == p['rod']), _WLF_RODS[0])
-    idx = _wlf_roll(rod['bonus'] + bait['bonus'] + _cm_fishing_bonus(g))
-    fish_key = f'{p["area"]}:{idx}'
-    fish = _WLF_FISH[fish_key]
-    # Commit state *before* role granting so a missing Manage Roles permission
-    # never loses the fish catch.
-    p['bait'][bait_id] -= 1
-    p['fish'][fish_key] = int(p['fish'].get(fish_key, 0)) + 1
-    if fish_key not in p['seen']:
-        p['seen'].append(fish_key)
-        discovery = '\n📖 **New journal entry!**'
-    else:
-        discovery = ''
-    p['next_cast'] = _wlf_time.time() + 30
-    await bd_save_data()
-    extra = await _wlf_award_rare_role(interaction, fish)
-    desc = (f'You caught **{fish["name"]}**!\n'
-            f'**Rarity:** {fish["rarity"]} • **Value:** {fish["value"]:,} Catnip\n'
-            f'**Area:** {_wlf_area(p["area"])[1]} • **Bait:** {bait["name"]}\n'
-            f'**Owned:** {p["fish"][fish_key]}{discovery}{extra}')
-    await interaction.response.send_message(embed=_wlf_embed('🎣 A Bite!', desc, interaction=interaction))
-    if fish['rarity'] in ('Legendary', 'Mythical'):
-        await _cp_good_event(interaction.guild, interaction.user, 'Rare Wildlands fish caught', points=2)
-        await _cp_react(interaction.guild, interaction.user, interaction.channel, 'rare_fish', detail=fish['name'])
+    gid, uid = interaction.guild.id, interaction.user.id
+    p = _wlf_player(gid, uid)
+    if p["area"] not in p["areas"]:
+        p["area"] = "whispering_woods"
+    cooldown = max(0, _wlf_math.ceil(p["next_cast"] - _wlf_time.time()))
+    if cooldown:
+        return await interaction.response.send_message(
+            f'🎣 Give the water a moment! Cast again in **{cooldown}s**.', ephemeral=True)
+    if not any(int(p["bait"].get(b["id"], 0)) for b in _WLF_BAIT):
+        return await interaction.response.send_message(
+            '🐟 Out of bait! Gather with /wildlands gather or buy some in /fishing buy-bait.',
+            ephemeral=True)
+    view = _WLFReelView(gid, uid)
+    await interaction.response.send_message(embed=view.render(), view=view, ephemeral=True)
 
 
 @_wlf_group.command(name='locations', description='Show discovered and locked fishing locations')
