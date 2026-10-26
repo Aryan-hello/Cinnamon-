@@ -76,6 +76,47 @@ class HangryGameBudgetTests(unittest.TestCase):
         self.assertEqual(decoded_again["budget_records"][(1, 10)]["spent"], 12000)
         self.assertEqual(decoded_again["host_records"][(1, 10)]["completed"], 5)
 
+    def test_budget_reservation_refund_and_host_bonus(self):
+        tree = ast.parse((BASE / "hangry_games.py").read_text())
+        cog_tree = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "HangryGamesCog")
+        keep = {"_week", "_budget_limit", "_budget_record", "_host_record",
+                "_reserve_budget", "_refund_budget", "_host_completed"}
+        methods = [n for n in cog_tree.body
+                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                   and n.name in keep]
+        fake_class = ast.ClassDef(name="FakeCog", bases=[], keywords=[], body=methods, decorator_list=[])
+        ast.fix_missing_locations(fake_class)
+        ns = {"asyncio": asyncio, "datetime": __import__("datetime"),
+              "random": SimpleNamespace(random=lambda: 0.0, randint=lambda a, b: 400)}
+        exec(compile(ast.Module(body=[fake_class], type_ignores=[]), "hangry", "exec"), ns)
+        cog = ns["FakeCog"]()
+        cog.budget_records = {}
+        cog.host_records = {}
+        cog.budget_lock = asyncio.Lock()
+        saved = []
+        async def save():
+            saved.append(True)
+        cog._save = save
+        guild = SimpleNamespace(id=55)
+        sponsor = SimpleNamespace(id=77, guild_permissions=SimpleNamespace(
+            administrator=False, moderate_members=False, manage_messages=True))
+
+        async def check():
+            self.assertIsNone(await cog._reserve_budget(guild, sponsor, 12000))
+            self.assertEqual(cog._budget_record(55, 77)["spent"], 12000)
+            self.assertIn("8,000", await cog._reserve_budget(guild, sponsor, 9000))
+            self.assertEqual(cog._budget_record(55, 77)["spent"], 12000)
+            await cog._refund_budget(55, 77, 12000, cog._week())
+            self.assertEqual(cog._budget_record(55, 77)["spent"], 0)
+            for i in range(4):
+                completed, bonus = await cog._host_completed(55, 77)
+                self.assertEqual(bonus, 0)
+            completed, bonus = await cog._host_completed(55, 77)
+            self.assertEqual((completed, bonus), (5, 400))
+            self.assertEqual(cog._host_record(55, 77)["bonus"], 400)
+            self.assertGreater(len(saved), 5)
+        asyncio.run(check())
+
     def test_budget_permissions_and_lobby_signatures(self):
         source = (BASE / "hangry_games.py").read_text()
         tree = ast.parse(source)
