@@ -406,8 +406,8 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         start = time.monotonic()
         rnd = 0
         completed = False
-        await channel.send(f"🐾 **Hangry Games #{game_num}** begins with **{len(alive)}** cats in the arena, hosted by {host.mention}!")
         try:
+            await channel.send(f"🐾 **Hangry Games #{game_num}** begins with **{len(alive)}** cats in the arena, hosted by {host.mention}!")
             while len(alive) > 1:
                 rnd += 1
                 await asyncio.sleep(5)
@@ -528,8 +528,12 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                 log_fields.extend([("Catnip prize paid", f"{catnip_prize:,}"),
                                    ("Sponsor ID", str(sponsor_id))])
             runner_budget = self.budget_records.get((channel.guild.id, runner_id), {})
+            runner_limit = self._budget_limit(runner)
+            runner_spent = int(runner_budget.get("spent", 0))
+            runner_left = "Unlimited" if runner_limit is None else f"{max(0, runner_limit - runner_spent):,}"
             log_fields.extend([("Runner ID", str(runner_id)),
-                               ("Prize budget spent this week", f"{int(runner_budget.get('spent',0)):,}"),
+                               ("Prize budget spent this week", f"{runner_spent:,}"),
+                               ("Weekly budget remaining", runner_left),
                                ("Runner games completed this week", str(finished_games)),
                                ("Host bonus Catnip", str(appreciation))])
             await self._log(
