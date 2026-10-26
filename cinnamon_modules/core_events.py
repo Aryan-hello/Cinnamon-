@@ -302,13 +302,18 @@ async def on_ready():
         except Exception:
             log.exception("Global slash-command sync failed")
 
+        # The commands are registered globally. Copying them into every guild
+        # also registers guild-specific copies, which can appear twice in
+        # Discord's slash command picker. Remove those legacy guild copies;
+        # never clear the global command tree.
         for guild in bot.guilds:
             try:
-                bot.tree.copy_global_to(guild=guild)
+                bot.tree.clear_commands(guild=guild)
                 guild_synced = await bot.tree.sync(guild=guild)
-                log.info("Guild-synced %d Cinnamon slash commands to %s (%s)", len(guild_synced), guild.name, guild.id)
+                log.info("Removed legacy guild-specific command copies for %s (%s); remaining guild-only commands: %d",
+                         guild.name, guild.id, len(guild_synced))
             except Exception:
-                log.exception("Guild slash-command sync failed for %s (%s)", guild.name, guild.id)
+                log.exception("Guild slash-command cleanup failed for %s (%s)", guild.name, guild.id)
 
         _slash_commands_synced = True
 
