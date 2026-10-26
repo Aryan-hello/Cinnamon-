@@ -223,6 +223,77 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
             "budget_records": self.budget_records, "host_records": self.host_records,
         })
 
+    @staticmethod
+    def _week():
+        iso = datetime.datetime.now(datetime.timezone.utc).isocalendar()
+        return f"{iso.year}-W{iso.week:02d}"
+
+    @staticmethod
+    def _budget_limit(member):
+        permissions = member.guild_permissions
+        if permissions.administrator:
+            return None  # Admins have unlimited weekly hosting budget.
+        if permissions.moderate_members:
+            return 30000
+        if permissions.manage_messages:
+            return 20000
+        return 0
+
+    def _budget_record(self, guild_id, user_id):
+        rec = self.budget_records.setdefault((guild_id, user_id), {})
+        if rec.get("week") != self._week():
+            rec.clear()
+            rec.update({"week": self._week(), "spent": 0})
+        return rec
+
+    def _host_record(self, guild_id, user_id):
+        rec = self.host_records.setdefault((guild_id, user_id), {})
+        if rec.get("week") != self._week():
+            rec.clear()
+            rec.update({"week": self._week(), "completed": 0, "bonus": 0})
+        return rec
+
+    async def _reserve_budget(self, guild, sponsor, prize):
+        """Charge weekly host budget before starting, guarded against races."""
+        if prize <= 0:
+            return None
+        if prize > 200000:
+            return "🐈 Maximum prize is 200,000 Catnip per game, even for admins."
+        async with self.budget_lock:
+            limit = self._budget_limit(sponsor)
+            if limit == 0:
+                return "🐈 To sponsor Catnip, you need Manage Messages, Moderate Members, or Administrator."
+            rec = self._budget_record(guild.id, sponsor.id)
+            if limit is not None and int(rec.get("spent", 0)) + prize > limit:
+                left = max(0, limit - int(rec.get("spent", 0)))
+                return f"😾 You have only **{left:,} Catnip** left in this week's hosting budget."
+            rec["spent"] = int(rec.get("spent", 0)) + prize
+            await self._save()
+        return None
+
+    async def _refund_budget(self, guild_id, sponsor_id, prize, week):
+        if not prize:
+            return
+        async with self.budget_lock:
+            rec = self.budget_records.get((guild_id, sponsor_id))
+            if rec and rec.get("week") == week:
+                rec["spent"] = max(0, int(rec.get("spent", 0)) - prize)
+                await self._save()
+
+    async def _host_completed(self, guild_id, host_id):
+        """Rare, capped appreciation reward for repeat hosts, not per-match farming."""
+        async with self.budget_lock:
+            rec = self._host_record(guild_id, host_id)
+            rec["completed"] = int(rec.get("completed", 0)) + 1
+            bonus = 0
+            if (rec["completed"] % 5 == 0
+                    and int(rec.get("bonus", 0)) < 1500
+                    and random.random() < 0.30):
+                bonus = min(random.randint(250, 600), 1500 - int(rec.get("bonus", 0)))
+                rec["bonus"] = int(rec.get("bonus", 0)) + bonus
+            await self._save()
+            return rec["completed"], bonus
+
     async def _log(self, guild_id: int, *, title: str, color: discord.Color = discord.Color.blurple(),
                     fields: list[tuple[str, str]] | None = None):
         """Post a Hangry Games event to this guild's dedicated log channel
