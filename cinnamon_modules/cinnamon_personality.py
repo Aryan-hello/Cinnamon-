@@ -370,7 +370,7 @@ async def cinnamon_events_status(interaction: discord.Interaction):
 
 @_cp_group.command(name="auto", description="Admin: enable or disable Cinnamon surprise games")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def cinnamon_events_auto(interaction: discord.Interaction, enabled: bool):
     s = _cp_server(interaction.guild.id)
     if enabled and not s.get("auto_channel"):
@@ -386,7 +386,7 @@ async def cinnamon_events_auto(interaction: discord.Interaction, enabled: bool):
 
 @_cp_group.command(name="channel", description="Admin: choose Cinnamon's surprise Hangry Games channel")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def cinnamon_events_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     s = _cp_server(interaction.guild.id)
     s["auto_channel"] = channel.id
@@ -428,7 +428,7 @@ async def cinnamon_events_notify(interaction: discord.Interaction, enabled: bool
 
 @_cp_group.command(name="people", description="Admin: view Cinnamon's favourite visitors and nice/naughty records")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def cinnamon_events_people(interaction: discord.Interaction):
     gid = interaction.guild.id
     members = _cp_server(gid).get("people", {})
@@ -446,7 +446,7 @@ async def cinnamon_events_people(interaction: discord.Interaction):
 
 @_cp_group.command(name="test-game", description="Admin: test a surprise lobby immediately without changing the schedule")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def cinnamon_events_test_game(interaction: discord.Interaction):
     s = _cp_server(interaction.guild.id)
     channel = interaction.guild.get_channel(int(s.get("auto_channel", 0) or 0))
@@ -464,7 +464,7 @@ async def cinnamon_events_test_game(interaction: discord.Interaction):
 
 @_cp_group.command(name="cameos", description="Admin: allow rare non-pinging Cinnamon jealousy jokes")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def cinnamon_events_cameos(interaction: discord.Interaction, enabled: bool):
     s = _cp_server(interaction.guild.id)
     s["cameos_enabled"] = bool(enabled)

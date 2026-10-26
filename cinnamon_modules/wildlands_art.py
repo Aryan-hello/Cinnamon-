@@ -205,7 +205,7 @@ async def wildlands_places(interaction: discord.Interaction):
 
 @wildlands_art_group.command(name='art-vault', description='Admin: review saved background-free Wildlands artwork')
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def wildlands_art_vault(interaction: discord.Interaction, number: app_commands.Range[int, 1, 46] = 1):
     view = WildlandsArtView(interaction.user.id, 'unmapped_cutout', number-1)
     embed, file = view.make_message()
@@ -217,7 +217,7 @@ async def wildlands_art_vault(interaction: discord.Interaction, number: app_comm
 
 @wildlands_art_group.command(name='art-status', description='See whether the saved Runway artwork is installed')
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def wildlands_art_status(interaction: discord.Interaction):
     records = wildlands_art_items()
     found = sum(wildlands_local_asset(i.get('key')) is not None for i in records)

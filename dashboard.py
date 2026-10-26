@@ -424,6 +424,7 @@ def _mind(guild, state):
     """Server-local personality controls, with clearly locked safety boundaries."""
     gid = guild.id
     cfg = state.get("cinnamon_social", {}).get(str(gid), {}) or {}
+    play = state.get("cinnamon_actions", {}).get(str(gid), {}) or {}
     mood = state.get("cinnamon_moods", {}).get(str(gid), {}) or {}
     score = int(mood.get("score", 0))
     tier = "Delighted 😻" if score >= 35 else "Grumpy 😾" if score <= -35 else "Normal 🐈"
@@ -446,7 +447,10 @@ def _mind(guild, state):
             ("questions_enabled", True, "Funny questions after being called", "One per person per day; members can individually opt out."),
         ])
     form = ("<div class='field'><label>Surprise game destination</label>" + name +
-            "<small>Choose an existing public channel by name. Cinnamon must be able to send there.</small></div>" + toggles)
+            "<small>Choose an existing public channel by name. Cinnamon must be able to send there.</small></div>" + toggles +
+            "<label class='toggle'><input type='checkbox' name='play_enabled'" +
+            (" checked" if play.get("play_enabled", False) else "") +
+            "><span><b>Consent-only cat jokes</b><small>Off by default. Each member must opt in, with a strict once-per-day limit.</small></span></label>")
     log_text = "".join("<div class='toggle'><b>" + _esc(label) + "</b><span>" +
                        _esc(guild.get_channel(logs.get(cat)).mention if logs.get(cat) and guild.get_channel(logs.get(cat)) else "Run /setup") +
                        "</span></div>" for cat,label in [("stuff","Personality"),("mood","Mood & Naughty List")])
@@ -1300,6 +1304,12 @@ def dashboard_action():
         guild,_=_get_access(sid,guilds,guild_id)
         gid=guild.id; state=_state(); action=request.form.get("action","")
         actor=_tokens[sid]["user"].get("username","dashboard user")
+        async def authorize_dashboard_edit():
+            uid=int(_tokens[sid]["user"]["id"])
+            member=guild.get_member(uid) or await guild.fetch_member(uid)
+            return uid == guild.owner_id or bool(member.guild_permissions.administrator)
+        if not _run_bot(authorize_dashboard_edit()):
+            raise PermissionError("Dashboard changes require Administrator permission.")
         if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="mind_settings":
@@ -1313,10 +1323,12 @@ def dashboard_action():
             if not guild.me or not channel.permissions_for(guild.me).send_messages:
                 raise ValueError("Cinnamon must be able to post in the selected game channel.")
             flags={k:k in request.form for k in ("auto_enabled","cameos_enabled","questions_enabled")}
+            play_on="play_enabled" in request.form
             async def apply_mind():
                 social=state["cinnamon_social"].setdefault(str(gid),{"people":{}})
                 old=social.get("auto_channel")
                 social.update(flags)
+                state["cinnamon_actions"].setdefault(str(gid), {"players": {}})["play_enabled"]=play_on
                 social["auto_channel"]=channel.id
                 if old!=channel.id or (flags["auto_enabled"] and not social.get("next_at")):
                     social["next_at"]=time.time()+__import__("random").randint(3600,7200)

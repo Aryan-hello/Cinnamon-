@@ -313,7 +313,7 @@ levelsettings_group = app_commands.Group(name="level-settings", description="Con
 
 @levelsettings_group.command(name="xp", description="Set the fixed XP earned per eligible message")
 @app_commands.describe(amount="XP awarded when the member's 30-second XP cooldown is ready (1-1000)")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def levelsettings_xp(interaction: discord.Interaction, amount: app_commands.Range[int, 1, 1000]):
     xp_per_message[interaction.guild.id] = int(amount)
@@ -326,7 +326,7 @@ async def levelsettings_xp(interaction: discord.Interaction, amount: app_command
 
 @levelsettings_group.command(name="channel-add", description="Allow a channel to earn XP")
 @app_commands.describe(channel="Channel where messages can earn XP")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def levelsettings_channel_add(interaction: discord.Interaction, channel: discord.TextChannel):
     xp_channels.setdefault(interaction.guild.id, set()).add(channel.id)
@@ -339,7 +339,7 @@ async def levelsettings_channel_add(interaction: discord.Interaction, channel: d
 
 @levelsettings_group.command(name="channel-remove", description="Stop a channel from earning XP")
 @app_commands.describe(channel="Channel to remove from XP earning")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def levelsettings_channel_remove(interaction: discord.Interaction, channel: discord.TextChannel):
     channels = xp_channels.setdefault(interaction.guild.id, set())
@@ -351,7 +351,7 @@ async def levelsettings_channel_remove(interaction: discord.Interaction, channel
 
 
 @levelsettings_group.command(name="channels", description="Show channels that can earn XP")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def levelsettings_channels(interaction: discord.Interaction):
     channels = sorted(xp_channels.get(interaction.guild.id, set()))
@@ -368,7 +368,7 @@ async def levelsettings_channels(interaction: discord.Interaction):
 
 
 @levelsettings_group.command(name="channels-clear", description="Disable message XP by clearing the allowed-channel list")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def levelsettings_channels_clear(interaction: discord.Interaction):
     xp_channels.pop(interaction.guild.id, None)
@@ -377,7 +377,7 @@ async def levelsettings_channels_clear(interaction: discord.Interaction):
 
 
 @levelsettings_group.command(name="status", description="Show the server's XP settings")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def levelsettings_status(interaction: discord.Interaction):
     amount, channels = xp_settings_for_guild(interaction.guild.id)
@@ -394,7 +394,7 @@ levelrewards_group = app_commands.Group(name="level-rewards", description="Confi
 
 @levelrewards_group.command(name="add", description="Give a role automatically at a level")
 @app_commands.describe(level="Level required", role="Role to award")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 @app_commands.guild_only()
 async def levelrewards_add(interaction: discord.Interaction, level: app_commands.Range[int,1,200], role: discord.Role):
@@ -406,7 +406,7 @@ async def levelrewards_add(interaction: discord.Interaction, level: app_commands
 
 @levelrewards_group.command(name="remove", description="Remove a level role reward")
 @app_commands.describe(level="Level whose reward should be removed")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def levelrewards_remove(interaction: discord.Interaction, level: int):
     if level_roles.get(interaction.guild.id,{}).pop(int(level),None) is None:
@@ -415,7 +415,7 @@ async def levelrewards_remove(interaction: discord.Interaction, level: int):
 
 @levelrewards_group.command(name="list", description="List all configured level rewards")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def levelrewards_list(interaction: discord.Interaction):
     cfg=level_roles.get(interaction.guild.id,{})
     if not cfg: return await cinnamon_send(interaction, "No level rewards are configured. Use `/levelrewards add`.",ephemeral=True)
@@ -429,7 +429,7 @@ levelrole_group = app_commands.Group(name="levelrole", description="Give roles a
 
 @levelrole_group.command(name="add", description="Give a role automatically when members reach a level")
 @app_commands.describe(level="Level that unlocks the role", role="Role to give")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 @app_commands.guild_only()
 async def levelrole_add(interaction: discord.Interaction, level: app_commands.Range[int,1,200], role: discord.Role):
@@ -455,7 +455,7 @@ async def levelrole_add(interaction: discord.Interaction, level: app_commands.Ra
 
 @levelrole_group.command(name="remove", description="Stop giving a role at a level (members keep roles they already have)")
 @app_commands.describe(level="The level to remove the reward from")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def levelrole_remove(interaction: discord.Interaction, level: app_commands.Range[int,1,200]):
     cfg = level_roles.get(interaction.guild.id, {})
@@ -470,7 +470,7 @@ async def levelrole_remove(interaction: discord.Interaction, level: app_commands
 
 
 @levelrole_group.command(name="list", description="Show this server's level roles")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def levelrole_list(interaction: discord.Interaction):
     cfg = level_roles.get(interaction.guild.id, {})
@@ -804,7 +804,7 @@ giveaway_group = app_commands.Group(name="giveaway", description="Manage Cinnamo
 
 @giveaway_group.command(name="start", description="Start a configurable giveaway in this channel")
 @app_commands.describe(duration_minutes="Duration in minutes (up to one year)", winners="Number of unique winners", prize="What's being given away")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def giveaway_start(interaction: discord.Interaction,
                          duration_minutes: app_commands.Range[int, 1, 525600],
@@ -822,7 +822,7 @@ async def giveaway_start(interaction: discord.Interaction,
 
 @giveaway_group.command(name="end", description="End an active giveaway and pick winners now")
 @app_commands.describe(message_id="The ID of the giveaway message")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def giveaway_end(interaction: discord.Interaction, message_id: str):
     if not message_id.isdigit(): return await cinnamon_send(interaction, "That doesn't look like a valid message ID.", ephemeral=True)
@@ -835,7 +835,7 @@ async def giveaway_end(interaction: discord.Interaction, message_id: str):
 
 @giveaway_group.command(name="reroll", description="Choose a new winner from a recently finished giveaway")
 @app_commands.describe(message_id="The finished giveaway message ID")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def giveaway_reroll(interaction: discord.Interaction, message_id: str):
     history=globals().setdefault("giveaway_history", {})
@@ -858,7 +858,7 @@ async def giveaway_reroll(interaction: discord.Interaction, message_id: str):
 
 @giveaway_group.command(name="template-save", description="Save an active giveaway as a reusable template")
 @app_commands.describe(name="Short name for this template", message_id="The active giveaway message ID")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def giveaway_template_save(interaction: discord.Interaction, name: app_commands.Range[str,1,40], message_id: str):
     if not message_id.isdigit(): return await cinnamon_send(interaction,"Use the numeric giveaway message ID.",ephemeral=True)
@@ -884,7 +884,7 @@ async def giveaway_template_list(interaction: discord.Interaction):
 
 @giveaway_group.command(name="template-start", description="Start a giveaway from a saved template")
 @app_commands.describe(name="Saved template name", channel="Where to post it", duration_minutes="How long it runs")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def giveaway_template_start(interaction: discord.Interaction, name: app_commands.Range[str,1,40],
                                    channel: discord.TextChannel, duration_minutes: app_commands.Range[int,1,525600]):
@@ -902,7 +902,7 @@ async def giveaway_template_start(interaction: discord.Interaction, name: app_co
 
 @giveaway_group.command(name="repeat", description="Schedule a recurring giveaway")
 @app_commands.describe(channel="Where to post", prize="Prize", winners="Number of winners", duration_minutes="Each giveaway duration", repeat_every_days="Days between giveaways (1–365)")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def giveaway_repeat(interaction: discord.Interaction, channel: discord.TextChannel,
                           prize: app_commands.Range[str,1,200], winners: app_commands.Range[int,1,100],
@@ -918,7 +918,7 @@ async def giveaway_repeat(interaction: discord.Interaction, channel: discord.Tex
 
 @giveaway_group.command(name="repeat-stop", description="Stop a recurring giveaway schedule")
 @app_commands.describe(schedule_id="The schedule ID returned by /giveaway repeat")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def giveaway_repeat_stop(interaction: discord.Interaction, schedule_id: str):
     schedules=globals().setdefault("giveaway_schedules",{}); cfg=schedules.get(schedule_id)

@@ -30,7 +30,7 @@ antiraid_group = app_commands.Group(name="antiraid", description="Configure join
 
 @antiraid_group.command(name="enable", description="Turn on raid-join alerts to the log channel")
 @app_commands.describe(threshold="Alert if this many joins happen...", window_seconds="...within this many seconds")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def antiraid_enable(interaction: discord.Interaction, threshold: int = 5, window_seconds: int = 10):
     cfg = get_antiraid(interaction.guild.id)
@@ -45,7 +45,7 @@ async def antiraid_enable(interaction: discord.Interaction, threshold: int = 5, 
 
 
 @antiraid_group.command(name="disable", description="Turn off raid-join alerts")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def antiraid_disable(interaction: discord.Interaction):
     get_antiraid(interaction.guild.id)["enabled"] = False
@@ -58,7 +58,7 @@ async def antiraid_disable(interaction: discord.Interaction):
 
 @bot.tree.command(name="lock", description="Prevent @everyone from sending messages in a channel")
 @app_commands.describe(channel="Channel to lock (defaults to this one)")
-@app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(manage_channels=True)
 @app_commands.guild_only()
 async def lock(interaction: discord.Interaction, channel: discord.TextChannel = None):
@@ -75,7 +75,7 @@ async def lock(interaction: discord.Interaction, channel: discord.TextChannel = 
 
 @bot.tree.command(name="unlock", description="Allow @everyone to send messages in a channel again")
 @app_commands.describe(channel="Channel to unlock (defaults to this one)")
-@app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(manage_channels=True)
 @app_commands.guild_only()
 async def unlock(interaction: discord.Interaction, channel: discord.TextChannel = None):
@@ -200,7 +200,7 @@ categorylogs_group = app_commands.Group(name="categorylogs", description="Config
 
 @categorylogs_group.command(name="set", description="Set a category's log channel")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(category="Which Cinnamon category to log", channel="Text channel receiving its logs")
 @app_commands.choices(category=[
     app_commands.Choice(name="Moderation", value="moderation"),
@@ -231,7 +231,7 @@ async def categorylogs_set(interaction: discord.Interaction, category: app_comma
 
 @categorylogs_group.command(name="disable", description="Disable a category-specific log channel")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.choices(category=[
     app_commands.Choice(name="Moderation", value="moderation"), app_commands.Choice(name="Economy", value="economy"),
     app_commands.Choice(name="AI", value="ai"), app_commands.Choice(name="Levels & XP", value="levels"),
@@ -352,9 +352,9 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
     if hangry_games_channel is not None and hangry_games_channel.guild.id != guild.id:
         return await interaction.response.send_message("🐈 Choose a channel in this server.", ephemeral=True)
     user_perms = interaction.user.guild_permissions
-    if not (user_perms.manage_guild or user_perms.administrator):
+    if not user_perms.administrator:
         return await interaction.response.send_message(
-            "🐾 You need **Manage Server** (or **Administrator**) to run `/setup`.",
+            "🐾 You need **Administrator** to run `/setup`.",
             ephemeral=True,
         )
     me = guild.me
@@ -648,7 +648,7 @@ async def prefix_setup(ctx: commands.Context):
 
 @bot.tree.command(name="setupstatus", description="Check Cinnamon's configured channels and systems")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def setupstatus_cmd(interaction: discord.Interaction):
     guild = interaction.guild
     hg_cog = bot.get_cog("HangryGamesCog")
@@ -815,7 +815,7 @@ datastatus_group = app_commands.Group(name="datastatus", description="Check or r
 
 
 @datastatus_group.command(name="check", description="Check whether persistent storage is actually connected right now")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def datastatus_check(interaction: discord.Interaction):
     status = await storage_status()
@@ -986,7 +986,7 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
     return scan
 
 @bot.tree.command(name="recall", description="Scan configured logs and recover reconstructable Cinnamon data")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def recall_cmd(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True, thinking=True)
@@ -1026,7 +1026,7 @@ async def recall_cmd(interaction: discord.Interaction):
     )
 
 @datastatus_group.command(name="recover", description="Scan configured logs and recover reconstructable Cinnamon data")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def datastatus_recover(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True, thinking=True)

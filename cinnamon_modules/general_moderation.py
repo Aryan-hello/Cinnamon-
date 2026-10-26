@@ -37,7 +37,7 @@ async def zoomies(interaction: discord.Interaction):
 
 @bot.tree.command(name="aichannel", description="Make Cinnamon reply to every message in this channel, no mention needed")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def aichannel(interaction: discord.Interaction):
     ai_channels[interaction.guild.id] = interaction.channel.id
     await bd_save_data()
@@ -52,7 +52,7 @@ async def aichannel(interaction: discord.Interaction):
 
 @bot.tree.command(name="disableaichannel", description="Turn off Cinnamon's always-on AI channel for this server")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def disableaichannel(interaction: discord.Interaction):
     removed = ai_channels.pop(interaction.guild.id, None)
     await bd_save_data()
@@ -69,7 +69,7 @@ async def disableaichannel(interaction: discord.Interaction):
 
 @bot.tree.command(name="disableai", description="Stop Cinnamon from talking in this channel at all")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def disableai(interaction: discord.Interaction):
     disabled_channels[interaction.guild.id].add(interaction.channel.id)
     await bd_save_data()
@@ -84,7 +84,7 @@ async def disableai(interaction: discord.Interaction):
 
 @bot.tree.command(name="enableai", description="Let Cinnamon talk in this channel again")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def enableai(interaction: discord.Interaction):
     disabled_channels[interaction.guild.id].discard(interaction.channel.id)
     await bd_save_data()
@@ -97,7 +97,7 @@ async def enableai(interaction: discord.Interaction):
 
 @bot.tree.command(name="logchannel", description="Set this channel as Cinnamon's log channel for mod actions and errors")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def logchannel(interaction: discord.Interaction):
     log_channels[interaction.guild.id] = interaction.channel.id
     await secure_log_channel(interaction.channel)
@@ -121,7 +121,7 @@ async def logchannel(interaction: discord.Interaction):
 
 @bot.tree.command(name="disablelogchannel", description="Stop Cinnamon from posting logs anywhere in this server")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def disablelogchannel(interaction: discord.Interaction):
     removed = log_channels.pop(interaction.guild.id, None)
     await bd_save_data()
@@ -142,7 +142,7 @@ async def disablelogchannel(interaction: discord.Interaction):
 @bot.tree.command(name="kick", description="Kick a member from the server")
 @app_commands.describe(member="Who to kick", reason="Why are they being kicked?")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(kick_members=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(kick_members=True)
 async def kick(interaction: discord.Interaction, member: discord.Member,
                reason: app_commands.Range[str, 1, 300] = "No reason given"):
@@ -159,7 +159,7 @@ async def kick(interaction: discord.Interaction, member: discord.Member,
 @bot.tree.command(name="ban", description="Ban a member from the server")
 @app_commands.describe(member="Who to ban", reason="Why are they being banned?")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(ban_members=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(ban_members=True)
 async def ban(interaction: discord.Interaction, member: discord.Member,
               reason: app_commands.Range[str, 1, 300] = "No reason given"):
@@ -176,7 +176,7 @@ async def ban(interaction: discord.Interaction, member: discord.Member,
 @bot.tree.command(name="unban", description="Unban a user using their user ID")
 @app_commands.describe(user_id="The numeric ID of the user to unban")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(ban_members=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(ban_members=True)
 async def unban(interaction: discord.Interaction, user_id: str):
     try:
@@ -233,7 +233,7 @@ async def unmute(interaction: discord.Interaction, member: discord.Member):
 @bot.tree.command(name="purge", description="Delete a number of recent messages in this channel")
 @app_commands.describe(amount="How many messages to delete (1-100)")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_messages=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(manage_messages=True)
 async def purge(interaction: discord.Interaction, amount: int):
     await interaction.response.defer(ephemeral=True)
@@ -251,7 +251,7 @@ async def purge(interaction: discord.Interaction, amount: int):
     channel="Channel to apply it to (defaults to this channel)",
 )
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(manage_channels=True)
 async def slowmode(interaction: discord.Interaction, seconds: int,
                     channel: discord.TextChannel = None):
@@ -278,7 +278,7 @@ role_group = app_commands.Group(name="role", description="Add roles to members")
 @role_group.command(name="add", description="Add a role to one specific member")
 @app_commands.describe(member="Who to give the role to", role="Which role to add")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_roles=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 async def role_add(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
     await member.add_roles(role, reason=f"/role add run by {interaction.user}")
@@ -298,7 +298,7 @@ async def role_add(interaction: discord.Interaction, member: discord.Member, rol
     include_bots="Also give the role to bot accounts (default: no)",
 )
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_roles=True, manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 async def role_add_all(interaction: discord.Interaction, role: discord.Role, include_bots: bool = False):
     if role.is_default():

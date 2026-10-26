@@ -443,13 +443,13 @@ async def prefix_unmute(ctx,member:discord.Member):
 
 @bot.command(name="warn")
 @commands.guild_only()
-@commands.has_guild_permissions(kick_members=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_warn(ctx,member:discord.Member,*,reason:str):
     count=add_warning(ctx.guild.id,member.id,reason[:300],ctx.author); case=next_case(ctx.guild.id); await bd_save_data(); await ctx.reply(f"⚠️ {member.mention} warned — {count} warning(s). Case #{case}.",mention_author=False,allowed_mentions=discord.AllowedMentions(users=True)); await send_log(ctx.guild.id,title="⚠️ Member warned",color=discord.Color.orange(),fields=[("Case",f"#{case}"),("Member",f"{member} ({member.id})"),("Reason",reason[:300]),("Total warnings",str(count))])
 
 @bot.command(name="warnings",aliases=["warns"])
 @commands.guild_only()
-@commands.has_guild_permissions(kick_members=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_warnings(ctx,member:discord.Member):
     ws=warnings_data.get((ctx.guild.id,member.id),[])
     if not ws: return await ctx.reply(f"{member.display_name} has no warnings.",mention_author=False)
@@ -459,13 +459,13 @@ async def prefix_warnings(ctx,member:discord.Member):
 
 @bot.command(name="clearwarnings",aliases=["clearwarns"])
 @commands.guild_only()
-@commands.has_guild_permissions(kick_members=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_clearwarnings(ctx,member:discord.Member):
     removed=len(warnings_data.pop((ctx.guild.id,member.id),[])); await bd_save_data(); await ctx.reply(f"🧹 Cleared {removed} warning(s) for {member.mention}.",mention_author=False); await send_log(ctx.guild.id,title="🧹 Warnings cleared",fields=[("Member",f"{member} ({member.id})"),("Cleared",str(removed))])
 
 @bot.command(name="kick")
 @commands.guild_only()
-@commands.has_guild_permissions(kick_members=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(kick_members=True)
 async def prefix_kick(ctx,member:discord.Member,*,reason="No reason given"):
     if member==ctx.author or member==ctx.guild.owner or (member.top_role>=ctx.author.top_role and ctx.author.id!=ctx.guild.owner_id) or member.top_role>=ctx.guild.me.top_role: return await ctx.reply("❌ Role hierarchy prevents this action.",mention_author=False)
@@ -473,7 +473,7 @@ async def prefix_kick(ctx,member:discord.Member,*,reason="No reason given"):
 
 @bot.command(name="ban")
 @commands.guild_only()
-@commands.has_guild_permissions(ban_members=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(ban_members=True)
 async def prefix_ban(ctx,member:discord.Member,*,reason="No reason given"):
     if member==ctx.author or member==ctx.guild.owner or (member.top_role>=ctx.author.top_role and ctx.author.id!=ctx.guild.owner_id) or member.top_role>=ctx.guild.me.top_role: return await ctx.reply("❌ Role hierarchy prevents this action.",mention_author=False)
@@ -481,14 +481,14 @@ async def prefix_ban(ctx,member:discord.Member,*,reason="No reason given"):
 
 @bot.command(name="unban")
 @commands.guild_only()
-@commands.has_guild_permissions(ban_members=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(ban_members=True)
 async def prefix_unban(ctx,user_id:int):
     await ctx.guild.unban(discord.Object(id=user_id)); temp_bans.pop((ctx.guild.id,user_id),None); case=next_case(ctx.guild.id); await bd_save_data(); await ctx.reply(f"🔓 Unbanned user `{user_id}`. Case #{case}.",mention_author=False); await send_log(ctx.guild.id,title="🔓 Member unbanned",color=discord.Color.green(),fields=[("Case",f"#{case}"),("User ID",str(user_id)),("Moderator",f"{ctx.author} ({ctx.author.id})")])
 
 @bot.command(name="purge",aliases=["clear"])
 @commands.guild_only()
-@commands.has_guild_permissions(manage_messages=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(manage_messages=True)
 async def prefix_purge(ctx,amount:int):
     if not 1 <= amount <= 100: return await ctx.reply("❌ Amount must be between 1 and 100.",mention_author=False)
@@ -496,7 +496,7 @@ async def prefix_purge(ctx,amount:int):
 
 @bot.command(name="slowmode")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_channels=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(manage_channels=True)
 async def prefix_slowmode(ctx,seconds:int):
     if not 0 <= seconds <= 21600: return await ctx.reply("❌ Seconds must be between 0 and 21,600.",mention_author=False)
@@ -714,6 +714,11 @@ async def on_message(message: discord.Message):
                 return
             ai_cooldowns[channel_id] = now
 
+        if guild_id is not None:
+            if await _ca_maybe_handle(message, clean_content):
+                return
+            if await _ca_maybe_prank(message):
+                return
         late_note = await _cp_answer(message) if guild_id is not None and clean_content else ""
         ai_reply_success = False
         if is_owner_question(clean_content):
@@ -779,7 +784,7 @@ async def on_message(message: discord.Message):
 # ---- Economy admin: Catnip -------------------------------------------------
 @bot.command(name="addcatnip", aliases=["add-catnip"])
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_addcatnip(ctx, member: discord.Member, amount: int):
     if amount <= 0:
         return await ctx.reply("❌ Amount must be greater than 0.", mention_author=False)
@@ -799,7 +804,7 @@ async def prefix_addcatnip(ctx, member: discord.Member, amount: int):
 
 @bot.command(name="removecatnip", aliases=["remove-catnip"])
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_removecatnip(ctx, member: discord.Member, amount: int):
     if amount <= 0:
         return await ctx.reply("❌ Amount must be greater than 0.", mention_author=False)
@@ -847,7 +852,7 @@ async def _change_xp_prefix(ctx, member: discord.Member, amount: int, add: bool)
 
 @bot.command(name="addxp", aliases=["add-xp"])
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(manage_roles=True)
 async def prefix_addxp(ctx, member: discord.Member, amount: int):
     await _change_xp_prefix(ctx, member, amount, True)
@@ -855,7 +860,7 @@ async def prefix_addxp(ctx, member: discord.Member, amount: int):
 
 @bot.command(name="removexp", aliases=["remove-xp"])
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(manage_roles=True)
 async def prefix_removexp(ctx, member: discord.Member, amount: int):
     await _change_xp_prefix(ctx, member, amount, False)
@@ -869,7 +874,7 @@ remove_group = app_commands.Group(name="remove", description="Remove rewards or 
 @add_group.command(name="xp", description="Admin: add XP to a member")
 @app_commands.describe(member="Member to receive XP", amount="XP to add")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 async def add_xp_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     if amount <= 0:
@@ -888,7 +893,7 @@ async def add_xp_cmd(interaction: discord.Interaction, member: discord.Member, a
 @remove_group.command(name="xp", description="Admin: remove XP from a member")
 @app_commands.describe(member="Member to remove XP from", amount="XP to remove")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 async def remove_xp_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     if amount <= 0:
@@ -943,7 +948,7 @@ async def prefix_feed(ctx, item: str, quantity: int = 1):
 # ---- Moderation: remaining slash-only commands as prefix -------------------
 @bot.command(name="tempban")
 @commands.guild_only()
-@commands.has_guild_permissions(ban_members=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(ban_members=True)
 async def prefix_tempban(ctx, member: discord.Member, duration_hours: float, *, reason="No reason given"):
     if duration_hours <= 0:
@@ -959,7 +964,7 @@ async def prefix_tempban(ctx, member: discord.Member, duration_hours: float, *, 
 
 @bot.command(name="lock")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_channels=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(manage_channels=True)
 async def prefix_lock(ctx, channel: discord.TextChannel = None):
     channel = channel or ctx.channel
@@ -972,7 +977,7 @@ async def prefix_lock(ctx, channel: discord.TextChannel = None):
 
 @bot.command(name="unlock")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_channels=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(manage_channels=True)
 async def prefix_unlock(ctx, channel: discord.TextChannel = None):
     channel = channel or ctx.channel
@@ -1017,14 +1022,14 @@ async def prefix_modinfo(ctx, user: discord.User):
 # ---- Roles ------------------------------------------------------------------
 @bot.group(name="role", invoke_without_command=True)
 @commands.guild_only()
-@commands.has_guild_permissions(manage_roles=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_role(ctx):
     await ctx.reply("🏷️ Use `?role add @member @role` or `?role add-all @role [true/false]`.", mention_author=False)
 
 
 @prefix_role.command(name="add")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_roles=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(manage_roles=True)
 async def prefix_role_add(ctx, member: discord.Member, role: discord.Role):
     if role.is_default() or role.managed or role >= ctx.guild.me.top_role:
@@ -1036,7 +1041,7 @@ async def prefix_role_add(ctx, member: discord.Member, role: discord.Role):
 
 @prefix_role.command(name="add-all")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_roles=True, manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(manage_roles=True)
 async def prefix_role_add_all(ctx, role: discord.Role, include_bots: str = "false"):
     if role.is_default() or role.managed or role >= ctx.guild.me.top_role:
@@ -1057,21 +1062,21 @@ async def prefix_role_add_all(ctx, role: discord.Role, include_bots: str = "fals
 # ---- AutoMod prefix group ---------------------------------------------------
 @bot.group(name="automod", invoke_without_command=True)
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_automod(ctx):
     await ctx.reply("🛡️ Use `?automod word add/remove/list`, `?automod spam on/off`, `?automod mentions on/off [threshold]`, or `?automod invites on/off`.", mention_author=False)
 
 
 @prefix_automod.group(name="word", invoke_without_command=True)
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_automod_word(ctx):
     await ctx.reply("🛡️ Use `?automod word add <word>`, `remove <word>`, or `list`.", mention_author=False)
 
 
 @prefix_automod_word.command(name="add")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_automod_word_add(ctx, *, word: str):
     cfg = get_automod(ctx.guild.id)
     changed = word.lower() not in (w.lower() for w in cfg["words"])
@@ -1083,7 +1088,7 @@ async def prefix_automod_word_add(ctx, *, word: str):
 
 @prefix_automod_word.command(name="remove")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_automod_word_remove(ctx, *, word: str):
     cfg = get_automod(ctx.guild.id)
     before = len(cfg["words"])
@@ -1094,7 +1099,7 @@ async def prefix_automod_word_remove(ctx, *, word: str):
 
 @prefix_automod_word.command(name="list")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_automod_word_list(ctx):
     words = get_automod(ctx.guild.id)["words"]
     await ctx.reply("Banned words: " + (", ".join(f"`{w}`" for w in words) if words else "*(none set)*"), mention_author=False)
@@ -1109,7 +1114,7 @@ def _prefix_bool(value: str):
 
 @prefix_automod.command(name="spam")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_automod_spam(ctx, enabled: str):
     value = _prefix_bool(enabled)
     if value is None: return await ctx.reply("❌ Use `on` or `off`.", mention_author=False)
@@ -1120,7 +1125,7 @@ async def prefix_automod_spam(ctx, enabled: str):
 
 @prefix_automod.command(name="mentions")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_automod_mentions(ctx, enabled: str, threshold: int = 5):
     value = _prefix_bool(enabled)
     if value is None: return await ctx.reply("❌ Use `on` or `off`.", mention_author=False)
@@ -1133,7 +1138,7 @@ async def prefix_automod_mentions(ctx, enabled: str, threshold: int = 5):
 
 @prefix_automod.command(name="invites")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_automod_invites(ctx, enabled: str):
     value = _prefix_bool(enabled)
     if value is None: return await ctx.reply("❌ Use `on` or `off`.", mention_author=False)
@@ -1145,7 +1150,7 @@ async def prefix_automod_invites(ctx, enabled: str):
 # ---- Anti-raid --------------------------------------------------------------
 @bot.group(name="antiraid", invoke_without_command=True)
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_antiraid(ctx):
     cfg = get_antiraid(ctx.guild.id)
     await ctx.reply(f"🚨 Anti-raid is **{'on' if cfg.get('enabled') else 'off'}**. Use `?antiraid enable [threshold] [window]` or `?antiraid disable`.", mention_author=False)
@@ -1153,7 +1158,7 @@ async def prefix_antiraid(ctx):
 
 @prefix_antiraid.command(name="enable")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_antiraid_enable(ctx, threshold: int = 5, window_seconds: int = 10):
     cfg = get_antiraid(ctx.guild.id)
     cfg.update({"enabled": True, "threshold": max(2, threshold), "window": max(1, window_seconds)})
@@ -1163,7 +1168,7 @@ async def prefix_antiraid_enable(ctx, threshold: int = 5, window_seconds: int = 
 
 @prefix_antiraid.command(name="disable")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_antiraid_disable(ctx):
     get_antiraid(ctx.guild.id)["enabled"] = False
     await bd_save_data()
@@ -1172,14 +1177,14 @@ async def prefix_antiraid_disable(ctx):
 # ---- Self-assignable roles --------------------------------------------------
 @bot.group(name="reactionrole", invoke_without_command=True)
 @commands.guild_only()
-@commands.has_guild_permissions(manage_roles=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_reactionrole(ctx):
     await ctx.reply("🏷️ Use `?reactionrole create @role [button text] [description]` or `?reactionrole remove @role`.", mention_author=False)
 
 
 @prefix_reactionrole.command(name="create")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_roles=True)
+@commands.has_guild_permissions(administrator=True)
 @commands.bot_has_guild_permissions(manage_roles=True)
 async def prefix_reactionrole_create(ctx, role: discord.Role, label: str = "Toggle Role 🐾", *, description: str = None):
     if role.is_default() or role.managed or role >= ctx.guild.me.top_role:
@@ -1195,7 +1200,7 @@ async def prefix_reactionrole_create(ctx, role: discord.Role, label: str = "Togg
 
 @prefix_reactionrole.command(name="remove")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_roles=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_reactionrole_remove(ctx, role: discord.Role):
     reaction_role_ids.discard(role.id)
     await bd_save_data()
@@ -1206,14 +1211,14 @@ async def prefix_reactionrole_remove(ctx, role: discord.Role):
 # ---- Welcome / goodbye ------------------------------------------------------
 @bot.group(name="welcome", invoke_without_command=True)
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_welcome(ctx):
     await ctx.reply("👋 Use `?welcome set #channel [message]` or `?welcome disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
 
 
 @prefix_welcome.command(name="set")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_welcome_set(ctx, channel: discord.TextChannel, *, message: str = "🐾 Welcome {member} to {server}! Glad you're here."):
     error = _validate_template(message)
     if error:
@@ -1226,7 +1231,7 @@ async def prefix_welcome_set(ctx, channel: discord.TextChannel, *, message: str 
 
 @prefix_welcome.command(name="disable")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_welcome_disable(ctx):
     welcome_config.pop(ctx.guild.id, None)
     await bd_save_data()
@@ -1235,14 +1240,14 @@ async def prefix_welcome_disable(ctx):
 
 @bot.group(name="goodbye", invoke_without_command=True)
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_goodbye(ctx):
     await ctx.reply("🚪 Use `?goodbye set #channel [message]` or `?goodbye disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
 
 
 @prefix_goodbye.command(name="set")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_goodbye_set(ctx, channel: discord.TextChannel, *, message: str = "🐾 {member} has left {server}. We'll miss you!"):
     error = _validate_template(message)
     if error:
@@ -1255,7 +1260,7 @@ async def prefix_goodbye_set(ctx, channel: discord.TextChannel, *, message: str 
 
 @prefix_goodbye.command(name="disable")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_goodbye_disable(ctx):
     goodbye_config.pop(ctx.guild.id, None)
     await bd_save_data()
@@ -1264,7 +1269,7 @@ async def prefix_goodbye_disable(ctx):
 # ---- AI/log moderation controls --------------------------------------------
 @bot.command(name="aichannel")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_channels=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_aichannel(ctx):
     ai_channels[ctx.guild.id] = ctx.channel.id
     await bd_save_data()
@@ -1274,7 +1279,7 @@ async def prefix_aichannel(ctx):
 
 @bot.command(name="disableaichannel")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_channels=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_disableaichannel(ctx):
     removed = ai_channels.pop(ctx.guild.id, None)
     await bd_save_data()
@@ -1283,7 +1288,7 @@ async def prefix_disableaichannel(ctx):
 
 @bot.command(name="disableai")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_channels=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_disableai(ctx):
     disabled_channels[ctx.guild.id].add(ctx.channel.id)
     await bd_save_data()
@@ -1292,7 +1297,7 @@ async def prefix_disableai(ctx):
 
 @bot.command(name="enableai")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_channels=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_enableai(ctx):
     disabled_channels[ctx.guild.id].discard(ctx.channel.id)
     await bd_save_data()
@@ -1301,7 +1306,7 @@ async def prefix_enableai(ctx):
 
 @bot.command(name="logchannel")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_logchannel(ctx, channel: discord.TextChannel = None):
     channel = channel or ctx.channel
     log_channels[ctx.guild.id] = channel.id
@@ -1312,7 +1317,7 @@ async def prefix_logchannel(ctx, channel: discord.TextChannel = None):
 
 @bot.command(name="disablelogchannel")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def prefix_disablelogchannel(ctx):
     removed = log_channels.pop(ctx.guild.id, None)
     await bd_save_data()
