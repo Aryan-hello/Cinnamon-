@@ -424,6 +424,7 @@ def _mind(guild, state):
     """Server-local personality controls, with clearly locked safety boundaries."""
     gid = guild.id
     cfg = state.get("cinnamon_social", {}).get(str(gid), {}) or {}
+    play = state.get("cinnamon_actions", {}).get(str(gid), {}) or {}
     mood = state.get("cinnamon_moods", {}).get(str(gid), {}) or {}
     score = int(mood.get("score", 0))
     tier = "Delighted 😻" if score >= 35 else "Grumpy 😾" if score <= -35 else "Normal 🐈"
