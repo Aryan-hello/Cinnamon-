@@ -370,4 +370,40 @@ async def cinnamon_events_notify(interaction: discord.Interaction, enabled: bool
         "🎮 You will " + ("receive" if enabled else "no longer receive") +
         " the two role alerts for surprise games.", ephemeral=True)
 
+@_cp_group.command(name="people", description="Admin: view Cinnamon's favourite visitors and nice/naughty records")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+async def cinnamon_events_people(interaction: discord.Interaction):
+    gid = interaction.guild.id
+    members = _cp_server(gid).get("people", {})
+    good = sorted(((uid, int(v.get("good", 0))) for uid, v in members.items()),
+                  key=lambda x: (-x[1], x[0]))[:8]
+    naughty = [uid for uid, v in _cm_state(gid).get("members", {}).items()
+               if float(v.get("naughty_until", 0)) > _cp_time.time()][:8]
+    lines = ["😻 Favourite visitors: " + (", ".join(f"<@{uid}>" for uid, _ in _cp_favourites(gid)) or "None"),
+             "😺 Nice deeds: " + (", ".join(f"<@{uid}> ({v})" for uid, v in good) or "None"),
+             "😾 Naughty right now: " + (", ".join(f"<@{uid}>" for uid in naughty) or "None"),
+             "🐈 Mood: " + _cm_tier(gid)]
+    await interaction.response.send_message("\n".join(lines), ephemeral=True,
+                                            allowed_mentions=discord.AllowedMentions.none())
+
+
+@_cp_group.command(name="test-game", description="Admin: test a surprise lobby immediately without changing the schedule")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+async def cinnamon_events_test_game(interaction: discord.Interaction):
+    s = _cp_server(interaction.guild.id)
+    channel = interaction.guild.get_channel(int(s.get("auto_channel", 0) or 0))
+    cog = bot.get_cog("HangryGamesCog")
+    if not channel or not cog:
+        return await interaction.response.send_message(
+            "🐈 Run /setup and make sure the Hangry Games cog is online first.", ephemeral=True)
+    if cog._busy(channel.id):
+        return await interaction.response.send_message("🐈 A game is already running in that channel!", ephemeral=True)
+    if not discord.utils.get(interaction.guild.roles, name="Hangry Games"):
+        return await interaction.response.send_message("🐈 Run /setup to create the Hangry Games role.", ephemeral=True)
+    asyncio.create_task(_cp_auto_start(interaction.guild, channel, cog))
+    await interaction.response.send_message("🎮 Test lobby starting now! Two minutes to join. Only two role alerts.", ephemeral=True)
+
+
 bot.tree.add_command(_cp_group)
