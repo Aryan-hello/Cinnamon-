@@ -284,15 +284,27 @@ async def _ensure_setup_channel(guild: discord.Guild, category: discord.Category
     """
     existing = discord.utils.get(category.text_channels, name=name)
     is_log = name.endswith("-logs") or name in {"cinnamon-logs", "cinnamon-economy", "cinnamon-hangry"}
+    is_public_game = name == "cinnamon-games"
     overwrites = None
     if is_log and guild.me is not None:
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True, read_message_history=True),
         }
+    if is_public_game and guild.me is not None:
+        # The parent category contains PRIVATE logs. Explicitly keep this game
+        # channel readable for all members and writable only by Cinnamon.
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=True, send_messages=False, read_message_history=True),
+            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True, read_message_history=True),
+        }
     if existing:
         if is_log and overwrites:
             await secure_log_channel(existing)
+        if is_public_game and overwrites:
+            for target, perms in overwrites.items():
+                await existing.set_permissions(target, overwrite=perms,
+                                               reason="Keep Cinnamon surprise games visible but orderly")
         return existing, False
     channel = await guild.create_text_channel(name=name, category=category, topic=topic, overwrites=overwrites, reason="Cinnamon guided server setup")
     return channel, True
