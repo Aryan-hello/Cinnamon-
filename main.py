@@ -363,6 +363,7 @@ _CINNAMON_MODULES = (
     "wildlands_art.py",
     "wildlands_fishing.py",
     "wildlands_story.py",
+    "cinnamon_moods.py",
 )
 
 
