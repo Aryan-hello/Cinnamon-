@@ -714,6 +714,8 @@ async def on_message(message: discord.Message):
                 return
             ai_cooldowns[channel_id] = now
 
+        if guild_id is not None and await _ca_maybe_handle(message, clean_content):
+            return
         late_note = await _cp_answer(message) if guild_id is not None and clean_content else ""
         ai_reply_success = False
         if is_owner_question(clean_content):
