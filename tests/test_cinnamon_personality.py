@@ -132,7 +132,7 @@ class PersonalityTests(unittest.TestCase):
                 async def _log(self, *args, **kwargs): pass
                 async def launch(self, *args, **kwargs): launched.append((args, kwargs))
             cog = Cog()
-            role = SimpleNamespace(name="Hangry Games", mention="<@&444>")
+            role = SimpleNamespace(name="Hangry Games", id=444, mention="<@&444>")
             guild = SimpleNamespace(id=3, roles=[role], me=SimpleNamespace(id=8))
             discord = SimpleNamespace(
                 utils=SimpleNamespace(get=lambda roles, **kwargs: role),
