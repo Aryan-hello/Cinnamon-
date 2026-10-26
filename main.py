@@ -362,6 +362,7 @@ _CINNAMON_MODULES = (
     "hangry_games.py",
     "wildlands_art.py",
     "wildlands_fishing.py",
+    "wildlands_story.py",
 )
 
 
