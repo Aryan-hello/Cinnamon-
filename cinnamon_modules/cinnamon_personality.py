@@ -351,4 +351,23 @@ async def cinnamon_events_questions(interaction: discord.Interaction, enabled: b
         "🐈 Random questions " + ("enabled" if enabled else "disabled") +
         " for you. Cinnamon will never send reminders.", ephemeral=True)
 
+@_cp_group.command(name="notify", description="Opt in or out of the two surprise Hangry Games role pings")
+@app_commands.guild_only()
+async def cinnamon_events_notify(interaction: discord.Interaction, enabled: bool):
+    role = discord.utils.get(interaction.guild.roles, name="Hangry Games")
+    if role is None:
+        return await interaction.response.send_message(
+            "🐈 Ask a server administrator to run /setup first. I need my Hangry Games role!", ephemeral=True)
+    me = interaction.guild.me
+    if not me or not me.guild_permissions.manage_roles or role >= me.top_role:
+        return await interaction.response.send_message(
+            "⚠️ Cinnamon needs Manage Roles, with her role above Hangry Games.", ephemeral=True)
+    if enabled and role not in interaction.user.roles:
+        await interaction.user.add_roles(role, reason="Opted in to surprise Hangry Games announcements")
+    elif not enabled and role in interaction.user.roles:
+        await interaction.user.remove_roles(role, reason="Opted out of surprise Hangry Games announcements")
+    await interaction.response.send_message(
+        "🎮 You will " + ("receive" if enabled else "no longer receive") +
+        " the two role alerts for surprise games.", ephemeral=True)
+
 bot.tree.add_command(_cp_group)
