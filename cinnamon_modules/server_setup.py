@@ -439,6 +439,11 @@ async def setup_cmd(interaction: discord.Interaction):
                     created_roles.append(role.mention)
                 except discord.HTTPException as exc:
                     log.warning("Could not create Cinnamon reward role %r in guild %s: %s", role_name, guild.id, exc)
+            elif role_name == "Hangry Games" and not role.mentionable:
+                try:
+                    await role.edit(mentionable=True, reason="Allow Cinnamon's two Hangry Games opt-in alerts")
+                except discord.HTTPException as exc:
+                    log.warning("Could not enable Hangry Games role mentions in guild %s: %s", guild.id, exc)
     # Always restore the dedicated level log route, even on servers that ran an
     # older setup before the level-log channel existed. _ensure_setup_channel
     # above has already created/reused cinnamon-level-logs.
@@ -675,7 +680,7 @@ _HELP_HANGRY = (
     "`/hangrygames stats` · `leaderboard` — wins, kills, and top winners\n"
     "`/hangrygames cancel` — stop the game or lobby in this channel\n"
     "`/hangrygames budget` — weekly hosted Catnip prize budget and completed games\n"
-    "`/cinnamon-events status` · `auto` · `channel` · `questions` — surprise games and interaction controls"
+    "`/cinnamon-events status` · `auto` · `channel` · `notify` · `questions` — surprise games and interaction controls"
 )
 _HELP_MODS = (
     "`/warn` · `/warnings` — warn someone / see their warnings\n"
