@@ -53,10 +53,11 @@ class StoryTests(unittest.TestCase):
                 _wlf_story_complete=lambda g,u:False,
                 _wlf_channel=lambda guild,kind:SimpleNamespace(id=123),
                 _cm_price=lambda g,u,item,price: price,  # Normal mood preserves historical purchase totals.
+                _cp_react=lambda *a,**kw: save(),  # Side-effect stub; does not affect commission.
                 log=SimpleNamespace(exception=lambda *a:None))
         namespace_with_functions(FISHING,[' _wlf_active'.strip(),'_wlf_window','_wlf_merchant_open','_wlf_purchase'],ns)
         item={'id':'glow','price':35,'name':'Glowworm Bait'}
-        def inter(u,channel):return SimpleNamespace(guild=SimpleNamespace(id=1),user=SimpleNamespace(id=u),channel_id=channel)
+        def inter(u,channel):return SimpleNamespace(guild=SimpleNamespace(id=1),user=SimpleNamespace(id=u),channel_id=channel,channel=SimpleNamespace(id=channel))
         async def run():
             msg=await ns['_wlf_purchase'](inter(10,123),'bait',item,10)
             self.assertIn('35',msg)
