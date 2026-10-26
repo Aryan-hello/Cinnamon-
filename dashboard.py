@@ -447,7 +447,10 @@ def _mind(guild, state):
             ("questions_enabled", True, "Funny questions after being called", "One per person per day; members can individually opt out."),
         ])
     form = ("<div class='field'><label>Surprise game destination</label>" + name +
-            "<small>Choose an existing public channel by name. Cinnamon must be able to send there.</small></div>" + toggles)
+            "<small>Choose an existing public channel by name. Cinnamon must be able to send there.</small></div>" + toggles +
+            "<label class='toggle'><input type='checkbox' name='play_enabled'" +
+            (" checked" if play.get("play_enabled", False) else "") +
+            "><span><b>Consent-only cat jokes</b><small>Off by default. Each member must opt in, with a strict once-per-day limit.</small></span></label>")
     log_text = "".join("<div class='toggle'><b>" + _esc(label) + "</b><span>" +
                        _esc(guild.get_channel(logs.get(cat)).mention if logs.get(cat) and guild.get_channel(logs.get(cat)) else "Run /setup") +
                        "</span></div>" for cat,label in [("stuff","Personality"),("mood","Mood & Naughty List")])
