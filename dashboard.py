@@ -403,6 +403,102 @@ def _count(mapping, gid):
     return sum(1 for key in mapping if isinstance(key, tuple) and key[0] == gid)
 
 
+def _mind(guild, state):
+    """Server-local personality controls, with clearly locked safety boundaries."""
+    gid = guild.id
+    cfg = state.get("cinnamon_social", {}).get(str(gid), {}) or {}
+    mood = state.get("cinnamon_moods", {}).get(str(gid), {}) or {}
+    score = int(mood.get("score", 0))
+    tier = "Delighted 😻" if score >= 35 else "Grumpy 😾" if score <= -35 else "Normal 🐈"
+    channel = guild.get_channel(int(cfg.get("auto_channel", 0) or 0))
+    next_at = int(cfg.get("next_at", 0) or 0)
+    next_text = dt.datetime.fromtimestamp(next_at, dt.timezone.utc).strftime("%d %b · %H:%M UTC") if next_at > 0 else "Not scheduled"
+    logs = state.get("category_log_channels", {}).get(gid, {})
+    people = cfg.get("people", {}) or {}
+    top = sorted(((str(uid), int(x.get("good", 0))) for uid, x in people.items()),
+                 key=lambda v: -v[1])[:8]
+    ranked = "".join("<div class='toggle'><span><b>" + _esc((guild.get_member(int(uid)).display_name if guild.get_member(int(uid)) else "Member "+uid)) +
+                     "</b><small>" + str(points) + " nice points</small></span></div>" for uid, points in top) or "<p class='muted'>No visitor milestones recorded yet.</p>"
+    name = _channel_select(guild, "channel_id", cfg.get("auto_channel"), allow_none=False)
+    toggles = "".join(
+        "<label class='toggle'><input type='checkbox' name='" + key + "'" + (" checked" if cfg.get(key, default) else "") +
+        "><span><b>" + label + "</b><small>" + desc + "</small></span></label>"
+        for key,default,label,desc in [
+            ("auto_enabled", False, "Automatic Hangry Games", "One game every 1–2 hours; two role pings maximum; no admin budget used."),
+            ("cameos_enabled", True, "Rare jealous one-liners", "Maximum one six-hour cameo per server; never tags anyone."),
+            ("questions_enabled", True, "Funny questions after being called", "One per person per day; members can individually opt out."),
+        ])
+    form = ("<div class='field'><label>Surprise game destination</label>" + name +
+            "<small>Choose an existing public channel by name. Cinnamon must be able to send there.</small></div>" + toggles)
+    log_text = "".join("<div class='toggle'><b>" + _esc(label) + "</b><span>" +
+                       _esc(guild.get_channel(logs.get(cat)).mention if logs.get(cat) and guild.get_channel(logs.get(cat)) else "Run /setup") +
+                       "</span></div>" for cat,label in [("stuff","Personality"),("mood","Mood & Naughty List")])
+    return (f"<h1>🐈 Cinnamon Mind</h1><p class='muted'>Cinnamon's playful character, with hard limits on what she may do."
+            f" AI writes dialogue; it cannot independently transfer Catnip, punish users or broadcast @everyone.</p>"
+            f"<div class='grid'><article class='card third'><div class='statlabel'>Current mood</div><div class='stat'>{_esc(tier)}</div><p class='muted'>Score {score:+d}</p></article>"
+            f"<article class='card third'><div class='statlabel'>Next surprise game</div><div class='stat' style='font-size:18px'>{_esc(next_text)}</div></article>"
+            f"<article class='card third'><div class='statlabel'>Favourite visitors</div><div class='stat'>{len(top)}</div></article>"
+            f"<article class='card half'><h2>Autonomy & gameplay</h2>{_form(gid,'mind_settings',form,'Save Cinnamon settings')}</article>"
+            f"<article class='card half'><h2>Safety lock</h2><p class='pill good'>🔒 AI @everyone: disabled</p>"
+            f"<p class='muted'>Mass announcements require Discord Administrator + an explicit 60-second confirmation in Discord. "
+            f"Conversation participation requires a direct ping, reply or Cinnamon's name; voluntary jealousy is only a rare one-line aside.</p>"
+            f"<p class='muted'>No AI-driven moderation or Catnip grants.</p></article>"
+            f"<article class='card half'><h2>Favourite people</h2>{ranked}</article>"
+            f"<article class='card half'><h2>Cinnamon's private logs</h2>{log_text}"
+            f"<p class='muted'>Use /recall to fill missing mood/visitor snapshots without overwriting live state.</p></article></div>")
+
+
+def _wildlands(guild, state):
+    gid = guild.id
+    fish = state.get("cinnamon_wildlands_fishing", {}).get(str(gid), {}) or {}
+    story = state.get("cinnamon_wildlands_story", {}).get(str(gid), {}) or {}
+    windows = fish.get("merchant_windows", {}) or {}
+    now = time.time()
+    cards = []
+    for kind,label,name in (("rod","Fishing Rod Merchant","fishing-rod-merchant"),
+                            ("bait","Fishing Bait Merchant","fishing-bait-merchant")):
+        rec = windows.get(kind, {}) or {}
+        ch = guild.get_channel(int(rec.get("channel_id", 0) or 0))
+        if ch is None:
+            ch = next((c for c in guild.text_channels if c.name == name), None)
+        ends = float(rec.get("ends_at", 0) or 0)
+        is_public = bool(rec.get("manual_public", False) or ends > now)
+        status = "Public" if is_public else "Private"
+        ends_text = ("Until staff closes" if rec.get("manual_public") else
+                     dt.datetime.fromtimestamp(ends,dt.timezone.utc).strftime("%H:%M UTC") if ends > now else "—")
+        finder = rec.get("finder_id")
+        finder_name = guild.get_member(int(finder)).display_name if str(finder).isdigit() and guild.get_member(int(finder)) else "No discoverer"
+        opts = "".join("<option value='" + k + "'>" + text + "</option>" for k,text in [
+            ("private","Hide from visitors"),("two_hours","Open for two hours"),("public","Keep public")])
+        content = ("<input type='hidden' name='merchant_kind' value='" + kind + "'>"
+                   "<div class='field'><label>Merchant visibility</label><select name='access'>" + opts +
+                   "</select></div><label class='toggle'><input type='checkbox' name='announce'><span>"
+                   "<b>Announce to merchant role</b><small>Off by default. Opening a channel never automatically pings a role.</small></span></label>")
+        cards.append("<article class='card half'><h2>🏪 " + _esc(label) + "</h2><p class='pill " +
+                     ("good" if is_public else "warn") + "'>" + status + "</p><div class='toggle'>"
+                     "<b>Channel</b><span>" + _esc(ch.mention if ch else "Run /setup") +
+                     "</span></div><div class='toggle'><b>Closes</b><span>" + _esc(ends_text) +
+                     "</span></div><div class='toggle'><b>Finder</b><span>" + _esc(finder_name) +
+                     "</span></div>" + _form(gid,"merchant_access",content,"Apply merchant access") + "</article>")
+    catch_count = sum(sum(int(v) for v in p.get("fish", {}).values()) for p in fish.get("members", {}).values())
+    finished = sum(bool(p.get("complete", False)) for p in story.values())
+    rod_rows = "".join("<tr><td>" + _esc(x.get("name")) + "</td><td>" + str(x.get("price",0)) +
+                       "</td><td>" + str(x.get("bonus",0)) + "</td></tr>" for x in state.get("wlf_rods", []))
+    return (f"<h1>🎣 Wildlands & Fishing</h1><p class='muted'>The Billion-Catnip Mystery, fishing, equipment and "
+            f"the two private merchant channels. Shop visibility is managed separately from finder commissions.</p>"
+            f"<div class='grid'><article class='card third'><div class='statlabel'>Story explorers</div><div class='stat'>{len(story)}</div></article>"
+            f"<article class='card third'><div class='statlabel'>Story completions</div><div class='stat'>{finished}</div></article>"
+            f"<article class='card third'><div class='statlabel'>Fish caught</div><div class='stat'>{catch_count}</div></article>"
+            + "".join(cards) +
+            f"<article class='card full'><h2>🎣 Fishing gear</h2><p class='muted'>Use /fishing cast to choose your bait and reel technique."
+            f" Mood influences rarity, but technique does not change the underlying fish roll.</p>"
+            f"<div class='tablewrap'><table><thead><tr><th>Rod</th><th>Base Catnip</th><th>Luck bonus</th></tr></thead>"
+            f"<tbody>{rod_rows}</tbody></table></div></article>"
+            f"<article class='card full'><h2>📖 Wildlands story</h2><p class='muted'>26 choice-driven scenes across six regions."
+            f" Story progress is tracked per member and the 100,000 Catnip finale remains a one-time reward."
+            f" Members continue their personal story with /wildlands story.</p></article></div>")
+
+
 def _overview(guild, state):
     gid = guild.id
     member_count = guild.member_count or len(guild.members)
