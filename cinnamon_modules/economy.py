@@ -604,7 +604,7 @@ async def economy_feed_cmd(interaction: discord.Interaction, item: str, quantity
 @economy_group.command(name="logs", description="Set or disable the economy transaction log channel")
 @app_commands.describe(channel="Channel where economy transactions and backups will be logged; omit to disable")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def economy_logs_cmd(interaction: discord.Interaction, channel: discord.TextChannel | None = None):
     guild_id = interaction.guild.id
     if channel is None:
@@ -652,7 +652,7 @@ async def economy_snapshot_payload(guild_id: int) -> dict:
 
 @economy_group.command(name="snapshot", description="Create one complete economy backup before resetting the bot")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def economy_snapshot_cmd(interaction: discord.Interaction):
     guild_id = interaction.guild.id
     channel_id = economy_log_channels.get(guild_id)
@@ -796,7 +796,7 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
 
 @economy_admin_group.command(name="addcatnip", description="Admin: add Catnip to a member")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     guild_id = interaction.guild.id
     before = economy_balance(guild_id, member.id)
@@ -808,7 +808,7 @@ async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discor
 
 @economy_admin_group.command(name="removecatnip", description="Admin: remove Catnip from a member")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def economy_removecatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     guild_id = interaction.guild.id
     current = economy_balance(guild_id, member.id)
@@ -821,7 +821,7 @@ async def economy_removecatnip_cmd(interaction: discord.Interaction, member: dis
 
 @economy_group.command(name="income", description="Admin: manage Catnip income roles")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(action="add, remove, or list", role="Role that earns Catnip", amount="Catnip paid each collection", minutes="Cooldown in minutes")
 @app_commands.choices(action=[app_commands.Choice(name="add", value="add"), app_commands.Choice(name="remove", value="remove"), app_commands.Choice(name="list", value="list")])
 async def economy_income_cmd(interaction: discord.Interaction, action: app_commands.Choice[str], role: discord.Role | None = None, amount: int | None = None, minutes: int | None = None):
@@ -895,7 +895,7 @@ async def collect_cmd(interaction: discord.Interaction):
 
 @economy_group.command(name="item-add", description="Admin: add an item directly to a member's inventory")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(member="Member receiving the item", item="Search item by name", quantity="Number of items to add")
 @app_commands.autocomplete(item=cinnamon_item_autocomplete)
 async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_commands.Range[int, 1, 10000] = 1):
@@ -922,7 +922,7 @@ async def economy_item_add_cmd(interaction: discord.Interaction, member: discord
 
 @economy_group.command(name="item-remove", description="Admin: remove an item from a member's inventory")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(member="Member losing the item", item="Search item by name", quantity="Number of items to remove")
 @app_commands.autocomplete(item=cinnamon_item_autocomplete)
 async def economy_item_remove_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_commands.Range[int, 1, 10000] = 1):
@@ -951,7 +951,7 @@ async def economy_item_remove_cmd(interaction: discord.Interaction, member: disc
 
 @economy_group.command(name="add-item-shop", description="Admin: add an item to the Catnip shop")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(item_id="Unique shop ID", name="Item name", price="Price in Catnip", description="Optional item description", per_person_limit="Optional maximum quantity one member can own", emoji="Optional emoji")
 async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: str, name: str, price: app_commands.Range[int, 1, 10000000], description: str | None = None, per_person_limit: int | None = None, emoji: str = "🐾"):
     item_id = re.sub(r"[^a-z0-9_-]", "", item_id.lower())[:32]
@@ -982,7 +982,7 @@ async def autocomplete_shop_item_ids(interaction: discord.Interaction, current: 
 @economy_group.command(name="edit-shop-item", description="Admin: edit a Catnip shop item")
 @app_commands.autocomplete(item_id=autocomplete_shop_item_ids)
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(item_id="Item ID to edit", name="New name", price="New price", description="New description", per_person_limit="New per-person limit; 0 means unlimited", emoji="New emoji")
 async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: str, name: str | None = None, price: int | None = None, description: str | None = None, per_person_limit: int | None = None, emoji: str | None = None):
     item_id = item_id.lower().strip()
@@ -1009,7 +1009,7 @@ async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: 
 @economy_group.command(name="remove-item-shop", description="Admin: remove an item from the Catnip shop")
 @app_commands.autocomplete(item_id=autocomplete_shop_item_ids)
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(item_id="Item ID to remove", remove_from_inventories="Whether all copies should also be removed from member inventories")
 async def economy_remove_item_shop_cmd(interaction: discord.Interaction, item_id: str, remove_from_inventories: bool = False):
     guild_id = interaction.guild.id
@@ -1031,7 +1031,7 @@ async def economy_remove_item_shop_cmd(interaction: discord.Interaction, item_id
 
 @economy_group.command(name="add-role-income", description="Admin: give a role a recurring Catnip income")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(role="Role receiving the income", amount="Catnip earned each collection", interval="How many time units between collections", unit="Time unit")
 @app_commands.choices(unit=[app_commands.Choice(name="Minutes", value="minute"), app_commands.Choice(name="Hours", value="hour"), app_commands.Choice(name="Days", value="day"), app_commands.Choice(name="Weeks", value="week")])
 async def economy_add_role_income_cmd(interaction: discord.Interaction, role: discord.Role, amount: int, interval: int, unit: app_commands.Choice[str]):
@@ -1045,7 +1045,7 @@ async def economy_add_role_income_cmd(interaction: discord.Interaction, role: di
 
 @economy_group.command(name="remove-role-income", description="Admin: remove a role's recurring Catnip income")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(role="Role whose income should be removed")
 async def economy_remove_role_income_cmd(interaction: discord.Interaction, role: discord.Role):
     cfg = economy_income_roles.setdefault(interaction.guild.id, {})
@@ -1079,7 +1079,7 @@ async def economy_iteminfo_cmd(interaction: discord.Interaction, item: str):
 
 @economy_group.command(name="restore-snapshot", description="Restore the latest complete economy snapshot from the economy log channel")
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def economy_restore_cmd(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     restored, detail = await economy_restore_from_snapshot(interaction.guild)
