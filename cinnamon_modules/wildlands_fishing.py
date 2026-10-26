@@ -93,9 +93,13 @@ def _wlf_area(area_id):
 
 
 def _wlf_embed(title, description='', *, interaction=None):
-    e = discord.Embed(title=title, description=description, color=_WLF_COLOR)
+    e = discord.Embed(title=str(title)[:256], description=str(description)[:3900],
+                      color=_WLF_COLOR)
+    e.set_author(name='🎣 CINNAMON · WILDLANDS FISHING')
     if interaction is not None:
-        e.set_footer(text=f'Cinnamon Wildlands • {interaction.guild.name}')
+        e.set_footer(text=f'{interaction.guild.name} • Rods · Bait · Six regions · /fishing journal')
+    else:
+        e.set_footer(text='Wildlands • Be patient with the fish (Cinnamon is not)')
     return e
 
 
