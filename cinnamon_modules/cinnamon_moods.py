@@ -95,6 +95,7 @@ async def _cm_set_naughty(guild, member):
     except discord.HTTPException:
         log.warning("Could not grant Cinnamon's Naughty List role in guild %s", guild.id)
     await bd_save_data()
+    await _cp_log(guild.id, "Naughty List assigned", member.id)
 
 
 async def _cm_clear_naughty(guild, member):
@@ -108,6 +109,7 @@ async def _cm_clear_naughty(guild, member):
         except discord.HTTPException:
             log.warning("Could not remove expired Cinnamon Naughty List role")
     await bd_save_data()
+    await _cp_log(guild.id, "Naughty List cleared", member.id)
 
 
 async def _cm_action(guild, member, kind, quantity=1):
@@ -144,6 +146,8 @@ async def _cm_action(guild, member, kind, quantity=1):
         state["makeup_actions"] = min(3, int(state.get("makeup_actions", 0)) + 1)
         msg += f" ({state['makeup_actions']}/2 steps toward making up.)"
     await bd_save_data()
+    await _cp_good_event(guild, member, "Cinnamon enjoyed " + kind)
+    await _cp_log(g, "Mood changed by " + kind, member.id)
     return msg + f"\n**Cinnamon's mood:** {_cm_tier(g).title()}"
 
 
