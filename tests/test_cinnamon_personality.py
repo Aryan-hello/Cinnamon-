@@ -101,6 +101,67 @@ class PersonalityTests(unittest.TestCase):
             self.assertEqual(len(counts), 1)
         asyncio.run(check())
 
+    def test_surprise_lobby_two_pings_and_no_player_cancellation(self):
+        for participants in (0, 2):
+            emitted, launched, disappointments, edited = [], [], [], []
+            elapsed = [0.0]
+            async def pause(seconds):
+                elapsed[0] += seconds
+            async def store(): pass
+            async def eventlog(*args, **kwargs): pass
+            def letdown(*args): disappointments.append(args)
+            class Post:
+                async def edit(self, **kwargs): edited.append(kwargs)
+            class Channel:
+                id = 63
+                async def send(self, content, **kwargs):
+                    emitted.append(content)
+                    return Post()
+            class View:
+                def __init__(self, cog, host, catnip_prize, sponsor):
+                    self.started = False
+                    self.players = {n: object() for n in range(participants)}
+                    self.children = [SimpleNamespace(label="Join 🐾",disabled=False),
+                                     SimpleNamespace(label="Start 🔴",disabled=False)]
+                def embed(self): return "embed"
+                def stop(self): pass
+            class Cog:
+                def __init__(self): self.lobbies = {}
+                def _busy(self, channel): return False
+                async def _log(self, *args, **kwargs): pass
+                async def launch(self, *args, **kwargs): launched.append((args, kwargs))
+            cog = Cog()
+            role = SimpleNamespace(name="Hangry Games", mention="<@&444>")
+            guild = SimpleNamespace(id=3, roles=[role], me=SimpleNamespace(id=8))
+            discord = SimpleNamespace(
+                utils=SimpleNamespace(get=lambda roles, **kwargs: role),
+                AllowedMentions=lambda **kwargs: kwargs,
+                HTTPException=type("HTTP", (Exception,), {}),
+                Forbidden=type("Forbidden", (Exception,), {}))
+            ns = {"discord": discord, "HGLobbyView": View,
+                  "asyncio": SimpleNamespace(sleep=pause),
+                  "_cp_random": SimpleNamespace(randint=lambda low, high: 1700),
+                  "_cp_time": SimpleNamespace(monotonic=lambda: elapsed[0]),
+                  "_CP_LAUNCHING": set(),
+                  "_cp_log": eventlog,
+                  "bd_save_data": store,
+                  "_cm_adjust": letdown,
+                  "log": SimpleNamespace(warning=lambda *args:None)}
+            load_helpers({"_cp_auto_start"}, ns)
+            asyncio.run(ns["_cp_auto_start"](guild, Channel(), cog))
+            role_pings = [m for m in emitted if "<@&444>" in m]
+            self.assertEqual(len(role_pings), 2)
+            self.assertEqual(elapsed[0], 120.0)
+            self.assertEqual(ns["_CP_LAUNCHING"], set())
+            if participants == 0:
+                self.assertEqual(len(launched), 0)
+                self.assertEqual(len(disappointments), 1)
+                self.assertIn("YOU ALL LEFT MEEEEE", emitted[-1])
+            else:
+                self.assertEqual(len(launched), 1)
+                self.assertEqual(launched[0][1]["catnip_prize"], 1700)
+                self.assertEqual(len(disappointments), 0)
+
     def test_scheduled_game_interval_and_manager_controls(self):
         source = SOURCE
         self.assertIn("randint(3600, 7200)", source)
