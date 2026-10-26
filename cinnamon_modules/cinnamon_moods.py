@@ -164,14 +164,46 @@ async def _cm_ping(message):
         state["fast_pings"] = 0
         state["ping_window"] = now
     state["last_ping"] = now
-    if random.random() > 0.55:
-        return None
+    # A direct ping always gets a cat-astrophically grumpy answer in this mood.
     return random.choice((
         "😾 I WAS HAVING A VERY IMPORTANT NAP. Did the universe end? No? THEN WHY THE PING?!",
         "🐈 *furiously types with one paw* My lawyer will hear about these notifications.",
         "😼 If this is about the missing tuna, I was never here.",
         "😾 I am NOT angry. My tail is simply expressing its constitutional rights.",
     ))
+
+
+async def _cm_expire_naughty_roles():
+    """Best-effort role cleanup across restarts; prices expire immediately anyway."""
+    try:
+        while not bot.is_closed():
+            for guild in bot.guilds:
+                g = _cm_root().get(str(guild.id), {})
+                for uid, state in list(g.get("members", {}).items()):
+                    expires = float(state.get("naughty_until", 0))
+                    if not expires or expires > time.time():
+                        continue
+                    member = guild.get_member(int(uid))
+                    if member is not None:
+                        await _cm_clear_naughty(guild, member)
+                    else:
+                        state["naughty_until"] = 0
+                        state["makeup_actions"] = 0
+                        await bd_save_data()
+            await asyncio.sleep(300)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("Cinnamon Naughty List cleanup stopped unexpectedly")
+    finally:
+        bot._cm_role_reaper_running = False
+
+
+@bot.listen("on_ready")
+async def _cm_ready():
+    if not getattr(bot, "_cm_role_reaper_running", False):
+        bot._cm_role_reaper_running = True
+        asyncio.create_task(_cm_expire_naughty_roles())
 
 
 _mood_group = app_commands.Group(name="mood", description="Check and improve Cinnamon's playful server mood")
