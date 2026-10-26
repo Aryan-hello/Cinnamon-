@@ -366,11 +366,15 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         return (max_game_num, len(wins))
 
     async def launch(self, channel: discord.abc.Messageable, players: dict[int, discord.Member],
-                      host: discord.Member, prize: str | None, winner_role: discord.Role | None = None):
+                      host: discord.Member, prize: str | None, winner_role: discord.Role | None = None,
+                      *, catnip_prize: int = 0, sponsor: discord.Member | None = None):
         self.game_counts[channel.guild.id] = self.game_counts.get(channel.guild.id, 0) + 1
         game_num = self.game_counts[channel.guild.id]
         await self._save()
-        task = asyncio.create_task(self.run_game(channel, players, host, prize, game_num, winner_role))
+        sponsor = sponsor or host
+        task = asyncio.create_task(self.run_game(channel, players, host, prize, game_num, winner_role,
+                                                catnip_prize=catnip_prize, sponsor_id=sponsor.id,
+                                                prize_week=self._week()))
         self.active[channel.id] = task
 
         fields = [
@@ -381,6 +385,12 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
             fields.append(("Prize", prize))
         if winner_role:
             fields.append(("Winner role", winner_role.name))
+        if catnip_prize:
+            limit = self._budget_limit(sponsor)
+            rec = self._budget_record(channel.guild.id, sponsor.id)
+            remain = "Unlimited" if limit is None else f"{max(0, limit - rec['spent']):,}"
+            fields.extend([("Catnip prize", f"{catnip_prize:,}"), ("Budget sponsor", f"{sponsor} ({sponsor.id})"),
+                           ("Weekly budget left", remain), ("Budget week (UTC)", self._week())])
         await self._log(
             channel.guild.id, title=f"🐾 Hangry Games #{game_num} started", color=discord.Color.gold(),
             fields=fields,
@@ -388,11 +398,13 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
 
     async def run_game(self, channel: discord.abc.Messageable, players: dict[int, discord.Member],
                         host: discord.Member, prize: str | None, game_num: int,
-                        winner_role: discord.Role | None = None):
+                        winner_role: discord.Role | None = None, *, catnip_prize: int = 0,
+                        sponsor_id: int | None = None, prize_week: str | None = None):
         alive = dict(players)
         kills: dict[int, int] = {pid: 0 for pid in alive}
         start = time.monotonic()
         rnd = 0
+        completed = False
         await channel.send(f"🐾 **Hangry Games #{game_num}** begins with **{len(alive)}** cats in the arena, hosted by {host.mention}!")
         try:
             while len(alive) > 1:
@@ -453,6 +465,24 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                 except Exception:
                     log.exception("Achievement tracking failed for Hangry Games participant %s", pid)
             await self._save()
+            if catnip_prize and winner_id is not None:
+                economy_balances[(channel.guild.id, winner_id)] = (
+                    economy_balance(channel.guild.id, winner_id) + catnip_prize
+                )
+                await bd_save_data()
+                completed = True
+                await self._log(channel.guild.id, title=f"💰 Hangry Games #{game_num} Catnip awarded",
+                                fields=[("Winner", f"{winner} ({winner_id})"),
+                                        ("Catnip", f"+{catnip_prize:,}"), ("Sponsor ID", str(sponsor_id))])
+            elif not catnip_prize:
+                completed = True
+            finished_games, appreciation = await self._host_completed(channel.guild.id, host.id)
+            if appreciation:
+                economy_balances[(channel.guild.id, host.id)] = economy_balance(channel.guild.id, host.id) + appreciation
+                await bd_save_data()
+                await self._log(channel.guild.id, title="🐈 Cinnamon rewards a dedicated Hangry Games host",
+                                fields=[("Host", f"{host} ({host.id})"), ("Completed games this week", str(finished_games)),
+                                        ("Surprise bonus", f"{appreciation:,} Catnip")])
 
             desc = f"🎉 **{winner.display_name}** won **{host.display_name}**'s Hangry Games"
             if prize:
@@ -461,6 +491,10 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
             desc += f"💀 **Total kills:** {winner_kills}\n"
             desc += f"⏱️ **Time survived:** {mm}m {ss}s\n"
             desc += f"🏆 **Total wins in server:** {total_wins}"
+            if catnip_prize:
+                desc += f"\n🌿 **Hangry Games Catnip prize:** {catnip_prize:,} awarded!"
+            if appreciation:
+                desc += f"\n🐈 Cinnamon awarded host {host.display_name} a {appreciation:,} Catnip thank-you!"
 
             if winner_role:
                 try:
@@ -487,6 +521,11 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                 log_fields.append(("Prize", prize))
             if winner_role:
                 log_fields.append(("Winner role", winner_role.name))
+            if catnip_prize:
+                log_fields.extend([("Catnip prize paid", f"{catnip_prize:,}"),
+                                   ("Sponsor ID", str(sponsor_id))])
+            log_fields.extend([("Host completed this week", str(finished_games)),
+                               ("Host bonus Catnip", str(appreciation))])
             await self._log(
                 channel.guild.id, title=f"🏆 Hangry Games #{game_num} ended", color=discord.Color.gold(),
                 fields=log_fields,
@@ -503,6 +542,11 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                         ("Players remaining", str(len(alive)))],
             )
         finally:
+            if catnip_prize and not completed and sponsor_id is not None:
+                await self._refund_budget(channel.guild.id, sponsor_id, catnip_prize, prize_week)
+                await self._log(channel.guild.id, title=f"↩️ Hangry Games #{game_num} prize refunded",
+                                fields=[("Sponsor ID", str(sponsor_id)), ("Amount", str(catnip_prize)),
+                                        ("Reason", "No winner payout")])
             self.active.pop(channel.id, None)
 
     def _busy(self, channel_id: int) -> bool:
