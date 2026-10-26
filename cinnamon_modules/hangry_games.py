@@ -734,7 +734,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         await cinnamon_send(interaction, "No game running here.", ephemeral=True)
 
     @app_commands.command(name="logchannel", description="Set (or reset) this channel as Hangry Games' dedicated log channel")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.guild_only()
     async def hg_logchannel(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
         target = channel or interaction.channel
@@ -760,7 +760,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         )
 
     @app_commands.command(name="disablelogchannel", description="Stop Hangry Games from posting logs anywhere in this server")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.guild_only()
     async def hg_disablelogchannel(self, interaction: discord.Interaction):
         removed = self.hg_log_channels.pop(interaction.guild.id, None)
@@ -772,7 +772,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
 
     @app_commands.command(name="log", description="Turn Hangry Games activity logging on/off without changing the channel")
     @app_commands.describe(enabled="On: log game starts, winners, and cancellations to the log channel")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.guild_only()
     async def log_toggle(self, interaction: discord.Interaction, enabled: bool):
         if interaction.guild.id not in self.hg_log_channels:
