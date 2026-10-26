@@ -420,6 +420,7 @@ async def setup_cmd(interaction: discord.Interaction):
     achievement_role_names.append("Quest Master")
     # Fishing titles and the two server-wide merchants are core Wildlands roles.
     achievement_role_names.extend(_wlf_required_roles())
+    achievement_role_names.append(_CM_NAUGHTY_ROLE)  # playful temporary penalty role
     achievement_role_names = list(dict.fromkeys(achievement_role_names))
     created_roles = []
     existing_roles = {r.name: r for r in guild.roles if not r.managed}
@@ -644,6 +645,7 @@ _HELP_ECONOMY = (
     "`/economy daily` · `/economy work` · `?work` — earn Catnip\n"
     "`/economy shop` · `/economy buy` · `/economy iteminfo` — view, buy, and inspect items\n"
     "`/economy feed` — give Cinnamon items\n"
+    "`/mood status` · `talk` · `play` · `apologize` — cheer up Cinnamon and make amends\n"
     "`/economy give` — give Catnip to another member\n"
     "`/collect` — collect income from your income roles\n"
     "`/economy leaderboard` — richest members\n"
@@ -654,7 +656,8 @@ _HELP_HANGRY = (
     "`/hangrygames giveaway` — lobby with a prize and optional winner role\n"
     "`/hangrygames role` — start straight away with everyone in a role\n"
     "`/hangrygames stats` · `leaderboard` — wins, kills, and top winners\n"
-    "`/hangrygames cancel` — stop the game or lobby in this channel"
+    "`/hangrygames cancel` — stop the game or lobby in this channel\n"
+    "`/hangrygames budget` — weekly hosted Catnip prize budget and completed games"
 )
 _HELP_MODS = (
     "`/warn` · `/warnings` — warn someone / see their warnings\n"
@@ -729,7 +732,7 @@ async def help_cmd(interaction: discord.Interaction):
         e.add_field(name="Commands",value=body,inline=False); embeds.append(e)
     guide=cinnamon_embed("🐾 Using Cinnamon","A quick guide to the bot.",color=CINNAMON_ORANGE,footer=cinnamon_page_footer("Help",len(embeds)+1,len(embeds)+1,"Guide"))
     guide.add_field(name="🚀 Start here",value="Run `/setup` in a new server. Then use `/help` whenever you need the command directory. Open the web control panel with `/dashboard`.",inline=False)
-    guide.add_field(name="🎮 Everyday",value="Use `/pet`, `/treat`, `/nap`, `/rank`, `/economy shop`, `/quests daily`, and `/achievement list` to explore Cinnamon. Wildlands fishing starts with `/fishing start`; gather with `/wildlands gather`.",inline=False)
+    guide.add_field(name="🎮 Everyday",value="Use `/pet`, `/mood status`, `/mood play`, `/rank`, `/economy shop`, `/quests daily`, and `/achievement list`. Cinnamon’s mood changes shop prices and fishing luck! Wildlands story begins with `/wildlands story`; fishing starts with `/fishing start`.",inline=False)
     guide.add_field(name="🛡️ Admin",value="Moderation, logging, recovery, and configuration commands require the appropriate Discord permissions.",inline=False)
     guide.add_field(name="🧭 Web dashboard",value="`/dashboard` opens Cinnamon Control. Message Studio, analytics, activity logs, and every dashboard change are linked to the `cinnamon-dashboard-logs` audit channel created by `/setup`.",inline=False)
     guide.add_field(name="💾 Reset protection",value="Run `/economy snapshot` before a reset and restore it afterward if needed.",inline=False)
