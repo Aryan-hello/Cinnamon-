@@ -692,12 +692,23 @@ async def on_message(message: discord.Message):
         if isinstance(ref, discord.Message) and ref.author.id == bot.user.id:
             was_reply_to_bot = True
 
+    # The AI channel is a place to FIND Cinnamon, not an invitation to
+    # interrupt everyone. Respond only to explicit ping, reply, or direct name.
     is_ai_channel = guild_id is not None and ai_channels.get(guild_id) == channel_id
+    called_by_name = _cp_direct_name(clean_content)
+    invited = bool(was_mentioned or was_reply_to_bot or called_by_name)
+    if not invited:
+        if message.guild:
+            try:
+                await _cp_maybe_cameo(message)  # One-line aside, not a conversation.
+            except Exception:
+                log.exception("Cinnamon's voluntary aside was suppressed")
+        return
 
-    if (clean_content or was_mentioned) and (was_mentioned or was_reply_to_bot or is_ai_channel):
+    if (clean_content or was_mentioned or was_reply_to_bot) and invited:
         # Keep an always-on AI channel from turning chat bursts into Gemini bursts.
         now = time.monotonic()
-        if is_ai_channel and not (was_mentioned or was_reply_to_bot):
+        if called_by_name and not (was_mentioned or was_reply_to_bot):
             last_ai = ai_cooldowns.get(channel_id, 0.0)
             if now - last_ai < AI_CHANNEL_COOLDOWN_SECONDS:
                 return
@@ -738,18 +749,16 @@ async def on_message(message: discord.Message):
 
         # In the dedicated AI channel, chat naturally instead of quote-replying
         # to every single message — but still use a reply if directly pinged.
-        if is_ai_channel and not (was_mentioned or was_reply_to_bot):
-            await message.channel.send(reply)
-        else:
-            await message.reply(
-                reply, mention_author=False,
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
+        # Even in the AI channel, reply only when invited. Never ping the author.
+        await message.reply(
+            reply, mention_author=False,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
         if guild_id is not None and ai_reply_success:
             await achievement_record(guild_id, message.author.id, "ai_reply", 1)
         await add_reaction_safely(message, reaction)
-        if guild_id is not None and (was_mentioned or was_reply_to_bot):
+        if guild_id is not None and invited:
             try:
                 await _cp_maybe_question(message)
             except Exception:
