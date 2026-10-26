@@ -1323,10 +1323,12 @@ def dashboard_action():
             if not guild.me or not channel.permissions_for(guild.me).send_messages:
                 raise ValueError("Cinnamon must be able to post in the selected game channel.")
             flags={k:k in request.form for k in ("auto_enabled","cameos_enabled","questions_enabled")}
+            play_on="play_enabled" in request.form
             async def apply_mind():
                 social=state["cinnamon_social"].setdefault(str(gid),{"people":{}})
                 old=social.get("auto_channel")
                 social.update(flags)
+                state["cinnamon_actions"].setdefault(str(gid), {"players": {}})["play_enabled"]=play_on
                 social["auto_channel"]=channel.id
                 if old!=channel.id or (flags["auto_enabled"] and not social.get("next_at")):
                     social["next_at"]=time.time()+__import__("random").randint(3600,7200)
