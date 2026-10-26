@@ -113,5 +113,75 @@ class SafeCinnamonActionsTests(unittest.TestCase):
         self.assertIn("cinnamon_actions",dash)
 
 
+class DailyPrankSimulation(unittest.IsolatedAsyncioTestCase):
+    async def test_single_consent_based_event_per_utc_day(self):
+        import asyncio
+        import datetime
+        from types import SimpleNamespace
+
+        class Member:
+            def __init__(self, guild, uid, staff=False):
+                self.guild = guild
+                self.id = uid
+                self.bot = False
+                self.top_role = 10
+                self.timed_out_until = None
+                self.guild_permissions = SimpleNamespace(administrator=False, moderate_members=staff)
+                self.calls = 0
+
+            async def timeout(self, duration, reason):
+                self.calls += 1
+                self.duration = duration
+
+        class Channel:
+            def __init__(self):
+                self.messages = []
+            async def reply(self, *args, **kwargs):
+                self.messages.append((args, kwargs))
+
+        guild = SimpleNamespace(id=50,owner_id=999)
+        guild.me = SimpleNamespace(id=51,top_role=100,
+                                   guild_permissions=SimpleNamespace(moderate_members=True))
+        visitor = Member(guild, 77)
+        source=Channel()
+        source.guild = guild
+        source.author = visitor
+
+        stored = {}
+        logs = []
+        async def save():
+            pass
+        async def log(gid, **kwargs):
+            logs.append((gid, kwargs))
+        relevant={"_ca_server","_ca_user","_ca_maybe_prank"}
+        body=[n for n in TREE.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))
+              and n.name in relevant]
+        ns={
+            "advanced_features_data":stored,
+            "_ca_asyncio":asyncio,
+            "_ca_datetime":datetime,
+            "_ca_random":SimpleNamespace(random=lambda:0, randint=lambda a,b:5),
+            "_CA_LOCKS":{},
+            "bd_save_data":save,
+            "send_log":log,
+            "discord":SimpleNamespace(Member=Member,Forbidden=Exception,HTTPException=Exception,
+                AllowedMentions=SimpleNamespace(none=lambda:None)),
+        }
+        exec(compile(ast.Module(body=body,type_ignores=[]),"cinnamon_actions.py","exec"),ns)
+        record=ns["_ca_user"](guild.id,visitor.id)
+        record["consent"]=True
+        ns["_ca_server"](guild.id)["play_enabled"]=True
+        self.assertTrue(await ns["_ca_maybe_prank"](source))
+        self.assertEqual(visitor.calls,1)
+        self.assertEqual(visitor.duration.total_seconds(),5)
+        self.assertFalse(await ns["_ca_maybe_prank"](source))
+        self.assertEqual(visitor.calls,1)
+        self.assertEqual(len(logs),1)
+        record["consent"]=False
+        record["last_play_day"]="1900-01-01"
+        self.assertFalse(await ns["_ca_maybe_prank"](source))
+        self.assertEqual(visitor.calls,1)
+
+
 if __name__=="__main__":
     unittest.main()
