@@ -14,6 +14,8 @@ def _hg_decode(raw: dict) -> dict:
         "played_counts": pair(raw.get("played_counts", {})),
         "log_channels": {int(k): v for k, v in raw.get("log_channels", {}).items()},
         "log_enabled": {int(k): v for k, v in raw.get("log_enabled", {}).items()},
+        "budget_records": pair(raw.get("budget_records", {})),
+        "host_records": pair(raw.get("host_records", {})),
     }
 
 
@@ -26,6 +28,8 @@ def _hg_encode(state: dict) -> dict:
         "played_counts": pair(state["played_counts"]),
         "log_channels": {str(k): v for k, v in state["log_channels"].items()},
         "log_enabled": {str(k): v for k, v in state["log_enabled"].items()},
+        "budget_records": pair(state.get("budget_records", {})),
+        "host_records": pair(state.get("host_records", {})),
     }
 
 
@@ -79,22 +83,27 @@ async def hg_save_data(state: dict):
 
 class HGLobbyView(discord.ui.View):
     def __init__(self, cog: "HangryGamesCog", host: discord.Member, prize: str | None = None,
-                 winner_role: discord.Role | None = None):
+                 winner_role: discord.Role | None = None, catnip_prize: int = 0,
+                 sponsor: discord.Member | None = None):
         super().__init__(timeout=600)
         self.cog = cog
         self.host = host
         self.prize = prize
         self.winner_role = winner_role
+        self.catnip_prize = catnip_prize
+        self.sponsor = sponsor or host
         self.players: dict[int, discord.Member] = {}
         self.started = False
         self.message: discord.Message | None = None
 
     def embed(self) -> discord.Embed:
-        title = "🐾 Hangry Games — Giveaway" if self.prize else "🐾 Hangry Games"
+        title = "🐾 Hangry Games — Giveaway" if self.prize or self.catnip_prize else "🐾 Hangry Games"
         names = "\n".join(m.display_name for m in self.players.values()) or "*(none yet)*"
         desc = f"Host: {self.host.mention}\nTap **Join 🐾** to enter — no backing out!\n\n**Players:**\n{names}"
         if self.prize:
             desc += f"\n\n**Prize:** {self.prize}"
+        if self.catnip_prize:
+            desc += f"\n🌿 **Winner Catnip reward:** {self.catnip_prize:,} (budget by {self.sponsor.mention})"
         return discord.Embed(title=title, description=desc, color=0xFFB02E)
 
     @discord.ui.button(label="Join 🐾", style=discord.ButtonStyle.success)
@@ -115,13 +124,20 @@ class HGLobbyView(discord.ui.View):
             return await cinnamon_send(interaction, "Need Manage Messages to start.", ephemeral=True)
         if len(self.players) < 2:
             return await cinnamon_send(interaction, "Need at least 2 players.", ephemeral=True)
+        if self.catnip_prize and interaction.user.id != self.sponsor.id and not interaction.user.guild_permissions.administrator:
+            return await cinnamon_send(interaction, "🐾 The person sponsoring Catnip must start this game.", ephemeral=True)
+        if self.catnip_prize:
+            error = await self.cog._reserve_budget(interaction.guild, self.sponsor, self.catnip_prize)
+            if error:
+                return await cinnamon_send(interaction, error, ephemeral=True)
         self.started = True
         for c in self.children:
             c.disabled = True
         await interaction.response.edit_message(embed=self.embed(), view=self)
         self.stop()
         self.cog.lobbies.pop(interaction.channel.id, None)
-        await self.cog.launch(interaction.channel, self.players, self.host, self.prize, self.winner_role)
+        await self.cog.launch(interaction.channel, self.players, self.host, self.prize, self.winner_role,
+                              catnip_prize=self.catnip_prize, sponsor=self.sponsor)
 
     async def on_timeout(self):
         if self.started or not self.message:
@@ -183,6 +199,9 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         self.played_counts: dict[tuple[int, int], int] = {}  # (guild_id, member_id) -> completed games played
         self.hg_log_channels: dict[int, int] = {}  # guild_id -> dedicated Hangry Games log channel_id
         self.log_enabled: dict[int, bool] = {}  # guild_id -> whether HG activity is logged (default: on once a channel is set)
+        self.budget_records = {}  # (guild, sponsor) -> {week, spent}
+        self.host_records = {}  # (guild, sponsor) -> {week, completed, bonus}
+        self.budget_lock = asyncio.Lock()
 
     async def async_init(self):
         """Load persisted counts. Call once, before add_cog, since __init__ can't await."""
@@ -193,12 +212,15 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         self.played_counts = data["played_counts"]
         self.hg_log_channels = data["log_channels"]
         self.log_enabled = data["log_enabled"]
+        self.budget_records = data["budget_records"]
+        self.host_records = data["host_records"]
 
     async def _save(self):
         await hg_save_data({
             "game_counts": self.game_counts, "win_counts": self.win_counts,
             "kill_counts": self.kill_counts, "played_counts": self.played_counts,
             "log_channels": self.hg_log_channels, "log_enabled": self.log_enabled,
+            "budget_records": self.budget_records, "host_records": self.host_records,
         })
 
     async def _log(self, guild_id: int, *, title: str, color: discord.Color = discord.Color.blurple(),
