@@ -1293,7 +1293,102 @@ def dashboard_action():
         actor=_tokens[sid]["user"].get("username","dashboard user")
         if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
-        if action in {"welcome","goodbye"}:
+        if action=="mind_settings":
+            raw=request.form.get("channel_id","").strip()
+            if not raw.isdigit(): raise ValueError("Choose a valid Hangry Games channel.")
+            channel=guild.get_channel(int(raw))
+            if not isinstance(channel,__import__("discord").TextChannel):
+                raise ValueError("Choose a text channel in this server.")
+            if not channel.permissions_for(guild.default_role).view_channel:
+                raise ValueError("Surprise games must run in a public channel. Members need to see the join button.")
+            if not guild.me or not channel.permissions_for(guild.me).send_messages:
+                raise ValueError("Cinnamon must be able to post in the selected game channel.")
+            flags={k:k in request.form for k in ("auto_enabled","cameos_enabled","questions_enabled")}
+            async def apply_mind():
+                social=state["cinnamon_social"].setdefault(str(gid),{"people":{}})
+                old=social.get("auto_channel")
+                social.update(flags)
+                social["auto_channel"]=channel.id
+                if old!=channel.id or (flags["auto_enabled"] and not social.get("next_at")):
+                    social["next_at"]=time.time()+__import__("random").randint(3600,7200)
+                await state["bd_save_data"]()
+            _run_bot(apply_mind())
+            _audit(gid,actor,"Dashboard: Cinnamon Mind settings updated",
+                   f"Hangry channel #{channel.name}; flags={flags}.")
+            session["dashboard_notice"]="Cinnamon Mind controls saved."
+        elif action=="merchant_access":
+            kind=request.form.get("merchant_kind","")
+            mode=request.form.get("access","")
+            if kind not in ("rod","bait") or mode not in ("private","two_hours","public"):
+                raise ValueError("Choose a known fishing merchant and visibility option.")
+            announce="announce" in request.form
+            async def apply_merchant():
+                import discord
+                import time as _time
+                root=state["cinnamon_wildlands_fishing"].setdefault(str(gid),{})
+                window=root.setdefault("merchant_windows",{}).setdefault(kind,{})
+                old=dict(window)
+                window.update({"finder_id":None,"manual_public":mode=="public",
+                               "ends_at":_time.time()+7200 if mode=="two_hours" else 0,
+                               "closed_notice":mode=="private"})
+                try:
+                    channel=await state["wlf_refresh_channel"](guild,kind)
+                    await state["bd_save_data"]()
+                except Exception:
+                    window.clear();window.update(old)
+                    raise
+                if mode!="private":
+                    role=discord.utils.get(guild.roles,name=state["wlf_merchant_names"][kind])
+                    line="🐈 The "+state["wlf_merchant_names"][kind]+" is open in "+channel.mention+"!"
+                    if mode=="two_hours": line+=" Two-hour limited opening."
+                    if announce and role: line=role.mention+" "+line
+                    await channel.send(line,allowed_mentions=discord.AllowedMentions(
+                        everyone=False,users=False,roles=[role] if announce and role else []))
+                return channel.name
+            name=_run_bot(apply_merchant(),timeout=40)
+            _audit(gid,actor,"Dashboard: fishing merchant access",
+                   f"Merchant={kind}; action={mode}; channel=#{name}; role announcement={announce}.")
+            session["dashboard_notice"]="Merchant access updated for #"+name+"."
+        elif action=="economy_transfer":
+            target_raw=request.form.get("member_id","").strip()
+            nonce=request.form.get("transfer_nonce","").strip()
+            try: amount=int(request.form.get("amount",""))
+            except ValueError: raise ValueError("Catnip amount must be a positive whole number.")
+            if not 1<=amount<=10000000 or not target_raw.isdigit() or len(nonce)<16 or len(nonce)>100:
+                raise ValueError("Choose a member and 1–10,000,000 Catnip.")
+            recipient=guild.get_member(int(target_raw))
+            actor_id=int(_tokens[sid]["user"]["id"])
+            if not recipient or recipient.bot or recipient.id==actor_id:
+                raise ValueError("Choose a different non-bot member by name.")
+            async def transfer():
+                lock=getattr(_bot,"_dashboard_catnip_lock",None)
+                if lock is None:
+                    lock=asyncio.Lock()
+                    _bot._dashboard_catnip_lock=lock
+                async with lock:
+                    root=state["advanced_features_data"].setdefault("dashboard_transfer_ids_v1",{})
+                    used=root.setdefault(str(gid),[])
+                    if nonce in used: raise ValueError("This transfer was already submitted.")
+                    balances=state["economy_balances"]
+                    before=int(balances.get((gid,actor_id),0))
+                    if before<amount: raise ValueError("Your own Catnip balance is too low for that gift.")
+                    recv_before=int(balances.get((gid,recipient.id),0))
+                    balances[(gid,actor_id)]=before-amount
+                    balances[(gid,recipient.id)]=recv_before+amount
+                    used.append(nonce)
+                    del used[:-100]
+                    await state["bd_save_data"]()
+                    return before,recv_before
+            before,recv_before=_run_bot(transfer())
+            send_log=state["send_log"]
+            _run_bot(send_log(gid,title="🎁 Catnip transfer",category="economy",fields=[
+                ("From",f"{actor} ({actor_id})"),("To",f"{recipient} ({recipient.id})"),
+                ("Amount",f"{amount:,} Catnip"),("Sender after",str(before-amount)),
+                ("Recipient after",str(recv_before+amount))]))
+            _audit(gid,actor,"Dashboard: Catnip gift",
+                   f"Sent {amount:,} Catnip to {recipient} ({recipient.id}) from actor's wallet.")
+            session["dashboard_notice"]=f"Sent {amount:,} Catnip to {recipient.display_name}."
+        elif action in {"welcome","goodbye"}:
             channel_id=request.form.get("channel_id","").strip(); message=request.form.get("message","")
             config_key="welcome_config" if action=="welcome" else "goodbye_config"
             if not channel_id: raise ValueError("Choose a channel or use Disable.")
