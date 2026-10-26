@@ -210,6 +210,7 @@ categorylogs_group = app_commands.Group(name="categorylogs", description="Config
     app_commands.Choice(name="Achievements", value="achievements"),
     app_commands.Choice(name="Quests", value="quests"),
     app_commands.Choice(name="Cinnamon Friendship", value="friendship"),
+    app_commands.Choice(name="Cinnamon Stuff", value="stuff"),
     app_commands.Choice(name="Giveaways & Polls", value="community"),
     app_commands.Choice(name="Roles", value="roles"),
     app_commands.Choice(name="Server Setup", value="setup"),
@@ -234,6 +235,7 @@ async def categorylogs_set(interaction: discord.Interaction, category: app_comma
 @app_commands.choices(category=[
     app_commands.Choice(name="Moderation", value="moderation"), app_commands.Choice(name="Economy", value="economy"),
     app_commands.Choice(name="AI", value="ai"), app_commands.Choice(name="Levels & XP", value="levels"),
+    app_commands.Choice(name="Cinnamon Stuff", value="stuff"),
     app_commands.Choice(name="Achievements", value="achievements"), app_commands.Choice(name="Quests", value="quests"), app_commands.Choice(name="Cinnamon Friendship", value="friendship"),
     app_commands.Choice(name="Giveaways & Polls", value="community"), app_commands.Choice(name="Roles", value="roles"),
     app_commands.Choice(name="Server Setup", value="setup"), app_commands.Choice(name="General utilities", value="general"), app_commands.Choice(name="Dashboard audit trail", value="dashboard"),
@@ -374,6 +376,7 @@ async def setup_cmd(interaction: discord.Interaction):
         ("cinnamon-achievement-logs", "Achievement unlocks, secret discoveries, rewards, role assignments, backups, and recovery."),
         ("cinnamon-quest-logs", "Daily/weekly quest rotations, progress, completions, rewards, QP changes, and quest-shop purchases."),
         ("cinnamon-friendship-logs", "Cinnamon Friendship XP, level changes, and related interactions."),
+        ("cinnamon-stuff-logs", "Private mood, favourite, nice/naughty, questions and personality event logs."),
         ("cinnamon-community-logs", "Giveaway and poll events."),
         ("cinnamon-role-logs", "Role management and reaction-role configuration events."),
         ("cinnamon-setup-logs", "Welcome/goodbye, setup, and logging configuration changes."),
@@ -382,6 +385,7 @@ async def setup_cmd(interaction: discord.Interaction):
         ("cinnamon-welcome", "Cinnamon's member welcome messages."),
         ("cinnamon-goodbye", "Cinnamon's member goodbye messages."),
         ("cinnamon-ai", "Cinnamon's always-on AI chat channel."),
+        ("cinnamon-games", "Public surprise Hangry Games with Catnip prizes and a join button."),
     ]
     channels = {}
     created = []
@@ -421,6 +425,7 @@ async def setup_cmd(interaction: discord.Interaction):
     # Fishing titles and the two server-wide merchants are core Wildlands roles.
     achievement_role_names.extend(_wlf_required_roles())
     achievement_role_names.append(_CM_NAUGHTY_ROLE)  # playful temporary penalty role
+    achievement_role_names.append("Hangry Games")
     achievement_role_names = list(dict.fromkeys(achievement_role_names))
     created_roles = []
     existing_roles = {r.name: r for r in guild.roles if not r.managed}
@@ -451,6 +456,7 @@ async def setup_cmd(interaction: discord.Interaction):
         "achievements": channels["cinnamon-achievement-logs"].id,
         "quests": channels["cinnamon-quest-logs"].id,
         "friendship": channels["cinnamon-friendship-logs"].id,
+        "stuff": channels["cinnamon-stuff-logs"].id,
         "community": channels["cinnamon-community-logs"].id,
         "roles": channels["cinnamon-role-logs"].id,
         "setup": channels["cinnamon-setup-logs"].id,
@@ -458,6 +464,10 @@ async def setup_cmd(interaction: discord.Interaction):
         "dashboard": channels["cinnamon-dashboard-logs"].id,
     }
     ai_channels[guild.id] = channels["cinnamon-ai"].id
+    social = _cp_server(guild.id)
+    social["auto_channel"] = channels["cinnamon-games"].id
+    social.setdefault("auto_enabled", True)
+    social.setdefault("next_at", time.time() + random.randint(3600, 7200))
     welcome_config[guild.id] = {
         "channel_id": channels["cinnamon-welcome"].id,
         "message": "🐾 Welcome {member} to **{server}**! Cinnamon hopes you brought snacks.",
@@ -505,6 +515,8 @@ async def setup_cmd(interaction: discord.Interaction):
     embed.add_field(name="🏆 Achievement logs", value=channels["cinnamon-achievement-logs"].mention, inline=True)
     embed.add_field(name="📜 Quest logs", value=channels["cinnamon-quest-logs"].mention, inline=True)
     embed.add_field(name="🐾 Friendship logs", value=channels["cinnamon-friendship-logs"].mention, inline=True)
+    embed.add_field(name="😾 Cinnamon stuff logs", value=channels["cinnamon-stuff-logs"].mention, inline=True)
+    embed.add_field(name="🎮 Surprise games", value=channels["cinnamon-games"].mention, inline=True)
     embed.add_field(name="🎉 Community logs", value=channels["cinnamon-community-logs"].mention, inline=True)
     embed.add_field(name="🏷️ Role logs", value=channels["cinnamon-role-logs"].mention, inline=True)
     embed.add_field(name="⚙️ Setup logs", value=channels["cinnamon-setup-logs"].mention, inline=True)
@@ -612,6 +624,8 @@ async def setupstatus_cmd(interaction: discord.Interaction):
         ("⚙️ Setup logs", category_log_channels.get(guild.id, {}).get("setup")),
         ("📌 General logs", category_log_channels.get(guild.id, {}).get("general")),
         ("🍔 Hangry logs", hg_cog.hg_log_channels.get(guild.id) if hg_cog else None),
+        ("😾 Cinnamon stuff logs", category_log_channels.get(guild.id, {}).get("stuff")),
+        ("🎮 Surprise games", _cp_server(guild.id).get("auto_channel")),
         ("👋 Welcome", welcome_config.get(guild.id, {}).get("channel_id")),
         ("🚪 Goodbye", goodbye_config.get(guild.id, {}).get("channel_id")),
         ("🐱 AI channel", ai_channels.get(guild.id)),
@@ -657,7 +671,8 @@ _HELP_HANGRY = (
     "`/hangrygames role` — start straight away with everyone in a role\n"
     "`/hangrygames stats` · `leaderboard` — wins, kills, and top winners\n"
     "`/hangrygames cancel` — stop the game or lobby in this channel\n"
-    "`/hangrygames budget` — weekly hosted Catnip prize budget and completed games"
+    "`/hangrygames budget` — weekly hosted Catnip prize budget and completed games\n"
+    "`/cinnamon-events status` · `auto` · `channel` · `questions` — surprise games and interaction controls"
 )
 _HELP_MODS = (
     "`/warn` · `/warnings` — warn someone / see their warnings\n"
