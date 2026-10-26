@@ -254,6 +254,7 @@ async def _wlf_purchase(interaction, kind, item, quantity=1):
         text = f'✅ Purchased **{quantity} × {item["name"]}** for **{cost:,} Catnip**.'
         if commission:
             text += f' 🐾 The shop discoverer earned **{commission:,} Catnip** (10% bonus).'
+        await _cp_react(interaction.guild, interaction.user, interaction.channel, "big_purchase", value=cost)
         return text
 
 
@@ -478,6 +479,9 @@ async def fishing_cast(interaction: discord.Interaction):
             f'**Area:** {_wlf_area(p["area"])[1]} • **Bait:** {bait["name"]}\n'
             f'**Owned:** {p["fish"][fish_key]}{discovery}{extra}')
     await interaction.response.send_message(embed=_wlf_embed('🎣 A Bite!', desc, interaction=interaction))
+    if fish['rarity'] in ('Legendary', 'Mythical'):
+        await _cp_good_event(interaction.guild, interaction.user, 'Rare Wildlands fish caught', points=2)
+        await _cp_react(interaction.guild, interaction.user, interaction.channel, 'rare_fish', detail=fish['name'])
 
 
 @_wlf_group.command(name='locations', description='Show discovered and locked fishing locations')
