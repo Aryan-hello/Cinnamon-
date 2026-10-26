@@ -40,6 +40,10 @@ _WLF_BAIT = (
     {'id':'moon','name':'Moonblossom Bait','price':85,'bonus':2.8,'description':'Premium bait with the highest rarity boost.'},
 )
 _WLF_MERCHANTS = {'rod':'Fishing Rod Merchant','bait':'Fishing Bait Merchant'}
+_WLF_TREASURE_ROLE = 'Wildlands • Treasure Hunter'
+_WLF_SHOP_SECONDS = 2 * 60 * 60
+_WLF_PURCHASE_LOCKS = {}
+_WLF_SHOP_NAMES = {'rod': 'fishing-rod-merchant', 'bait': 'fishing-bait-merchant'}
 _WLF_FISH = {}
 for _wlf_idx, _wlf_area in enumerate(_WLF_AREAS):
     for _wlf_ri, _wlf_fish_name in enumerate(_WLF_FISH_NAMES[_wlf_idx]):
@@ -53,7 +57,7 @@ for _wlf_idx, _wlf_area in enumerate(_WLF_AREAS):
 
 def _wlf_required_roles():
     """All role names /setup should create, no duplicates on re-runs."""
-    return list(_WLF_MERCHANTS.values()) + [f['role_name'] for f in _WLF_FISH.values() if f['role_name']]
+    return list(_WLF_MERCHANTS.values()) + [_WLF_TREASURE_ROLE] + [f['role_name'] for f in _WLF_FISH.values() if f['role_name']]
 
 
 def _wlf_root():
@@ -95,8 +99,162 @@ def _wlf_embed(title, description='', *, interaction=None):
     return e
 
 
-def _wlf_merchant_open(guild_id, kind):
-    return bool(_wlf_server(guild_id)['merchants'].get(kind))
+def _wlf_story_complete(guild_id, user_id):
+    return bool(advanced_features_data.get('wildlands_story_v2', {}).get(str(guild_id), {}).get(str(user_id), {}).get('complete'))
+
+
+def _wlf_window(guild_id, kind):
+    return _wlf_server(guild_id).setdefault('merchant_windows', {}).get(kind, {})
+
+
+def _wlf_active(guild_id, kind):
+    return float(_wlf_window(guild_id, kind).get('ends_at', 0)) > _wlf_time.time()
+
+
+def _wlf_merchant_open(guild_id, kind, user_id=None):
+    return _wlf_active(guild_id, kind) or (user_id is not None and _wlf_story_complete(guild_id, user_id))
+
+
+def _wlf_channel(guild, kind):
+    raw = _wlf_window(guild.id, kind)
+    saved_id = raw.get('channel_id')
+    ch = guild.get_channel(int(saved_id)) if saved_id else None
+    return ch or discord.utils.get(guild.text_channels, name=_WLF_SHOP_NAMES[kind])
+
+
+async def _wlf_ensure_role(guild, name):
+    role = discord.utils.get(guild.roles, name=name)
+    if role:
+        return role
+    if not (guild.me and guild.me.guild_permissions.manage_roles):
+        raise PermissionError('Cinnamon needs Manage Roles to create merchant and treasure roles.')
+    return await guild.create_role(name=name, reason='Cinnamon Wildlands shop access')
+
+
+async def _wlf_refresh_channel(guild, kind):
+    """Create once, then alter @everyone visibility according to the current timer.
+
+    Finished-story role is permanently allowed to see it, regardless of the window.
+    """
+    if not (guild.me and guild.me.guild_permissions.manage_channels):
+        raise PermissionError('Cinnamon needs Manage Channels to open merchant shops.')
+    treasure = await _wlf_ensure_role(guild, _WLF_TREASURE_ROLE)
+    channel = _wlf_channel(guild, kind)
+    if channel is None:
+        channel = await guild.create_text_channel(
+            _WLF_SHOP_NAMES[kind],
+            topic='Cinnamon Wildlands: temporary server-wide merchant, permanent for story finishers.',
+            overwrites={guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                        treasure: discord.PermissionOverwrite(view_channel=True, send_messages=True)},
+            reason='Cinnamon merchant discovered')
+    live = _wlf_active(guild.id, kind)
+    everyone = channel.overwrites_for(guild.default_role)
+    if everyone.view_channel is not live:
+        everyone.view_channel = live
+        await channel.set_permissions(guild.default_role, overwrite=everyone, reason='Wildlands merchant timed access')
+    always = channel.overwrites_for(treasure)
+    if always.view_channel is not True:
+        always.view_channel = True
+        always.send_messages = True
+        await channel.set_permissions(treasure, overwrite=always, reason='Permanent access for treasure hunters')
+    _wlf_window(guild.id, kind)['channel_id'] = channel.id
+    return channel
+
+
+async def _wlf_award_story_access(interaction):
+    guild, member = interaction.guild, interaction.user
+    problem = []
+    try:
+        role = await _wlf_ensure_role(guild, _WLF_TREASURE_ROLE)
+        if role not in member.roles:
+            if role >= guild.me.top_role:
+                raise PermissionError('Place Cinnamon’s role above Wildlands • Treasure Hunter.')
+            await member.add_roles(role, reason='Completed Cinnamon Wildlands treasure story')
+    except (discord.HTTPException, PermissionError, AttributeError) as exc:
+        problem.append(str(exc))
+    for kind in _WLF_MERCHANTS:
+        try:
+            channel = await _wlf_refresh_channel(guild, kind)
+            if not (discord.utils.get(member.roles, name=_WLF_TREASURE_ROLE)):
+                await channel.set_permissions(member, view_channel=True, reason='Wildlands story completion fallback access')
+        except (discord.HTTPException, PermissionError, AttributeError) as exc:
+            problem.append(f'{kind}: {exc}')
+    if problem:
+        return '\n⚠️ Your story completion was saved, but Cinnamon could not set all Discord shop permissions. Ask an admin to check Manage Roles / Manage Channels: ' + '; '.join(problem)[:450]
+    return '\n🏅 You now have **permanent access** to both merchant channels!'
+
+
+class _WLFShopPanel(discord.ui.View):
+    def __init__(self, kind):
+        super().__init__(timeout=None)
+        self.kind = kind
+        button = discord.ui.Button(label='Browse & buy ' + ('rods' if kind == 'rod' else 'bait'),
+                                   style=discord.ButtonStyle.success,
+                                   custom_id=f'cinnamon:wildlands:merchant:{kind}:shop')
+        button.callback = self.shop
+        self.add_item(button)
+
+    async def shop(self, interaction):
+        if not interaction.guild or not _wlf_merchant_open(interaction.guild.id, self.kind, interaction.user.id):
+            return await interaction.response.send_message('🐈 This shop is closed! Find the merchant again, or finish the story for permanent access.', ephemeral=True)
+        view = _WLFCatalog(interaction.user.id, 'rod' if self.kind == 'rod' else 'bait', interaction.guild.id)
+        await interaction.response.send_message(embed=view.render(), view=view, ephemeral=True)
+
+
+async def _wlf_purchase(interaction, kind, item, quantity=1):
+    """One purchase path for slash commands, catalog buttons, and shop buttons.
+
+    10% of a sale is newly credited to the discoverer ONLY when bought from
+    that merchant's channel while its two-hour window is active.
+    """
+    if not interaction.guild:
+        return 'Use this in a server.'
+    g, u = interaction.guild.id, interaction.user.id
+    lock = _WLF_PURCHASE_LOCKS.setdefault(g, asyncio.Lock())
+    async with lock:
+        p = _wlf_player(g, u)
+        if kind == 'rod':
+            if item['id'] in p['rods']:
+                p['rod'] = item['id']
+                await bd_save_data()
+                return f'🎣 Equipped **{item["name"]}** (already owned).'
+            if not _wlf_merchant_open(g, kind, u):
+                return '🔒 Find the Rod Merchant, or complete the Wildlands story for permanent shop access.'
+            quantity = 1
+        elif item['id'] != 'normal' and not _wlf_merchant_open(g, kind, u):
+            return '🔒 Find the Bait Merchant, or finish the story for permanent shop access.'
+        cost = int(item['price']) * quantity
+        balance = economy_balance(g, u)
+        if balance < cost:
+            return f'🌿 **{item["name"]}** costs {cost:,} Catnip; you have {balance:,}.'
+        window = _wlf_window(g, kind)
+        finder = int(window.get('finder_id', 0) or 0)
+        shop_channel = _wlf_channel(interaction.guild, kind)
+        eligible = (cost > 0 and _wlf_active(g,kind) and finder > 0
+                    and finder != u and shop_channel is not None
+                    and interaction.channel_id == shop_channel.id)
+        commission = cost // 10 if eligible else 0
+        economy_balances[(g,u)] = balance - cost
+        if kind == 'rod':
+            p['rods'].append(item['id'])
+            p['rod'] = item['id']
+        else:
+            p['bait'][item['id']] = int(p['bait'].get(item['id'],0)) + quantity
+        if commission:
+            economy_balances[(g,finder)] = economy_balance(g,finder) + commission
+        await bd_save_data()
+        try:
+            await economy_log(g, title='🛒 Wildlands merchant purchase', fields=[
+                ('Member ID', u), ('Item', item['name']), ('Quantity', quantity),
+                ('Cost', cost), ('Balance after', economy_balances[(g,u)]),
+                ('Finder commission recipient', finder if commission else 'None'),
+                ('Finder bonus Catnip', commission)])
+        except Exception:
+            log.exception('Wildlands merchant sale saved but economy log failed')
+        text = f'✅ Purchased **{quantity} × {item["name"]}** for **{cost:,} Catnip**.'
+        if commission:
+            text += f' 🐾 The shop discoverer earned **{commission:,} Catnip** (10% bonus).'
+        return text
 
 
 def _wlf_npc_role(guild, name):
@@ -139,16 +297,89 @@ def _wlf_roll(rarity_bonus):
     return _wlf_random.choices(range(6), weights=weights, k=1)[0]
 
 
-async def _wlf_attempt_merchant(guild):
-    # Exactly one potential merchant unlock per completed encounter.
-    s = _wlf_server(guild.id)
-    locked = [k for k in _WLF_MERCHANTS if not s['merchants'].get(k)]
-    if locked and _wlf_random.random() < .035:
-        kind = _wlf_random.choice(locked)
-        s['merchants'][kind] = True
+async def _wlf_attempt_merchant(guild, *, finder=None, announce_channel=None, chance=.12):
+    """A discovery opens a two-hour server-wide shop; re-discovery after expiry
+    rotates the commission beneficiary. Failures leave the shop locked.
+    """
+    if finder is None:
+        return ''
+    options = [kind for kind in _WLF_MERCHANTS if not _wlf_active(guild.id, kind)]
+    if not options or _wlf_random.random() >= chance:
+        return ''
+    kind = _wlf_random.choice(options)
+    now = _wlf_time.time()
+    window = _wlf_server(guild.id).setdefault('merchant_windows', {}).setdefault(kind, {})
+    old = dict(window)
+    window.update({'finder_id': finder.id, 'ends_at': now + _WLF_SHOP_SECONDS, 'started_at': now, 'closed_notice': False})
+    try:
+        role = await _wlf_ensure_role(guild, _WLF_MERCHANTS[kind])
+        ch = await _wlf_refresh_channel(guild, kind)
         await bd_save_data()
-        return f"\n🎉 **Server-wide discovery!** Everyone can now visit the **{_WLF_MERCHANTS[kind]}** using `/fishing merchants`."
-    return ''
+        mention = role.mention if role else _WLF_MERCHANTS[kind]
+        await ch.send(f'🐈 **CINNAMON NEWS!** {mention} has been discovered by {finder.mention}! '
+                      f'The shop is open for **2 hours** to the entire server. '
+                      f'Use the button below to shop. The finder earns **10% of purchases made '
+                      f'by other people in this channel** before closing.',
+                      view=_WLFShopPanel(kind),
+                      allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False))
+        if announce_channel and announce_channel.id != ch.id:
+            try:
+                await announce_channel.send(f'📣 **Cinnamon announces a discovery!** {finder.mention} found '
+                    f'**{_WLF_MERCHANTS[kind]}**! The entire server can visit {ch.mention} for **2 hours**. '
+                    'The finder earns **10%** of other customers’ purchases in that channel!',
+                    allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+            except discord.HTTPException:
+                pass
+        return f'\n🏪 **SERVER-WIDE DISCOVERY!** Visit {ch.mention}. You receive 10% of other players’ purchases in that shop for **2 hours**!'
+    except (discord.HTTPException, PermissionError, AttributeError) as exc:
+        window.clear()
+        window.update(old)
+        try:
+            await _wlf_refresh_channel(guild, kind)  # Undo public access if announcing failed.
+        except (discord.HTTPException, PermissionError):
+            pass
+        log.warning('Wildlands merchant discovery could not open shop: %s', exc)
+        return f'\n⚠️ Merchant sighted, but Cinnamon cannot open the shop: {str(exc)[:150]}. An admin should check Manage Channels / Manage Roles.'
+
+
+@bot.listen('on_ready')
+async def _wlf_shop_ready():
+    if not getattr(bot, '_wlf_persistent_views_added', False):
+        for kind in _WLF_MERCHANTS:
+            bot.add_view(_WLFShopPanel(kind))
+        bot._wlf_persistent_views_added = True
+    if not getattr(bot, '_wlf_shop_reaper_running', False):
+        bot._wlf_shop_reaper_running = True
+        asyncio.create_task(_wlf_expire_shops())
+    # Restore visibility at startup; a timed window may have expired while offline.
+    for guild in bot.guilds:
+        for kind in _WLF_MERCHANTS:
+            if _wlf_channel(guild, kind):
+                try:
+                    await _wlf_refresh_channel(guild, kind)
+                except (discord.HTTPException, PermissionError) as exc:
+                    log.warning('Wildlands shop restore failed (%s/%s): %s', guild.id, kind, exc)
+
+
+async def _wlf_expire_shops():
+    try:
+        while not bot.is_closed():
+            for guild in bot.guilds:
+                for kind in _WLF_MERCHANTS:
+                    rec = _wlf_window(guild.id, kind)
+                    expires = float(rec.get('ends_at', 0))
+                    if expires and expires <= _wlf_time.time() and not rec.get('closed_notice'):
+                        try:
+                            ch = await _wlf_refresh_channel(guild, kind)
+                            rec['closed_notice'] = True
+                            await bd_save_data()
+                            await ch.send('🐈 The merchant packed up! Shop closed to visitors. '
+                                          'Treasure Hunters who finished the story can still shop here forever.')
+                        except (discord.HTTPException, PermissionError) as exc:
+                            log.warning('Could not close shop %s/%s: %s',guild.id,kind,exc)
+            await asyncio.sleep(60)
+    finally:
+        bot._wlf_shop_reaper_running = False
 
 
 @wildlands_art_group.command(name='gather', description='Search Wildlands for supplies, fishing spots, and merchants')
@@ -169,7 +400,7 @@ async def wildlands_gather(interaction: discord.Interaction):
         area = _wlf_random.choice(undiscovered)
         p['areas'].append(area[0])
         desc += f'\n🗺️ **New fishing area permanently discovered:** **{area[1]}**! Use `/fishing travel` to visit.'
-    desc += await _wlf_attempt_merchant(interaction.guild)
+    desc += await _wlf_attempt_merchant(interaction.guild, finder=interaction.user, announce_channel=interaction.channel)
     await bd_save_data()
     await interaction.response.send_message(embed=_wlf_embed('🍃 Wildlands Gathering', desc, interaction=interaction))
 
@@ -308,15 +539,26 @@ async def fishing_inventory(interaction: discord.Interaction):
     await interaction.response.send_message(embed=e, ephemeral=True)
 
 
-@_wlf_group.command(name='merchants', description='Check the server-wide rod and bait merchant discoveries')
+@_wlf_group.command(name='merchants', description='See which two-hour merchant shops are open and who found them')
 @app_commands.guild_only()
 async def fishing_merchants(interaction: discord.Interaction):
-    g = interaction.guild.id
-    lines = [f'{"✅ Discovered" if _wlf_merchant_open(g, k) else "🔒 Not discovered"} — **{name}**'
-             for k, name in _WLF_MERCHANTS.items()]
-    await interaction.response.send_message(embed=_wlf_embed('🏪 Wildlands Merchants',
-        '\n'.join(lines) + '\n\nComplete Gather encounters to discover merchants server-wide (3.5% chance per encounter while merchants remain locked). '
-        'Every member can use a merchant after discovery. To browse prices, use `/wildlands rods` or `/wildlands bait`.', interaction=interaction), ephemeral=True)
+    guild = interaction.guild
+    lines=[]
+    for kind, name in _WLF_MERCHANTS.items():
+        window=_wlf_window(guild.id,kind)
+        if _wlf_active(guild.id,kind):
+            left=max(0,int(window['ends_at']-_wlf_time.time()))
+            ch=_wlf_channel(guild,kind)
+            lines.append(f'🏪 **{name}** — OPEN for {left//60}m {left%60}s • '+(ch.mention if ch else 'Channel unavailable'))
+        elif _wlf_story_complete(guild.id,interaction.user.id):
+            ch=_wlf_channel(guild,kind)
+            lines.append(f'🏅 **{name}** — permanently unlocked for you • '+(ch.mention if ch else 'Ask an admin to check channels'))
+        else:
+            lines.append(f'🔒 **{name}** — closed until the next discovery')
+    await interaction.response.send_message(embed=_wlf_embed('🏪 Wildlands Merchant Watch',
+        '\n'.join(lines)+'\n\nA lucky `/wildlands gather` or story encounter can open a shop server-wide for 2 hours. '
+        'The discoverer receives 10% of other people’s purchases **inside that shop channel**. '
+        'Finish the Wildlands story to access both shops permanently.', interaction=interaction),ephemeral=True)
 
 
 async def _wlf_rod_autocomplete(interaction: discord.Interaction, current: str):
@@ -327,30 +569,16 @@ async def _wlf_bait_autocomplete(interaction: discord.Interaction, current: str)
     return [app_commands.Choice(name=b['name'], value=b['id']) for b in _WLF_BAIT if current.casefold() in b['name'].casefold() or current.casefold() in b['id']][:25]
 
 
-@_wlf_group.command(name='buy-rod', description='Buy and equip a rod after discovering its merchant')
+@_wlf_group.command(name='buy-rod', description='Buy a fishing rod from an open or permanent merchant')
 @app_commands.autocomplete(rod=_wlf_rod_autocomplete)
 @app_commands.guild_only()
 async def fishing_buy_rod(interaction: discord.Interaction, rod: str):
-    g, u = interaction.guild.id, interaction.user.id
-    item = next((r for r in _WLF_RODS if r['id'] == rod or r['name'].casefold() == rod.casefold()), None)
+    item=next((r for r in _WLF_RODS if r['id']==rod or r['name'].casefold()==rod.casefold()),None)
     if not item:
-        return await interaction.response.send_message('🐾 Unknown rod. Check `/wildlands rods`.', ephemeral=True)
-    p = _wlf_player(g, u)
-    if item['id'] in p['rods']:
-        p['rod'] = item['id']
-        await bd_save_data()
-        return await interaction.response.send_message(f'🎣 Equipped **{item["name"]}**.', ephemeral=True)
-    if not _wlf_merchant_open(g, 'rod'):
-        return await interaction.response.send_message('🔒 The Fishing Rod Merchant has not been discovered server-wide yet. Try `/wildlands gather`.', ephemeral=True)
-    balance = economy_balance(g, u)
-    if balance < item['price']:
-        return await interaction.response.send_message(f'🌿 **{item["name"]}** costs {item["price"]:,} Catnip, but you have {balance:,}.', ephemeral=True)
-    economy_balances[(g,u)] = balance - item['price']
-    p['rods'].append(item['id'])
-    p['rod'] = item['id']
-    await bd_save_data()
-    await economy_log(g, title='🎣 Wildlands rod purchased', fields=[('Member ID', u), ('Rod', item['name']), ('Price', item['price']), ('Balance after', economy_balances[(g,u)])])
-    await interaction.response.send_message(f'🎣 Bought and equipped **{item["name"]}** for **{item["price"]:,} Catnip**.', ephemeral=True)
+        return await interaction.response.send_message('Unknown rod; use `/wildlands rods`.',ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    message=await _wlf_purchase(interaction,'rod',item)
+    await interaction.followup.send(message,ephemeral=True)
 
 
 @_wlf_group.command(name='equip', description='Equip a purchased rod by searchable name')
@@ -366,26 +594,16 @@ async def fishing_equip(interaction: discord.Interaction, rod: str):
     await interaction.response.send_message(f'🎣 Equipped **{item["name"]}**!', ephemeral=True)
 
 
-@_wlf_group.command(name='buy-bait', description='Purchase bait using Catnip; normal bait costs 100 for 10')
+@_wlf_group.command(name='buy-bait', description='Buy bait from an open or permanent merchant')
 @app_commands.autocomplete(bait=_wlf_bait_autocomplete)
 @app_commands.guild_only()
-async def fishing_buy_bait(interaction: discord.Interaction, bait: str, quantity: app_commands.Range[int,1,100] = 10):
-    item = next((b for b in _WLF_BAIT if b['id'] == bait or b['name'].casefold() == bait.casefold()), None)
+async def fishing_buy_bait(interaction: discord.Interaction, bait: str, quantity: app_commands.Range[int,1,100]=10):
+    item=next((b for b in _WLF_BAIT if b['id']==bait or b['name'].casefold()==bait.casefold()),None)
     if not item:
-        return await interaction.response.send_message('🐾 Unknown bait. Check `/wildlands bait`.', ephemeral=True)
-    g,u = interaction.guild.id, interaction.user.id
-    if item['id'] != 'normal' and not _wlf_merchant_open(g, 'bait'):
-        return await interaction.response.send_message('🔒 Specialist bait becomes available after the Fishing Bait Merchant is discovered.', ephemeral=True)
-    price = item['price'] * quantity
-    balance = economy_balance(g,u)
-    if balance < price:
-        return await interaction.response.send_message(f'🌿 {quantity}× {item["name"]} costs **{price:,} Catnip**, but you have **{balance:,}**.', ephemeral=True)
-    p = _wlf_player(g,u)
-    economy_balances[(g,u)] = balance - price
-    p['bait'][item['id']] = int(p['bait'].get(item['id'], 0)) + quantity
-    await bd_save_data()
-    await economy_log(g, title='🪱 Wildlands bait purchased', fields=[('Member ID', u), ('Bait', item['name']), ('Quantity', quantity), ('Cost', price), ('Balance after', economy_balances[(g,u)])])
-    await interaction.response.send_message(f'🪱 Bought **{quantity} × {item["name"]}** for **{price:,} Catnip**.', ephemeral=True)
+        return await interaction.response.send_message('Unknown bait; use `/wildlands bait`.',ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    message=await _wlf_purchase(interaction,'bait',item,quantity)
+    await interaction.followup.send(message,ephemeral=True)
 
 
 async def _wlf_fish_autocomplete(interaction: discord.Interaction, current: str):
@@ -486,35 +704,13 @@ class _WLFCatalog(discord.ui.View):
     @discord.ui.button(label='Buy 10 bait', style=discord.ButtonStyle.success, row=1)
     async def buy_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.kind == 'fish':
-            return await interaction.response.send_message('🐾 Browse the fish collection here; use `/fishing cast` to catch fish.', ephemeral=True)
-        _, item = self.entries()[self.index]
-        g,u = interaction.guild.id, interaction.user.id
-        if self.kind == 'rod':
-            p = _wlf_player(g,u)
-            if item['id'] in p['rods']:
-                p['rod'] = item['id']
-                await bd_save_data()
-                return await interaction.response.send_message(f'🎣 Equipped **{item["name"]}**.', ephemeral=True)
-            if not _wlf_merchant_open(g,'rod'):
-                return await interaction.response.send_message('🔒 Discover the Fishing Rod Merchant first.', ephemeral=True)
-            cost = item['price']
-        else:
-            if item['id'] != 'normal' and not _wlf_merchant_open(g,'bait'):
-                return await interaction.response.send_message('🔒 Discover the Fishing Bait Merchant first.', ephemeral=True)
-            cost = item['price']*10
-        bal = economy_balance(g,u)
-        if bal < cost:
-            return await interaction.response.send_message(f'🌿 Need {cost:,} Catnip; balance {bal:,}.', ephemeral=True)
-        p = _wlf_player(g,u)
-        economy_balances[(g,u)] = bal-cost
-        if self.kind == 'rod':
-            p['rods'].append(item['id'])
-            p['rod'] = item['id']
-        else:
-            p['bait'][item['id']] = int(p['bait'].get(item['id'],0))+10
-        await bd_save_data()
-        await economy_log(g, title='🛒 Wildlands catalogue purchase', fields=[('User ID',u),('Item',item['name']),('Cost',cost),('Balance after',economy_balances[(g,u)])])
-        await interaction.response.send_message(f'✅ Purchased **{item["name"]}** for **{cost:,} Catnip**.', ephemeral=True)
+            return await interaction.response.send_message('🐟 Browse the collection here; catch fish with `/fishing cast`.',ephemeral=True)
+        _,item=self.entries()[self.index]
+        await interaction.response.defer(ephemeral=True)
+        message=await _wlf_purchase(interaction, 'rod' if self.kind=='rod' else 'bait', item,
+                                     1 if self.kind=='rod' else 10)
+        await interaction.followup.send(message,ephemeral=True)
+
 
     @discord.ui.button(label='Next ▶', style=discord.ButtonStyle.primary, row=1)
     async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -546,7 +742,7 @@ async def fishing_setup_roles(interaction: discord.Interaction):
             log.warning('Wildlands role %s creation failed: %s', name, exc)
     await interaction.followup.send(
         embed=_wlf_embed('🏷️ Wildlands Roles',
-            f'**Ready:** {len(_wlf_required_roles()) - len(failed)}/14\n'
+            f'**Ready:** {len(_wlf_required_roles()) - len(failed)}/{len(_wlf_required_roles())}\n'
             f'**Newly created:** {len(created)}\n'
             f'**Failed:** {", ".join(failed) if failed else "None"}\n\n'
             'Rare fish titles are granted automatically when someone catches '

@@ -1,0 +1,30 @@
+name: Cinnamon Wildlands checks
+
+on:
+  push:
+    branches:
+      - feature/wildlands-billion-catnip-story
+  pull_request:
+    paths:
+      - "main.py"
+      - "cinnamon_modules/wildlands_story.py"
+      - "cinnamon_modules/wildlands_fishing.py"
+      - "tests/test_wildlands_story.py"
+      - ".github/workflows/wildlands-checks.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  story-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Syntax check
+        run: python -m compileall -q main.py cinnamon_modules tests
+      - name: Offline gameplay checks
+        run: python -m unittest discover -s tests -v
