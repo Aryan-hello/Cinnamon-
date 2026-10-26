@@ -354,7 +354,7 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
     user_perms = interaction.user.guild_permissions
     if not user_perms.administrator:
         return await interaction.response.send_message(
-            "🐾 You need **Manage Server** (or **Administrator**) to run `/setup`.",
+            "🐾 You need **Administrator** to run `/setup`.",
             ephemeral=True,
         )
     me = guild.me
