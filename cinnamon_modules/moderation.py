@@ -91,7 +91,7 @@ async def recover_warnings_from_log(guild: discord.Guild, limit: int = 2000) -> 
 
 @bot.tree.command(name="warn", description="Warn a member and log it")
 @app_commands.describe(member="Who to warn", reason="Why")
-@app_commands.checks.has_permissions(kick_members=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: app_commands.Range[str, 1, 300]):
     count = add_warning(interaction.guild.id, member.id, reason, interaction.user)
@@ -109,7 +109,7 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
 
 @bot.tree.command(name="warnings", description="View a member's warning history")
 @app_commands.describe(member="Whose warnings to view")
-@app_commands.checks.has_permissions(kick_members=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def warnings_cmd(interaction: discord.Interaction, member: discord.Member):
     lst = warnings_data.get((interaction.guild.id, member.id), [])
@@ -124,7 +124,7 @@ async def warnings_cmd(interaction: discord.Interaction, member: discord.Member)
 
 @bot.tree.command(name="clearwarnings", description="Clear all warnings for a member")
 @app_commands.describe(member="Whose warnings to clear")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def clearwarnings(interaction: discord.Interaction, member: discord.Member):
     removed = len(warnings_data.pop((interaction.guild.id, member.id), []))
@@ -211,7 +211,7 @@ def _validate_template(message: str) -> str | None:
 
 @welcome_group.command(name="set", description="Set the welcome channel/message")
 @app_commands.describe(channel="Channel to post welcomes in", message="Use {member} and {server} as placeholders")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def welcome_set(interaction: discord.Interaction, channel: discord.TextChannel,
                        message: app_commands.Range[str, 1, 800] = "🐾 Welcome {member} to {server}! Glad you're here."):
@@ -226,7 +226,7 @@ async def welcome_set(interaction: discord.Interaction, channel: discord.TextCha
 
 
 @welcome_group.command(name="disable", description="Turn off welcome messages")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def welcome_disable(interaction: discord.Interaction):
     welcome_config.pop(interaction.guild.id, None)
@@ -240,7 +240,7 @@ goodbye_group = app_commands.Group(name="goodbye", description="Configure member
 
 @goodbye_group.command(name="set", description="Set the goodbye channel/message")
 @app_commands.describe(channel="Channel to post goodbyes in", message="Use {member} and {server} as placeholders")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def goodbye_set(interaction: discord.Interaction, channel: discord.TextChannel,
                        message: app_commands.Range[str, 1, 800] = "🐾 {member} has left {server}. We'll miss you!"):
@@ -255,7 +255,7 @@ async def goodbye_set(interaction: discord.Interaction, channel: discord.TextCha
 
 
 @goodbye_group.command(name="disable", description="Turn off goodbye messages")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def goodbye_disable(interaction: discord.Interaction):
     goodbye_config.pop(interaction.guild.id, None)
@@ -305,7 +305,7 @@ reactionrole_group = app_commands.Group(name="reactionrole", description="Self-a
 
 @reactionrole_group.command(name="create", description="Post a button members can click to toggle a role")
 @app_commands.describe(role="The role to toggle", label="Button text", description="Message shown above the button")
-@app_commands.checks.has_permissions(manage_roles=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(manage_roles=True)
 @app_commands.guild_only()
 async def reactionrole_create(interaction: discord.Interaction, role: discord.Role,
@@ -331,7 +331,7 @@ async def reactionrole_create(interaction: discord.Interaction, role: discord.Ro
 
 @reactionrole_group.command(name="remove", description="Stop a role from being self-assignable")
 @app_commands.describe(role="The role to stop tracking")
-@app_commands.checks.has_permissions(manage_roles=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def reactionrole_remove(interaction: discord.Interaction, role: discord.Role):
     reaction_role_ids.discard(role.id)
@@ -420,7 +420,7 @@ automod_word_group = app_commands.Group(name="word", description="Manage banned 
 
 
 @automod_word_group.command(name="add", description="Add a banned word/phrase")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def automod_word_add(interaction: discord.Interaction, word: app_commands.Range[str, 1, 100]):
     cfg = get_automod(interaction.guild.id)
@@ -434,7 +434,7 @@ async def automod_word_add(interaction: discord.Interaction, word: app_commands.
 
 
 @automod_word_group.command(name="remove", description="Remove a banned word/phrase")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def automod_word_remove(interaction: discord.Interaction, word: app_commands.Range[str, 1, 100]):
     cfg = get_automod(interaction.guild.id)
@@ -448,7 +448,7 @@ async def automod_word_remove(interaction: discord.Interaction, word: app_comman
 
 
 @automod_word_group.command(name="list", description="List banned words")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def automod_word_list(interaction: discord.Interaction):
     words = get_automod(interaction.guild.id)["words"]
@@ -459,7 +459,7 @@ async def automod_word_list(interaction: discord.Interaction):
 
 @automod_group.command(name="spam", description="Toggle spam detection (rapid repeated messages)")
 @app_commands.describe(enabled="On/off")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def automod_spam(interaction: discord.Interaction, enabled: bool):
     get_automod(interaction.guild.id)["spam"] = enabled
@@ -470,7 +470,7 @@ async def automod_spam(interaction: discord.Interaction, enabled: bool):
 
 @automod_group.command(name="mentions", description="Toggle mass-mention detection")
 @app_commands.describe(enabled="On/off", threshold="Mentions in one message that triggers it (default 5)")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def automod_mentions(interaction: discord.Interaction, enabled: bool, threshold: int = 5):
     cfg = get_automod(interaction.guild.id)
@@ -486,7 +486,7 @@ async def automod_mentions(interaction: discord.Interaction, enabled: bool, thre
 
 @automod_group.command(name="invites", description="Toggle auto-deleting Discord invite links")
 @app_commands.describe(enabled="On/off")
-@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def automod_invites(interaction: discord.Interaction, enabled: bool):
     get_automod(interaction.guild.id)["invites"] = enabled
@@ -499,7 +499,7 @@ async def automod_invites(interaction: discord.Interaction, enabled: bool):
 
 @bot.tree.command(name="tempban", description="Temporarily ban a member; auto-unbanned after the duration")
 @app_commands.describe(member="Who to ban", duration_hours="Hours until auto-unban", reason="Why")
-@app_commands.checks.has_permissions(ban_members=True)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.checks.bot_has_permissions(ban_members=True)
 @app_commands.guild_only()
 async def tempban(interaction: discord.Interaction, member: discord.Member, duration_hours: float,
