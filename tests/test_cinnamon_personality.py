@@ -76,6 +76,7 @@ class PersonalityTests(unittest.TestCase):
         async def save(): counts.append(1)
         async def log(*args): pass
         ns = {"advanced_features_data": {}, "_cp_time": time,
+              "_CP_QUESTIONS": ("What is a suspicious potato?",),
               "_cp_random": SimpleNamespace(random=lambda: 0.0, choice=lambda values: values[0]),
               "bd_save_data": save, "_cp_log": log,
               "discord": SimpleNamespace(
