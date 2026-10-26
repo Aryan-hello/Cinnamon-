@@ -223,7 +223,7 @@ async def _wlf_purchase(interaction, kind, item, quantity=1):
             quantity = 1
         elif item['id'] != 'normal' and not _wlf_merchant_open(g, kind, u):
             return '🔒 Find the Bait Merchant, or finish the story for permanent shop access.'
-        cost = int(item['price']) * quantity
+        cost = _cm_price(g, u, item['id'], item['price']) * quantity
         balance = economy_balance(g, u)
         if balance < cost:
             return f'🌿 **{item["name"]}** costs {cost:,} Catnip; you have {balance:,}.'
