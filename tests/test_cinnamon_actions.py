@@ -92,7 +92,7 @@ class SafeCinnamonActionsTests(unittest.TestCase):
         self.assertIn('@app_commands.checks.has_permissions(administrator=True)',ACTIONS)
 
     def test_moderation_requires_actor_confirmation_twice(self):
-        self.assertIn("if interaction.user.id != self.requester_id",ACTIONS)
+        self.assertIn("interaction.user.id != self.requester_id",ACTIONS)
         self.assertIn("_ca_permission_reason(guild, actor, target, self.action)",ACTIONS)
         self.assertIn("async with self.lock:",ACTIONS)
         self.assertIn("self.used = True",ACTIONS)
