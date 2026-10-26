@@ -198,7 +198,7 @@ def _page(body, title="Cinnamon Dashboard", status=200):
         """<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='color-scheme' content='light'><title>{{title}}</title><style>"""
-        + STYLE + """</style></head><body>{{body|safe}}</body></html>""",
+        + STYLE + """</style><script src='/static/dashboard-search.js' defer></script></head><body>{{body|safe}}</body></html>""",
         title=title, body=body,
     ), status
 
