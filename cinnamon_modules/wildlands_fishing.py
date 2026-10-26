@@ -108,7 +108,9 @@ def _wlf_window(guild_id, kind):
 
 
 def _wlf_active(guild_id, kind):
-    return float(_wlf_window(guild_id, kind).get('ends_at', 0)) > _wlf_time.time()
+    window = _wlf_window(guild_id, kind)
+    return bool(window.get('manual_public', False) or
+                float(window.get('ends_at', 0)) > _wlf_time.time())
 
 
 def _wlf_merchant_open(guild_id, kind, user_id=None):
@@ -428,6 +430,59 @@ async def wildlands_bait_catalog(interaction: discord.Interaction):
 
 
 _wlf_group = app_commands.Group(name='fishing', description='Cinnamon Wildlands fishing game')
+
+
+@_wlf_group.command(name="merchant-access", description="Staff: reveal or hide a fishing merchant safely")
+@app_commands.choices(
+    merchant=[app_commands.Choice(name="Fishing Rod Merchant", value="rod"),
+              app_commands.Choice(name="Fishing Bait Merchant", value="bait")],
+    access=[app_commands.Choice(name="Open for 2 hours", value="two_hours"),
+            app_commands.Choice(name="Keep public until staff closes", value="public"),
+            app_commands.Choice(name="Close to visitors", value="private")])
+@app_commands.guild_only()
+async def fishing_merchant_access(interaction: discord.Interaction,
+                                  merchant: app_commands.Choice[str],
+                                  access: app_commands.Choice[str], announce: bool = False):
+    perms = interaction.user.guild_permissions
+    if not (perms.administrator or perms.manage_channels or perms.moderate_members):
+        return await interaction.response.send_message(
+            "🐈 Only staff with Manage Channels or Timeout Members permission can change shop visibility.", ephemeral=True)
+    kind, action = merchant.value, access.value
+    if kind not in _WLF_MERCHANTS or action not in ("two_hours", "public", "private"):
+        return await interaction.response.send_message("Invalid merchant selection.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    window = _wlf_server(interaction.guild.id).setdefault("merchant_windows", {}).setdefault(kind, {})
+    before = dict(window)
+    window.update({"finder_id": None, "manual_public": action == "public",
+                   "ends_at": _wlf_time.time() + _WLF_SHOP_SECONDS if action == "two_hours" else 0,
+                   "closed_notice": action == "private"})
+    try:
+        channel = await _wlf_refresh_channel(interaction.guild, kind)
+        await bd_save_data()
+    except (discord.HTTPException, PermissionError, AttributeError) as exc:
+        window.clear()
+        window.update(before)
+        return await interaction.followup.send(f"❌ Could not update the merchant channel: {str(exc)[:300]}", ephemeral=True)
+    state = ("Private" if action == "private" else
+             "Open for two hours" if action == "two_hours" else "Public until a staff member closes it")
+    await send_log(interaction.guild.id, title="🏪 Wildlands merchant visibility changed", category="stuff",
+                   fields=[("Member", f"{interaction.user} ({interaction.user.id})"),
+                           ("Merchant", _WLF_MERCHANTS[kind]), ("Mode", state),
+                           ("Channel", channel.mention), ("Finder commission", "None (staff opened)")])
+    if action != "private":
+        role = discord.utils.get(interaction.guild.roles, name=_WLF_MERCHANTS[kind])
+        line = f"🐈 **{_WLF_MERCHANTS[kind]}** is {state.lower()}! Shop at {channel.mention}."
+        if action == "two_hours":
+            line += f" Closes <t:{int(window['ends_at'])}:R>."
+        if announce:
+            line = (role.mention + " " if role else "") + line
+        try:
+            await channel.send(line, view=_WLFShopPanel(kind),
+                allowed_mentions=discord.AllowedMentions(users=False,
+                    roles=[role] if announce and role else [], everyone=False))
+        except discord.HTTPException:
+            pass
+    await interaction.followup.send(f"✅ {merchant.name}: **{state}**. {channel.mention}", ephemeral=True)
 
 
 @_wlf_group.command(name='start', description='Get your starter rod and 10 bait; see how fishing works')
