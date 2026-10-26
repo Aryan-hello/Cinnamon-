@@ -120,11 +120,12 @@ class HGLobbyView(discord.ui.View):
 
     @discord.ui.button(label="Start 🔴", style=discord.ButtonStyle.danger)
     async def start(self, interaction: discord.Interaction, _: discord.ui.Button):
-        if not interaction.user.guild_permissions.manage_messages:
-            return await cinnamon_send(interaction, "Need Manage Messages to start.", ephemeral=True)
+        perms = interaction.user.guild_permissions
+        if not (perms.manage_messages or perms.moderate_members or perms.administrator):
+            return await cinnamon_send(interaction, "Need Manage Messages or Moderate Members to start.", ephemeral=True)
         if len(self.players) < 2:
             return await cinnamon_send(interaction, "Need at least 2 players.", ephemeral=True)
-        if self.catnip_prize and interaction.user.id != self.sponsor.id and not interaction.user.guild_permissions.administrator:
+        if self.catnip_prize and interaction.user.id != self.sponsor.id:
             return await cinnamon_send(interaction, "🐾 The person sponsoring Catnip must start this game.", ephemeral=True)
         if self.catnip_prize:
             error = await self.cog._reserve_budget(interaction.guild, self.sponsor, self.catnip_prize)
@@ -553,12 +554,16 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         return channel_id in self.active or channel_id in self.lobbies
 
     @app_commands.command(name="new", description="Start a Hangry Games lobby")
-    @app_commands.describe(host="Who's hosting (defaults to you)")
+    @app_commands.describe(host="Who's hosting (defaults to you)",
+                           catnip_prize="Optional Catnip award for the winner, funded by your weekly budget")
     @app_commands.guild_only()
-    async def new(self, interaction: discord.Interaction, host: discord.Member = None):
+    async def new(self, interaction: discord.Interaction, host: discord.Member = None,
+                  catnip_prize: app_commands.Range[int, 0, 200000] = 0):
         if self._busy(interaction.channel.id):
             return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
-        view = HGLobbyView(self, host or interaction.user)
+        if catnip_prize and not self._budget_limit(interaction.user) and self._budget_limit(interaction.user) is not None:
+            return await cinnamon_send(interaction, "🐾 You need Manage Messages, Moderate Members, or Administrator to fund a Catnip prize.", ephemeral=True)
+        view = HGLobbyView(self, host or interaction.user, catnip_prize=catnip_prize, sponsor=interaction.user)
         await interaction.response.send_message(embed=view.embed(), view=view)
         view.message = await interaction.original_response()
         self.lobbies[interaction.channel.id] = view
@@ -567,13 +572,17 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
 
     @app_commands.command(name="giveaway", description="Run a Hangry Games giveaway")
     @app_commands.describe(prize="What the winner takes home (optional)", host="Who's hosting (defaults to you)",
-                            winner_role="Role to give the winner (optional)")
+                            winner_role="Role to give the winner (optional)",
+                            catnip_prize="Winner Catnip paid from your weekly hosting budget")
     @app_commands.guild_only()
     async def giveaway(self, interaction: discord.Interaction, prize: str = None, host: discord.Member = None,
-                        winner_role: discord.Role = None):
+                        winner_role: discord.Role = None, catnip_prize: app_commands.Range[int, 0, 200000] = 0):
         if self._busy(interaction.channel.id):
             return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
-        view = HGLobbyView(self, host or interaction.user, prize=prize, winner_role=winner_role)
+        if catnip_prize and self._budget_limit(interaction.user) == 0:
+            return await cinnamon_send(interaction, "🐾 Need Manage Messages, Moderate Members or Administrator to sponsor Catnip.", ephemeral=True)
+        view = HGLobbyView(self, host or interaction.user, prize=prize, winner_role=winner_role,
+                           catnip_prize=catnip_prize, sponsor=interaction.user)
         await interaction.response.send_message(embed=view.embed(), view=view)
         view.message = await interaction.original_response()
         self.lobbies[interaction.channel.id] = view
@@ -584,10 +593,12 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
 
     @app_commands.command(name="role", description="Auto-start a game with everyone who has a role")
     @app_commands.describe(role="The role to pull players from", prize="What the winner takes home (optional)",
-                            host="Who's hosting (defaults to you)", winner_role="Role to give the winner (optional)")
+                            host="Who's hosting (defaults to you)", winner_role="Role to give the winner (optional)",
+                            catnip_prize="Winner Catnip paid from your weekly hosting budget")
     @app_commands.guild_only()
     async def role_cmd(self, interaction: discord.Interaction, role: discord.Role, prize: str = None,
-                        host: discord.Member = None, winner_role: discord.Role = None):
+                        host: discord.Member = None, winner_role: discord.Role = None,
+                        catnip_prize: app_commands.Range[int, 0, 200000] = 0):
         if self._busy(interaction.channel.id):
             return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
         players = {m.id: m for m in role.members if not m.bot}
@@ -596,6 +607,9 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                 "Need at least 2 non-bot members with that role.", ephemeral=True
             )
         host = host or interaction.user
+        error = await self._reserve_budget(interaction.guild, interaction.user, catnip_prize)
+        if error:
+            return await cinnamon_send(interaction, error, ephemeral=True)
         await cinnamon_send(interaction, 
             f"🐾 **{len(players)}** cats from **{role.name}** enter the arena, hosted by {host.mention}!",
             allowed_mentions=discord.AllowedMentions(roles=False),
@@ -603,7 +617,25 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         await self._log(interaction.guild.id, title="🐾 Hangry Games role launch",
                         fields=[("Channel", interaction.channel.mention), ("Role", f"{role.name} ({role.id})"),
                                 ("Players", str(len(players))), ("Host", f"{host} ({host.id})")])
-        await self.launch(interaction.channel, players, host, prize, winner_role)
+        await self.launch(interaction.channel, players, host, prize, winner_role,
+                          catnip_prize=catnip_prize, sponsor=interaction.user)
+
+    @app_commands.command(name="budget", description="See your weekly Hangry Games prize budget and hosting stats")
+    @app_commands.guild_only()
+    async def budget(self, interaction: discord.Interaction):
+        limit = self._budget_limit(interaction.user)
+        rec = self._budget_record(interaction.guild.id, interaction.user.id)
+        host = self._host_record(interaction.guild.id, interaction.user.id)
+        remaining = ("Unlimited" if limit is None else f"{max(0, limit - int(rec.get('spent',0))):,}")
+        allowance = "Unlimited" if limit is None else f"{limit:,}"
+        embed = discord.Embed(title="🍔 Cinnamon's Hangry Games Budget", color=0xFFB02E)
+        embed.add_field(name="Weekly allowance", value=f"{allowance} Catnip")
+        embed.add_field(name="Used", value=f"{int(rec.get('spent',0)):,} Catnip")
+        embed.add_field(name="Remaining", value=f"{remaining} Catnip")
+        embed.add_field(name="Games completed this week", value=str(host.get("completed", 0)))
+        embed.add_field(name="Host bonuses this week", value=f"{int(host.get('bonus',0)):,} Catnip")
+        embed.set_footer(text=f"UTC week {self._week()} • budgets reset every Monday (UTC)")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="leaderboard", description="Top Hangry Games winners in this server")
     @app_commands.guild_only()
