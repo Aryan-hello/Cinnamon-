@@ -477,12 +477,14 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                                         ("Catnip", f"+{catnip_prize:,}"), ("Sponsor ID", str(sponsor_id))])
             elif not catnip_prize:
                 completed = True
-            finished_games, appreciation = await self._host_completed(channel.guild.id, host.id)
+            runner_id = sponsor_id if sponsor_id is not None else host.id
+            runner = channel.guild.get_member(runner_id) or host
+            finished_games, appreciation = await self._host_completed(channel.guild.id, runner_id)
             if appreciation:
-                economy_balances[(channel.guild.id, host.id)] = economy_balance(channel.guild.id, host.id) + appreciation
+                economy_balances[(channel.guild.id, runner_id)] = economy_balance(channel.guild.id, runner_id) + appreciation
                 await bd_save_data()
                 await self._log(channel.guild.id, title="🐈 Cinnamon rewards a dedicated Hangry Games host",
-                                fields=[("Host", f"{host} ({host.id})"), ("Completed games this week", str(finished_games)),
+                                fields=[("Runner", f"{runner} ({runner_id})"), ("Completed games this week", str(finished_games)),
                                         ("Surprise bonus", f"{appreciation:,} Catnip")])
 
             desc = f"🎉 **{winner.display_name}** won **{host.display_name}**'s Hangry Games"
@@ -495,7 +497,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
             if catnip_prize:
                 desc += f"\n🌿 **Hangry Games Catnip prize:** {catnip_prize:,} awarded!"
             if appreciation:
-                desc += f"\n🐈 Cinnamon awarded host {host.display_name} a {appreciation:,} Catnip thank-you!"
+                desc += f"\n🐈 Cinnamon awarded runner {runner.display_name} a {appreciation:,} Catnip thank-you!"
 
             if winner_role:
                 try:
@@ -525,7 +527,10 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
             if catnip_prize:
                 log_fields.extend([("Catnip prize paid", f"{catnip_prize:,}"),
                                    ("Sponsor ID", str(sponsor_id))])
-            log_fields.extend([("Host completed this week", str(finished_games)),
+            runner_budget = self.budget_records.get((channel.guild.id, runner_id), {})
+            log_fields.extend([("Runner ID", str(runner_id)),
+                               ("Prize budget spent this week", f"{int(runner_budget.get('spent',0)):,}"),
+                               ("Runner games completed this week", str(finished_games)),
                                ("Host bonus Catnip", str(appreciation))])
             await self._log(
                 channel.guild.id, title=f"🏆 Hangry Games #{game_num} ended", color=discord.Color.gold(),
