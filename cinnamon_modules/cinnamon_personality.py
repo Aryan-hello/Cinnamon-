@@ -212,18 +212,19 @@ async def _cp_auto_start(guild, channel, cog):
             "you suspicious potatoes. I WILL BE WATCHING. 👀",
             embed=view.embed(), view=view,
             allowed_mentions=discord.AllowedMentions(users=False, roles=[role], everyone=False))
+        started_at = _cp_time.monotonic()
         view.message = post
         cog.lobbies[channel.id] = view
         await cog._log(guild.id, title="🐈 Cinnamon surprise Hangry Games announced",
                        fields=[("Channel", channel.mention), ("Prize", str(prize)),
                                ("Join window", "120 seconds"), ("Role", str(role.id))])
         await _cp_log(guild.id, "Surprise game started")
-        await asyncio.sleep(90)
+        await asyncio.sleep(max(0, 90 - (_cp_time.monotonic() - started_at)))
         if not view.started and cog.lobbies.get(channel.id) is view:
             await channel.send(
                 f"{role.mention} 😼 30 SECONDS LEFT! JOIN NOW! I DID NOT POLISH A TROPHY FOR NOTHING!",
                 allowed_mentions=discord.AllowedMentions(users=False, roles=[role], everyone=False))
-        await asyncio.sleep(30)
+        await asyncio.sleep(max(0, 120 - (_cp_time.monotonic() - started_at)))
         if view.started or cog.lobbies.get(channel.id) is not view:
             return
         view.started = True
