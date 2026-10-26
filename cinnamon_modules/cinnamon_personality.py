@@ -359,7 +359,13 @@ async def cinnamon_events_status(interaction: discord.Interaction):
     fav = _cp_favourites(interaction.guild.id)
     desc += ("😻 Favourite visitors: " + ", ".join(f"<@{uid}>" for uid, _ in fav)
              if fav else "😺 No favourite visitors ranked yet!")
-    await interaction.response.send_message(desc, ephemeral=True,
+    card = discord.Embed(title="🎮 Cinnamon's Surprise Games",
+                         description=desc, color=0xD89138)
+    card.add_field(name="🌿 Winner prize",value="1,000–2,500 Catnip",inline=True)
+    card.add_field(name="⏳ Join window",value="2 minutes · 2 role pings",inline=True)
+    card.add_field(name="🛡️ Safety",value="Autonomous @everyone is disabled. Personal questions are optional.",inline=False)
+    card.set_footer(text="Cinnamon Mind • /cinnamon-events notify to receive game alerts")
+    await interaction.response.send_message(embed=card, ephemeral=True,
                                             allowed_mentions=discord.AllowedMentions.none())
 
 @_cp_group.command(name="auto", description="Admin: enable or disable Cinnamon surprise games")
