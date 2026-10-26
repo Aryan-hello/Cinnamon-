@@ -154,7 +154,7 @@ def economy_shop_embed(guild_id: int, user: discord.abc.User, page: int = 0) -> 
         limit_text=f" • limit {limit}" if limit else " • no limit"
         e.add_field(
             name=f"{item.get('emoji','🐾')}  {item.get('name',item_id)}",
-            value=(f"**{int(item.get('price',0)):,} Catnip**{limit_text}  •  own **{owned}**\n"
+            value=(f"**{_cm_price(guild_id, user.id, item_id, item.get('price', 0)):,} Catnip**{limit_text}  •  own **{owned}**\n"
                    f"{item.get('description','No description provided.')}")[:1024],
             inline=False)
     return cinnamon_polish_embed(e)
@@ -192,7 +192,7 @@ class CinnamonShopView(discord.ui.LayoutView):
                 limit = int(item.get("max_per_person", 0))
                 owned = int(economy_inventory_for(self.guild_id, self.user_id).get(item_id, 0))
                 limit_text = f"Limit: {limit}" if limit else "No limit"
-                price = int(item.get("price", 0))
+                price = _cm_price(self.guild_id, self.user_id, item_id, item.get("price", 0))
                 name = item.get("name", item_id)
                 emoji = item.get("emoji", "🐾")
                 desc = str(item.get("description", "No description provided."))[:500]
@@ -242,7 +242,7 @@ class CinnamonShopView(discord.ui.LayoutView):
             if max_per_person and current_qty + 1 > max_per_person:
                 await interaction.response.send_message(f"🐾 You reached the **{max_per_person}**-per-person limit for **{data['name']}**.", ephemeral=True)
                 return
-            price = int(data.get("price", 0))
+            price = _cm_price(guild_id, user_id, item_id, data.get("price", 0))
             balance = economy_balance(guild_id, user_id)
             if balance < price:
                 await interaction.response.send_message(f"🐾 You need **{price:,} Catnip**, but you only have **{balance:,}**.", ephemeral=True)
@@ -424,7 +424,10 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
     if max_per_person and current_qty + quantity > max_per_person:
         await cinnamon_send(interaction, f"❌ This item has a limit of **{max_per_person}** per person. You already have **{current_qty}**.", ephemeral=True)
         return
-    cost = data["price"] * quantity
+    if quantity < 1 or quantity > 99:
+        return await cinnamon_send(interaction, "❌ Quantity must be between 1 and 99.", ephemeral=True)
+    unit_price = _cm_price(guild_id, user_id, item_id, data["price"])
+    cost = unit_price * quantity
     balance = economy_balance(guild_id, user_id)
     if balance < cost:
         await cinnamon_send(interaction, f"❌ You need **{cost:,} Catnip**, but you only have **{balance:,}**.", ephemeral=True)
@@ -433,7 +436,7 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
     inv = economy_inventory_for(guild_id, user_id)
     inv[item_id] = current_qty + quantity
     await bd_save_data()
-    await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity", quantity), ("Unit price", f"{data['price']:,} Catnip"), ("Deducted", f"-{cost:,} Catnip"), ("Balance before", f"{balance:,} Catnip"), ("Balance after", f"{balance-cost:,} Catnip"), ("Item quantity after", str(inv[item_id]))])
+    await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity", quantity), ("Unit price", f"{unit_price:,} Catnip"), ("Deducted", f"-{cost:,} Catnip"), ("Balance before", f"{balance:,} Catnip"), ("Balance after", f"{balance-cost:,} Catnip"), ("Item quantity after", str(inv[item_id]))])
     embed = cinnamon_embed("🛒 Purchase Complete", f"You bought **{quantity:,}× {data['emoji']} {data['name']}**.", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Purchase")
     cinnamon_field(embed, "💸 Cost", f"**{cost:,} Catnip**", True)
     cinnamon_field(embed, "🌿 New balance", f"**{economy_balances[(guild_id, user_id)]:,} Catnip**", True)
@@ -561,7 +564,8 @@ async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.
             guild_id, user_id, fed=True, completed_quest=bool(completed), member=interaction.user
         )
         await economy_log(guild_id, title="🐟 Cinnamon fed", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity fed", quantity), ("Quantity remaining", inv.get(item_id, 0)), ("Catnip before", f"{balance_before:,}"), ("Catnip after", f"{economy_balance(guild_id, user_id):,}"), ("Quest rewards", ", ".join(completed) if completed else "None"), ("Achievements", ", ".join(unlocked) if unlocked else "None")])
-        text = f"🐾 Cinnamon happily accepted **{quantity}× {data['name']}**!"
+        mood_note = await _cm_action(interaction.guild, interaction.user, "feed", quantity)
+        text = f"🐾 Cinnamon accepted **{quantity}× {data['name']}**!\n{mood_note}"
         if completed:
             text += "\n🎉 Quest complete: " + ", ".join(completed)
         if unlocked:

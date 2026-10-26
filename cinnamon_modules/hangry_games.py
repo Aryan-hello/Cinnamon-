@@ -14,6 +14,8 @@ def _hg_decode(raw: dict) -> dict:
         "played_counts": pair(raw.get("played_counts", {})),
         "log_channels": {int(k): v for k, v in raw.get("log_channels", {}).items()},
         "log_enabled": {int(k): v for k, v in raw.get("log_enabled", {}).items()},
+        "budget_records": pair(raw.get("budget_records", {})),
+        "host_records": pair(raw.get("host_records", {})),
     }
 
 
@@ -26,6 +28,8 @@ def _hg_encode(state: dict) -> dict:
         "played_counts": pair(state["played_counts"]),
         "log_channels": {str(k): v for k, v in state["log_channels"].items()},
         "log_enabled": {str(k): v for k, v in state["log_enabled"].items()},
+        "budget_records": pair(state.get("budget_records", {})),
+        "host_records": pair(state.get("host_records", {})),
     }
 
 
@@ -79,22 +83,27 @@ async def hg_save_data(state: dict):
 
 class HGLobbyView(discord.ui.View):
     def __init__(self, cog: "HangryGamesCog", host: discord.Member, prize: str | None = None,
-                 winner_role: discord.Role | None = None):
+                 winner_role: discord.Role | None = None, catnip_prize: int = 0,
+                 sponsor: discord.Member | None = None):
         super().__init__(timeout=600)
         self.cog = cog
         self.host = host
         self.prize = prize
         self.winner_role = winner_role
+        self.catnip_prize = catnip_prize
+        self.sponsor = sponsor or host
         self.players: dict[int, discord.Member] = {}
         self.started = False
         self.message: discord.Message | None = None
 
     def embed(self) -> discord.Embed:
-        title = "🐾 Hangry Games — Giveaway" if self.prize else "🐾 Hangry Games"
+        title = "🐾 Hangry Games — Giveaway" if self.prize or self.catnip_prize else "🐾 Hangry Games"
         names = "\n".join(m.display_name for m in self.players.values()) or "*(none yet)*"
         desc = f"Host: {self.host.mention}\nTap **Join 🐾** to enter — no backing out!\n\n**Players:**\n{names}"
         if self.prize:
             desc += f"\n\n**Prize:** {self.prize}"
+        if self.catnip_prize:
+            desc += f"\n🌿 **Winner Catnip reward:** {self.catnip_prize:,} (budget by {self.sponsor.mention})"
         return discord.Embed(title=title, description=desc, color=0xFFB02E)
 
     @discord.ui.button(label="Join 🐾", style=discord.ButtonStyle.success)
@@ -111,17 +120,25 @@ class HGLobbyView(discord.ui.View):
 
     @discord.ui.button(label="Start 🔴", style=discord.ButtonStyle.danger)
     async def start(self, interaction: discord.Interaction, _: discord.ui.Button):
-        if not interaction.user.guild_permissions.manage_messages:
-            return await cinnamon_send(interaction, "Need Manage Messages to start.", ephemeral=True)
+        perms = interaction.user.guild_permissions
+        if not (perms.manage_messages or perms.moderate_members or perms.administrator):
+            return await cinnamon_send(interaction, "Need Manage Messages or Moderate Members to start.", ephemeral=True)
         if len(self.players) < 2:
             return await cinnamon_send(interaction, "Need at least 2 players.", ephemeral=True)
+        if self.catnip_prize and interaction.user.id != self.sponsor.id:
+            return await cinnamon_send(interaction, "🐾 The person sponsoring Catnip must start this game.", ephemeral=True)
+        if self.catnip_prize:
+            error = await self.cog._reserve_budget(interaction.guild, self.sponsor, self.catnip_prize)
+            if error:
+                return await cinnamon_send(interaction, error, ephemeral=True)
         self.started = True
         for c in self.children:
             c.disabled = True
         await interaction.response.edit_message(embed=self.embed(), view=self)
         self.stop()
         self.cog.lobbies.pop(interaction.channel.id, None)
-        await self.cog.launch(interaction.channel, self.players, self.host, self.prize, self.winner_role)
+        await self.cog.launch(interaction.channel, self.players, self.host, self.prize, self.winner_role,
+                              catnip_prize=self.catnip_prize, sponsor=self.sponsor)
 
     async def on_timeout(self):
         if self.started or not self.message:
@@ -183,6 +200,9 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         self.played_counts: dict[tuple[int, int], int] = {}  # (guild_id, member_id) -> completed games played
         self.hg_log_channels: dict[int, int] = {}  # guild_id -> dedicated Hangry Games log channel_id
         self.log_enabled: dict[int, bool] = {}  # guild_id -> whether HG activity is logged (default: on once a channel is set)
+        self.budget_records = {}  # (guild, sponsor) -> {week, spent}
+        self.host_records = {}  # (guild, sponsor) -> {week, completed, bonus}
+        self.budget_lock = asyncio.Lock()
 
     async def async_init(self):
         """Load persisted counts. Call once, before add_cog, since __init__ can't await."""
@@ -193,13 +213,87 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         self.played_counts = data["played_counts"]
         self.hg_log_channels = data["log_channels"]
         self.log_enabled = data["log_enabled"]
+        self.budget_records = data["budget_records"]
+        self.host_records = data["host_records"]
 
     async def _save(self):
         await hg_save_data({
             "game_counts": self.game_counts, "win_counts": self.win_counts,
             "kill_counts": self.kill_counts, "played_counts": self.played_counts,
             "log_channels": self.hg_log_channels, "log_enabled": self.log_enabled,
+            "budget_records": self.budget_records, "host_records": self.host_records,
         })
+
+    @staticmethod
+    def _week():
+        iso = datetime.datetime.now(datetime.timezone.utc).isocalendar()
+        return f"{iso.year}-W{iso.week:02d}"
+
+    @staticmethod
+    def _budget_limit(member):
+        permissions = member.guild_permissions
+        if permissions.administrator:
+            return None  # Admins have unlimited weekly hosting budget.
+        if permissions.moderate_members:
+            return 30000
+        if permissions.manage_messages:
+            return 20000
+        return 0
+
+    def _budget_record(self, guild_id, user_id):
+        rec = self.budget_records.setdefault((guild_id, user_id), {})
+        if rec.get("week") != self._week():
+            rec.clear()
+            rec.update({"week": self._week(), "spent": 0})
+        return rec
+
+    def _host_record(self, guild_id, user_id):
+        rec = self.host_records.setdefault((guild_id, user_id), {})
+        if rec.get("week") != self._week():
+            rec.clear()
+            rec.update({"week": self._week(), "completed": 0, "bonus": 0})
+        return rec
+
+    async def _reserve_budget(self, guild, sponsor, prize):
+        """Charge weekly host budget before starting, guarded against races."""
+        if prize <= 0:
+            return None
+        if prize > 200000:
+            return "🐈 Maximum prize is 200,000 Catnip per game, even for admins."
+        async with self.budget_lock:
+            limit = self._budget_limit(sponsor)
+            if limit == 0:
+                return "🐈 To sponsor Catnip, you need Manage Messages, Moderate Members, or Administrator."
+            rec = self._budget_record(guild.id, sponsor.id)
+            if limit is not None and int(rec.get("spent", 0)) + prize > limit:
+                left = max(0, limit - int(rec.get("spent", 0)))
+                return f"😾 You have only **{left:,} Catnip** left in this week's hosting budget."
+            rec["spent"] = int(rec.get("spent", 0)) + prize
+            await self._save()
+        return None
+
+    async def _refund_budget(self, guild_id, sponsor_id, prize, week):
+        if not prize:
+            return
+        async with self.budget_lock:
+            rec = self.budget_records.get((guild_id, sponsor_id))
+            if rec and rec.get("week") == week:
+                rec["spent"] = max(0, int(rec.get("spent", 0)) - prize)
+                await self._save()
+
+    async def _host_completed(self, guild_id, host_id):
+        """Rare, capped appreciation reward for repeat hosts, not per-match farming."""
+        async with self.budget_lock:
+            rec = self._host_record(guild_id, host_id)
+            rec["completed"] = int(rec.get("completed", 0)) + 1
+            bonus = 0
+            if (rec["completed"] % 5 == 0
+                    and int(rec.get("bonus", 0)) < 1500
+                    and random.random() < 0.30):
+                bonus = min(random.randint(250, 600), 1500 - int(rec.get("bonus", 0)))
+                rec["bonus"] = int(rec.get("bonus", 0)) + bonus
+            await self._save()
+            return rec["completed"], bonus
 
     async def _log(self, guild_id: int, *, title: str, color: discord.Color = discord.Color.blurple(),
                     fields: list[tuple[str, str]] | None = None):
@@ -273,11 +367,15 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         return (max_game_num, len(wins))
 
     async def launch(self, channel: discord.abc.Messageable, players: dict[int, discord.Member],
-                      host: discord.Member, prize: str | None, winner_role: discord.Role | None = None):
+                      host: discord.Member, prize: str | None, winner_role: discord.Role | None = None,
+                      *, catnip_prize: int = 0, sponsor: discord.Member | None = None):
         self.game_counts[channel.guild.id] = self.game_counts.get(channel.guild.id, 0) + 1
         game_num = self.game_counts[channel.guild.id]
         await self._save()
-        task = asyncio.create_task(self.run_game(channel, players, host, prize, game_num, winner_role))
+        sponsor = sponsor or host
+        task = asyncio.create_task(self.run_game(channel, players, host, prize, game_num, winner_role,
+                                                catnip_prize=catnip_prize, sponsor_id=sponsor.id,
+                                                prize_week=self._week()))
         self.active[channel.id] = task
 
         fields = [
@@ -288,6 +386,12 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
             fields.append(("Prize", prize))
         if winner_role:
             fields.append(("Winner role", winner_role.name))
+        if catnip_prize:
+            limit = self._budget_limit(sponsor)
+            rec = self._budget_record(channel.guild.id, sponsor.id)
+            remain = "Unlimited" if limit is None else f"{max(0, limit - rec['spent']):,}"
+            fields.extend([("Catnip prize", f"{catnip_prize:,}"), ("Budget sponsor", f"{sponsor} ({sponsor.id})"),
+                           ("Weekly budget left", remain), ("Budget week (UTC)", self._week())])
         await self._log(
             channel.guild.id, title=f"🐾 Hangry Games #{game_num} started", color=discord.Color.gold(),
             fields=fields,
@@ -295,13 +399,15 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
 
     async def run_game(self, channel: discord.abc.Messageable, players: dict[int, discord.Member],
                         host: discord.Member, prize: str | None, game_num: int,
-                        winner_role: discord.Role | None = None):
+                        winner_role: discord.Role | None = None, *, catnip_prize: int = 0,
+                        sponsor_id: int | None = None, prize_week: str | None = None):
         alive = dict(players)
         kills: dict[int, int] = {pid: 0 for pid in alive}
         start = time.monotonic()
         rnd = 0
-        await channel.send(f"🐾 **Hangry Games #{game_num}** begins with **{len(alive)}** cats in the arena, hosted by {host.mention}!")
+        completed = False
         try:
+            await channel.send(f"🐾 **Hangry Games #{game_num}** begins with **{len(alive)}** cats in the arena, hosted by {host.mention}!")
             while len(alive) > 1:
                 rnd += 1
                 await asyncio.sleep(5)
@@ -360,6 +466,26 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                 except Exception:
                     log.exception("Achievement tracking failed for Hangry Games participant %s", pid)
             await self._save()
+            if catnip_prize and winner_id is not None:
+                economy_balances[(channel.guild.id, winner_id)] = (
+                    economy_balance(channel.guild.id, winner_id) + catnip_prize
+                )
+                await bd_save_data()
+                completed = True
+                await self._log(channel.guild.id, title=f"💰 Hangry Games #{game_num} Catnip awarded",
+                                fields=[("Winner", f"{winner} ({winner_id})"),
+                                        ("Catnip", f"+{catnip_prize:,}"), ("Sponsor ID", str(sponsor_id))])
+            elif not catnip_prize:
+                completed = True
+            runner_id = sponsor_id if sponsor_id is not None else host.id
+            runner = channel.guild.get_member(runner_id) or host
+            finished_games, appreciation = await self._host_completed(channel.guild.id, runner_id)
+            if appreciation:
+                economy_balances[(channel.guild.id, runner_id)] = economy_balance(channel.guild.id, runner_id) + appreciation
+                await bd_save_data()
+                await self._log(channel.guild.id, title="🐈 Cinnamon rewards a dedicated Hangry Games host",
+                                fields=[("Runner", f"{runner} ({runner_id})"), ("Completed games this week", str(finished_games)),
+                                        ("Surprise bonus", f"{appreciation:,} Catnip")])
 
             desc = f"🎉 **{winner.display_name}** won **{host.display_name}**'s Hangry Games"
             if prize:
@@ -368,6 +494,10 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
             desc += f"💀 **Total kills:** {winner_kills}\n"
             desc += f"⏱️ **Time survived:** {mm}m {ss}s\n"
             desc += f"🏆 **Total wins in server:** {total_wins}"
+            if catnip_prize:
+                desc += f"\n🌿 **Hangry Games Catnip prize:** {catnip_prize:,} awarded!"
+            if appreciation:
+                desc += f"\n🐈 Cinnamon awarded runner {runner.display_name} a {appreciation:,} Catnip thank-you!"
 
             if winner_role:
                 try:
@@ -394,6 +524,18 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                 log_fields.append(("Prize", prize))
             if winner_role:
                 log_fields.append(("Winner role", winner_role.name))
+            if catnip_prize:
+                log_fields.extend([("Catnip prize paid", f"{catnip_prize:,}"),
+                                   ("Sponsor ID", str(sponsor_id))])
+            runner_budget = self.budget_records.get((channel.guild.id, runner_id), {})
+            runner_limit = self._budget_limit(runner)
+            runner_spent = int(runner_budget.get("spent", 0))
+            runner_left = "Unlimited" if runner_limit is None else f"{max(0, runner_limit - runner_spent):,}"
+            log_fields.extend([("Runner ID", str(runner_id)),
+                               ("Prize budget spent this week", f"{runner_spent:,}"),
+                               ("Weekly budget remaining", runner_left),
+                               ("Runner games completed this week", str(finished_games)),
+                               ("Host bonus Catnip", str(appreciation))])
             await self._log(
                 channel.guild.id, title=f"🏆 Hangry Games #{game_num} ended", color=discord.Color.gold(),
                 fields=log_fields,
@@ -410,18 +552,27 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                         ("Players remaining", str(len(alive)))],
             )
         finally:
+            if catnip_prize and not completed and sponsor_id is not None:
+                await self._refund_budget(channel.guild.id, sponsor_id, catnip_prize, prize_week)
+                await self._log(channel.guild.id, title=f"↩️ Hangry Games #{game_num} prize refunded",
+                                fields=[("Sponsor ID", str(sponsor_id)), ("Amount", str(catnip_prize)),
+                                        ("Reason", "No winner payout")])
             self.active.pop(channel.id, None)
 
     def _busy(self, channel_id: int) -> bool:
         return channel_id in self.active or channel_id in self.lobbies
 
     @app_commands.command(name="new", description="Start a Hangry Games lobby")
-    @app_commands.describe(host="Who's hosting (defaults to you)")
+    @app_commands.describe(host="Who's hosting (defaults to you)",
+                           catnip_prize="Optional Catnip award for the winner, funded by your weekly budget")
     @app_commands.guild_only()
-    async def new(self, interaction: discord.Interaction, host: discord.Member = None):
+    async def new(self, interaction: discord.Interaction, host: discord.Member = None,
+                  catnip_prize: app_commands.Range[int, 0, 200000] = 0):
         if self._busy(interaction.channel.id):
             return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
-        view = HGLobbyView(self, host or interaction.user)
+        if catnip_prize and not self._budget_limit(interaction.user) and self._budget_limit(interaction.user) is not None:
+            return await cinnamon_send(interaction, "🐾 You need Manage Messages, Moderate Members, or Administrator to fund a Catnip prize.", ephemeral=True)
+        view = HGLobbyView(self, host or interaction.user, catnip_prize=catnip_prize, sponsor=interaction.user)
         await interaction.response.send_message(embed=view.embed(), view=view)
         view.message = await interaction.original_response()
         self.lobbies[interaction.channel.id] = view
@@ -430,13 +581,17 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
 
     @app_commands.command(name="giveaway", description="Run a Hangry Games giveaway")
     @app_commands.describe(prize="What the winner takes home (optional)", host="Who's hosting (defaults to you)",
-                            winner_role="Role to give the winner (optional)")
+                            winner_role="Role to give the winner (optional)",
+                            catnip_prize="Winner Catnip paid from your weekly hosting budget")
     @app_commands.guild_only()
     async def giveaway(self, interaction: discord.Interaction, prize: str = None, host: discord.Member = None,
-                        winner_role: discord.Role = None):
+                        winner_role: discord.Role = None, catnip_prize: app_commands.Range[int, 0, 200000] = 0):
         if self._busy(interaction.channel.id):
             return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
-        view = HGLobbyView(self, host or interaction.user, prize=prize, winner_role=winner_role)
+        if catnip_prize and self._budget_limit(interaction.user) == 0:
+            return await cinnamon_send(interaction, "🐾 Need Manage Messages, Moderate Members or Administrator to sponsor Catnip.", ephemeral=True)
+        view = HGLobbyView(self, host or interaction.user, prize=prize, winner_role=winner_role,
+                           catnip_prize=catnip_prize, sponsor=interaction.user)
         await interaction.response.send_message(embed=view.embed(), view=view)
         view.message = await interaction.original_response()
         self.lobbies[interaction.channel.id] = view
@@ -447,10 +602,12 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
 
     @app_commands.command(name="role", description="Auto-start a game with everyone who has a role")
     @app_commands.describe(role="The role to pull players from", prize="What the winner takes home (optional)",
-                            host="Who's hosting (defaults to you)", winner_role="Role to give the winner (optional)")
+                            host="Who's hosting (defaults to you)", winner_role="Role to give the winner (optional)",
+                            catnip_prize="Winner Catnip paid from your weekly hosting budget")
     @app_commands.guild_only()
     async def role_cmd(self, interaction: discord.Interaction, role: discord.Role, prize: str = None,
-                        host: discord.Member = None, winner_role: discord.Role = None):
+                        host: discord.Member = None, winner_role: discord.Role = None,
+                        catnip_prize: app_commands.Range[int, 0, 200000] = 0):
         if self._busy(interaction.channel.id):
             return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
         players = {m.id: m for m in role.members if not m.bot}
@@ -459,6 +616,9 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                 "Need at least 2 non-bot members with that role.", ephemeral=True
             )
         host = host or interaction.user
+        error = await self._reserve_budget(interaction.guild, interaction.user, catnip_prize)
+        if error:
+            return await cinnamon_send(interaction, error, ephemeral=True)
         await cinnamon_send(interaction, 
             f"🐾 **{len(players)}** cats from **{role.name}** enter the arena, hosted by {host.mention}!",
             allowed_mentions=discord.AllowedMentions(roles=False),
@@ -466,7 +626,25 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
         await self._log(interaction.guild.id, title="🐾 Hangry Games role launch",
                         fields=[("Channel", interaction.channel.mention), ("Role", f"{role.name} ({role.id})"),
                                 ("Players", str(len(players))), ("Host", f"{host} ({host.id})")])
-        await self.launch(interaction.channel, players, host, prize, winner_role)
+        await self.launch(interaction.channel, players, host, prize, winner_role,
+                          catnip_prize=catnip_prize, sponsor=interaction.user)
+
+    @app_commands.command(name="budget", description="See your weekly Hangry Games prize budget and hosting stats")
+    @app_commands.guild_only()
+    async def budget(self, interaction: discord.Interaction):
+        limit = self._budget_limit(interaction.user)
+        rec = self._budget_record(interaction.guild.id, interaction.user.id)
+        host = self._host_record(interaction.guild.id, interaction.user.id)
+        remaining = ("Unlimited" if limit is None else f"{max(0, limit - int(rec.get('spent',0))):,}")
+        allowance = "Unlimited" if limit is None else f"{limit:,}"
+        embed = discord.Embed(title="🍔 Cinnamon's Hangry Games Budget", color=0xFFB02E)
+        embed.add_field(name="Weekly allowance", value=f"{allowance} Catnip")
+        embed.add_field(name="Used", value=f"{int(rec.get('spent',0)):,} Catnip")
+        embed.add_field(name="Remaining", value=f"{remaining} Catnip")
+        embed.add_field(name="Games completed this week", value=str(host.get("completed", 0)))
+        embed.add_field(name="Host bonuses this week", value=f"{int(host.get('bonus',0)):,} Catnip")
+        embed.set_footer(text=f"UTC week {self._week()} • budgets reset every Monday (UTC)")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="leaderboard", description="Top Hangry Games winners in this server")
     @app_commands.guild_only()

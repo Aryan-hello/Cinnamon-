@@ -565,9 +565,9 @@ async def prefix_buy(ctx,item:str,quantity:int=1):
     if not 1 <= quantity <= 99: return await ctx.reply("❌ Quantity must be between 1 and 99.",mention_author=False)
     gid,uid=ctx.guild.id,ctx.author.id; item=item.lower().strip(); item=next((k for k,v in ECONOMY_ITEMS.items() if k==item or v["name"].lower()==item),item); data=ECONOMY_ITEMS.get(item)
     if not data: return await ctx.reply("❌ Item not found. Use `?shop`.",mention_author=False)
-    bal=economy_balance(gid,uid); cost=data["price"]*quantity
+    bal=economy_balance(gid,uid); unit_price=_cm_price(gid,uid,item,data["price"]); cost=unit_price*quantity
     if bal<cost: return await ctx.reply(f"❌ Need {cost:,} Catnip; you have {bal:,}.",mention_author=False)
-    inv=economy_inventory_for(gid,uid); inv[item]=int(inv.get(item,0))+quantity; economy_balances[(gid,uid)]=bal-cost; await achievement_record(gid,uid,"purchase",quantity,spent=cost); await achievement_record(gid,uid,"inventory"); await quest_event(gid,uid,"items_owned",sum(max(0,int(v)) for v in inv.values())); await quest_event(gid,uid,"purchase",quantity,spent=cost); await quest_event(gid,uid,"spent",cost,spent=cost); await achievement_record(gid,uid,"balance"); await quest_event(gid,uid,"balance",bal-cost); await bd_save_data(); await economy_log(gid,title="🛒 Economy purchase",fields=[("User",f"{ctx.author} ({uid})"),("Item",f"{data['name']} (`{item}`)"),("Quantity",quantity),("Unit price",data["price"]),("Deducted",f"-{cost:,} Catnip"),("Balance before",bal),("Balance after",bal-cost),("Item quantity after",inv[item])]); await ctx.reply(f"🛒 Bought {quantity}× {data['name']} for {cost:,} Catnip. Balance: {bal-cost:,}.",mention_author=False)
+    inv=economy_inventory_for(gid,uid); inv[item]=int(inv.get(item,0))+quantity; economy_balances[(gid,uid)]=bal-cost; await achievement_record(gid,uid,"purchase",quantity,spent=cost); await achievement_record(gid,uid,"inventory"); await quest_event(gid,uid,"items_owned",sum(max(0,int(v)) for v in inv.values())); await quest_event(gid,uid,"purchase",quantity,spent=cost); await quest_event(gid,uid,"spent",cost,spent=cost); await achievement_record(gid,uid,"balance"); await quest_event(gid,uid,"balance",bal-cost); await bd_save_data(); await economy_log(gid,title="🛒 Economy purchase",fields=[("User",f"{ctx.author} ({uid})"),("Item",f"{data['name']} (`{item}`)"),("Quantity",quantity),("Unit price",unit_price),("Deducted",f"-{cost:,} Catnip"),("Balance before",bal),("Balance after",bal-cost),("Item quantity after",inv[item])]); await ctx.reply(f"🛒 Bought {quantity}× {data['name']} for {cost:,} Catnip. Balance: {bal-cost:,}.",mention_author=False)
 
 @bot.command(name="give",aliases=["pay","transfer"])
 @commands.guild_only()
@@ -694,7 +694,7 @@ async def on_message(message: discord.Message):
 
     is_ai_channel = guild_id is not None and ai_channels.get(guild_id) == channel_id
 
-    if clean_content and (was_mentioned or was_reply_to_bot or is_ai_channel):
+    if (clean_content or was_mentioned) and (was_mentioned or was_reply_to_bot or is_ai_channel):
         # Keep an always-on AI channel from turning chat bursts into Gemini bursts.
         now = time.monotonic()
         if is_ai_channel and not (was_mentioned or was_reply_to_bot):
@@ -712,20 +712,24 @@ async def on_message(message: discord.Message):
             )
             reaction = "❤️"
         else:
-            async with message.channel.typing():
-                try:
-                    result = await asyncio.to_thread(
-                        ask_gemini, message.channel.id, speaker, clean_content, message.guild
-                    )
-                    ai_reply_success = bool(result.get("reply"))
-                except Exception as e:
-                    log.error(f"Gemini call failed: {e}")
-                    result = {
-                        "reply": "*paws at the screen, confused* ...something smells like tuna gone wrong. Try again in a moment?",
-                        "reaction": "",
-                    }
-            reply = result["reply"]
-            reaction = result["reaction"]
+            mood_reply = await _cm_ping(message) if was_mentioned else None
+            if mood_reply:
+                reply, reaction = mood_reply, "😾"
+            else:
+                async with message.channel.typing():
+                    try:
+                        result = await asyncio.to_thread(
+                            ask_gemini, message.channel.id, speaker, clean_content, message.guild
+                        )
+                        ai_reply_success = bool(result.get("reply"))
+                    except Exception as e:
+                        log.error(f"Gemini call failed: {e}")
+                        result = {
+                            "reply": "*paws at the screen, confused* ...something smells like tuna gone wrong. Try again in a moment?",
+                            "reaction": "",
+                        }
+                reply = result["reply"]
+                reaction = result["reaction"]
 
         channel_memories[message.channel.id].append(("Cinnamon", reply))
 

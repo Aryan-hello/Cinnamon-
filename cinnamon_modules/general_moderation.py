@@ -7,16 +7,14 @@ Do not run this file directly.
 
 @bot.tree.command(name="pet", description="Give Cinnamon some pets")
 async def pet(interaction: discord.Interaction):
-    await cinnamon_send(interaction, 
-        "*melts into a puddle of fluff, purring loudly* Purrrrr... more, please?"
-    )
+    mood = await _cm_action(interaction.guild, interaction.user, "pet") if interaction.guild else ""
+    await cinnamon_send(interaction, "*melts into a puddle of fluff, purring loudly* Purrrrr... more, please?\n" + mood)
 
 
 @bot.tree.command(name="treat", description="Offer Cinnamon a treat")
 async def treat(interaction: discord.Interaction):
-    await cinnamon_send(interaction, 
-        "*ears perk up, pupils go huge* Tuna?? Churu?? ANYTHING?? *sits so politely*"
-    )
+    mood = await _cm_action(interaction.guild, interaction.user, "talk") if interaction.guild else ""
+    await cinnamon_send(interaction, "*ears perk up, pupils go huge* Tuna?? Churu?? ANYTHING?? *sits so politely*\n" + mood)
 
 
 @bot.tree.command(name="nap", description="Let Cinnamon take a nap")

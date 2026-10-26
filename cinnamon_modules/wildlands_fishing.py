@@ -223,7 +223,7 @@ async def _wlf_purchase(interaction, kind, item, quantity=1):
             quantity = 1
         elif item['id'] != 'normal' and not _wlf_merchant_open(g, kind, u):
             return '🔒 Find the Bait Merchant, or finish the story for permanent shop access.'
-        cost = int(item['price']) * quantity
+        cost = _cm_price(g, u, item['id'], item['price']) * quantity
         balance = economy_balance(g, u)
         if balance < cost:
             return f'🌿 **{item["name"]}** costs {cost:,} Catnip; you have {balance:,}.'
@@ -287,7 +287,7 @@ async def _wlf_award_rare_role(interaction, fish):
 def _wlf_roll(rarity_bonus):
     # Weighted rare uplift without allowing chance weights to go negative.
     weights = list(_WLF_CHANCES)
-    bonus = min(5, max(0, float(rarity_bonus)))
+    bonus = min(5, max(-1.5, float(rarity_bonus)))
     shift = bonus * 3.0
     weights[0] -= shift
     weights[2] += shift * .25
@@ -458,7 +458,7 @@ async def fishing_cast(interaction: discord.Interaction):
         return await interaction.response.send_message('🐟 Out of bait! Gather with `/wildlands gather`, or buy bait using `/fishing buy-bait`.', ephemeral=True)
     bait = next(b for b in _WLF_BAIT if b['id'] == bait_id)
     rod = next((r for r in _WLF_RODS if r['id'] == p['rod']), _WLF_RODS[0])
-    idx = _wlf_roll(rod['bonus'] + bait['bonus'])
+    idx = _wlf_roll(rod['bonus'] + bait['bonus'] + _cm_fishing_bonus(g))
     fish_key = f'{p["area"]}:{idx}'
     fish = _WLF_FISH[fish_key]
     # Commit state *before* role granting so a missing Manage Roles permission
@@ -685,10 +685,10 @@ class _WLFCatalog(discord.ui.View):
             text += '\nEach area has six exclusive fish. Use `/fishing cast` to discover them.'
             title = '🐟 ' + item['name']
         elif self.kind == 'rod':
-            text = f'**Price:** {item["price"]:,} Catnip\n**Rarity boost:** +{item["bonus"]:.1f}\n\n{item["description"]}'
+            text = f'**Price:** {_cm_price(self.guild_id, self.user_id, item["id"], item["price"]):,} Catnip\n**Rarity boost:** +{item["bonus"]:.1f}\n\n{item["description"]}'
             title = '🎣 ' + item['name']
         else:
-            text = f'**Price:** {item["price"]:,} Catnip each\n**Rarity boost:** +{item["bonus"]:.1f}\n\n{item["description"]}'
+            text = f'**Price:** {_cm_price(self.guild_id, self.user_id, item["id"], item["price"]):,} Catnip each\n**Rarity boost:** +{item["bonus"]:.1f}\n\n{item["description"]}'
             title = '🪱 ' + item['name']
         e = _wlf_embed(title, text)
         e.set_footer(text=f'Cinnamon Wildlands • {self.index+1}/{len(items)} • {self.rarity if self.kind == "fish" else self.kind.title()}')
