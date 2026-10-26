@@ -1,5 +1,7 @@
 # Cinnamon — main features release
 
+> **Security & UX release (October 26, 2026):** Fixes negative-Catnip transfer exploit; Cinnamon now answers only when pinged, replied to or directly called, with safe rare no-ping cameos. Admin-confirmed @everyone is the only mass-ping path. /setup has an optional Hangry channel picker, private rod/bait merchant shops, and Mood logs. Fishing gets bait selection and interactive reeling; story and dashboard received major UI improvements. Before public rollout, follow [CINNAMON_FINAL_DEPLOYMENT.md](CINNAMON_FINAL_DEPLOYMENT.md) and back up your persistent state.
+
 > **Cinnamon social events (October 26, 2026):** Surprise Hangry Games now have random 1–2-hour scheduling, a two-minute Join window, exactly two Hangry Games role pings, and a 1,000–2,500 Catnip winner reward. Cinnamon also asks occasional optional questions, celebrates big moments, and logs mood/favourite/nice/naughty records in #cinnamon-stuff-logs. Re-run `/setup` after deploying and use `/cinnamon-events notify` to opt in. See [CINNAMON_SOCIAL_EVENTS.md](CINNAMON_SOCIAL_EVENTS.md).
 
 > **Cinnamon mood & Hangry Games update (October 26, 2026):** `/mood status`, `/mood talk`, `/mood play`, and `/mood apologize` manage Cinnamon's playful server mood and temporary Naughty List. Mood modifies main-shop and merchant prices and fishing rarity odds. Hangry Games staff can add an optional Catnip winner prize under a weekly hosting budget; see [CINNAMON_MOOD_HANGRY_UPDATE.md](CINNAMON_MOOD_HANGRY_UPDATE.md) for rules and safety limits.

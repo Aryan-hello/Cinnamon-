@@ -406,8 +406,23 @@ async def economy_shop_cmd(interaction: discord.Interaction):
     )
 
 
+async def cinnamon_item_autocomplete(interaction: discord.Interaction, current: str):
+    """Search current item names; no manually memorised inventory IDs."""
+    term = (current or "").lower().strip()
+    options = []
+    for item_id, item in ECONOMY_ITEMS.items():
+        name = str(item.get("name", item_id))
+        if term and term not in item_id.lower() and term not in name.lower():
+            continue
+        options.append(app_commands.Choice(name=f"{name[:78]} ({item_id})"[:100], value=item_id))
+        if len(options) >= 25:
+            break
+    return options
+
+
 @economy_group.command(name="buy", description="Buy an item with Catnip")
-@app_commands.describe(item="Item ID or item name from /economy shop", quantity="How many to buy")
+@app_commands.describe(item="Search the item by name", quantity="How many to buy")
+@app_commands.autocomplete(item=cinnamon_item_autocomplete)
 @app_commands.guild_only()
 async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity: int = 1):
     guild_id, user_id = interaction.guild.id, interaction.user.id
@@ -488,8 +503,12 @@ async def economy_work_cmd(interaction: discord.Interaction):
 
 @economy_group.command(name="give", description="Give Catnip to another member")
 @app_commands.guild_only()
-async def economy_give_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
+async def economy_give_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, 10000000]):
     guild_id = interaction.guild.id
+    # Defence in depth: client-side range validation is not a substitute for
+    # server-side checks. A negative transfer used to CREATE Catnip.
+    if not isinstance(amount, int) or not 1 <= amount <= 10000000:
+        return await cinnamon_send(interaction, "🐈 Transfers must be between 1 and 10,000,000 Catnip.", ephemeral=True)
     if member.bot:
         await cinnamon_send(interaction, "❌ Bot accounts can't receive Catnip.", ephemeral=True)
         return
@@ -540,12 +559,12 @@ async def economy_leaderboard_cmd(interaction: discord.Interaction):
 
 @economy_group.command(name="feed", description="Give Cinnamon an item")
 @app_commands.describe(item="Item to give Cinnamon", quantity="How many to give")
-@app_commands.choices(item=[app_commands.Choice(name=v["name"], value=k) for k, v in ECONOMY_ITEMS.items()])
+@app_commands.autocomplete(item=cinnamon_item_autocomplete)
 @app_commands.guild_only()
-async def economy_feed_cmd(interaction: discord.Interaction, item: app_commands.Choice[str], quantity: app_commands.Range[int, 1, 99] = 1):
+async def economy_feed_cmd(interaction: discord.Interaction, item: str, quantity: app_commands.Range[int, 1, 99] = 1):
     try:
         guild_id, user_id = interaction.guild.id, interaction.user.id
-        item_id = str(item.value)
+        item_id = str(item).strip().lower()
         data = ECONOMY_ITEMS.get(item_id)
         if not data:
             await cinnamon_send(interaction, "❌ That item no longer exists. Refresh the command choices and try again.", ephemeral=True)
@@ -877,8 +896,9 @@ async def collect_cmd(interaction: discord.Interaction):
 @economy_group.command(name="item-add", description="Admin: add an item directly to a member's inventory")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.describe(member="Member receiving the item", item="Item ID or item name", quantity="Number of items to add")
-async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: int = 1):
+@app_commands.describe(member="Member receiving the item", item="Search item by name", quantity="Number of items to add")
+@app_commands.autocomplete(item=cinnamon_item_autocomplete)
+async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_commands.Range[int, 1, 10000] = 1):
     item_id = item.lower().strip()
     if item_id not in ECONOMY_ITEMS:
         matches = [k for k, v in ECONOMY_ITEMS.items() if v["name"].lower() == item_id]
@@ -903,8 +923,9 @@ async def economy_item_add_cmd(interaction: discord.Interaction, member: discord
 @economy_group.command(name="item-remove", description="Admin: remove an item from a member's inventory")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.describe(member="Member losing the item", item="Item ID or item name", quantity="Number of items to remove")
-async def economy_item_remove_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: int = 1):
+@app_commands.describe(member="Member losing the item", item="Search item by name", quantity="Number of items to remove")
+@app_commands.autocomplete(item=cinnamon_item_autocomplete)
+async def economy_item_remove_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_commands.Range[int, 1, 10000] = 1):
     item_id = item.lower().strip()
     if item_id not in ECONOMY_ITEMS:
         matches = [k for k, v in ECONOMY_ITEMS.items() if v["name"].lower() == item_id]
@@ -932,7 +953,7 @@ async def economy_item_remove_cmd(interaction: discord.Interaction, member: disc
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(item_id="Unique shop ID", name="Item name", price="Price in Catnip", description="Optional item description", per_person_limit="Optional maximum quantity one member can own", emoji="Optional emoji")
-async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: str, name: str, price: int, description: str | None = None, per_person_limit: int | None = None, emoji: str = "🐾"):
+async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: str, name: str, price: app_commands.Range[int, 1, 10000000], description: str | None = None, per_person_limit: int | None = None, emoji: str = "🐾"):
     item_id = re.sub(r"[^a-z0-9_-]", "", item_id.lower())[:32]
     if not item_id or item_id in ECONOMY_ITEMS:
         await cinnamon_send(interaction, "❌ That item ID is invalid or already exists.", ephemeral=True)
@@ -973,7 +994,10 @@ async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: 
         await cinnamon_send(interaction, "❌ Choose at least one property to edit.", ephemeral=True)
         return
     if name is not None: item["name"] = name[:80]
-    if price is not None: item["price"] = int(price)
+    if price is not None:
+        if not 1 <= price <= 10000000:
+            return await cinnamon_send(interaction, "Item price must be 1–10,000,000 Catnip.", ephemeral=True)
+        item["price"] = int(price)
     if description is not None: item["description"] = description[:300]
     if per_person_limit is not None: item["max_per_person"] = int(per_person_limit)
     if emoji is not None: item["emoji"] = emoji[:8]
@@ -983,6 +1007,7 @@ async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: 
 
 
 @economy_group.command(name="remove-item-shop", description="Admin: remove an item from the Catnip shop")
+@app_commands.autocomplete(item_id=autocomplete_shop_item_ids)
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(item_id="Item ID to remove", remove_from_inventories="Whether all copies should also be removed from member inventories")

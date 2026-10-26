@@ -228,6 +228,22 @@ def dashboard_state_provider() -> dict:
         "cancel_giveaway": cancel_giveaway, "create_giveaway": _create_giveaway,
         "validate_giveaway_config": _validate_giveaway_config,
         "hg_cog": hg,
+        # Guild-scoped Cinnamon Mind, Wildlands, Hangry and merchant state.
+        "advanced_features_data": advanced_features_data,
+        "cinnamon_social": advanced_features_data.setdefault("cinnamon_social_v1", {}),
+        "cinnamon_moods": advanced_features_data.setdefault("cinnamon_mood_v1", {}),
+        "cinnamon_wildlands_fishing": advanced_features_data.setdefault("wildlands_fishing_v1", {}),
+        "cinnamon_wildlands_story": advanced_features_data.setdefault("wildlands_story_v2", {}),
+        "wlf_refresh_channel": _wlf_refresh_channel,
+        "wlf_active": _wlf_active,
+        "wlf_server": _wlf_server,
+        "wlf_merchant_names": _WLF_MERCHANTS,
+        "wlf_shop_names": _WLF_SHOP_NAMES,
+        "wlf_rods": _WLF_RODS,
+        "wlf_bait": _WLF_BAIT,
+        "wlf_fish": _WLF_FISH,
+        "cm_tier": _cm_tier,
+        "cp_favourites": _cp_favourites,
     }
 
 

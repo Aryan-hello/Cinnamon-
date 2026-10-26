@@ -236,7 +236,14 @@ async def cinnamon_mood_status(interaction: discord.Interaction):
         role = discord.utils.get(interaction.guild.roles, name=_CM_NAUGHTY_ROLE)
         if role and role in interaction.user.roles:
             await _cm_clear_naughty(interaction.guild, interaction.user)
-    await interaction.response.send_message(desc + "\nUse /mood talk, /mood play, /pet or /economy feed to change her mood.", ephemeral=True)
+    palette = {"delighted":0x45A66A,"normal":0xD97732,"grumpy":0xBD5448}
+    card = discord.Embed(title="🐈 Cinnamon's Mood · " + tier.title(),
+                         description=desc, color=palette[tier])
+    card.add_field(name="🛒 Shop",value={"delighted":"10% sale; possible 25% flash discount","normal":"Standard prices","grumpy":"+20% prices"}[tier])
+    card.add_field(name="🎣 Fishing luck",value={"delighted":"Boosted","normal":"Standard","grumpy":"Reduced"}[tier])
+    card.add_field(name="💬 Make Cinnamon smile",value="/mood talk · /mood play · /pet · /economy feed",inline=False)
+    card.set_footer(text="Cinnamon Mind • Naughty List expires automatically")
+    await interaction.response.send_message(embed=card, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 @_mood_group.command(name="talk", description="Talk to Cinnamon and help her calm down")

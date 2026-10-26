@@ -198,7 +198,7 @@ def _page(body, title="Cinnamon Dashboard", status=200):
         """<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='color-scheme' content='light'><title>{{title}}</title><style>"""
-        + STYLE + """</style></head><body>{{body|safe}}</body></html>""",
+        + STYLE + """</style><script src='/static/dashboard-search.js' defer></script></head><body>{{body|safe}}</body></html>""",
         title=title, body=body,
     ), status
 
@@ -248,6 +248,23 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 @media(orientation:landscape) and (max-height:500px) and (max-width:900px){
   .side{position:relative}
 }
+/* Lovable consultation: calm cream/orange, clear card hierarchy, accessible controls. */
+:root{--focus:#1f5fbf;--surface2:#fffaf2;--accent:#a9531a}
+body{font-size:16px;line-height:1.52}
+h1,h2,.stat{font-family:"Trebuchet MS",system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:-.035em}
+.main{max-width:1240px}.card{box-shadow:0 2px 0 #e4d5c0,0 7px 18px #38251d10}
+.card h2{font-size:20px;line-height:1.25}.stat{font-weight:850}
+.btn{min-height:44px;background:#a9531a}
+.btn:hover{background:#84401a}
+.btn.secondary{background:#fff7ec;color:#432817}
+.field input,.field select,.field textarea{min-height:44px}
+.nav a{min-height:44px}
+:focus-visible{outline:3px solid var(--focus)!important;outline-offset:2px!important}
+.card .toggle{min-height:44px}
+.pill{font-size:12px}
+.searchable-select{display:grid;gap:6px;margin-bottom:9px}
+.searchable-select input{min-height:40px;width:100%;background:#fffaf2;border:1px solid var(--line);border-radius:8px;padding:9px}
+@media(max-width:650px){.hero{flex-direction:column;align-items:flex-start}.heroimg{align-self:flex-end}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
 /* Mobile navigation drawer: keep every category reachable on short screens. */
 .mobile-nav-toggle{display:none;border:1px solid var(--line);background:var(--white);color:var(--brown);border-radius:10px;min-height:42px;min-width:44px;padding:8px 12px;font-size:20px;line-height:1;cursor:pointer}
@@ -278,7 +295,7 @@ def _header():
 
 
 def _nav(guild_id, tab):
-    items = [("overview", "⌂", "Overview"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
+    items = [("overview", "⌂", "Overview"), ("mind", "🐈", "Cinnamon Mind"), ("wildlands", "🎣", "Wildlands & Fishing"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
     links = "".join(
         f"<a class='{'active' if tab == key else ''}' href='/dashboard?guild_id={guild_id}&tab={key}'><span>{ico}</span>{label}</a>" for key, ico, label in items
     )
@@ -401,6 +418,102 @@ def _dashboard_context():
 
 def _count(mapping, gid):
     return sum(1 for key in mapping if isinstance(key, tuple) and key[0] == gid)
+
+
+def _mind(guild, state):
+    """Server-local personality controls, with clearly locked safety boundaries."""
+    gid = guild.id
+    cfg = state.get("cinnamon_social", {}).get(str(gid), {}) or {}
+    mood = state.get("cinnamon_moods", {}).get(str(gid), {}) or {}
+    score = int(mood.get("score", 0))
+    tier = "Delighted 😻" if score >= 35 else "Grumpy 😾" if score <= -35 else "Normal 🐈"
+    channel = guild.get_channel(int(cfg.get("auto_channel", 0) or 0))
+    next_at = int(cfg.get("next_at", 0) or 0)
+    next_text = dt.datetime.fromtimestamp(next_at, dt.timezone.utc).strftime("%d %b · %H:%M UTC") if next_at > 0 else "Not scheduled"
+    logs = state.get("category_log_channels", {}).get(gid, {})
+    people = cfg.get("people", {}) or {}
+    top = sorted(((str(uid), int(x.get("good", 0))) for uid, x in people.items()),
+                 key=lambda v: -v[1])[:8]
+    ranked = "".join("<div class='toggle'><span><b>" + _esc((guild.get_member(int(uid)).display_name if guild.get_member(int(uid)) else "Member "+uid)) +
+                     "</b><small>" + str(points) + " nice points</small></span></div>" for uid, points in top) or "<p class='muted'>No visitor milestones recorded yet.</p>"
+    name = _channel_select(guild, "channel_id", cfg.get("auto_channel"), allow_none=False)
+    toggles = "".join(
+        "<label class='toggle'><input type='checkbox' name='" + key + "'" + (" checked" if cfg.get(key, default) else "") +
+        "><span><b>" + label + "</b><small>" + desc + "</small></span></label>"
+        for key,default,label,desc in [
+            ("auto_enabled", False, "Automatic Hangry Games", "One game every 1–2 hours; two role pings maximum; no admin budget used."),
+            ("cameos_enabled", True, "Rare jealous one-liners", "Maximum one six-hour cameo per server; never tags anyone."),
+            ("questions_enabled", True, "Funny questions after being called", "One per person per day; members can individually opt out."),
+        ])
+    form = ("<div class='field'><label>Surprise game destination</label>" + name +
+            "<small>Choose an existing public channel by name. Cinnamon must be able to send there.</small></div>" + toggles)
+    log_text = "".join("<div class='toggle'><b>" + _esc(label) + "</b><span>" +
+                       _esc(guild.get_channel(logs.get(cat)).mention if logs.get(cat) and guild.get_channel(logs.get(cat)) else "Run /setup") +
+                       "</span></div>" for cat,label in [("stuff","Personality"),("mood","Mood & Naughty List")])
+    return (f"<h1>🐈 Cinnamon Mind</h1><p class='muted'>Cinnamon's playful character, with hard limits on what she may do."
+            f" AI writes dialogue; it cannot independently transfer Catnip, punish users or broadcast @everyone.</p>"
+            f"<div class='grid'><article class='card third'><div class='statlabel'>Current mood</div><div class='stat'>{_esc(tier)}</div><p class='muted'>Score {score:+d}</p></article>"
+            f"<article class='card third'><div class='statlabel'>Next surprise game</div><div class='stat' style='font-size:18px'>{_esc(next_text)}</div></article>"
+            f"<article class='card third'><div class='statlabel'>Favourite visitors</div><div class='stat'>{len(top)}</div></article>"
+            f"<article class='card half'><h2>Autonomy & gameplay</h2>{_form(gid,'mind_settings',form,'Save Cinnamon settings')}</article>"
+            f"<article class='card half'><h2>Safety lock</h2><p class='pill good'>🔒 AI @everyone: disabled</p>"
+            f"<p class='muted'>Mass announcements require Discord Administrator + an explicit 60-second confirmation in Discord. "
+            f"Conversation participation requires a direct ping, reply or Cinnamon's name; voluntary jealousy is only a rare one-line aside.</p>"
+            f"<p class='muted'>No AI-driven moderation or Catnip grants.</p></article>"
+            f"<article class='card half'><h2>Favourite people</h2>{ranked}</article>"
+            f"<article class='card half'><h2>Cinnamon's private logs</h2>{log_text}"
+            f"<p class='muted'>Use /recall to fill missing mood/visitor snapshots without overwriting live state.</p></article></div>")
+
+
+def _wildlands(guild, state):
+    gid = guild.id
+    fish = state.get("cinnamon_wildlands_fishing", {}).get(str(gid), {}) or {}
+    story = state.get("cinnamon_wildlands_story", {}).get(str(gid), {}) or {}
+    windows = fish.get("merchant_windows", {}) or {}
+    now = time.time()
+    cards = []
+    for kind,label,name in (("rod","Fishing Rod Merchant","fishing-rod-merchant"),
+                            ("bait","Fishing Bait Merchant","fishing-bait-merchant")):
+        rec = windows.get(kind, {}) or {}
+        ch = guild.get_channel(int(rec.get("channel_id", 0) or 0))
+        if ch is None:
+            ch = next((c for c in guild.text_channels if c.name == name), None)
+        ends = float(rec.get("ends_at", 0) or 0)
+        is_public = bool(rec.get("manual_public", False) or ends > now)
+        status = "Public" if is_public else "Private"
+        ends_text = ("Until staff closes" if rec.get("manual_public") else
+                     dt.datetime.fromtimestamp(ends,dt.timezone.utc).strftime("%H:%M UTC") if ends > now else "—")
+        finder = rec.get("finder_id")
+        finder_name = guild.get_member(int(finder)).display_name if str(finder).isdigit() and guild.get_member(int(finder)) else "No discoverer"
+        opts = "".join("<option value='" + k + "'>" + text + "</option>" for k,text in [
+            ("private","Hide from visitors"),("two_hours","Open for two hours"),("public","Keep public")])
+        content = ("<input type='hidden' name='merchant_kind' value='" + kind + "'>"
+                   "<div class='field'><label>Merchant visibility</label><select name='access'>" + opts +
+                   "</select></div><label class='toggle'><input type='checkbox' name='announce'><span>"
+                   "<b>Announce to merchant role</b><small>Off by default. Opening a channel never automatically pings a role.</small></span></label>")
+        cards.append("<article class='card half'><h2>🏪 " + _esc(label) + "</h2><p class='pill " +
+                     ("good" if is_public else "warn") + "'>" + status + "</p><div class='toggle'>"
+                     "<b>Channel</b><span>" + _esc(ch.mention if ch else "Run /setup") +
+                     "</span></div><div class='toggle'><b>Closes</b><span>" + _esc(ends_text) +
+                     "</span></div><div class='toggle'><b>Finder</b><span>" + _esc(finder_name) +
+                     "</span></div>" + _form(gid,"merchant_access",content,"Apply merchant access") + "</article>")
+    catch_count = sum(sum(int(v) for v in p.get("fish", {}).values()) for p in fish.get("members", {}).values())
+    finished = sum(bool(p.get("complete", False)) for p in story.values())
+    rod_rows = "".join("<tr><td>" + _esc(x.get("name")) + "</td><td>" + str(x.get("price",0)) +
+                       "</td><td>" + str(x.get("bonus",0)) + "</td></tr>" for x in state.get("wlf_rods", []))
+    return (f"<h1>🎣 Wildlands & Fishing</h1><p class='muted'>The Billion-Catnip Mystery, fishing, equipment and "
+            f"the two private merchant channels. Shop visibility is managed separately from finder commissions.</p>"
+            f"<div class='grid'><article class='card third'><div class='statlabel'>Story explorers</div><div class='stat'>{len(story)}</div></article>"
+            f"<article class='card third'><div class='statlabel'>Story completions</div><div class='stat'>{finished}</div></article>"
+            f"<article class='card third'><div class='statlabel'>Fish caught</div><div class='stat'>{catch_count}</div></article>"
+            + "".join(cards) +
+            f"<article class='card full'><h2>🎣 Fishing gear</h2><p class='muted'>Use /fishing cast to choose your bait and reel technique."
+            f" Mood influences rarity, but technique does not change the underlying fish roll.</p>"
+            f"<div class='tablewrap'><table><thead><tr><th>Rod</th><th>Base Catnip</th><th>Luck bonus</th></tr></thead>"
+            f"<tbody>{rod_rows}</tbody></table></div></article>"
+            f"<article class='card full'><h2>📖 Wildlands story</h2><p class='muted'>26 choice-driven scenes across six regions."
+            f" Story progress is tracked per member and the 100,000 Catnip finale remains a one-time reward."
+            f" Members continue their personal story with /wildlands story.</p></article></div>")
 
 
 def _overview(guild, state):
@@ -526,6 +639,15 @@ def _economy(guild,state):
     income_add="<div class='formgrid'><div class='field'><label>Income role</label>"+_role_select(guild,"role_id",allow_none=False)+"</div><div class='field'><label>Catnip per collection</label><input name='amount' type='number' min='1' max='1000000' value='100' required></div><div class='field'><label>Interval</label><input name='interval' type='number' min='1' max='1000' value='1' required></div><div class='field'><label>Time unit</label><select name='unit'><option value='minute'>Minutes</option><option value='hour'>Hours</option><option value='day'>Days</option><option value='week'>Weeks</option></select></div></div>"
     income_card="<article class='card full'><h2>Role-based Catnip income</h2><p class='muted'>Members with a configured role can collect its recurring income using Cinnamon's existing collect command. Role income changes are audited and saved to the bot's data store.</p>"+(''.join(income_rows) or "<p class='muted'>No role income rules configured.</p>")+_form(gid,"economy_income_add",income_add,"Save role income")+"</article>"
     body=f"<h1>Catnip economy</h1><p class='muted'>Manage the shared shop catalog, role income rules, and live economy statistics. Member balances and inventories are preserved.</p><div class='grid'><article class='card third'><div class='statlabel'>Economy members</div><div class='stat'>{users:,}</div></article><article class='card third'><div class='statlabel'>Total Catnip in circulation</div><div class='stat'>{total:,} 🌿</div></article><article class='card third'><div class='statlabel'>Shop items</div><div class='stat'>{len(shop)}</div></article><article class='card half'><h2>Top balances</h2><div class='tablewrap'><table><thead><tr><th>#</th><th>Member</th><th>Balance</th><th>Items</th></tr></thead><tbody>{rows}</tbody></table></div></article><article class='card half'><h2>Economy configuration</h2><p class='muted'>Daily reward: <b>{int(state.get('ECONOMY_DAILY_REWARD',150)):,} Catnip</b></p><p class='muted'>Work range: <b>{int(state.get('ECONOMY_WORK_MIN',50)):,}–{int(state.get('ECONOMY_WORK_MAX',150)):,}</b></p><p class='muted'>Work cooldown: <b>{int(state.get('ECONOMY_WORK_COOLDOWN',600))//60} minutes</b></p><p class='muted'>Economy logs: {_esc(guild.get_channel(state.get('economy_log_channels',{}).get(gid)).mention if guild.get_channel(state.get('economy_log_channels',{}).get(gid)) else 'Not configured')}</p></article><article class='card full'><h2>Catnip shop catalog</h2><div class='tablewrap'><table><thead><tr><th>Item</th><th colspan='2'>Edit fields</th></tr></thead><tbody>{item_rows}</tbody></table></article>{add_card}{income_card}</div>"
+    gift_form=(
+        "<div class='field'><label>Choose a member by name</label>" +
+        _member_select(guild,"member_id",allow_none=True,size=7) +
+        "<small>Names are displayed, Discord IDs are submitted internally. This transfers Catnip from your OWN wallet.</small></div>"
+        "<div class='field'><label>Catnip amount</label><input type='number' name='amount' min='1' max='10000000' required></div>"
+        "<input type='hidden' name='transfer_nonce' value='" + _esc(secrets.token_urlsafe(24)) + "'>"
+        "<p class='muted'>A positive-only transfer; saved with an idempotency key and recorded in Economy Logs.</p>")
+    body=body.replace("</div>", "</div>", 1)  # keep old layout unchanged.
+    body=body[:-6] + "<article class='card full'><h2>🌿 Give Catnip to a member</h2>" + _form(gid,"economy_transfer",gift_form,"Transfer Catnip") + "</article></div>"
     return body
 
 
@@ -540,15 +662,15 @@ def _automation(guild,state):
     def pill(on): return "<span class='pill good'>Active</span>" if on else "<span class='pill warn'>Not configured</span>"
     cards=(f"<article class='card third'><div class='statlabel'>Welcome messages</div><div class='stat'>{'On' if welcome else 'Off'}</div>{pill(bool(welcome))}</article>"
            f"<article class='card third'><div class='statlabel'>Goodbye messages</div><div class='stat'>{'On' if goodbye else 'Off'}</div>{pill(bool(goodbye))}</article>"
-           f"<article class='card third'><div class='statlabel'>Always-on Cinnamon</div><div class='stat'>{'On' if ai else 'Off'}</div>{pill(bool(ai))}</article>"
+           f"<article class='card third'><div class='statlabel'>Cinnamon conversations</div><div class='stat'>{'On' if ai else 'Off'}</div>{pill(bool(ai))}</article>"
            f"<article class='card third'><div class='statlabel'>AutoMod rules</div><div class='stat'>{'On' if automod else 'Off'}</div>{pill(bool(automod))}</article>"
            f"<article class='card third'><div class='statlabel'>Anti-raid</div><div class='stat'>{'On' if antiraid.get('enabled') else 'Off'}</div>{pill(bool(antiraid.get('enabled')))}</article>"
            f"<article class='card third'><div class='statlabel'>Recurring giveaways</div><div class='stat'>{len(schedules)}</div>{pill(bool(schedules))}</article>")
     welcome_content="<div class='formgrid'><div class='field'><label>Welcome channel</label>"+_channel_select(guild,"channel_id",welcome.get("channel_id"))+"</div><div class='field'><label>Message template</label><input name='message' maxlength='800' required value='"+_esc(welcome.get("message","Welcome {member} to {server}! 🐾"))+"'></div></div><p class='muted'>Supported placeholders: {member} and {server}.</p>"
     goodbye_content="<div class='formgrid'><div class='field'><label>Goodbye channel</label>"+_channel_select(guild,"channel_id",goodbye.get("channel_id"))+"</div><div class='field'><label>Message template</label><input name='message' maxlength='800' required value='"+_esc(goodbye.get("message","Goodbye {member}. Thanks for visiting {server}! 🐾"))+"'></div></div><p class='muted'>Supported placeholders: {member} and {server}.</p>"
-    ai_content="<div class='field'><label>Always-on Cinnamon channel</label>"+_channel_select(guild,"channel_id",ai)+"</div><p class='muted'>Cinnamon responds to regular messages in the selected channel. Use the Community & AI page to configure related options.</p>"
+    ai_content="<div class='field'><label>Cinnamon conversation channel (invitation-only)</label>"+_channel_select(guild,"channel_id",ai)+"</div><p class='muted'>Cinnamon only responds when someone pings, replies to her, or calls her by name. Use the Community & AI page to configure related options.</p>"
     quick="<div class='actions'><a class='btn secondary' href='/dashboard?guild_id="+str(gid)+"&tab=moderation'>Configure AutoMod & anti-raid</a><a class='btn secondary' href='/dashboard?guild_id="+str(gid)+"&tab=giveaways'>Manage giveaway schedules</a><a class='btn secondary' href='/dashboard?guild_id="+str(gid)+"&tab=system'>Manage logs & recovery</a></div>"
-    return ("<h1>Automation Studio</h1><p class='muted'>A single place to monitor Cinnamon's event-driven automations and jump into their detailed settings. Changes are permission-checked and saved through the existing bot data store.</p><div class='grid'>"+cards+"</div><div class='grid'><article class='card half'><h2>Welcome automation</h2>"+_form(gid,"welcome",welcome_content,"Save welcome rule")+"</article><article class='card half'><h2>Goodbye automation</h2>"+_form(gid,"goodbye",goodbye_content,"Save goodbye rule")+"</article><article class='card full'><h2>Always-on Cinnamon</h2>"+_form(gid,"ai_channel",ai_content,"Save AI channel")+"</article><article class='card full'><h2>Rule management</h2><p class='muted'>AutoMod, anti-raid, XP filters, scheduled giveaways, and log routing are managed by their dedicated pages. This hub shows their current state without pretending disabled rules are running.</p>"+quick+"</article></div>")
+    return ("<h1>Automation Studio</h1><p class='muted'>A single place to monitor Cinnamon's event-driven automations and jump into their detailed settings. Changes are permission-checked and saved through the existing bot data store.</p><div class='grid'>"+cards+"</div><div class='grid'><article class='card half'><h2>Welcome automation</h2>"+_form(gid,"welcome",welcome_content,"Save welcome rule")+"</article><article class='card half'><h2>Goodbye automation</h2>"+_form(gid,"goodbye",goodbye_content,"Save goodbye rule")+"</article><article class='card full'><h2>Cinnamon conversations</h2>"+_form(gid,"ai_channel",ai_content,"Save AI channel")+"</article><article class='card full'><h2>Rule management</h2><p class='muted'>AutoMod, anti-raid, XP filters, scheduled giveaways, and log routing are managed by their dedicated pages. This hub shows their current state without pretending disabled rules are running.</p>"+quick+"</article></div>")
 
 
 def _giveaways(guild,state):
@@ -637,7 +759,7 @@ def _community(guild,state):
         msg=_esc(cfg.get("message", ""))
         fields=f"<div class='field'><label>Post in</label>{ch}</div><div class='field'><label>Message template</label><textarea name='message' maxlength='800' placeholder='Use {{member}} and {{server}}'>{msg}</textarea><small>Supported placeholders: {{member}} and {{server}}.</small></div>"
         return f"<article class='card half'><h2>{kind}</h2><p class='muted'>Current: {_esc(guild.get_channel(cfg.get('channel_id')).mention if cfg.get('channel_id') and guild.get_channel(cfg.get('channel_id')) else 'Disabled')}</p>"+_form(gid,action,fields)+("<form method='post' action='/dashboard/action'>"+_csrf_input()+f"<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='{action}_disable'><button class='btn secondary small' type='submit'>Disable</button></form>" if cfg else "")+"</article>"
-    ai_form="<div class='field'><label>Always-on AI channel</label>"+_channel_select(guild,"channel_id",ai)+"</div>"
+    ai_form="<div class='field'><label>Cinnamon conversation channel (responds when called)</label>"+_channel_select(guild,"channel_id",ai)+"</div>"
     log_form="<div class='field'><label>Main moderation and error log channel</label>"+_channel_select(guild,"channel_id",logs)+"</div>"
     ai_card="<article class='card half'><h2>AI channel</h2><p class='muted'>Current: "+_esc(guild.get_channel(ai).mention if ai and guild.get_channel(ai) else 'Not set')+"</p>"+_form(gid,"ai_channel",ai_form)+"</article>"
     log_card="<article class='card half'><h2>Main logging</h2><p class='muted'>Current: "+_esc(guild.get_channel(logs).mention if logs and guild.get_channel(logs) else 'Not set')+"</p>"+_form(gid,"log_channel",log_form)+"</article>"
@@ -683,6 +805,8 @@ async def _dashboard_setup(guild,state):
         ("cinnamon-achievement-logs","Achievement unlocks, rewards, roles and recovery."),
         ("cinnamon-quest-logs","Daily/weekly quest rotations, completions and rewards."),
         ("cinnamon-friendship-logs","Cinnamon Friendship level changes and related events."),
+        ("cinnamon-stuff-logs","Cinnamon personality and favourites."),
+        ("cinnamon-mood-logs","Private Cinnamon mood and Naughty List logs."),
         ("cinnamon-community-logs","Giveaway and poll events."),
         ("cinnamon-role-logs","Role management events."),
         ("cinnamon-setup-logs","Setup and configuration changes."),
@@ -690,7 +814,8 @@ async def _dashboard_setup(guild,state):
         ("cinnamon-dashboard-logs","Dashboard changes, Message Studio sends and audit events."),
         ("cinnamon-welcome","Cinnamon member welcome messages."),
         ("cinnamon-goodbye","Cinnamon member goodbye messages."),
-        ("cinnamon-ai","Cinnamon's always-on AI chat channel."),
+        ("cinnamon-ai","Cinnamon's chat channel (responds only when invited)."),
+        ("cinnamon-games","Public Hangry Games lobby and Catnip prizes."),
     ]
     channels={}
     for name,topic in specs:
@@ -702,17 +827,33 @@ async def _dashboard_setup(guild,state):
                 await ch.set_permissions(guild.default_role,view_channel=False)
                 if guild.me: await ch.set_permissions(guild.me,view_channel=True,send_messages=True,embed_links=True,read_message_history=True)
             except Exception: pass
+        if name=="cinnamon-games":
+            await ch.set_permissions(guild.default_role,view_channel=True,send_messages=False,read_message_history=True)
+            if guild.me:
+                await ch.set_permissions(guild.me,view_channel=True,send_messages=True,embed_links=True,read_message_history=True)
         channels[name]=ch
     normal=state.get("ACHIEVEMENTS",{}); secret=state.get("SECRET_ACHIEVEMENTS",{}); admin=state.get("ADMIN_ACHIEVEMENT",{}) or {}
-    role_names=sorted({str(a.get("role")).strip() for a in list(normal.values())+list(secret.values())+[admin] if a.get("role")})+ ["Quest Master"]
+    role_names=sorted({str(a.get("role")).strip() for a in list(normal.values())+list(secret.values())+[admin] if a.get("role")})+ ["Quest Master","Hangry Games","Fishing Rod Merchant","Fishing Bait Merchant","Wildlands • Treasure Hunter","Cinnamon's Naughty List"]
     existing={r.name:r for r in guild.roles if not r.managed}
     for name in dict.fromkeys(role_names):
         if name not in existing:
-            try: await guild.create_role(name=name,reason="Cinnamon achievement/quest setup")
+            try: await guild.create_role(name=name,reason="Cinnamon achievement/quest setup",mentionable=(name=="Hangry Games"))
             except Exception: pass
     gid=guild.id; state.setdefault("log_channels",{})[gid]=channels["cinnamon-logs"].id; state.setdefault("economy_log_channels",{})[gid]=channels["cinnamon-economy"].id
-    state.setdefault("category_log_channels",{})[gid]={"moderation":channels["cinnamon-logs"].id,"economy":channels["cinnamon-economy"].id,"ai":channels["cinnamon-ai-logs"].id,"levels":channels["cinnamon-level-logs"].id,"achievements":channels["cinnamon-achievement-logs"].id,"quests":channels["cinnamon-quest-logs"].id,"friendship":channels["cinnamon-friendship-logs"].id,"community":channels["cinnamon-community-logs"].id,"roles":channels["cinnamon-role-logs"].id,"setup":channels["cinnamon-setup-logs"].id,"general":channels["cinnamon-general-logs"].id,"dashboard":channels["cinnamon-dashboard-logs"].id}
+    state.setdefault("category_log_channels",{})[gid]={"moderation":channels["cinnamon-logs"].id,"economy":channels["cinnamon-economy"].id,"ai":channels["cinnamon-ai-logs"].id,"levels":channels["cinnamon-level-logs"].id,"achievements":channels["cinnamon-achievement-logs"].id,"quests":channels["cinnamon-quest-logs"].id,"friendship":channels["cinnamon-friendship-logs"].id,"stuff":channels["cinnamon-stuff-logs"].id,"mood":channels["cinnamon-mood-logs"].id,"community":channels["cinnamon-community-logs"].id,"roles":channels["cinnamon-role-logs"].id,"setup":channels["cinnamon-setup-logs"].id,"general":channels["cinnamon-general-logs"].id,"dashboard":channels["cinnamon-dashboard-logs"].id}
     state.setdefault("ai_channels",{})[gid]=channels["cinnamon-ai"].id
+    social=state.setdefault("cinnamon_social",{}).setdefault(str(gid),{"people":{}})
+    previous=guild.get_channel(int(social.get("auto_channel",0) or 0))
+    if previous is None:
+        social["auto_channel"]=channels["cinnamon-games"].id
+    if not social.get("setup_configured",False):
+        social["auto_enabled"]=True
+        social["setup_configured"]=True
+    social.setdefault("next_at",time.time()+__import__("random").randint(3600,7200))
+    refresh=state.get("wlf_refresh_channel")
+    if refresh:
+        for kind in ("rod","bait"):
+            await refresh(guild,kind)
     state.setdefault("welcome_config",{})[gid]={"channel_id":channels["cinnamon-welcome"].id,"message":"🐾 Welcome {member} to **{server}**! Cinnamon hopes you brought snacks."}
     state.setdefault("goodbye_config",{})[gid]={"channel_id":channels["cinnamon-goodbye"].id,"message":"🐾 {member} left **{server}**. Cinnamon will miss the head pats!"}
     hg=state.get("hg_cog")
@@ -720,8 +861,8 @@ async def _dashboard_setup(guild,state):
         hg.hg_log_channels[gid]=channels["cinnamon-hangry"].id; hg.log_enabled[gid]=True
         try: await hg._save()
         except Exception: pass
-    _save()
-    return f"Cinnamon setup complete: managed log channels and {len(dict.fromkeys(role_names))} non-level reward roles are ready."
+    await state["bd_save_data"]()
+    return "Cinnamon setup complete: mood/personality logs, public games and private fishing merchants are ready."
 
 
 def _moderate(guild, actor_id, form):
@@ -1138,10 +1279,10 @@ def dashboard_home():
         return _page("<main class='main'>"+_header()+body+"</main>")
     guild_id=request.args.get("guild_id") or eligible[0]["id"]
     guild,guild_item=_get_access(sid,guilds,guild_id)
-    tab=request.args.get("tab","overview"); allowed={"overview","automation","moderation","engagement","achievements","quests","friendship","economy","giveaways","hangry","community","message_studio","analytics","activity_logs","system"}
+    tab=request.args.get("tab","overview"); allowed={"overview","mind","wildlands","automation","moderation","engagement","achievements","quests","friendship","economy","giveaways","hangry","community","message_studio","analytics","activity_logs","system"}
     if tab not in allowed: tab="overview"
     state=_state(); notice=session.pop("dashboard_notice",None)
-    pages={"overview":_overview,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
+    pages={"overview":_overview,"mind":_mind,"wildlands":_wildlands,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
     return _shell(guild,eligible,tab,pages[tab](guild,state),notice)
 
 
@@ -1161,7 +1302,102 @@ def dashboard_action():
         actor=_tokens[sid]["user"].get("username","dashboard user")
         if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
-        if action in {"welcome","goodbye"}:
+        if action=="mind_settings":
+            raw=request.form.get("channel_id","").strip()
+            if not raw.isdigit(): raise ValueError("Choose a valid Hangry Games channel.")
+            channel=guild.get_channel(int(raw))
+            if not isinstance(channel,__import__("discord").TextChannel):
+                raise ValueError("Choose a text channel in this server.")
+            if not channel.permissions_for(guild.default_role).view_channel:
+                raise ValueError("Surprise games must run in a public channel. Members need to see the join button.")
+            if not guild.me or not channel.permissions_for(guild.me).send_messages:
+                raise ValueError("Cinnamon must be able to post in the selected game channel.")
+            flags={k:k in request.form for k in ("auto_enabled","cameos_enabled","questions_enabled")}
+            async def apply_mind():
+                social=state["cinnamon_social"].setdefault(str(gid),{"people":{}})
+                old=social.get("auto_channel")
+                social.update(flags)
+                social["auto_channel"]=channel.id
+                if old!=channel.id or (flags["auto_enabled"] and not social.get("next_at")):
+                    social["next_at"]=time.time()+__import__("random").randint(3600,7200)
+                await state["bd_save_data"]()
+            _run_bot(apply_mind())
+            _audit(gid,actor,"Dashboard: Cinnamon Mind settings updated",
+                   f"Hangry channel #{channel.name}; flags={flags}.")
+            session["dashboard_notice"]="Cinnamon Mind controls saved."
+        elif action=="merchant_access":
+            kind=request.form.get("merchant_kind","")
+            mode=request.form.get("access","")
+            if kind not in ("rod","bait") or mode not in ("private","two_hours","public"):
+                raise ValueError("Choose a known fishing merchant and visibility option.")
+            announce="announce" in request.form
+            async def apply_merchant():
+                import discord
+                import time as _time
+                root=state["cinnamon_wildlands_fishing"].setdefault(str(gid),{})
+                window=root.setdefault("merchant_windows",{}).setdefault(kind,{})
+                old=dict(window)
+                window.update({"finder_id":None,"manual_public":mode=="public",
+                               "ends_at":_time.time()+7200 if mode=="two_hours" else 0,
+                               "closed_notice":mode=="private"})
+                try:
+                    channel=await state["wlf_refresh_channel"](guild,kind)
+                    await state["bd_save_data"]()
+                except Exception:
+                    window.clear();window.update(old)
+                    raise
+                if mode!="private":
+                    role=discord.utils.get(guild.roles,name=state["wlf_merchant_names"][kind])
+                    line="🐈 The "+state["wlf_merchant_names"][kind]+" is open in "+channel.mention+"!"
+                    if mode=="two_hours": line+=" Two-hour limited opening."
+                    if announce and role: line=role.mention+" "+line
+                    await channel.send(line,allowed_mentions=discord.AllowedMentions(
+                        everyone=False,users=False,roles=[role] if announce and role else []))
+                return channel.name
+            name=_run_bot(apply_merchant(),timeout=40)
+            _audit(gid,actor,"Dashboard: fishing merchant access",
+                   f"Merchant={kind}; action={mode}; channel=#{name}; role announcement={announce}.")
+            session["dashboard_notice"]="Merchant access updated for #"+name+"."
+        elif action=="economy_transfer":
+            target_raw=request.form.get("member_id","").strip()
+            nonce=request.form.get("transfer_nonce","").strip()
+            try: amount=int(request.form.get("amount",""))
+            except ValueError: raise ValueError("Catnip amount must be a positive whole number.")
+            if not 1<=amount<=10000000 or not target_raw.isdigit() or len(nonce)<16 or len(nonce)>100:
+                raise ValueError("Choose a member and 1–10,000,000 Catnip.")
+            recipient=guild.get_member(int(target_raw))
+            actor_id=int(_tokens[sid]["user"]["id"])
+            if not recipient or recipient.bot or recipient.id==actor_id:
+                raise ValueError("Choose a different non-bot member by name.")
+            async def transfer():
+                lock=getattr(_bot,"_dashboard_catnip_lock",None)
+                if lock is None:
+                    lock=asyncio.Lock()
+                    _bot._dashboard_catnip_lock=lock
+                async with lock:
+                    root=state["advanced_features_data"].setdefault("dashboard_transfer_ids_v1",{})
+                    used=root.setdefault(str(gid),[])
+                    if nonce in used: raise ValueError("This transfer was already submitted.")
+                    balances=state["economy_balances"]
+                    before=int(balances.get((gid,actor_id),0))
+                    if before<amount: raise ValueError("Your own Catnip balance is too low for that gift.")
+                    recv_before=int(balances.get((gid,recipient.id),0))
+                    balances[(gid,actor_id)]=before-amount
+                    balances[(gid,recipient.id)]=recv_before+amount
+                    used.append(nonce)
+                    del used[:-100]
+                    await state["bd_save_data"]()
+                    return before,recv_before
+            before,recv_before=_run_bot(transfer())
+            send_log=state["send_log"]
+            _run_bot(send_log(gid,title="🎁 Catnip transfer",category="economy",fields=[
+                ("From",f"{actor} ({actor_id})"),("To",f"{recipient} ({recipient.id})"),
+                ("Amount",f"{amount:,} Catnip"),("Sender after",str(before-amount)),
+                ("Recipient after",str(recv_before+amount))]))
+            _audit(gid,actor,"Dashboard: Catnip gift",
+                   f"Sent {amount:,} Catnip to {recipient} ({recipient.id}) from actor's wallet.")
+            session["dashboard_notice"]=f"Sent {amount:,} Catnip to {recipient.display_name}."
+        elif action in {"welcome","goodbye"}:
             channel_id=request.form.get("channel_id","").strip(); message=request.form.get("message","")
             config_key="welcome_config" if action=="welcome" else "goodbye_config"
             if not channel_id: raise ValueError("Choose a channel or use Disable.")

@@ -97,14 +97,21 @@ class HGLobbyView(discord.ui.View):
         self.message: discord.Message | None = None
 
     def embed(self) -> discord.Embed:
-        title = "🐾 Hangry Games — Giveaway" if self.prize or self.catnip_prize else "🐾 Hangry Games"
-        names = "\n".join(m.display_name for m in self.players.values()) or "*(none yet)*"
-        desc = f"Host: {self.host.mention}\nTap **Join 🐾** to enter — no backing out!\n\n**Players:**\n{names}"
-        if self.prize:
-            desc += f"\n\n**Prize:** {self.prize}"
+        auto = getattr(self, "auto_managed", False)
+        title = "🍖 CINNAMON'S SURPRISE HANGRY GAMES" if auto else (
+            "🍖 Hangry Games · Giveaway" if self.prize or self.catnip_prize else "🍖 Hangry Games")
+        names = "\n".join("• " + m.display_name[:70] for m in list(self.players.values())[:15]) or "Nobody yet. *Cinnamon looks offended.*"
+        e = discord.Embed(title=title,
+            description="**Tap Join 🐾 to enter** — Cinnamon will handle the chaos.\n\n" + names[:2000],
+            color=0xD89138)
+        e.add_field(name="👥 Joined", value=f"{len(self.players)} cats", inline=True)
         if self.catnip_prize:
-            desc += f"\n🌿 **Winner Catnip reward:** {self.catnip_prize:,} (budget by {self.sponsor.mention})"
-        return discord.Embed(title=title, description=desc, color=0xFFB02E)
+            e.add_field(name="🌿 Winner's Catnip", value=f"**{self.catnip_prize:,}**", inline=True)
+        if self.prize:
+            e.add_field(name="🏆 Other prize", value=str(self.prize)[:1024], inline=False)
+        e.add_field(name="⏳ Lobby", value="2 minutes to join" if auto else "Host starts when ready", inline=True)
+        e.set_footer(text="Cinnamon Hangry Games • One champion • Cheer responsibly 🐈")
+        return e
 
     @discord.ui.button(label="Join 🐾", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, _: discord.ui.Button):

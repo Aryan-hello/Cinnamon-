@@ -4,6 +4,7 @@ Loaded last in main.py, after mood, economy, Hangry Games, and setup.
 import json as _cp_json
 import random as _cp_random
 import time as _cp_time
+import re as _cp_re
 
 _CP_LOG = "🐈 Cinnamon personality snapshot"
 _CP_LAUNCHING = set()  # prevent duplicate /test-game and scheduler racing before post.send()
@@ -32,6 +33,45 @@ def _cp_favourites(gid):
 def _cp_nice(gid, uid):
     return int(_cp_person(gid, uid).get("good", 0)) >= 5 and not _cm_naughty(gid, uid)
 
+def _cp_direct_name(content):
+    """A direct address, not incidental 'cinnamon rolls' or quoted text."""
+    text = str(content or "").strip()[:300].lower()
+    return bool(_cp_re.match(r"^(?:(?:hey|hi|hello|yo|psst)[,! ]+)?cinnamon(?:[!?.,: ]|$)", text)
+                or _cp_re.search(r"\b(?:what about you|and you|your thoughts)[, ]+cinnamon[?.!]*$", text))
+
+
+async def _cp_maybe_cameo(message):
+    """Extremely rare one-line cameo about another cat. Never begins dialogue."""
+    if not message.guild or message.author.bot or not message.content:
+        return False
+    gid, ch = message.guild.id, message.channel
+    s = _cp_server(gid)
+    if not s.get("cameos_enabled", True):
+        return False
+    if (ch.id in disabled_channels[gid] or
+        ch.id in set(category_log_channels.get(gid, {}).values()) or
+        not ch.permissions_for(message.guild.me).send_messages):
+        return False
+    text = message.content.lower()
+    if not _cp_re.search(r"\b(?:another cat|other cat|that cat|cute kitten|adorable kitten)\b", text):
+        return False
+    now = _cp_time.time()
+    key = "cameo_channel_" + str(ch.id)
+    if now - float(s.get("last_cameo", 0)) < 21600 or now - float(s.get(key, 0)) < 21600:
+        return False
+    if _cp_random.random() >= 0.02:
+        return False
+    s["last_cameo"], s[key] = now, now
+    await bd_save_data()
+    try:
+        await ch.send("😾 Oh. We're admiring OTHER cats in this household now. Interesting. *tail flick*",
+                      allowed_mentions=discord.AllowedMentions.none())
+        await _cp_log(gid, "Single voluntary jealousy cameo (no ping)")
+        return True
+    except discord.HTTPException:
+        return False
+
+
 async def _cp_log(gid, event, uid=None):
     """Admin-only absolute snapshots, without members' private message content."""
     if not category_log_channels.get(gid, {}).get("stuff"):
@@ -51,6 +91,11 @@ async def _cp_log(gid, event, uid=None):
         ("Nice list count", str(sum(1 for v in _cp_server(gid)["people"].values()
                                    if int(v.get("good", 0)) >= 5))),
     ])
+    # Dedicated mood-only channel as well as the master Stuff audit channel.
+    if any(word in str(event).lower() for word in ("mood", "naughty", "sad", "jealous", "apolog")):
+        await send_log(gid, title="😺 Cinnamon mood & personality change", category="mood",
+                       fields=[("Event", str(event)[:140]), ("User ID", str(uid or 0)),
+                               ("Mood", _cm_tier(gid)), ("Score", str(int(mood.get("score", 0))))])
 
 async def _cp_good_event(guild, member, reason, points=1):
     if not guild or not member or member.bot:
@@ -314,7 +359,13 @@ async def cinnamon_events_status(interaction: discord.Interaction):
     fav = _cp_favourites(interaction.guild.id)
     desc += ("😻 Favourite visitors: " + ", ".join(f"<@{uid}>" for uid, _ in fav)
              if fav else "😺 No favourite visitors ranked yet!")
-    await interaction.response.send_message(desc, ephemeral=True,
+    card = discord.Embed(title="🎮 Cinnamon's Surprise Games",
+                         description=desc, color=0xD89138)
+    card.add_field(name="🌿 Winner prize",value="1,000–2,500 Catnip",inline=True)
+    card.add_field(name="⏳ Join window",value="2 minutes · 2 role pings",inline=True)
+    card.add_field(name="🛡️ Safety",value="Autonomous @everyone is disabled. Personal questions are optional.",inline=False)
+    card.set_footer(text="Cinnamon Mind • /cinnamon-events notify to receive game alerts")
+    await interaction.response.send_message(embed=card, ephemeral=True,
                                             allowed_mentions=discord.AllowedMentions.none())
 
 @_cp_group.command(name="auto", description="Admin: enable or disable Cinnamon surprise games")
@@ -409,6 +460,77 @@ async def cinnamon_events_test_game(interaction: discord.Interaction):
         return await interaction.response.send_message("🐈 Run /setup to create the Hangry Games role.", ephemeral=True)
     asyncio.create_task(_cp_auto_start(interaction.guild, channel, cog))
     await interaction.response.send_message("🎮 Test lobby starting now! Two minutes to join. Only two role alerts.", ephemeral=True)
+
+
+@_cp_group.command(name="cameos", description="Admin: allow rare non-pinging Cinnamon jealousy jokes")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+async def cinnamon_events_cameos(interaction: discord.Interaction, enabled: bool):
+    s = _cp_server(interaction.guild.id)
+    s["cameos_enabled"] = bool(enabled)
+    await bd_save_data()
+    await _cp_log(interaction.guild.id, "Jealous cameo " + ("enabled" if enabled else "disabled"))
+    await interaction.response.send_message(
+        "🐈 Cinnamon's optional one-line cameos are " + ("ON" if enabled else "OFF") +
+        ". Max one per server per six hours, no member pings.", ephemeral=True)
+
+
+class _CPAdminAnnouncementConfirm(discord.ui.View):
+    def __init__(self, owner_id, channel, content):
+        super().__init__(timeout=60)
+        self.owner_id, self.channel, self.content = owner_id, channel, content
+        self.sent = False
+
+    @discord.ui.button(label="Confirm @everyone announcement", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.owner_id or not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("Only the requesting administrator can confirm.", ephemeral=True)
+        if self.sent:
+            return await interaction.response.send_message("Already sent.", ephemeral=True)
+        s = _cp_server(interaction.guild.id)
+        if _cp_time.time() - float(s.get("last_mass_ping", 0)) < 900:
+            return await interaction.response.send_message("Safety cooldown: @everyone limited to once per 15 minutes per server.", ephemeral=True)
+        if self.channel.guild.id != interaction.guild.id:
+            return await interaction.response.send_message("Channel mismatch.", ephemeral=True)
+        self.sent = True
+        button.disabled = True
+        try:
+            # ONLY this admin-confirmed path can opt in to @everyone.
+            await self.channel.send("@everyone " + self.content,
+                 allowed_mentions=discord.AllowedMentions(everyone=True, users=False, roles=False, replied_user=False))
+            s["last_mass_ping"] = _cp_time.time()
+            await bd_save_data()
+            await _cp_log(interaction.guild.id, "Administrator confirmed @everyone announcement", interaction.user.id)
+            await interaction.response.edit_message(content="✅ Announcement sent. Audited in Cinnamon Stuff Logs.", view=self)
+        except discord.HTTPException:
+            self.sent = False
+            button.disabled = False
+            await interaction.response.send_message("Discord could not deliver the announcement; verify channel permissions.", ephemeral=True)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.owner_id:
+            return await interaction.response.send_message("This confirmation is not yours.", ephemeral=True)
+        await interaction.response.edit_message(content="Announcement cancelled.", view=None)
+        self.stop()
+
+
+@_cp_group.command(name="announce", description="Admin only: send a confirmed mass announcement")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(administrator=True)
+async def cinnamon_events_announce(interaction: discord.Interaction, channel: discord.TextChannel,
+                                  text: app_commands.Range[str, 1, 1700]):
+    if channel.guild.id != interaction.guild.id or not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("Administrator required in this server.", ephemeral=True)
+    if not channel.permissions_for(interaction.guild.me).send_messages:
+        return await interaction.response.send_message("Cinnamon cannot send in that channel.", ephemeral=True)
+    # Remove any spoofed mention tokens from the requested text before prefixing.
+    clean = _cp_re.sub(r"@(?:everyone|here)", "everyone", text, flags=_cp_re.IGNORECASE)
+    view = _CPAdminAnnouncementConfirm(interaction.user.id, channel, clean)
+    await interaction.response.send_message(
+        f"⚠️ **This WILL ping @everyone in {channel.mention}.**\n"
+        f"Preview: {clean[:800]}\nConfirm within 60 seconds or cancel.",
+        view=view, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 bot.tree.add_command(_cp_group)
