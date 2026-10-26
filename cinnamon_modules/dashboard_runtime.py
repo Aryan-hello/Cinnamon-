@@ -231,6 +231,7 @@ def dashboard_state_provider() -> dict:
         # Guild-scoped Cinnamon Mind, Wildlands, Hangry and merchant state.
         "advanced_features_data": advanced_features_data,
         "cinnamon_social": advanced_features_data.setdefault("cinnamon_social_v1", {}),
+        "cinnamon_actions": advanced_features_data.setdefault("cinnamon_actions_v1", {}),
         "cinnamon_moods": advanced_features_data.setdefault("cinnamon_mood_v1", {}),
         "cinnamon_wildlands_fishing": advanced_features_data.setdefault("wildlands_fishing_v1", {}),
         "cinnamon_wildlands_story": advanced_features_data.setdefault("wildlands_story_v2", {}),
