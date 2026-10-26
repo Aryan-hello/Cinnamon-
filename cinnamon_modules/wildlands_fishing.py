@@ -448,9 +448,9 @@ async def fishing_merchant_access(interaction: discord.Interaction,
                                   merchant: app_commands.Choice[str],
                                   access: app_commands.Choice[str], announce: bool = False):
     perms = interaction.user.guild_permissions
-    if not (perms.administrator or perms.manage_channels or perms.moderate_members):
+    if not perms.administrator:
         return await interaction.response.send_message(
-            "🐈 Only staff with Manage Channels or Timeout Members permission can change shop visibility.", ephemeral=True)
+            "🐈 Only server Administrators can change shop visibility.", ephemeral=True)
     kind, action = merchant.value, access.value
     if kind not in _WLF_MERCHANTS or action not in ("two_hours", "public", "private"):
         return await interaction.response.send_message("Invalid merchant selection.", ephemeral=True)
