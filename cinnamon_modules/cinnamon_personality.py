@@ -91,6 +91,11 @@ async def _cp_log(gid, event, uid=None):
         ("Nice list count", str(sum(1 for v in _cp_server(gid)["people"].values()
                                    if int(v.get("good", 0)) >= 5))),
     ])
+    # Dedicated mood-only channel as well as the master Stuff audit channel.
+    if any(word in str(event).lower() for word in ("mood", "naughty", "sad", "jealous", "apolog")):
+        await send_log(gid, title="😺 Cinnamon mood & personality change", category="mood",
+                       fields=[("Event", str(event)[:140]), ("User ID", str(uid or 0)),
+                               ("Mood", _cm_tier(gid)), ("Score", str(int(mood.get("score", 0))))])
 
 async def _cp_good_event(guild, member, reason, points=1):
     if not guild or not member or member.bot:
