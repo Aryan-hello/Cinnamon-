@@ -488,8 +488,12 @@ async def economy_work_cmd(interaction: discord.Interaction):
 
 @economy_group.command(name="give", description="Give Catnip to another member")
 @app_commands.guild_only()
-async def economy_give_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
+async def economy_give_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, 10000000]):
     guild_id = interaction.guild.id
+    # Defence in depth: client-side range validation is not a substitute for
+    # server-side checks. A negative transfer used to CREATE Catnip.
+    if not isinstance(amount, int) or not 1 <= amount <= 10000000:
+        return await cinnamon_send(interaction, "🐈 Transfers must be between 1 and 10,000,000 Catnip.", ephemeral=True)
     if member.bot:
         await cinnamon_send(interaction, "❌ Bot accounts can't receive Catnip.", ephemeral=True)
         return
