@@ -342,13 +342,15 @@ def _all_leaf_commands() -> list:
 
 @bot.tree.command(name="setup", description="Guided first-time setup: create Cinnamon's channels and configure logging")
 @app_commands.guild_only()
-async def setup_cmd(interaction: discord.Interaction):
+async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: discord.TextChannel | None = None):
     # Do the permission checks inside the command instead of decorator checks.
     # This guarantees that /setup is actually invokable and lets Cinnamon give
     # a useful error instead of Discord silently rejecting the interaction.
     guild = interaction.guild
     if guild is None:
         return await interaction.response.send_message("🐾 /setup can only be used inside a server.", ephemeral=True)
+    if hangry_games_channel is not None and hangry_games_channel.guild.id != guild.id:
+        return await interaction.response.send_message("🐈 Choose a channel in this server.", ephemeral=True)
     user_perms = interaction.user.guild_permissions
     if not (user_perms.manage_guild or user_perms.administrator):
         return await interaction.response.send_message(
@@ -389,6 +391,7 @@ async def setup_cmd(interaction: discord.Interaction):
         ("cinnamon-quest-logs", "Daily/weekly quest rotations, progress, completions, rewards, QP changes, and quest-shop purchases."),
         ("cinnamon-friendship-logs", "Cinnamon Friendship XP, level changes, and related interactions."),
         ("cinnamon-stuff-logs", "Private mood, favourite, nice/naughty, questions and personality event logs."),
+        ("cinnamon-mood-logs", "Private detailed Cinnamon mood changes, naughty status and forgiveness logs."),
         ("cinnamon-community-logs", "Giveaway and poll events."),
         ("cinnamon-role-logs", "Role management and reaction-role configuration events."),
         ("cinnamon-setup-logs", "Welcome/goodbye, setup, and logging configuration changes."),
@@ -456,6 +459,16 @@ async def setup_cmd(interaction: discord.Interaction):
                     await role.edit(mentionable=True, reason="Allow Cinnamon's two Hangry Games opt-in alerts")
                 except discord.HTTPException as exc:
                     log.warning("Could not enable Hangry Games role mentions in guild %s: %s", guild.id, exc)
+    # Pre-create both fishing merchant channels PRIVATELY. Keep any active
+    # two-hour discovery windows unchanged when /setup runs again.
+    merchant_channels = {}
+    for merchant_kind in _WLF_MERCHANTS:
+        try:
+            merchant_channels[merchant_kind] = await _wlf_refresh_channel(guild, merchant_kind)
+        except (discord.HTTPException, PermissionError) as exc:
+            failed.append(f"#{_WLF_SHOP_NAMES[merchant_kind]}: {type(exc).__name__}")
+            log.warning("Merchant setup failed for %s: %s", merchant_kind, exc)
+
     # Always restore the dedicated level log route, even on servers that ran an
     # older setup before the level-log channel existed. _ensure_setup_channel
     # above has already created/reused cinnamon-level-logs.
@@ -475,6 +488,7 @@ async def setup_cmd(interaction: discord.Interaction):
         "quests": channels["cinnamon-quest-logs"].id,
         "friendship": channels["cinnamon-friendship-logs"].id,
         "stuff": channels["cinnamon-stuff-logs"].id,
+        "mood": channels["cinnamon-mood-logs"].id,
         "community": channels["cinnamon-community-logs"].id,
         "roles": channels["cinnamon-role-logs"].id,
         "setup": channels["cinnamon-setup-logs"].id,
@@ -483,7 +497,11 @@ async def setup_cmd(interaction: discord.Interaction):
     }
     ai_channels[guild.id] = channels["cinnamon-ai"].id
     social = _cp_server(guild.id)
-    social["auto_channel"] = channels["cinnamon-games"].id
+    previous_channel = guild.get_channel(int(social.get("auto_channel", 0) or 0))
+    chosen_channel = hangry_games_channel or previous_channel or channels["cinnamon-games"]
+    if not chosen_channel.permissions_for(guild.me).send_messages or not chosen_channel.permissions_for(guild.default_role).view_channel:
+        raise RuntimeError("Hangry Games channel must be public and allow Cinnamon to send messages. Choose another channel in /setup.")
+    social["auto_channel"] = chosen_channel.id
     if not social.get("setup_configured", False):
         social["auto_enabled"] = True
         social["setup_configured"] = True
@@ -536,7 +554,10 @@ async def setup_cmd(interaction: discord.Interaction):
     embed.add_field(name="📜 Quest logs", value=channels["cinnamon-quest-logs"].mention, inline=True)
     embed.add_field(name="🐾 Friendship logs", value=channels["cinnamon-friendship-logs"].mention, inline=True)
     embed.add_field(name="😾 Cinnamon stuff logs", value=channels["cinnamon-stuff-logs"].mention, inline=True)
-    embed.add_field(name="🎮 Surprise games", value=channels["cinnamon-games"].mention, inline=True)
+    embed.add_field(name="🐈 Mood logs", value=channels["cinnamon-mood-logs"].mention, inline=True)
+    for _kind, _channel in merchant_channels.items():
+        embed.add_field(name="🏪 " + ("Rod" if _kind=="rod" else "Bait") + " Merchant", value=_channel.mention + (" • **Public**" if _wlf_active(guild.id,_kind) else " • **Private**"), inline=True)
+    embed.add_field(name="🎮 Surprise games", value=chosen_channel.mention, inline=True)
     embed.add_field(name="🎉 Community logs", value=channels["cinnamon-community-logs"].mention, inline=True)
     embed.add_field(name="🏷️ Role logs", value=channels["cinnamon-role-logs"].mention, inline=True)
     embed.add_field(name="⚙️ Setup logs", value=channels["cinnamon-setup-logs"].mention, inline=True)
@@ -692,7 +713,7 @@ _HELP_HANGRY = (
     "`/hangrygames stats` · `leaderboard` — wins, kills, and top winners\n"
     "`/hangrygames cancel` — stop the game or lobby in this channel\n"
     "`/hangrygames budget` — weekly hosted Catnip prize budget and completed games\n"
-    "`/cinnamon-events status` · `auto` · `channel` · `notify` · `questions` · `people` · `test-game` — surprise games and interactions"
+    "`/cinnamon-events status` · `auto` · `channel` · `notify` · `questions` · `cameos` · `announce` · `people` · `test-game` — surprise games and interactions"
 )
 _HELP_MODS = (
     "`/warn` · `/warnings` — warn someone / see their warnings\n"
