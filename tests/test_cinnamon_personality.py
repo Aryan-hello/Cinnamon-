@@ -114,6 +114,7 @@ class PersonalityTests(unittest.TestCase):
                 async def edit(self, **kwargs): edited.append(kwargs)
             class Channel:
                 id = 63
+                mention = "<#63>"
                 async def send(self, content, **kwargs):
                     emitted.append(content)
                     return Post()
