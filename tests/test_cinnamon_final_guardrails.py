@@ -76,7 +76,7 @@ class FinalPreDeploymentTests(unittest.TestCase):
         fish = source("wildlands_fishing.py")
         self.assertIn("manual_public", fish)
         self.assertIn('name="merchant-access"', fish)
-        self.assertIn("perms.moderate_members", fish)
+        self.assertIn("perms.administrator", fish)
         self.assertIn("finder_id", fish)
         ns=extracted("wildlands_fishing.py", {"_wlf_active"},
                      {"_wlf_window":lambda gid,k: {"ends_at":0,"manual_public":True},
