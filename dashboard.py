@@ -248,6 +248,23 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 @media(orientation:landscape) and (max-height:500px) and (max-width:900px){
   .side{position:relative}
 }
+/* Lovable consultation: calm cream/orange, clear card hierarchy, accessible controls. */
+:root{--focus:#1f5fbf;--surface2:#fffaf2;--accent:#a9531a}
+body{font-size:16px;line-height:1.52}
+h1,h2,.stat{font-family:"Trebuchet MS",system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:-.035em}
+.main{max-width:1240px}.card{box-shadow:0 2px 0 #e4d5c0,0 7px 18px #38251d10}
+.card h2{font-size:20px;line-height:1.25}.stat{font-weight:850}
+.btn{min-height:44px;background:#a9531a}
+.btn:hover{background:#84401a}
+.btn.secondary{background:#fff7ec;color:#432817}
+.field input,.field select,.field textarea{min-height:44px}
+.nav a{min-height:44px}
+:focus-visible{outline:3px solid var(--focus)!important;outline-offset:2px!important}
+.card .toggle{min-height:44px}
+.pill{font-size:12px}
+.searchable-select{display:grid;gap:6px;margin-bottom:9px}
+.searchable-select input{min-height:40px;width:100%;background:#fffaf2;border:1px solid var(--line);border-radius:8px;padding:9px}
+@media(max-width:650px){.hero{flex-direction:column;align-items:flex-start}.heroimg{align-self:flex-end}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
 /* Mobile navigation drawer: keep every category reachable on short screens. */
 .mobile-nav-toggle{display:none;border:1px solid var(--line);background:var(--white);color:var(--brown);border-radius:10px;min-height:42px;min-width:44px;padding:8px 12px;font-size:20px;line-height:1;cursor:pointer}
@@ -278,7 +295,7 @@ def _header():
 
 
 def _nav(guild_id, tab):
-    items = [("overview", "⌂", "Overview"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
+    items = [("overview", "⌂", "Overview"), ("mind", "🐈", "Cinnamon Mind"), ("wildlands", "🎣", "Wildlands & Fishing"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
     links = "".join(
         f"<a class='{'active' if tab == key else ''}' href='/dashboard?guild_id={guild_id}&tab={key}'><span>{ico}</span>{label}</a>" for key, ico, label in items
     )
@@ -1234,10 +1251,10 @@ def dashboard_home():
         return _page("<main class='main'>"+_header()+body+"</main>")
     guild_id=request.args.get("guild_id") or eligible[0]["id"]
     guild,guild_item=_get_access(sid,guilds,guild_id)
-    tab=request.args.get("tab","overview"); allowed={"overview","automation","moderation","engagement","achievements","quests","friendship","economy","giveaways","hangry","community","message_studio","analytics","activity_logs","system"}
+    tab=request.args.get("tab","overview"); allowed={"overview","mind","wildlands","automation","moderation","engagement","achievements","quests","friendship","economy","giveaways","hangry","community","message_studio","analytics","activity_logs","system"}
     if tab not in allowed: tab="overview"
     state=_state(); notice=session.pop("dashboard_notice",None)
-    pages={"overview":_overview,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
+    pages={"overview":_overview,"mind":_mind,"wildlands":_wildlands,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
     return _shell(guild,eligible,tab,pages[tab](guild,state),notice)
 
 
