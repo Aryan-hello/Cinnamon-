@@ -6,6 +6,7 @@ import random as _cp_random
 import time as _cp_time
 
 _CP_LOG = "🐈 Cinnamon personality snapshot"
+_CP_LAUNCHING = set()  # prevent duplicate /test-game and scheduler racing before post.send()
 _CP_QUESTIONS = (
     "Are cucumbers evil or just misunderstood?",
     "Would you rather live in a castle of tuna or a thousand tiny cardboard boxes?",
@@ -197,8 +198,9 @@ async def _cp_recover(guild, limit=1200):
 async def _cp_auto_start(guild, channel, cog):
     """Two role pings ONLY: creation and 30-second warning, then a 2m start."""
     role = discord.utils.get(guild.roles, name="Hangry Games")
-    if not role or not guild.me or cog._busy(channel.id):
+    if not role or not guild.me or cog._busy(channel.id) or channel.id in _CP_LAUNCHING:
         return
+    _CP_LAUNCHING.add(channel.id)
     prize = _cp_random.randint(1000, 2500)
     view = HGLobbyView(cog, guild.me, catnip_prize=prize, sponsor=guild.me)
     view.auto_managed = True
@@ -253,6 +255,8 @@ async def _cp_auto_start(guild, channel, cog):
             cog.lobbies.pop(channel.id, None)
         view.started = True
         view.stop()
+    finally:
+        _CP_LAUNCHING.discard(channel.id)
 
 async def _cp_tick():
     """Persist next-due before opening a lobby; avoid duplicate restart pings."""
