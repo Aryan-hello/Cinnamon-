@@ -122,7 +122,7 @@ async def _cm_action(guild, member, kind, quantity=1):
             state["food_since"], state["food_count"] = now, 0
         state["food_count"] = int(state.get("food_count", 0)) + max(1, int(quantity))
         if state["food_count"] >= 5:
-            _cm_adjust(g, -16)
+            _cm_adjust(g, -45)
             await _cm_set_naughty(guild, member)
             return ("😾 WHY ARE YOU TRYING TO MANIPULATE ME WITH FOOD?! "
                     "I'm a CAT, not a vending machine! You are on my Naughty List for 30 minutes.")
@@ -149,7 +149,15 @@ async def _cm_action(guild, member, kind, quantity=1):
 
 async def _cm_ping(message):
     """Occasional grumpy replies; don't ping users or add a per-message punishment."""
-    if not message.guild or _cm_tier(message.guild.id) != "grumpy":
+    if not message.guild:
+        return None
+    if _cm_naughty(message.guild.id, message.author.id):
+        return random.choice((
+            "😼 Well, WELL. A distinguished member of my Naughty List. Have you considered /mood apologize?",
+            "🐈 I see you, troublemaker. My shop accountant also sees you. Bring toys, not chaos.",
+            "😾 It's you again! Two good deeds and a sincere apology. I believe in character development!",
+        ))
+    if _cm_tier(message.guild.id) != "grumpy":
         return None
     state = _cm_member(message.guild.id, message.author.id)
     now = time.time()
