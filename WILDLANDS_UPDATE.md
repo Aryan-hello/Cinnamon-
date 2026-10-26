@@ -1,47 +1,36 @@
-# Cinnamon: Wildlands — Playable Adventure Update
+# Cinnamon Wildlands — The Treasure Worth Billions (active)
 
-## Design research applied
+**Current code:** `cinnamon_modules/wildlands_story.py`, `cinnamon_modules/wildlands_fishing.py`, and `cinnamon_modules/wildlands_art.py`.
 
-The public documentation of established Discord RPGs illustrates two useful patterns: a clear resource-to-crafting-to-progression loop and a compact Discord-native hub that reduces command memorisation and channel spam. Wildlands applies these broad patterns to Cinnamon rather than copying another game's items, characters, text, or exact progression.
+The former *Wildlands playable adventure* (generic encounters, explorer clues, the forgotten sanctuary, `/adventure ...` commands) has been retired. Its **unloaded** code file `cinnamon_modules/wildlands.py` was removed on October 26, 2026. Another **unloaded** older fishing implementation `cinnamon_modules/fishing.py` (with `/fish ...` and `/cook ...`) was removed. Neither was included in `main.py`'s active module list before cleanup. Their Git history remains available.
 
-## What is included
+## Story
 
-### Explore
+Cinnamon takes the player on a ridiculous six-region treasure hunt for an object she claims is worth **one billion Catnip**. Villain cat Baron Clawdius von Scratch and his assistant Beans stand in the way. The finale reveals that Cinnamon's priceless treasure is an ordinary chew toy Aryan gave her. The actual completion reward is **100,000 Catnip, once per player per server**. The one billion Catnip is a joke, not a payout.
 
-- Six connected areas: Whispering Woods, Quiet Shore, Stoneback Highlands, Moonlit Marsh, Frostfall Pass, and Forgotten Ruins.
-- Encounter prompts with three strategic choices: Gather supplies, Investigate, or Follow tracks.
-- Each choice can give materials and XP; investigation is more clue-oriented, while tracks have a higher-variance path toward secrets.
-- Energy regenerates one point every two minutes. An unfinished encounter can be resumed without paying again.
+- `/wildlands story` — start/resume interactive chapters with decision buttons.
+- `/wildlands story-journal` — review progress and clues.
+- `/wildlands story-help` — learn the rules.
+- Cinnamon sometimes asks players whether they're having fun. If they're bored, she dramatically reminds them about the alleged billion-Catnip treasure.
+- New scene progress is stored separately in `advanced_features_data["wildlands_story_v2"]`, preserving older saved data without executing old code.
 
-### Build and progress
+## Preserved fishing and merchants
 
-- Six resource families across common, coastal, mountain, marsh, cold, and ruin regions.
-- Permanent gear blueprints and camp facilities that affect pack capacity, resource gathering, clues, and food bonuses.
-- Personal XP and levels, clue journal, secret discovery journal, and unlocked map areas.
-- Catnip/material costs for camp upgrades and modest Catnip values for selling excess materials.
+- `/fishing start`, `/fishing cast`, `/fishing locations`, `/fishing travel`, `/fishing journal`, `/fishing inventory`, `/fishing merchants`, `/fishing buy-rod`, `/fishing buy-bait`, `/fishing equip`, `/fishing sell`, and `/fishing setup-roles` remain provided by `wildlands_fishing.py`.
+- `/wildlands gather` and the catalog/gallery commands are also retained.
+- Finding a merchant may open a two-hour server-wide shop in `#fishing-rod-merchant` or `#fishing-bait-merchant`. The discoverer earns 10% Catnip on **other players' purchases in that shop channel during its live window**.
+- Completing the story unlocks permanent access to both merchant channels through the `Wildlands • Treasure Hunter` role.
+- Existing fish, bait, rods, roles, and inventory data are **not deleted by this code cleanup**.
 
-### Connect with existing Cinnamon features
+## Command deduplication
 
-- Keeps the existing fish and cooked dishes in Cinnamon's shared economy inventory.
-- `/adventure pack` consumes one cooked dish for an expedition bonus instead of making a second copy of food.
-- Connects completed exploration, collected materials, clues, secrets, crafted gear, camp upgrades, and area visits to Wildlands achievements and daily/weekly quest options.
-- Keeps first-discovery records per server and shows a Wildlands leaderboard.
-- Stores Wildlands records inside `advanced_features_data` so the existing persistence mechanism saves it with the rest of Cinnamon.
+Cinnamon's slash commands are defined **globally once**. Previous startup code additionally copied every global command into every guild, a plausible cause of duplicate command suggestions. On startup the bot now clears those obsolete *guild-specific copies* and syncs global commands. Two redundant top-level aliases, `/dailyquests` and `/weeklyquests`, were retired; use `/quests daily` and `/quests weekly`. The `/quest` launch command and prefix quest commands remain.
 
-## First play-through
+## Migration / testing
 
-1. `/adventure start`
-2. `/adventure play`
-3. Press **Explore** and choose an encounter approach.
-4. Check **Pack** and **Journal** from the hub.
-5. Use `/adventure recipes` and `/adventure craft` to make gear.
-6. Use `/adventure map` then `/adventure travel` to open new resource regions.
-7. Cook a dish through Cinnamon's existing `/cook make` and pack it before a future expedition with `/adventure pack`.
+- Run automatic unit/integrity checks on GitHub Actions.
+- Test slash-command visibility (including stale Discord client caches), interactive buttons and story rewards, Catnip persistence, role permissions, and the two-hour shop lifecycle on a real Discord guild after deployment.
+- The older `/adventure`, `/fish`, and `/cook` code was **already inactive**, so those commands were not preserved as playable features. If intentionally reintroduced, rebuild them in active modules instead of restoring conflicting old registrations.
+- The old files and documentation remain retrievable through Git history if needed.
 
-## Full command list
-
-`/adventure play`, `/adventure start`, `/adventure help`, `/adventure explore`, `/adventure status`, `/adventure map`, `/adventure travel`, `/adventure inventory`, `/adventure recipes`, `/adventure craft`, `/adventure camp`, `/adventure pack`, `/adventure sell`, `/adventure journal`, `/adventure leaderboard`.
-
-## Deployment / testing note
-
-Run this package in a private Discord test server first. Static Python compilation and AST checks passed, but this environment could not import the full bot because `discord.py` was unavailable and network access to install it was blocked. The live command sync, interaction callbacks, server permissions, and Upstash/Render persistence have not been tested from this workspace.
+**Note:** This document describes source configuration. Passing syntax/static checks does not prove live Discord and Render functionality.
