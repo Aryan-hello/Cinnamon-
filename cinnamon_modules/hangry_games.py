@@ -120,6 +120,8 @@ class HGLobbyView(discord.ui.View):
 
     @discord.ui.button(label="Start 🔴", style=discord.ButtonStyle.danger)
     async def start(self, interaction: discord.Interaction, _: discord.ui.Button):
+        if getattr(self, "auto_managed", False):
+            return await cinnamon_send(interaction, "🐈 I start this one myself after 2 minutes!", ephemeral=True)
         perms = interaction.user.guild_permissions
         if not (perms.manage_messages or perms.moderate_members or perms.administrator):
             return await cinnamon_send(interaction, "Need Manage Messages or Moderate Members to start.", ephemeral=True)
@@ -479,7 +481,11 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                 completed = True
             runner_id = sponsor_id if sponsor_id is not None else host.id
             runner = channel.guild.get_member(runner_id) or host
-            finished_games, appreciation = await self._host_completed(channel.guild.id, runner_id)
+            # Surprise games are Cinnamon-hosted; never credit the bot its own hosting bonus.
+            if self.bot.user and runner_id == self.bot.user.id:
+                finished_games, appreciation = 0, 0
+            else:
+                finished_games, appreciation = await self._host_completed(channel.guild.id, runner_id)
             if appreciation:
                 economy_balances[(channel.guild.id, runner_id)] = economy_balance(channel.guild.id, runner_id) + appreciation
                 await bd_save_data()
@@ -514,6 +520,11 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                 content=winner.mention, embed=winner_embed, view=rematch,
                 allowed_mentions=discord.AllowedMentions(users=True, roles=False),
             )
+            try:
+                await _cp_good_event(channel.guild, winner, "Hangry Games winner", points=2)
+                await _cp_react(channel.guild, winner, channel, "hangry_win")
+            except Exception:
+                log.exception("Optional Cinnamon victory reaction failed")
 
             log_fields = [
                 ("Channel", channel.mention), ("Host", f"{host} ({host.id})"),

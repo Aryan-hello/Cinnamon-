@@ -263,6 +263,7 @@ class CinnamonShopView(discord.ui.LayoutView):
             fresh = CinnamonShopView(guild_id, user_id, self.page)
             await interaction.response.edit_message(view=fresh)
             await interaction.followup.send(f"🛒 Bought **1× {data.get('emoji', '🐾')} {data['name']}** for **{price:,} Catnip**!", ephemeral=True)
+            await _cp_react(interaction.guild, interaction.user, interaction.channel, "big_purchase", value=price)
         return callback
 
     async def _previous_callback(self, interaction: discord.Interaction):
@@ -442,6 +443,7 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
     cinnamon_field(embed, "🌿 New balance", f"**{economy_balances[(guild_id, user_id)]:,} Catnip**", True)
     cinnamon_field(embed, "📦 You now own", f"**{inv[item_id]:,}×**", True)
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
+    await _cp_react(interaction.guild, interaction.user, interaction.channel, "big_purchase", value=cost)
 
 
 @economy_group.command(name="daily", description="Claim your daily Catnip")

@@ -567,7 +567,7 @@ async def prefix_buy(ctx,item:str,quantity:int=1):
     if not data: return await ctx.reply("❌ Item not found. Use `?shop`.",mention_author=False)
     bal=economy_balance(gid,uid); unit_price=_cm_price(gid,uid,item,data["price"]); cost=unit_price*quantity
     if bal<cost: return await ctx.reply(f"❌ Need {cost:,} Catnip; you have {bal:,}.",mention_author=False)
-    inv=economy_inventory_for(gid,uid); inv[item]=int(inv.get(item,0))+quantity; economy_balances[(gid,uid)]=bal-cost; await achievement_record(gid,uid,"purchase",quantity,spent=cost); await achievement_record(gid,uid,"inventory"); await quest_event(gid,uid,"items_owned",sum(max(0,int(v)) for v in inv.values())); await quest_event(gid,uid,"purchase",quantity,spent=cost); await quest_event(gid,uid,"spent",cost,spent=cost); await achievement_record(gid,uid,"balance"); await quest_event(gid,uid,"balance",bal-cost); await bd_save_data(); await economy_log(gid,title="🛒 Economy purchase",fields=[("User",f"{ctx.author} ({uid})"),("Item",f"{data['name']} (`{item}`)"),("Quantity",quantity),("Unit price",unit_price),("Deducted",f"-{cost:,} Catnip"),("Balance before",bal),("Balance after",bal-cost),("Item quantity after",inv[item])]); await ctx.reply(f"🛒 Bought {quantity}× {data['name']} for {cost:,} Catnip. Balance: {bal-cost:,}.",mention_author=False)
+    inv=economy_inventory_for(gid,uid); inv[item]=int(inv.get(item,0))+quantity; economy_balances[(gid,uid)]=bal-cost; await achievement_record(gid,uid,"purchase",quantity,spent=cost); await achievement_record(gid,uid,"inventory"); await quest_event(gid,uid,"items_owned",sum(max(0,int(v)) for v in inv.values())); await quest_event(gid,uid,"purchase",quantity,spent=cost); await quest_event(gid,uid,"spent",cost,spent=cost); await achievement_record(gid,uid,"balance"); await quest_event(gid,uid,"balance",bal-cost); await bd_save_data(); await economy_log(gid,title="🛒 Economy purchase",fields=[("User",f"{ctx.author} ({uid})"),("Item",f"{data['name']} (`{item}`)"),("Quantity",quantity),("Unit price",unit_price),("Deducted",f"-{cost:,} Catnip"),("Balance before",bal),("Balance after",bal-cost),("Item quantity after",inv[item])]); await ctx.reply(f"🛒 Bought {quantity}× {data['name']} for {cost:,} Catnip. Balance: {bal-cost:,}.",mention_author=False); await _cp_react(ctx.guild,ctx.author,ctx.channel,"big_purchase",value=cost)
 
 @bot.command(name="give",aliases=["pay","transfer"])
 @commands.guild_only()
@@ -703,6 +703,7 @@ async def on_message(message: discord.Message):
                 return
             ai_cooldowns[channel_id] = now
 
+        late_note = await _cp_answer(message) if guild_id is not None and clean_content else ""
         ai_reply_success = False
         if is_owner_question(clean_content):
             # Hard-coded so this is always correct, instead of hoping the model remembers.
@@ -731,6 +732,8 @@ async def on_message(message: discord.Message):
                 reply = result["reply"]
                 reaction = result["reaction"]
 
+        if late_note:
+            reply = late_note + reply
         channel_memories[message.channel.id].append(("Cinnamon", reply))
 
         # In the dedicated AI channel, chat naturally instead of quote-replying
@@ -746,6 +749,11 @@ async def on_message(message: discord.Message):
         if guild_id is not None and ai_reply_success:
             await achievement_record(guild_id, message.author.id, "ai_reply", 1)
         await add_reaction_safely(message, reaction)
+        if guild_id is not None and (was_mentioned or was_reply_to_bot):
+            try:
+                await _cp_maybe_question(message)
+            except Exception:
+                log.exception("Cinnamon could not ask her optional question")
 
 
 # ---------------------------------------------------------------------------
