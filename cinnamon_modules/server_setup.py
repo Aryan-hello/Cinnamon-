@@ -680,7 +680,7 @@ _HELP_HANGRY = (
     "`/hangrygames stats` · `leaderboard` — wins, kills, and top winners\n"
     "`/hangrygames cancel` — stop the game or lobby in this channel\n"
     "`/hangrygames budget` — weekly hosted Catnip prize budget and completed games\n"
-    "`/cinnamon-events status` · `auto` · `channel` · `notify` · `questions` — surprise games and interaction controls"
+    "`/cinnamon-events status` · `auto` · `channel` · `notify` · `questions` · `people` · `test-game` — surprise games and interactions"
 )
 _HELP_MODS = (
     "`/warn` · `/warnings` — warn someone / see their warnings\n"
