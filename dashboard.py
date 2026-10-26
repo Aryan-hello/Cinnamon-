@@ -1304,6 +1304,12 @@ def dashboard_action():
         guild,_=_get_access(sid,guilds,guild_id)
         gid=guild.id; state=_state(); action=request.form.get("action","")
         actor=_tokens[sid]["user"].get("username","dashboard user")
+        async def authorize_dashboard_edit():
+            uid=int(_tokens[sid]["user"]["id"])
+            member=guild.get_member(uid) or await guild.fetch_member(uid)
+            return uid == guild.owner_id or bool(member.guild_permissions.administrator)
+        if not _run_bot(authorize_dashboard_edit()):
+            raise PermissionError("Dashboard changes require Administrator permission.")
         if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="mind_settings":
