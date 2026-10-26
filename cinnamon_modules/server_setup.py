@@ -921,6 +921,8 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
 
 async def recall_guild_data(guild: discord.Guild) -> dict:
     """Scan all configured log channels, then merge only safely recoverable state."""
+    # The new Cinnamon Stuff log is recoverable even when its saved channel mapping vanished.
+    social_recovered = await _cp_recover(guild)
     scan = await _scan_recovery_log_channels(guild)
     warnings_restored = await recover_warnings_from_log(guild)
     hg_cog = bot.get_cog("HangryGamesCog")
@@ -935,6 +937,9 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
     await bd_save_data()
     scan.update({
         "warnings": warnings_restored,
+        "cinnamon_people_restored": social_recovered["members"],
+        "cinnamon_mood_restored": social_recovered["mood"],
+        "cinnamon_snapshots_scanned": social_recovered["scanned"],
         "hangry_game_count": game_num,
         "hangry_wins_seen": wins,
         "economy_accounts": economy_restored + scan.get("economy_users_from_events", 0),
@@ -958,7 +963,9 @@ async def recall_cmd(interaction: discord.Interaction):
     await send_log(interaction.guild.id, title="🩹 Log recovery completed", interaction=interaction, category="setup",
                    fields=[("Log embeds scanned", str(result["embeds_scanned"])), ("Warnings restored", str(result["warnings"])),
                            ("XP users restored", str(result["xp_users_restored"])), ("Economy accounts restored", str(result["economy_accounts"])),
-                           ("Hangry games found", str(result["hangry_game_count"]))])
+                           ("Hangry games found", str(result["hangry_game_count"])),
+                           ("Cinnamon people restored", str(result["cinnamon_people_restored"])),
+                           ("Mood restored", str(result["cinnamon_mood_restored"]))])
     titles = sorted(result["title_counts"].items(), key=lambda pair: pair[1], reverse=True)[:8]
     title_summary = "\n".join(f"• {name[:65]}: **{count}**" for name, count in titles) or "• No embeds found in scanned history."
     errors = "\n".join(f"• {e}" for e in result["scan_errors"][:4]) or "None"
@@ -971,7 +978,8 @@ async def recall_cmd(interaction: discord.Interaction):
         f"• XP users restored/updated from absolute XP logs: **{result['xp_users_restored']}**\n"
         f"• Economy accounts filled from events/snapshot: **{result['economy_accounts']}**\n"
         f"• Economy snapshot: {result['economy_snapshot_detail']}\n"
-        f"• Hangry game counter: **#{result['hangry_game_count']}**; wins found: **{result['hangry_wins_seen']}**\n\n"
+        f"• Hangry game counter: **#{result['hangry_game_count']}**; wins found: **{result['hangry_wins_seen']}**\n"
+        f"• Cinnamon Stuff: **{result['cinnamon_people_restored']}** people and **{result['cinnamon_mood_restored']}** mood snapshots restored from **{result['cinnamon_snapshots_scanned']}** records\n\n"
         f"**Most common log types found**\n{title_summary}\n\n"
         f"**Channel scan issues**\n{errors}\n\n"
         "Recovery is idempotent for reconstructed counts and only uses absolute values or snapshots where possible. "
