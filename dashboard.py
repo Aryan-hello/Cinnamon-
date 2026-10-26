@@ -796,6 +796,8 @@ async def _dashboard_setup(guild,state):
         ("cinnamon-achievement-logs","Achievement unlocks, rewards, roles and recovery."),
         ("cinnamon-quest-logs","Daily/weekly quest rotations, completions and rewards."),
         ("cinnamon-friendship-logs","Cinnamon Friendship level changes and related events."),
+        ("cinnamon-stuff-logs","Cinnamon personality and favourites."),
+        ("cinnamon-mood-logs","Private Cinnamon mood and Naughty List logs."),
         ("cinnamon-community-logs","Giveaway and poll events."),
         ("cinnamon-role-logs","Role management events."),
         ("cinnamon-setup-logs","Setup and configuration changes."),
@@ -804,6 +806,7 @@ async def _dashboard_setup(guild,state):
         ("cinnamon-welcome","Cinnamon member welcome messages."),
         ("cinnamon-goodbye","Cinnamon member goodbye messages."),
         ("cinnamon-ai","Cinnamon's always-on AI chat channel."),
+        ("cinnamon-games","Public Hangry Games lobby and Catnip prizes."),
     ]
     channels={}
     for name,topic in specs:
@@ -815,17 +818,33 @@ async def _dashboard_setup(guild,state):
                 await ch.set_permissions(guild.default_role,view_channel=False)
                 if guild.me: await ch.set_permissions(guild.me,view_channel=True,send_messages=True,embed_links=True,read_message_history=True)
             except Exception: pass
+        if name=="cinnamon-games":
+            await ch.set_permissions(guild.default_role,view_channel=True,send_messages=False,read_message_history=True)
+            if guild.me:
+                await ch.set_permissions(guild.me,view_channel=True,send_messages=True,embed_links=True,read_message_history=True)
         channels[name]=ch
     normal=state.get("ACHIEVEMENTS",{}); secret=state.get("SECRET_ACHIEVEMENTS",{}); admin=state.get("ADMIN_ACHIEVEMENT",{}) or {}
-    role_names=sorted({str(a.get("role")).strip() for a in list(normal.values())+list(secret.values())+[admin] if a.get("role")})+ ["Quest Master"]
+    role_names=sorted({str(a.get("role")).strip() for a in list(normal.values())+list(secret.values())+[admin] if a.get("role")})+ ["Quest Master","Hangry Games","Fishing Rod Merchant","Fishing Bait Merchant","Wildlands • Treasure Hunter","Cinnamon's Naughty List"]
     existing={r.name:r for r in guild.roles if not r.managed}
     for name in dict.fromkeys(role_names):
         if name not in existing:
-            try: await guild.create_role(name=name,reason="Cinnamon achievement/quest setup")
+            try: await guild.create_role(name=name,reason="Cinnamon achievement/quest setup",mentionable=(name=="Hangry Games"))
             except Exception: pass
     gid=guild.id; state.setdefault("log_channels",{})[gid]=channels["cinnamon-logs"].id; state.setdefault("economy_log_channels",{})[gid]=channels["cinnamon-economy"].id
-    state.setdefault("category_log_channels",{})[gid]={"moderation":channels["cinnamon-logs"].id,"economy":channels["cinnamon-economy"].id,"ai":channels["cinnamon-ai-logs"].id,"levels":channels["cinnamon-level-logs"].id,"achievements":channels["cinnamon-achievement-logs"].id,"quests":channels["cinnamon-quest-logs"].id,"friendship":channels["cinnamon-friendship-logs"].id,"community":channels["cinnamon-community-logs"].id,"roles":channels["cinnamon-role-logs"].id,"setup":channels["cinnamon-setup-logs"].id,"general":channels["cinnamon-general-logs"].id,"dashboard":channels["cinnamon-dashboard-logs"].id}
+    state.setdefault("category_log_channels",{})[gid]={"moderation":channels["cinnamon-logs"].id,"economy":channels["cinnamon-economy"].id,"ai":channels["cinnamon-ai-logs"].id,"levels":channels["cinnamon-level-logs"].id,"achievements":channels["cinnamon-achievement-logs"].id,"quests":channels["cinnamon-quest-logs"].id,"friendship":channels["cinnamon-friendship-logs"].id,"stuff":channels["cinnamon-stuff-logs"].id,"mood":channels["cinnamon-mood-logs"].id,"community":channels["cinnamon-community-logs"].id,"roles":channels["cinnamon-role-logs"].id,"setup":channels["cinnamon-setup-logs"].id,"general":channels["cinnamon-general-logs"].id,"dashboard":channels["cinnamon-dashboard-logs"].id}
     state.setdefault("ai_channels",{})[gid]=channels["cinnamon-ai"].id
+    social=state.setdefault("cinnamon_social",{}).setdefault(str(gid),{"people":{}})
+    previous=guild.get_channel(int(social.get("auto_channel",0) or 0))
+    if previous is None:
+        social["auto_channel"]=channels["cinnamon-games"].id
+    if not social.get("setup_configured",False):
+        social["auto_enabled"]=True
+        social["setup_configured"]=True
+    social.setdefault("next_at",time.time()+__import__("random").randint(3600,7200))
+    refresh=state.get("wlf_refresh_channel")
+    if refresh:
+        for kind in ("rod","bait"):
+            await refresh(guild,kind)
     state.setdefault("welcome_config",{})[gid]={"channel_id":channels["cinnamon-welcome"].id,"message":"🐾 Welcome {member} to **{server}**! Cinnamon hopes you brought snacks."}
     state.setdefault("goodbye_config",{})[gid]={"channel_id":channels["cinnamon-goodbye"].id,"message":"🐾 {member} left **{server}**. Cinnamon will miss the head pats!"}
     hg=state.get("hg_cog")
@@ -833,8 +852,8 @@ async def _dashboard_setup(guild,state):
         hg.hg_log_channels[gid]=channels["cinnamon-hangry"].id; hg.log_enabled[gid]=True
         try: await hg._save()
         except Exception: pass
-    _save()
-    return f"Cinnamon setup complete: managed log channels and {len(dict.fromkeys(role_names))} non-level reward roles are ready."
+    await state["bd_save_data"]()
+    return "Cinnamon setup complete: mood/personality logs, public games and private fishing merchants are ready."
 
 
 def _moderate(guild, actor_id, form):
