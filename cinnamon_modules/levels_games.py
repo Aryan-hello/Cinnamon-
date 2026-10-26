@@ -720,6 +720,17 @@ async def finish_giveaway(mid: int):
                    fields=[("Message", str(mid)), ("Prize", str(gw.get("prize", "Giveaway"))[:900]),
                            ("Eligible entrants", str(len(set(gw.get("eligible_entrants", []))))),
                            ("Winners", ", ".join(str(x) for x in winner_ids) if winner_ids else "None")])
+    # A few joyful, untagged Cinnamon reactions; never disrupt prize delivery.
+    for index, uid in enumerate(winner_ids[:10]):
+        try:
+            member = guild.get_member(uid) if guild else None
+            if member:
+                await _cp_good_event(guild, member, "Giveaway winner", points=2)
+                if index < 2:
+                    await _cp_react(guild, member, channel, "giveaway_win")
+        except Exception:
+            log.exception("Optional Cinnamon giveaway celebration failed")
+
 
 
 async def cancel_giveaway(mid: int):
