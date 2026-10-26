@@ -1,0 +1,354 @@
+"""Cinnamon's playful personality, surprise games, and recoverable log snapshots.
+Loaded last in main.py, after mood, economy, Hangry Games, and setup.
+"""
+import json as _cp_json
+import random as _cp_random
+import time as _cp_time
+
+_CP_LOG = "🐈 Cinnamon personality snapshot"
+_CP_QUESTIONS = (
+    "Are cucumbers evil or just misunderstood?",
+    "Would you rather live in a castle of tuna or a thousand tiny cardboard boxes?",
+    "If I became mayor, what would our very first cat law be?",
+    "Is pushing a cup off a table modern art? Explain your answer.",
+    "QUICK! A suspicious potato has entered the room. What do we do?",
+)
+
+def _cp_server(gid):
+    return advanced_features_data.setdefault("cinnamon_social_v1", {}).setdefault(
+        str(gid), {"people": {}, "auto_enabled": False})
+
+def _cp_person(gid, uid):
+    return _cp_server(gid).setdefault("people", {}).setdefault(
+        str(uid), {"good": 0, "wins": 0, "rare_fish": 0})
+
+def _cp_favourites(gid):
+    members = _cp_server(gid)["people"]
+    return sorted(((int(uid), int(p.get("good", 0))) for uid, p in members.items()
+                   if str(uid).isdigit() and int(p.get("good", 0)) >= 3),
+                  key=lambda x: (-x[1], x[0]))[:3]
+
+def _cp_nice(gid, uid):
+    return int(_cp_person(gid, uid).get("good", 0)) >= 5 and not _cm_naughty(gid, uid)
+
+async def _cp_log(gid, event, uid=None):
+    """Admin-only absolute snapshots, without members' private message content."""
+    if not category_log_channels.get(gid, {}).get("stuff"):
+        return
+    mood = _cm_state(gid)
+    person = _cp_person(gid, uid) if uid else {}
+    snapshot = {k: int(person.get(k, 0)) for k in ("good", "wins", "rare_fish")}
+    await send_log(gid, title=_CP_LOG, category="stuff", fields=[
+        ("Event", str(event)[:140]),
+        ("User ID", str(uid or 0)),
+        ("Member state", _cp_json.dumps(snapshot, separators=(",", ":"))),
+        ("Mood score", str(int(mood.get("score", 0)))),
+        ("Mood updated", str(int(mood.get("updated", _cp_time.time())))),
+        ("Mood", _cm_tier(gid)),
+        ("Naughty until", str(int(_cm_member(gid, uid).get("naughty_until", 0))) if uid else "0"),
+        ("Favourite visitors", ", ".join(f"{u}:{v}" for u, v in _cp_favourites(gid)) or "None"),
+        ("Nice list count", str(sum(1 for v in _cp_server(gid)["people"].values()
+                                   if int(v.get("good", 0)) >= 5))),
+    ])
+
+async def _cp_good_event(guild, member, reason, points=1):
+    if not guild or not member or member.bot:
+        return
+    p = _cp_person(guild.id, member.id)
+    p["good"] = min(10000, int(p.get("good", 0)) + points)
+    await bd_save_data()
+    if p["good"] <= 5 or p["good"] % 10 == 0:
+        await _cp_log(guild.id, reason, member.id)
+
+async def _cp_react(guild, member, channel, kind, *, value=0, detail=""):
+    """An occasional in-channel quip; never an additional member ping."""
+    if not guild or not member or member.bot or not channel:
+        return
+    if kind == "big_purchase" and value < 5000:
+        return
+    p = _cp_person(guild.id, member.id)
+    now = _cp_time.time()
+    if now - float(p.get("react_" + kind, 0)) < 900:
+        return
+    p["react_" + kind] = now
+    nice = _cp_nice(guild.id, member.id)
+    if kind == "big_purchase":
+        line = _cp_random.choice((
+            "😼 OH, LOOK! MISTER MONEYBAGS JUST SPENT {value:,} CATNIP!",
+            "🐈 {value:,} CATNIP?! I suddenly remembered we are VERY good friends.",
+            "👑 The royal wallet has arrived. My accountant is purring.",
+        )).format(value=value)
+    elif kind == "rare_fish":
+        p["rare_fish"] = int(p.get("rare_fish", 0)) + 1
+        name = str(detail)[:70]
+        line = (f"😻 MY FAVOURITE FISHING GENIUS CAUGHT {name}! AAAAA!" if nice else
+                f"🐈 YOU CAUGHT {name}?! I DEMAND AN AUTOGRAPH FROM THAT FISH.")
+    elif kind == "hangry_win":
+        p["wins"] = int(p.get("wins", 0)) + 1
+        line = ("😻 MY CHAMPION! I'M SO PROUD I'M KNOCKING OVER THE TROPHY!" if nice else
+                "🏆 WINNER WINNER TUNA DINNER! Collect your trophy before I eat it.")
+    elif kind == "giveaway_win":
+        line = ("😻 MY FAVOURITE LUCKY CHARM! YOU WON! AAAAA!" if nice else
+                "🎉 YOU WON?! I am claiming full credit for your excellent luck.")
+    else:
+        return
+    await bd_save_data()
+    try:
+        await channel.send(line, allowed_mentions=discord.AllowedMentions.none())
+    except (discord.HTTPException, AttributeError):
+        pass
+    await _cp_log(guild.id, kind, member.id)
+
+async def _cp_answer(message):
+    p = _cp_person(message.guild.id, message.author.id)
+    q = p.get("pending")
+    if not isinstance(q, dict) or q.get("status") not in ("waiting", "missed"):
+        return ""
+    age = _cp_time.time() - float(q.get("asked_at", 0))
+    if age > 86400:
+        p.pop("pending", None)
+        return ""
+    if message.channel.id != int(q.get("channel_id", 0)):
+        return ""
+    q["status"] = "answered"
+    late = age > 120
+    _cm_adjust(message.guild.id, 4 if late else 6)
+    await bd_save_data()
+    await _cp_log(message.guild.id, "Late answer" if late else "Question answered", message.author.id)
+    return ("😹 YOU ARE LATE!! I waited nine hundred cat-years. But I am glad you answered!\n"
+            if late else "😻 YOU ANSWERED! My very important cat question has been respected!\n")
+
+async def _cp_maybe_question(message):
+    """Only a member talking to Cinnamon can get an optional personal ping."""
+    if not message.guild or message.author.bot:
+        return
+    gid, uid = message.guild.id, message.author.id
+    s, p = _cp_server(gid), _cp_person(gid, uid)
+    now = _cp_time.time()
+    if (not s.get("questions_enabled", True) or p.get("questions_optout") or
+        now - float(p.get("last_question", 0)) < 86400 or
+        now - float(s.get("last_question", 0)) < 21600 or
+        _cp_random.random() >= .08):
+        return
+    p["last_question"], s["last_question"] = now, now
+    try:
+        msg = await message.channel.send(
+            f"{message.author.mention} 🐈 CINNAMON HAS A QUESTION! {_cp_random.choice(_CP_QUESTIONS)}\n"
+            "No rush. You can opt out via /cinnamon-events questions.",
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+        p["pending"] = {"asked_at": now, "channel_id": message.channel.id,
+                        "message_id": msg.id, "status": "waiting"}
+        await bd_save_data()
+        await _cp_log(gid, "Random question sent", uid)
+    except (discord.HTTPException, AttributeError):
+        pass
+
+async def _cp_recover(guild, limit=1200):
+    """Restore only MISSING absolute mood/member state from administrator logs."""
+    cid = category_log_channels.get(guild.id, {}).get("stuff")
+    channel = guild.get_channel(cid) if cid else None
+    if channel is None:
+        channel = discord.utils.get(guild.text_channels, name="cinnamon-stuff-logs")
+        if channel:
+            category_log_channels.setdefault(guild.id, {})["stuff"] = channel.id
+    if channel is None:
+        return {"members": 0, "mood": 0, "scanned": 0}
+    s = _cp_server(guild.id)
+    mood_root = advanced_features_data.setdefault("cinnamon_mood_v1", {})
+    missing_mood = str(guild.id) not in mood_root
+    seen = set()
+    n = restored = mood = 0
+    try:
+        async for msg in channel.history(limit=limit, oldest_first=False):
+            for embed in msg.embeds:
+                if embed.title != _CP_LOG:
+                    continue
+                n += 1
+                f = {a.name: a.value for a in embed.fields}
+                if missing_mood:
+                    try:
+                        mood_root[str(guild.id)] = {
+                            "score": max(-60, min(60, int(f["Mood score"]))),
+                            "updated": float(f["Mood updated"]), "members": {}}
+                        missing_mood, mood = False, 1
+                    except (ValueError, TypeError, KeyError):
+                        pass
+                try:
+                    uid = int(f.get("User ID", "0"))
+                    if not uid or uid in seen:
+                        continue
+                    seen.add(uid)
+                    payload = _cp_json.loads(f.get("Member state", "{}"))
+                    if str(uid) not in s["people"] and isinstance(payload, dict):
+                        s["people"][str(uid)] = {k: max(0, min(10000, int(payload.get(k, 0))))
+                                                 for k in ("good", "wins", "rare_fish")}
+                        restored += 1
+                    until = float(f.get("Naughty until", "0"))
+                    if until > _cp_time.time() and not _cm_member(guild.id, uid).get("naughty_until"):
+                        _cm_member(guild.id, uid)["naughty_until"] = until
+                except (TypeError, ValueError, KeyError, _cp_json.JSONDecodeError):
+                    continue
+    except (discord.HTTPException, discord.Forbidden):
+        log.warning("Cinnamon could not scan stuff logs for guild %s", guild.id)
+    if restored or mood:
+        await bd_save_data()
+    return {"members": restored, "mood": mood, "scanned": n}
+
+async def _cp_auto_start(guild, channel, cog):
+    """Two role pings ONLY: creation and 30-second warning, then a 2m start."""
+    role = discord.utils.get(guild.roles, name="Hangry Games")
+    if not role or not guild.me or cog._busy(channel.id):
+        return
+    prize = _cp_random.randint(1000, 2500)
+    view = HGLobbyView(cog, guild.me, catnip_prize=prize, sponsor=guild.me)
+    view.auto_managed = True
+    for button in view.children:
+        if button.label == "Start 🔴":
+            button.disabled = True
+    try:
+        post = await channel.send(
+            f"{role.mention} 🐈 CINNAMON DECLARES HANGRY GAMES!\n"
+            f"{prize:,} Catnip to the champion! You have TWO MINUTES to join, "
+            "you suspicious potatoes. I WILL BE WATCHING. 👀",
+            embed=view.embed(), view=view,
+            allowed_mentions=discord.AllowedMentions(users=False, roles=[role], everyone=False))
+        view.message = post
+        cog.lobbies[channel.id] = view
+        await cog._log(guild.id, title="🐈 Cinnamon surprise Hangry Games announced",
+                       fields=[("Channel", channel.mention), ("Prize", str(prize)),
+                               ("Join window", "120 seconds"), ("Role", str(role.id))])
+        await _cp_log(guild.id, "Surprise game started")
+        await asyncio.sleep(90)
+        if not view.started and cog.lobbies.get(channel.id) is view:
+            await channel.send(
+                f"{role.mention} 😼 30 SECONDS LEFT! JOIN NOW! I DID NOT POLISH A TROPHY FOR NOTHING!",
+                allowed_mentions=discord.AllowedMentions(users=False, roles=[role], everyone=False))
+        await asyncio.sleep(30)
+        if view.started or cog.lobbies.get(channel.id) is not view:
+            return
+        view.started = True
+        for button in view.children:
+            button.disabled = True
+        view.stop()
+        cog.lobbies.pop(channel.id, None)
+        await post.edit(embed=view.embed(), view=view)
+        if len(view.players) < 2:
+            _cm_adjust(guild.id, -16)
+            await bd_save_data()
+            await channel.send(
+                "😾 GAME CANCELLED! EVIL PEOPLE! YOU ALL LEFT MEEEEE! "
+                "I even had a prize ready! *dramatically flops onto the carpet*",
+                allowed_mentions=discord.AllowedMentions.none())
+            await cog._log(guild.id, title="😾 Cinnamon surprise game cancelled",
+                           fields=[("Reason", "Fewer than 2 players"),
+                                   ("Joined", str(len(view.players))), ("Prize unpaid", str(prize))])
+            await _cp_log(guild.id, "Surprise game cancelled, Cinnamon annoyed")
+            return
+        await cog.launch(channel, dict(view.players), guild.me, None, None,
+                         catnip_prize=prize, sponsor=guild.me)
+    except (discord.HTTPException, discord.Forbidden) as exc:
+        log.warning("Surprise Hangry Games start failed in guild %s: %s", guild.id, exc)
+        if cog.lobbies.get(channel.id) is view:
+            cog.lobbies.pop(channel.id, None)
+        view.started = True
+        view.stop()
+
+async def _cp_tick():
+    """Persist next-due before opening a lobby; avoid duplicate restart pings."""
+    try:
+        await bot.wait_until_ready()
+        while not bot.is_closed():
+            now = _cp_time.time()
+            cog = bot.get_cog("HangryGamesCog")
+            for guild in bot.guilds:
+                s = _cp_server(guild.id)
+                if s.get("auto_enabled") and s.get("auto_channel"):
+                    due = float(s.get("next_at", 0))
+                    if not due:
+                        s["next_at"] = now + _cp_random.randint(3600, 7200)
+                        await bd_save_data()
+                    elif due <= now and cog:
+                        s["next_at"] = now + _cp_random.randint(3600, 7200)
+                        await bd_save_data()
+                        channel = guild.get_channel(int(s["auto_channel"]))
+                        if channel is not None and not cog._busy(channel.id):
+                            asyncio.create_task(_cp_auto_start(guild, channel, cog))
+                for uid, p in list(s.get("people", {}).items()):
+                    q = p.get("pending")
+                    if q and q.get("status") == "waiting" and now - float(q.get("asked_at", 0)) > 120:
+                        q["status"] = "missed"
+                        _cm_adjust(guild.id, -2)
+                        await bd_save_data()
+                        await _cp_log(guild.id, "Question unanswered: a little sad", int(uid))
+            await asyncio.sleep(15)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("Cinnamon social and games scheduler stopped")
+    finally:
+        bot._cp_scheduler_running = False
+
+@bot.listen("on_ready")
+async def _cp_ready():
+    if not getattr(bot, "_cp_scheduler_running", False):
+        bot._cp_scheduler_running = True
+        asyncio.create_task(_cp_tick())
+
+_cp_group = app_commands.Group(name="cinnamon-events", description="Surprise Hangry Games and Cinnamon's personality")
+
+@_cp_group.command(name="status", description="See Cinnamon's surprise games and favourite visitors")
+@app_commands.guild_only()
+async def cinnamon_events_status(interaction: discord.Interaction):
+    data = _cp_server(interaction.guild.id)
+    ch = interaction.guild.get_channel(int(data.get("auto_channel", 0) or 0))
+    due = int(data.get("next_at", 0))
+    desc = f"🎮 Surprise games: {'ON' if data.get('auto_enabled') else 'OFF'}\n"
+    desc += f"📢 Game channel: {ch.mention if ch else 'Run /setup'}\n"
+    if due and data.get("auto_enabled"):
+        desc += f"⏳ Next surprise game: <t:{due}:R>\n"
+    fav = _cp_favourites(interaction.guild.id)
+    desc += ("😻 Favourite visitors: " + ", ".join(f"<@{uid}>" for uid, _ in fav)
+             if fav else "😺 No favourite visitors ranked yet!")
+    await interaction.response.send_message(desc, ephemeral=True,
+                                            allowed_mentions=discord.AllowedMentions.none())
+
+@_cp_group.command(name="auto", description="Admin: enable or disable Cinnamon surprise games")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+async def cinnamon_events_auto(interaction: discord.Interaction, enabled: bool):
+    s = _cp_server(interaction.guild.id)
+    if enabled and not s.get("auto_channel"):
+        return await interaction.response.send_message("🐈 Run /setup to create the public game channel first.", ephemeral=True)
+    s["auto_enabled"] = bool(enabled)
+    if enabled:
+        s["next_at"] = _cp_time.time() + _cp_random.randint(3600, 7200)
+    await bd_save_data()
+    await _cp_log(interaction.guild.id, "Surprise games " + ("enabled" if enabled else "disabled"))
+    await interaction.response.send_message(
+        "🐈 Surprise Hangry Games " + ("enabled" if enabled else "disabled") +
+        ". When enabled, the next game arrives within 1–2 hours.", ephemeral=True)
+
+@_cp_group.command(name="channel", description="Admin: choose Cinnamon's surprise Hangry Games channel")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+async def cinnamon_events_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    s = _cp_server(interaction.guild.id)
+    s["auto_channel"] = channel.id
+    s["next_at"] = _cp_time.time() + _cp_random.randint(3600, 7200)
+    await bd_save_data()
+    await _cp_log(interaction.guild.id, "Surprise games channel changed")
+    await interaction.response.send_message(f"🎮 Surprise games will appear in {channel.mention}.", ephemeral=True)
+
+@_cp_group.command(name="questions", description="Opt in or out of Cinnamon's occasional personal questions")
+@app_commands.guild_only()
+async def cinnamon_events_questions(interaction: discord.Interaction, enabled: bool):
+    p = _cp_person(interaction.guild.id, interaction.user.id)
+    p["questions_optout"] = not enabled
+    if not enabled:
+        p.pop("pending", None)
+    await bd_save_data()
+    await interaction.response.send_message(
+        "🐈 Random questions " + ("enabled" if enabled else "disabled") +
+        " for you. Cinnamon will never send reminders.", ephemeral=True)
+
+bot.tree.add_command(_cp_group)
