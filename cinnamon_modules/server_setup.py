@@ -434,7 +434,8 @@ async def setup_cmd(interaction: discord.Interaction):
             role = existing_roles.get(role_name)
             if role is None:
                 try:
-                    role = await guild.create_role(name=role_name, reason="Cinnamon achievement/quest setup")
+                    role = await guild.create_role(name=role_name, reason="Cinnamon achievement/quest setup",
+                                                   mentionable=(role_name == "Hangry Games"))
                     created_roles.append(role.mention)
                 except discord.HTTPException as exc:
                     log.warning("Could not create Cinnamon reward role %r in guild %s: %s", role_name, guild.id, exc)
@@ -466,7 +467,9 @@ async def setup_cmd(interaction: discord.Interaction):
     ai_channels[guild.id] = channels["cinnamon-ai"].id
     social = _cp_server(guild.id)
     social["auto_channel"] = channels["cinnamon-games"].id
-    social.setdefault("auto_enabled", True)
+    if not social.get("setup_configured", False):
+        social["auto_enabled"] = True
+        social["setup_configured"] = True
     social.setdefault("next_at", time.time() + random.randint(3600, 7200))
     welcome_config[guild.id] = {
         "channel_id": channels["cinnamon-welcome"].id,
