@@ -1,3 +1,5 @@
+> **Historical release notes.** The October 23 exploratory Wildlands implementation and older fishing/cooking module described below are no longer loaded. They were removed from source on October 26, 2026. The active story and merchant commands are documented in [WILDLANDS_UPDATE.md](WILDLANDS_UPDATE.md). The notes below are retained for historical context, not current user instructions.
+
 # Cinnamon Main Features Release Notes
 
 ## Dashboard
