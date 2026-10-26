@@ -136,9 +136,14 @@ class PersonalityTests(unittest.TestCase):
             guild = SimpleNamespace(id=3, roles=[role], me=SimpleNamespace(id=8))
             discord = SimpleNamespace(
                 utils=SimpleNamespace(get=lambda roles, **kwargs: role),
-                AllowedMentions=lambda **kwargs: kwargs,
+                AllowedMentions=SimpleNamespace(none=lambda: None),
                 HTTPException=type("HTTP", (Exception,), {}),
                 Forbidden=type("Forbidden", (Exception,), {}))
+            class Allowed:
+                def __init__(self, **kwargs): self.kwargs = kwargs
+                @staticmethod
+                def none(): return None
+            discord.AllowedMentions = Allowed
             ns = {"discord": discord, "HGLobbyView": View,
                   "asyncio": SimpleNamespace(sleep=pause),
                   "_cp_random": SimpleNamespace(randint=lambda low, high: 1700),
