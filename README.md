@@ -1,5 +1,8 @@
 # Cinnamon — main features release
 
+> **Wildlands update (October 26, 2026):** The active mystery is **The Treasure Worth Billions** with Cinnamon, Baron Clawdius, and a final **100,000 Catnip** (one-time) reward. Start with `/wildlands story`; use `/fishing start` for the separate fishing system. Fishing merchants open for two hours when discovered and permanently for story finishers. See [WILDLANDS_UPDATE.md](WILDLANDS_UPDATE.md) for current commands. The old `/adventure` and old `/fish`/`/cook` implementations are retired and are not loaded.
+
+
 Cinnamon is a single `discord.py` bot with modular feature files and a Flask dashboard. This release consolidates the main dashboard work and adds final guardrails for embed publishing and activity-log filtering. This package contains the main application files only. Live Discord/OAuth and Render behaviour still needs to be checked after deployment.
 
 ## Included
