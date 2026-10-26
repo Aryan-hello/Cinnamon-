@@ -573,17 +573,18 @@ class _WLFReelView(discord.ui.View):
     async def finish(self, interaction, technique):
         if self.used:
             return await interaction.response.send_message("🐈 Already reeled in! Start a fresh cast.", ephemeral=True)
+        # A role grant or Upstash save may exceed the Discord interaction ACK window.
+        await interaction.response.defer()
         key = (self.guild_id, self.owner_id)
         lock = _WLF_CAST_LOCKS.setdefault(key, asyncio.Lock())
         async with lock:
             p = _wlf_player(self.guild_id, self.owner_id)
             cooldown = max(0, _wlf_math.ceil(p["next_cast"] - _wlf_time.time()))
             if cooldown:
-                return await interaction.response.send_message(
-                    f"🎣 Give the water a moment! Cast again in **{cooldown}s**.", ephemeral=True)
+                return await interaction.edit_original_response(content=f"🎣 Give the water a moment! Cast again in **{cooldown}s**.", view=None)
             if int(p["bait"].get(self.bait_id, 0)) < 1:
                 self.refresh_bait()
-                return await interaction.response.edit_message(
+                return await interaction.edit_original_response(
                     embed=self.render(), view=self)
             self.used = True  # set before persistence so repeated button clicks cannot duplicate fish.
             for child in self.children:
@@ -615,7 +616,7 @@ class _WLFReelView(discord.ui.View):
                 f'{quips.get(technique, quips["steady"])}' +
                 ('\n📖 **NEW JOURNAL ENTRY!**' if new else '') + extra)
         self.stop()
-        await interaction.response.edit_message(embed=_wlf_embed("🏆 Fishing Catch!", desc, interaction=interaction), view=None)
+        await interaction.edit_original_response(embed=_wlf_embed("🏆 Fishing Catch!", desc, interaction=interaction), view=None)
         if fish["rarity"] in ("Legendary", "Mythical"):
             try:
                 await _cp_good_event(interaction.guild, interaction.user, "Rare Wildlands fish caught", points=2)
