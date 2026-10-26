@@ -214,22 +214,34 @@ def _wls_player(guild_id, user_id):
 
 
 def _wls_embed(interaction, title, body):
-    embed = discord.Embed(title='🐈 ' + title, description=body[:3800], color=_WLS_COLOR)
-    embed.set_footer(text=f'Cinnamon Wildlands • {interaction.user.display_name} • A story worth BILLIONS (according to Cinnamon)')
+    """Shared Wildlands look: high-contrast title and concise readable sections."""
+    embed = discord.Embed(title=('📖 ' + str(title))[:256],
+                          description=str(body)[:3800], color=0xD97732)
+    embed.set_author(name="🐈 CINNAMON · THE BILLION-CATNIP MYSTERY")
+    embed.set_footer(text="Wildlands • Your decisions are saved • /wildlands story-journal")
     return embed
 
 
 def _wls_scene_embed(interaction, rec):
-    idx = min(int(rec['index']), len(_WLS_SCENES)-1)
+    idx = min(max(0, int(rec['index'])), len(_WLS_SCENES) - 1)
     scene = _WLS_SCENES[idx]
-    return _wls_embed(interaction, _WLS_CHAPTERS[scene['chapter']] + ' — ' + scene['title'],
-                      f'🗺️ **{_wlf_area(scene["area"])[1]}**  •  Scene **{idx + 1}/{len(_WLS_SCENES)}**\n\n'
-                      + scene['text'] + '\n\n*Choose your next move:*')
+    count = len(_WLS_SCENES)
+    chapter = _WLS_CHAPTERS[scene['chapter']]
+    progress = min(8, int(((idx + 1) / count) * 8))
+    bar = "▰" * progress + "▱" * (8 - progress)
+    clues = len(rec.get("clues", []))
+    e = _wls_embed(interaction, scene['title'],
+                   scene['text'][:3300] + "\n\n**🐾 YOUR MOVE**\nChoose how Cinnamon's mystery continues.")
+    e.add_field(name="🗺️ Region", value=_wlf_area(scene['area'])[1], inline=True)
+    e.add_field(name="🔎 Clues", value=f"{clues} found", inline=True)
+    e.add_field(name="📊 Progress", value=f"{bar}  **{idx + 1}/{count}**", inline=False)
+    e.set_footer(text=f"{chapter} • Scene {idx + 1}/{count} • Choices save automatically")
+    return e
 
 
 class _WLSChoice(discord.ui.Button):
     def __init__(self, idx, data):
-        super().__init__(label=data[0][:80],style=(discord.ButtonStyle.primary if idx==0 else discord.ButtonStyle.secondary),row=idx)
+        super().__init__(label=data[0][:80],style=discord.ButtonStyle.secondary,row=idx)
         self.option_idx = idx
 
     async def callback(self, interaction):
