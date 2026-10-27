@@ -503,7 +503,7 @@ async def fishing_start(interaction: discord.Interaction):
     await interaction.response.send_message(embed=e, ephemeral=True)
 
 
-# Each reel click validates inventory/cooldown under one user-specific lock.
+# This legacy reel helper is unregistered; its inventory checks have no cooldown.
 # Showing a cast panel does not spend bait; timed-out views cannot waste items.
 _WLF_CAST_LOCKS = {}
 
@@ -579,9 +579,6 @@ class _WLFReelView(discord.ui.View):
         lock = _WLF_CAST_LOCKS.setdefault(key, asyncio.Lock())
         async with lock:
             p = _wlf_player(self.guild_id, self.owner_id)
-            cooldown = max(0, _wlf_math.ceil(p["next_cast"] - _wlf_time.time()))
-            if cooldown:
-                return await interaction.edit_original_response(content=f"🎣 Give the water a moment! Cast again in **{cooldown}s**.", view=None)
             if int(p["bait"].get(self.bait_id, 0)) < 1:
                 self.refresh_bait()
                 return await interaction.edit_original_response(
@@ -600,7 +597,6 @@ class _WLFReelView(discord.ui.View):
             new = fish_key not in p["seen"]
             if new:
                 p["seen"].append(fish_key)
-            p["next_cast"] = _wlf_time.time() + 30
             await bd_save_data()
 
         extra = await _wlf_award_rare_role(interaction, fish)
@@ -630,10 +626,6 @@ async def fishing_cast(interaction: discord.Interaction):
     p = _wlf_player(gid, uid)
     if p["area"] not in p["areas"]:
         p["area"] = "whispering_woods"
-    cooldown = max(0, _wlf_math.ceil(p["next_cast"] - _wlf_time.time()))
-    if cooldown:
-        return await interaction.response.send_message(
-            f'🎣 Give the water a moment! Cast again in **{cooldown}s**.', ephemeral=True)
     if not any(int(p["bait"].get(b["id"], 0)) for b in _WLF_BAIT):
         return await interaction.response.send_message(
             '🐟 Out of bait! Gather with /wildlands gather or buy some in /fishing buy-bait.',
