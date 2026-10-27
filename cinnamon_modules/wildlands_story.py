@@ -270,6 +270,60 @@ _WLS_EFFECTS = {
 }
 
 
+
+# Chapter-scale detours, so choices change the route beyond the prologue.
+_WLS_BRANCHES.update({
+    'castle_tour': _wls_scene(1, 'whispering_woods', 'THE TERRIFYING CASTLE GIFT SHOP',
+        'Cinnamon led you away from Rowan’s evidence. "See? A fortress!" '
+        'It is a tourist shop with a cardboard dragon. The shopkeeper claims Baron Clawdius paid in fake coins.', [
+            ('Investigate the fake coins', 'A coin bears the Baron’s crest. You gain evidence that his finances are collapsing.', 'baron_fake_coins', True),
+            ('Buy Cinnamon a cheap crown', '"I AM THE BETTER ROYALTY," she declares. You get a disguise for later.', 'castle_crown', True),
+            ('Demand a refund on the trip', 'The shopkeeper points you to a shorter coast trail. Cinnamon is offended.', 'castle_shortcut', True)]),
+    'coin_recovery': _wls_scene(1, 'whispering_woods', 'THE COIN THAT WAS EATEN',
+        'Cinnamon swallowed the coin you flipped. Rowan refuses to continue until the incident is recorded. '
+        '"It was a lucky coin," Cinnamon insists. "Now I am EXTRA lucky."', [
+            ('Follow Rowan anyway', 'You reach the shore early and overhear a secret auction.', 'coin_listening', True),
+            ('Ask Cinnamon to choose the path', 'She picks the path with more snack stalls. You lose time but find a merchant.', 'coin_snacks', True),
+            ('Make a note to never flip coins', 'Beans will later read this note and nod very seriously.', 'coin_lesson', True)]),
+    'auction_bluff': _wls_scene(2, 'quiet_shore', 'A BILLIONAIRE WITH NO MONEY',
+        'You claimed to be a billionaire. The auctioneer hands you a bid card. '
+        'Cinnamon whispers: "WE HAVE TWELVE CATNIP AND TWO ROCKS. DO SOMETHING."', [
+            ('Bluff about a secret vault', 'The auctioneer believes you and shows you a ledger of Clawdius’s purchases.', 'auction_ledger', True),
+            ('Confess you were bluffing', 'The crowd laughs, but a friendly dockworker gives you the shipment number.', 'auction_confession', True),
+            ('Offer your fish as collateral', 'The auctioneer values the fish highly. You secure an invitation to the vault.', 'auction_invite', True)]),
+    'vault_alarm': _wls_scene(3, 'stoneback_highlands', 'THE VAULT SECURITY INCIDENT',
+        'Cinnamon clawed the vault and accidentally woke the guard robot. '
+        '"I WAS CLEARLY HELPING," she says as a red lamp flashes.', [
+            ('Distract the robot with a sock', 'It follows the sock and leaves a maintenance key behind.', 'robot_sock', True),
+            ('Ask Beans for a maintenance code', 'Beans secretly texts you the passcode. The Baron does not notice.', 'robot_code', True),
+            ('Let Cinnamon negotiate', 'She persuades the robot that she is its manager. This will come up again.', 'robot_manager', True)]),
+    'heist_argument': _wls_scene(5, 'frostfall_pass', 'THE PLAN THAT FINALLY HAS A PLAN',
+        'You rejected the three-word heist plan. Cinnamon admits you might have a point. '
+        '"Fine! YOU are in charge of strategy. But I get to keep the dramatic entrance."', [
+            ('Recruit Beans as an inside agent', 'Beans promises to distract the north guard when you arrive.', 'plan_inside', True),
+            ('Build a safe exit route', 'You map a shortcut through the snow that avoids the Baron’s guards.', 'plan_exit', True),
+            ('Turn the disguise into a decoy', 'Cinnamon builds a fake cat to fool the guards. The disguise may save you later.', 'plan_decoy', True)]),
+    'baron_debate': _wls_scene(6, 'forgotten_ruins', 'THE TRIAL OF BARON CLAWDIUS',
+        'You insist on a formal debate. Clawdius produces seventeen charts. '
+        'Beans whispers: "He has no evidence. Just stock photos."', [
+            ('Demand proof of ownership', 'He admits he has never seen inside the chest. The crowd turns against him.', 'baron_exposed', True),
+            ('Question his treasure valuation', 'The audience laughs at his invented numbers. Cinnamon takes the stage.', 'baron_valuation', True),
+            ('Call Beans as a witness', 'Beans confirms the Baron bought the sealed box without asking a single question.', 'baron_witness', True)]),
+})
+_WLS_ENTRY.update({(6, 1): 'castle_tour', (6, 2): 'coin_recovery',
+                   (7, 2): 'auction_bluff', (11, 2): 'vault_alarm',
+                   (19, 1): 'heist_argument', (23, 2): 'baron_debate'})
+_WLS_EFFECTS.update({
+    'baron_fake_coins': {'respect': 1}, 'castle_crown': {'trust': 1},
+    'coin_listening': {'respect': 1}, 'coin_lesson': {'trust': 1},
+    'auction_ledger': {'respect': 2}, 'auction_confession': {'trust': 1},
+    'robot_code': {'beans_friendship': 1}, 'robot_manager': {'trust': 1},
+    'plan_inside': {'beans_friendship': 2}, 'plan_exit': {'respect': 2},
+    'baron_exposed': {'respect': 2}, 'baron_witness': {'beans_friendship': 2},
+})
+
+
+
 def _wls_apply_choice(rec, index, option_index, branch=None):
     """Apply a narrative decision exactly once after view-state validation."""
     scene = _WLS_BRANCHES[branch] if branch else _WLS_SCENES[index]
@@ -330,6 +384,45 @@ def _wls_echo(rec, index):
             notes.append('Beans leaves the Baron’s side and joins you. "I told you I would help."')
         if deal == 'half':
             notes.append('**Cinnamon:** "Remember. We have a CONTRACT."')
+    # Small decisions still get a later, personalised payoff at the next chapter.
+    callbacks = {
+        2: (('sunglasses', 'The sunglasses cat left an accountant’s receipt in the map.'),
+            ('crown_mark', 'The crown engraving you discovered matches the map’s hidden seal.'),
+            ('ketchup_x', 'Cinnamon keeps defending the ketchup X as professional cartography.')),
+        5: (('brass_a', 'Your three-claw-mark evidence matches the Baron’s messenger seal.'),
+            ('owl_fee', 'The owl’s overpriced directions turn out to point toward the Baron.'),
+            ('letter_a', 'Cinnamon quietly repeats the letter A. She is hiding something.')),
+        8: (('auction_records', 'Mira recognises the initials B.C. from the auction record you found.'),
+            ('rock_scam', 'The overpriced rock seller follows you, offering a discount.'),
+            ('fake_billionaire', 'An auction guard recognises you as the person who claimed to be rich.')),
+        12: (('vault_inscription', 'You kept the note about the decorative locks. It explains the archive security.'),
+             ('vault_button', 'The vault elevator music continues haunting Cinnamon.'),
+             ('vault_claws', 'Cinnamon boasts she personally defeated nine locks with her claws.')),
+        17: (('brass_a', 'The brass tag from the woods briefly glows in the marsh light.'),
+             ('mira_bottle', 'The bottle receipt you opened points toward the deeper marsh.')),
+        20: (('disguise_plan', 'Cinnamon wears the moustache you prepared. The guards look confused.'),
+             ('improved_plan', 'Your revised heist plan contains actual instructions. Cinnamon pretends not to care.'),
+             ('beans_recruit', 'Beans remembers your invitation and has already delayed the patrol.'),
+             ('plan_exit', 'Your safe exit map reveals a shortcut behind the guards.'),
+             ('plan_inside', 'Beans whispers that the north guard will let you pass.'),
+             ('plan_decoy', 'Your fake-cat decoy distracts the first guard.')),
+        24: (('dramatic_entrance', 'The Baron’s guards are still distracted by the crown Cinnamon knocked over.'),
+             ('beans_secret', 'Beans’s secret route places you close to the vacuum power cable.'),
+             ('debate_opening', 'The crowd remembers your debate challenge and shouts for proof.'),
+             ('baron_exposed', 'Your earlier debate exposed the Baron’s lack of proof. His guards hesitate.')),
+    }
+    for flag, comment in callbacks.get(index, ()):
+        if flags.get(flag):
+            notes.append(comment)
+            break
+    if index == 9 and flags.get('auction_ledger'):
+        notes.append('Your secret auction ledger confirms Clawdius paid far too much for the unopened chest.')
+    if index == 18 and flags.get('robot_code'):
+        notes.append('The maintenance passcode from the vault lets Beans disable an alarm in the marsh.')
+    if index == 23 and flags.get('baron_fake_coins'):
+        notes.append('You still have evidence the Baron used fake coins. The crowd begins to doubt his fortune.')
+    if index == 25 and flags.get('baron_exposed'):
+        notes.append('Clawdius remembers you proved he never knew what he bought. He has no defence.')
     if index == 25:
         if deal == 'half':
             notes.append('**Cinnamon:** "Technically you own HALF A CHEW TOY. Never touch your half."')
