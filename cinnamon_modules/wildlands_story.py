@@ -355,6 +355,7 @@ def _wls_player(guild_id, user_id):
     rec.setdefault('flags', {})
     rec.setdefault('relationship', {})
     rec.setdefault('treasure_deal', 'none')
+    rec.setdefault('replay', False)
     return rec
 
 
@@ -462,7 +463,7 @@ class _WLSChoiceView(discord.ui.View):
                 '**Cinnamon’s happiness:** INFINITE.\n**Your financial expectations:** DESTROYED.\n'
                 +access+'\n\n🎣 The Rod and Bait Merchants are available to you forever.'),view=None)
         await bd_save_data()
-        if not self.branch and scene['chance']:
+        if not self.branch and not rec.get('replay') and scene['chance']:
             notes += await _wlf_attempt_merchant(interaction.guild,finder=interaction.user,
                                                   announce_channel=interaction.channel,
                                                   chance=scene['chance'])
@@ -538,6 +539,29 @@ async def wildlands_story(interaction:discord.Interaction):
             '“I SAID THE *TREASURE* WAS WORTH A BILLION,” Cinnamon reminds you.'+access),ephemeral=True)
     idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
     await interaction.response.send_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(interaction.user.id,idx),ephemeral=True)
+
+
+
+@wildlands_art_group.command(name='story-restart', description='Replay the Wildlands mystery from the beginning; one-time reward stays claimed')
+@app_commands.describe(confirm='Set True to reset your story decisions and start again')
+@app_commands.guild_only()
+async def wildlands_story_restart(interaction: discord.Interaction, confirm: bool = False):
+    if not confirm:
+        return await interaction.response.send_message(
+            '🐈 Restarting wipes your CURRENT story decisions, clues and relationships. '
+            'Your completed reward and fishing gear stay safe. '
+            'Run /wildlands story-restart with confirm=True when ready.',
+            ephemeral=True)
+    old = _wls_player(interaction.guild.id, interaction.user.id)
+    was_paid = bool(old.get('reward_paid'))
+    old.update({'index': 0, 'branch': None, 'clues': [], 'history': [],
+                'flags': {}, 'relationship': {}, 'treasure_deal': 'none',
+                'complete': False, 'reward_paid': was_paid, 'replay': True})
+    # No second one-time payout and no repeat merchant-opening rolls on replays.
+    await bd_save_data()
+    await interaction.response.send_message(
+        embed=_wls_scene_embed(interaction, old),
+        view=_WLSChoiceView(interaction.user.id, 0), ephemeral=True)
 
 
 @wildlands_art_group.command(name='story-journal',description='Review your story progress and important discoveries')
