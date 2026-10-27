@@ -64,6 +64,27 @@ class ChoiceBehavior(unittest.TestCase):
         self.assertGreaterEqual(rec['relationship']['beans_friendship'], 2)
         self.assertIn('Beans', ns['_wls_echo'](rec, 19))
 
+    def test_all_custom_routes_rejoin_and_do_not_repeat(self):
+        ns = self.game()
+        for (scene, choice), starting_node in ns['_WLS_ENTRY'].items():
+            rec = {'index': scene, 'branch': None}
+            self.assertTrue(ns['_wls_apply_choice'](rec, scene, choice))
+            self.assertEqual(rec['branch'], starting_node)
+            route = set()
+            while rec['branch']:
+                self.assertNotIn(rec['branch'], route)
+                route.add(rec['branch'])
+                self.assertTrue(ns['_wls_apply_choice'](rec, rec['index'], 0, rec['branch']))
+            self.assertEqual(rec['index'], scene + 1)
+            self.assertGreaterEqual(len(rec['history']), 2)
+
+    def test_main_scene_callbacks_use_existing_flags(self):
+        ns = self.game()
+        rec = {'flags': {'plan_inside': True, 'baron_exposed': True},
+               'relationship': {}, 'treasure_deal': 'none'}
+        self.assertIn('north guard', ns['_wls_echo'](rec, 20).lower())
+        self.assertIn('proof', ns['_wls_echo'](rec, 24).lower())
+
     def test_wrong_puzzle_does_not_grant_flag(self):
         ns = self.game()
         rec = {'index': 8, 'branch': None}
