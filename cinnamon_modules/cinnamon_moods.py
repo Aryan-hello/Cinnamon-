@@ -140,7 +140,7 @@ async def _cm_action(guild, member, kind, quantity=1):
         state["overfeed_active"] = total >= 5
         if total >= 5:
             if not was_overfed:
-                _cm_adjust(g, -45)
+                _cm_adjust(g, -60)
                 await _cm_set_naughty(guild, member)
                 message = ("😾 THAT IS **" + str(total) + "** SNACKS IN TEN MINUTES! "
                            "YOU ARE TRYING TO BRIBE ME!\n"
