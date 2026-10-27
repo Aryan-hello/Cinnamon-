@@ -283,11 +283,8 @@ class _FGView(discord.ui.View):
         self.stop()
 
 
-# Replace the cosmetic previous cast command with this stateful game. The old
-# command registration is deliberately removed before reusing the same name.
-_wlf_group.remove_command('cast')
-
-
+# The deprecated cosmetic fishing_cast helper is deliberately not registered;
+# this is the only slash command with the name /fishing cast.
 @_wlf_group.command(name='cast', description='Cast, wait for a bite, hook and fight your fish')
 @app_commands.guild_only()
 async def fishing_cast_game(interaction: discord.Interaction):
