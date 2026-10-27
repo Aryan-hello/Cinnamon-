@@ -101,6 +101,19 @@ class FishingBehavior(unittest.TestCase):
         self.assertGreater(step(48, 0, 1, 'reel')[1], step(48, 0, 1, 'give')[1])
         self.assertGreater(step(48, 0, 2, 'steady')[1], step(48, 0, 2, 'reel')[1])
 
+    def test_no_fishing_cooldown_after_session_finishes(self):
+        active = (MODULES / 'wildlands_fishing_game.py').read_text()
+        legacy = (MODULES / 'wildlands_fishing.py').read_text()
+        self.assertNotIn('next_cast', active)
+        # These are allowed only as a backward-compatible saved-state default.
+        self.assertNotIn('now + 30', active)
+        self.assertNotIn('next_cast"] =', legacy)
+        self.assertNotIn('next_cast"] -', legacy)
+        self.assertNotIn('next_cast"] +', legacy)
+        self.assertIn('p.get(\'fishing_session\')', active)
+        # Waiting for a bite and active-cast protection remain in force.
+        self.assertIn('_wlf_random.randint(10, 20)', active)
+
     def test_discord_state_machine_and_module_order(self):
         text = (MODULES / 'wildlands_fishing_game.py').read_text()
         self.assertIn('_wlf_random.randint(10, 20)', text)
