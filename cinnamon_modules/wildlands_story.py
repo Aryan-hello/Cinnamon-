@@ -202,6 +202,240 @@ _WLS_SCENES = [
 ]
 
 
+
+# Story graph detours. Branches fold back into the same main mystery,
+# but choices leave durable state and dialogue callbacks.
+_WLS_BRANCHES = {
+    'half_talk': _wls_scene(0, 'whispering_woods', 'THE FIFTY-PERCENT CRISIS',
+        'Cinnamon drags over a cardboard box labelled NEGOTIATION TABLE. '
+        '"FIFTY PERCENT? I asked for an adventurer, not a BUSINESS PARTNER!"\n'
+        'Beans arrives with a purple crayon and demands your final offer.', [
+            ('Hold firm at 50%', 'Cinnamon agrees to put half the treasure in writing. "You drive a TERRIBLE bargain. For me."', 'deal_half', True),
+            ('Compromise at 25%', 'She folds her paws. "Twenty-five. FINAL OFFER." Beans starts the paperwork.', 'deal_quarter', True),
+            ('Admit it was a joke', '"You have taken three years off my whiskers." She burns the draft contract.', 'deal_joke', True)]),
+    'half_contract': _wls_scene(0, 'whispering_woods', 'THE WORLD’S WORST CONTRACT',
+        'A napkin contract promises you 50% of whatever the chest contains. '
+        'Beans witnesses it while Cinnamon refuses to make eye contact.', [
+            ('Sign it', '"Fine. My extortionate business associate may now have a map." The ink dries.', 'half_signed', True),
+            ('Let Cinnamon inspect the chest first', '"That... is surprisingly nice," she admits. She signs.', 'half_kind', True),
+            ('Demand a signing bonus fish', '"ABSOLUTELY NOT," she yells, but signs anyway.', 'half_fish', True)]),
+    'quarter_contract': _wls_scene(0, 'whispering_woods', 'THE QUARTER-SHARE TREATY',
+        'Cinnamon draws four squares and a fish to explain twenty-five percent. '
+        'You notice she has erased the word "unpaid."', [
+            ('Sign the fair deal', 'Both of you sign. For once, Cinnamon looks impressed.', 'quarter_signed', True),
+            ('Ask Beans to witness', 'Beans adds "No dramatic betrayal" to the document. Cinnamon reluctantly agrees.', 'beans_witness', True),
+            ('Trade your share for a clue', 'Cinnamon reveals she recognizes the crown on the map. Trust wins over money.', 'trade_share', True)]),
+    'contract_review': _wls_scene(0, 'whispering_woods', 'THE SECRET FISH CLAUSE',
+        'The gravy-stained employment contract says Cinnamon gets EVERY fish found. '
+        '"It is a completely normal condition," she claims.', [
+            ('Negotiate 25% of the treasure', 'Cinnamon signs a revised contract and complains about lawyers.', 'contract_quarter', True),
+            ('Accept the fish clause', 'Cinnamon hands you the hidden map pocket. "You trust me; I trust you."', 'contract_trust', True),
+            ('Get Beans as a witness', 'Beans stamps the napkin. "This is legally ridiculous but I have seen worse."', 'contract_beans', True)]),
+    'employment': _wls_scene(0, 'whispering_woods', 'THE UNPAID JOB INTERVIEW',
+        'Cinnamon wears spectacles and asks one question: "WHAT WOULD YOU SAVE FIRST: ME OR THE TREASURE?"', [
+            ('Protect Cinnamon', '"Good answer," she purrs. "You get first pick of the emergency biscuits."', 'save_cat', True),
+            ('Protect the map', '"Efficient but concerning," she says. She gives you a waterproof folder.', 'save_map', True),
+            ('Ask for lunch breaks', '"One tuna break per three emergencies." She appoints you Chief Snack Officer.', 'lunch_contract', True)]),
+    'rowan_dispute': _wls_scene(1, 'whispering_woods', 'CINNAMON IS NOT LEGAL TENDER',
+        '"YOU TRIED TO TRADE ME FOR A FISHING ROD!" Cinnamon shouts. '
+        'Rowan says he will show you the coast road only if you repair this diplomatic disaster.', [
+            ('Apologize to Cinnamon', 'She reluctantly forgives you. "This is your ONE betrayal allowance."', 'rowan_sorry', True),
+            ('Offer Rowan your own snacks', 'He points out the road. Cinnamon keeps reminding you of the betrayal.', 'rowan_snacks', True),
+            ('Ask Beans to mediate', 'Beans writes a non-transferable-cat treaty. Rowan approves the route.', 'rowan_beans', True)]),
+    'beans_rescue': _wls_scene(4, 'moonlit_marsh', 'BEANS REMEMBERS',
+        'You pull Beans and the cargo ashore. "You helped me when you did not have to," he says. '
+        'He can get you past the Baron’s fortress guards.', [
+            ('Trust Beans with the route', 'Beans gives you a coded key. "Show this to the north guard."', 'beans_route', True),
+            ('Keep his help a secret', 'He draws a back entrance. "Nobody else knows this exists."', 'beans_secret_route', True),
+            ('Recruit Beans to your crew', 'Beans joins you. "I am done making PowerPoints for that villain."', 'beans_recruited', True)]),
+}
+_WLS_ENTRY = {(0, 0): 'employment', (0, 1): 'contract_review',
+              (0, 2): 'half_talk', (4, 2): 'rowan_dispute',
+              (18, 0): 'beans_rescue'}
+_WLS_NEXT = {('half_talk', 0): 'half_contract', ('half_talk', 1): 'quarter_contract'}
+_WLS_EFFECTS = {
+    'deal_half': {'treasure_deal': 'half', 'trust': -2, 'respect': 2},
+    'deal_quarter': {'treasure_deal': 'quarter', 'respect': 1},
+    'half_kind': {'trust': 2}, 'half_fish': {'trust': -1},
+    'trade_share': {'treasure_deal': 'none', 'trust': 3},
+    'contract_quarter': {'treasure_deal': 'quarter'},
+    'contract_trust': {'trust': 2}, 'save_cat': {'trust': 2},
+    'rowan_sorry': {'trust': 2}, 'rowan_snacks': {'trust': -1},
+    'beans_witness': {'beans_friendship': 1},
+    'contract_beans': {'beans_friendship': 1},
+    'rowan_beans': {'beans_friendship': 1},
+    'beans_route': {'beans_friendship': 2},
+    'beans_secret_route': {'beans_friendship': 2},
+    'beans_recruited': {'beans_friendship': 3},
+}
+
+
+
+# Chapter-scale detours, so choices change the route beyond the prologue.
+_WLS_BRANCHES.update({
+    'castle_tour': _wls_scene(1, 'whispering_woods', 'THE TERRIFYING CASTLE GIFT SHOP',
+        'Cinnamon led you away from Rowan’s evidence. "See? A fortress!" '
+        'It is a tourist shop with a cardboard dragon. The shopkeeper claims Baron Clawdius paid in fake coins.', [
+            ('Investigate the fake coins', 'A coin bears the Baron’s crest. You gain evidence that his finances are collapsing.', 'baron_fake_coins', True),
+            ('Buy Cinnamon a cheap crown', '"I AM THE BETTER ROYALTY," she declares. You get a disguise for later.', 'castle_crown', True),
+            ('Demand a refund on the trip', 'The shopkeeper points you to a shorter coast trail. Cinnamon is offended.', 'castle_shortcut', True)]),
+    'coin_recovery': _wls_scene(1, 'whispering_woods', 'THE COIN THAT WAS EATEN',
+        'Cinnamon swallowed the coin you flipped. Rowan refuses to continue until the incident is recorded. '
+        '"It was a lucky coin," Cinnamon insists. "Now I am EXTRA lucky."', [
+            ('Follow Rowan anyway', 'You reach the shore early and overhear a secret auction.', 'coin_listening', True),
+            ('Ask Cinnamon to choose the path', 'She picks the path with more snack stalls. You lose time but find a merchant.', 'coin_snacks', True),
+            ('Make a note to never flip coins', 'Beans will later read this note and nod very seriously.', 'coin_lesson', True)]),
+    'auction_bluff': _wls_scene(2, 'quiet_shore', 'A BILLIONAIRE WITH NO MONEY',
+        'You claimed to be a billionaire. The auctioneer hands you a bid card. '
+        'Cinnamon whispers: "WE HAVE TWELVE CATNIP AND TWO ROCKS. DO SOMETHING."', [
+            ('Bluff about a secret vault', 'The auctioneer believes you and shows you a ledger of Clawdius’s purchases.', 'auction_ledger', True),
+            ('Confess you were bluffing', 'The crowd laughs, but a friendly dockworker gives you the shipment number.', 'auction_confession', True),
+            ('Offer your fish as collateral', 'The auctioneer values the fish highly. You secure an invitation to the vault.', 'auction_invite', True)]),
+    'vault_alarm': _wls_scene(3, 'stoneback_highlands', 'THE VAULT SECURITY INCIDENT',
+        'Cinnamon clawed the vault and accidentally woke the guard robot. '
+        '"I WAS CLEARLY HELPING," she says as a red lamp flashes.', [
+            ('Distract the robot with a sock', 'It follows the sock and leaves a maintenance key behind.', 'robot_sock', True),
+            ('Ask Beans for a maintenance code', 'Beans secretly texts you the passcode. The Baron does not notice.', 'robot_code', True),
+            ('Let Cinnamon negotiate', 'She persuades the robot that she is its manager. This will come up again.', 'robot_manager', True)]),
+    'heist_argument': _wls_scene(5, 'frostfall_pass', 'THE PLAN THAT FINALLY HAS A PLAN',
+        'You rejected the three-word heist plan. Cinnamon admits you might have a point. '
+        '"Fine! YOU are in charge of strategy. But I get to keep the dramatic entrance."', [
+            ('Recruit Beans as an inside agent', 'Beans promises to distract the north guard when you arrive.', 'plan_inside', True),
+            ('Build a safe exit route', 'You map a shortcut through the snow that avoids the Baron’s guards.', 'plan_exit', True),
+            ('Turn the disguise into a decoy', 'Cinnamon builds a fake cat to fool the guards. The disguise may save you later.', 'plan_decoy', True)]),
+    'baron_debate': _wls_scene(6, 'forgotten_ruins', 'THE TRIAL OF BARON CLAWDIUS',
+        'You insist on a formal debate. Clawdius produces seventeen charts. '
+        'Beans whispers: "He has no evidence. Just stock photos."', [
+            ('Demand proof of ownership', 'He admits he has never seen inside the chest. The crowd turns against him.', 'baron_exposed', True),
+            ('Question his treasure valuation', 'The audience laughs at his invented numbers. Cinnamon takes the stage.', 'baron_valuation', True),
+            ('Call Beans as a witness', 'Beans confirms the Baron bought the sealed box without asking a single question.', 'baron_witness', True)]),
+})
+_WLS_ENTRY.update({(6, 1): 'castle_tour', (6, 2): 'coin_recovery',
+                   (7, 2): 'auction_bluff', (11, 2): 'vault_alarm',
+                   (19, 1): 'heist_argument', (23, 2): 'baron_debate'})
+_WLS_EFFECTS.update({
+    'baron_fake_coins': {'respect': 1}, 'castle_crown': {'trust': 1},
+    'coin_listening': {'respect': 1}, 'coin_lesson': {'trust': 1},
+    'auction_ledger': {'respect': 2}, 'auction_confession': {'trust': 1},
+    'robot_code': {'beans_friendship': 1}, 'robot_manager': {'trust': 1},
+    'plan_inside': {'beans_friendship': 2}, 'plan_exit': {'respect': 2},
+    'baron_exposed': {'respect': 2}, 'baron_witness': {'beans_friendship': 2},
+})
+
+
+
+def _wls_apply_choice(rec, index, option_index, branch=None):
+    """Apply a narrative decision exactly once after view-state validation."""
+    scene = _WLS_BRANCHES[branch] if branch else _WLS_SCENES[index]
+    opt = scene['choices'][option_index]
+    if not opt[3]:
+        return False  # Repeat puzzle choice without changing state.
+    history = rec.setdefault('history', [])
+    history.append({'scene': branch if branch else index, 'choice': opt[0]})
+    del history[:-80]
+    rec.setdefault('flags', {})
+    rec.setdefault('relationship', {})
+    rec.setdefault('clues', [])
+    if opt[2]:
+        rec['flags'][opt[2]] = True
+        if opt[2] not in rec['clues']:
+            rec['clues'].append(opt[2])
+    for key, value in _WLS_EFFECTS.get(opt[2], {}).items():
+        if key == 'treasure_deal':
+            rec[key] = value
+        else:
+            rel = rec['relationship']
+            rel[key] = max(-9, min(9, int(rel.get(key, 0)) + value))
+    if not branch:
+        if index == 4 and option_index == 2:
+            rel = rec['relationship']
+            rel['trust'] = int(rel.get('trust', 0)) - 2
+        if index == 19 and option_index == 2:
+            rel = rec['relationship']
+            rel['beans_friendship'] = int(rel.get('beans_friendship', 0)) + 1
+        rec['index'] = index + 1
+        rec['branch'] = _WLS_ENTRY.get((index, option_index))
+    else:
+        rec['branch'] = _WLS_NEXT.get((branch, option_index))
+    return True
+
+
+def _wls_echo(rec, index):
+    """Small later callbacks mean paths can reunite without erasing consequences."""
+    flags = rec.get('flags', {})
+    rel = rec.get('relationship', {})
+    deal = rec.get('treasure_deal', 'none')
+    notes = []
+    if index == 1:
+        if deal == 'half':
+            notes.append('**Cinnamon:** "My EXTORTIONATE business partner may now inspect the map too."')
+        elif deal == 'quarter':
+            notes.append('**Cinnamon:** "My twenty-five-percent consultant may inspect the map."')
+        elif flags.get('contract_trust'):
+            notes.append('Cinnamon reveals the secret map pocket because you trusted her earlier.')
+    if index == 6 and flags.get('rowan_trade'):
+        notes.append('Cinnamon guards the fork in the road. "Please do not try to SELL ME again."')
+    if index == 13 and deal == 'half':
+        notes.append('The Baron offers you sixty percent. **Cinnamon:** "DO NOT EVEN THINK ABOUT IT, MR FIFTY-PERCENT!"')
+    if index == 19 and int(rel.get('beans_friendship', 0)) >= 2:
+        notes.append('A secret coded key arrives from Beans. Your marsh rescue has opened a safer way in.')
+    if index == 23:
+        if flags.get('beans_recruited'):
+            notes.append('Beans leaves the Baron’s side and joins you. "I told you I would help."')
+        if deal == 'half':
+            notes.append('**Cinnamon:** "Remember. We have a CONTRACT."')
+    # Small decisions still get a later, personalised payoff at the next chapter.
+    callbacks = {
+        2: (('sunglasses', 'The sunglasses cat left an accountant’s receipt in the map.'),
+            ('crown_mark', 'The crown engraving you discovered matches the map’s hidden seal.'),
+            ('ketchup_x', 'Cinnamon keeps defending the ketchup X as professional cartography.')),
+        5: (('brass_a', 'Your three-claw-mark evidence matches the Baron’s messenger seal.'),
+            ('owl_fee', 'The owl’s overpriced directions turn out to point toward the Baron.'),
+            ('letter_a', 'Cinnamon quietly repeats the letter A. She is hiding something.')),
+        8: (('auction_records', 'Mira recognises the initials B.C. from the auction record you found.'),
+            ('rock_scam', 'The overpriced rock seller follows you, offering a discount.'),
+            ('fake_billionaire', 'An auction guard recognises you as the person who claimed to be rich.')),
+        12: (('vault_inscription', 'You kept the note about the decorative locks. It explains the archive security.'),
+             ('vault_button', 'The vault elevator music continues haunting Cinnamon.'),
+             ('vault_claws', 'Cinnamon boasts she personally defeated nine locks with her claws.')),
+        17: (('brass_a', 'The brass tag from the woods briefly glows in the marsh light.'),
+             ('mira_bottle', 'The bottle receipt you opened points toward the deeper marsh.')),
+        20: (('disguise_plan', 'Cinnamon wears the moustache you prepared. The guards look confused.'),
+             ('improved_plan', 'Your revised heist plan contains actual instructions. Cinnamon pretends not to care.'),
+             ('beans_recruit', 'Beans remembers your invitation and has already delayed the patrol.'),
+             ('plan_exit', 'Your safe exit map reveals a shortcut behind the guards.'),
+             ('plan_inside', 'Beans whispers that the north guard will let you pass.'),
+             ('plan_decoy', 'Your fake-cat decoy distracts the first guard.')),
+        24: (('dramatic_entrance', 'The Baron’s guards are still distracted by the crown Cinnamon knocked over.'),
+             ('beans_secret', 'Beans’s secret route places you close to the vacuum power cable.'),
+             ('debate_opening', 'The crowd remembers your debate challenge and shouts for proof.'),
+             ('baron_exposed', 'Your earlier debate exposed the Baron’s lack of proof. His guards hesitate.')),
+    }
+    for flag, comment in callbacks.get(index, ()):
+        if flags.get(flag):
+            notes.append(comment)
+            break
+    if index == 9 and flags.get('auction_ledger'):
+        notes.append('Your secret auction ledger confirms Clawdius paid far too much for the unopened chest.')
+    if index == 18 and flags.get('robot_code'):
+        notes.append('The maintenance passcode from the vault lets Beans disable an alarm in the marsh.')
+    if index == 23 and flags.get('baron_fake_coins'):
+        notes.append('You still have evidence the Baron used fake coins. The crowd begins to doubt his fortune.')
+    if index == 25 and flags.get('baron_exposed'):
+        notes.append('Clawdius remembers you proved he never knew what he bought. He has no defence.')
+    if index == 25:
+        if deal == 'half':
+            notes.append('**Cinnamon:** "Technically you own HALF A CHEW TOY. Never touch your half."')
+        elif deal == 'quarter':
+            notes.append('**Cinnamon:** "You may admire your imaginary quarter of Mr. Squeaks."')
+        elif int(rel.get('trust', 0)) >= 2:
+            notes.append('Cinnamon shares a quiet moment. "You did not even ask for a share. Thank you."')
+        if int(rel.get('beans_friendship', 0)) >= 2:
+            notes.append('Beans salutes you: "You earned a friend, not just a clue."')
+    return '\n\n'.join(notes)
+
+
+
 def _wls_player(guild_id, user_id):
     top = advanced_features_data.setdefault('wildlands_story_v2', {}).setdefault(str(guild_id), {})
     rec = top.setdefault(str(user_id), {})
@@ -210,6 +444,11 @@ def _wls_player(guild_id, user_id):
     rec.setdefault('history', [])
     rec.setdefault('complete', False)
     rec.setdefault('reward_paid', False)
+    rec.setdefault('branch', None)
+    rec.setdefault('flags', {})
+    rec.setdefault('relationship', {})
+    rec.setdefault('treasure_deal', 'none')
+    rec.setdefault('replay', False)
     return rec
 
 
@@ -224,18 +463,23 @@ def _wls_embed(interaction, title, body):
 
 def _wls_scene_embed(interaction, rec):
     idx = min(max(0, int(rec['index'])), len(_WLS_SCENES) - 1)
-    scene = _WLS_SCENES[idx]
+    branch = rec.get('branch')
+    scene = _WLS_BRANCHES.get(branch) if branch else _WLS_SCENES[idx]
+    if scene is None:
+        rec['branch'] = None
+        scene = _WLS_SCENES[idx]
     count = len(_WLS_SCENES)
     chapter = _WLS_CHAPTERS[scene['chapter']]
     progress = min(8, int(((idx + 1) / count) * 8))
     bar = "▰" * progress + "▱" * (8 - progress)
     clues = len(rec.get("clues", []))
+    echo = _wls_echo(rec, idx) if not rec.get('branch') else ''
     e = _wls_embed(interaction, scene['title'],
-                   scene['text'][:3300] + "\n\n**🐾 YOUR MOVE**\nChoose how Cinnamon's mystery continues.")
+                   scene['text'][:2800] + ('\n\n' + echo if echo else '') + "\n\n**🐾 YOUR MOVE**\nChoices shape later scenes.")
     e.add_field(name="🗺️ Region", value=_wlf_area(scene['area'])[1], inline=True)
     e.add_field(name="🔎 Clues", value=f"{clues} found", inline=True)
     e.add_field(name="📊 Progress", value=f"{bar}  **{idx + 1}/{count}**", inline=False)
-    e.set_footer(text=f"{chapter} • Scene {idx + 1}/{count} • Choices save automatically")
+    e.set_footer(text=f"{chapter} • {'Detour' if rec.get('branch') else 'Scene'} {idx + 1}/{count} • Choices are remembered")
     return e
 
 
@@ -249,10 +493,11 @@ class _WLSChoice(discord.ui.Button):
 
 
 class _WLSChoiceView(discord.ui.View):
-    def __init__(self, owner_id, index):
+    def __init__(self, owner_id, index, branch=None):
         super().__init__(timeout=900)
-        self.owner_id, self.index = owner_id, index
-        for idx, opt in enumerate(_WLS_SCENES[index]['choices']):
+        self.owner_id, self.index, self.branch = owner_id, index, branch
+        scene = _WLS_BRANCHES[branch] if branch else _WLS_SCENES[index]
+        for idx, opt in enumerate(scene['choices']):
             self.add_item(_WLSChoice(idx, opt))
 
     async def interaction_check(self, interaction):
@@ -266,32 +511,26 @@ class _WLSChoiceView(discord.ui.View):
             return await interaction.response.send_message('Use Wildlands in a server.',ephemeral=True)
         g,u=interaction.guild.id, interaction.user.id
         rec=_wls_player(g,u)
-        if rec['complete'] or int(rec['index']) != self.index:
+        if rec['complete'] or int(rec['index']) != self.index or rec.get('branch') != self.branch:
             return await interaction.response.send_message('Your adventure moved on! Use `/wildlands story` to resume.',ephemeral=True)
         await interaction.response.defer()  # Merchant channel creation may take longer than Discord's 3s ACK window.
-        if rec.get('complete') or int(rec.get('index',0)) != self.index:
+        if rec.get('complete') or int(rec.get('index',0)) != self.index or rec.get('branch') != self.branch:
             return await interaction.edit_original_response(
                 embed=_wls_embed(interaction,'🐾 Cinnamon Is One Step Ahead',
                     'This choice was already recorded. Use `/wildlands story` to resume.'),view=None)
-        scene=_WLS_SCENES[self.index]
+        scene=_WLS_BRANCHES[self.branch] if self.branch else _WLS_SCENES[self.index]
         opt=scene['choices'][option_idx]
         if not opt[3]:
             return await interaction.edit_original_response(embed=_wls_embed(interaction,'🐾 That Was... A Choice',
-                opt[1]+'\n\nTry another option; Cinnamon says we have a BILLION reasons to keep going.'),view=_WLSChoiceView(u,self.index))
-        history=rec.setdefault('history',[])
-        history.append({'scene':self.index,'choice':opt[0]})
-        if len(history)>80:
-            del history[:-80]
-        if opt[2] and opt[2] not in rec['clues']:
-            rec['clues'].append(opt[2])
-        rec['index']=self.index+1
+                opt[1]+'\n\nTry another option; Cinnamon says we have a BILLION reasons to keep going.'),view=_WLSChoiceView(u,self.index,self.branch))
+        _wls_apply_choice(rec, self.index, option_idx, self.branch)
         if rec['index']<len(_WLS_SCENES):
             next_area=_WLS_SCENES[rec['index']]['area']
             player=_wlf_player(g,u)
             if next_area not in player['areas']:
                 player['areas'].append(next_area)
         notes=opt[1]
-        if self.index == len(_WLS_SCENES)-1:
+        if self.branch is None and self.index == len(_WLS_SCENES)-1:
             # Award exactly once; do not use player-provided currency values.
             if not rec.get('reward_paid'):
                 lock=_WLF_PURCHASE_LOCKS.setdefault(g,asyncio.Lock())
@@ -317,15 +556,16 @@ class _WLSChoiceView(discord.ui.View):
                 '**Cinnamon’s happiness:** INFINITE.\n**Your financial expectations:** DESTROYED.\n'
                 +access+'\n\n🎣 The Rod and Bait Merchants are available to you forever.'),view=None)
         await bd_save_data()
-        if scene['chance']:
+        if not self.branch and not rec.get('replay') and scene['chance']:
             notes += await _wlf_attempt_merchant(interaction.guild,finder=interaction.user,
                                                   announce_channel=interaction.channel,
                                                   chance=scene['chance'])
-        if rec['index'] in _WLS_MOOD_STOPS:
+        if not self.branch and not rec.get('branch') and rec['index'] in _WLS_MOOD_STOPS:
             embed=_wls_embed(interaction,'🐈 Cinnamon’s Very Serious Survey',
                 notes+'\n\n**Cinnamon:** “So... ARE YOU HAVING FUN? Be honest, but consider that my feelings are made of delicate fluff.”')
             return await interaction.edit_original_response(embed=embed,view=_WLSMoodView(u,rec['index']))
-        embed=_wls_embed(interaction,'✨ The Story Continues',notes+'\n\n*Cinnamon shakes the map enthusiastically. Something falls out. It is a biscuit.*')
+        followup = ('\n\n**A new scene has opened because of your decision.**' if rec.get('branch') else '\n\n*The expedition carries your decision forward.*')
+        embed=_wls_embed(interaction,'✨ Your Decision Changes Things',notes + followup)
         await interaction.edit_original_response(embed=embed,view=_WLSContinue(u))
 
 
@@ -347,7 +587,7 @@ class _WLSContinue(discord.ui.View):
             return await interaction.response.edit_message(embed=_wls_embed(interaction,'🏆 Adventure Complete',
                 'Cinnamon recovered her most precious chew toy. Your reward was 100,000 Catnip. She still insists it is worth ONE BILLION.'),view=None)
         idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
-        await interaction.response.edit_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(interaction.user.id,idx))
+        await interaction.response.edit_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(interaction.user.id,idx,rec.get('branch')))
 
 
 class _WLSMoodView(discord.ui.View):
@@ -376,7 +616,7 @@ class _WLSMoodView(discord.ui.View):
     @discord.ui.button(label='Just give me the next scene ▶',style=discord.ButtonStyle.secondary)
     async def skip(self,interaction,button):
         rec=_wls_player(interaction.guild.id,interaction.user.id)
-        await interaction.response.edit_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(self.owner_id,rec['index']))
+        await interaction.response.edit_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(self.owner_id,rec['index'],rec.get('branch')))
 
 
 @wildlands_art_group.command(name='story',description='Play Cinnamon’s funny, mysterious, choice-driven treasure adventure')
@@ -394,6 +634,29 @@ async def wildlands_story(interaction:discord.Interaction):
     await interaction.response.send_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(interaction.user.id,idx),ephemeral=True)
 
 
+
+@wildlands_art_group.command(name='story-restart', description='Replay the Wildlands mystery from the beginning; one-time reward stays claimed')
+@app_commands.describe(confirm='Set True to reset your story decisions and start again')
+@app_commands.guild_only()
+async def wildlands_story_restart(interaction: discord.Interaction, confirm: bool = False):
+    if not confirm:
+        return await interaction.response.send_message(
+            '🐈 Restarting wipes your CURRENT story decisions, clues and relationships. '
+            'Your completed reward and fishing gear stay safe. '
+            'Run /wildlands story-restart with confirm=True when ready.',
+            ephemeral=True)
+    old = _wls_player(interaction.guild.id, interaction.user.id)
+    was_paid = bool(old.get('reward_paid'))
+    old.update({'index': 0, 'branch': None, 'clues': [], 'history': [],
+                'flags': {}, 'relationship': {}, 'treasure_deal': 'none',
+                'complete': False, 'reward_paid': was_paid, 'replay': True})
+    # No second one-time payout and no repeat merchant-opening rolls on replays.
+    await bd_save_data()
+    await interaction.response.send_message(
+        embed=_wls_scene_embed(interaction, old),
+        view=_WLSChoiceView(interaction.user.id, 0), ephemeral=True)
+
+
 @wildlands_art_group.command(name='story-journal',description='Review your story progress and important discoveries')
 @app_commands.guild_only()
 async def wildlands_story_journal(interaction:discord.Interaction):
@@ -402,10 +665,14 @@ async def wildlands_story_journal(interaction:discord.Interaction):
     area=_wls_scene_area=(_WLS_SCENES[idx]['area'] if not rec['complete'] else 'forgotten_ruins')
     recent=rec.get('history',[])[-4:]
     rows=['• '+v['choice'] for v in recent]
+    rel=rec.get('relationship', {})
     msg=(f'**Status:** {"✅ Story completed" if rec["complete"] else "In progress"}\n'
          f'**Scene:** {min(int(rec["index"])+1,len(_WLS_SCENES))}/{len(_WLS_SCENES)}\n'
          f'**Region:** {_wlf_area(area)[1]}\n'
          f'**Clues and memories:** {len(rec.get("clues", []))}\n'
+         f'**Treasure deal:** {rec.get("treasure_deal", "none").title()}\n'
+         f'**Cinnamon trust:** {int(rel.get("trust", 0)):+d} · **Beans alliance:** {int(rel.get("beans_friendship", 0)):+d}\n'
+         f'**Current route:** {rec.get("branch") or "Main expedition"}\n'
          f'**Recent decisions:**\n'+ ('\n'.join(rows) if rows else 'No decisions yet')+'\n\n'
          '**Next:** `/wildlands story` to continue.\n'
          '🎣 Fish, rod, bait and merchant shops stay part of the adventure.')
@@ -417,7 +684,8 @@ async def wildlands_story_journal(interaction:discord.Interaction):
 async def wildlands_story_help(interaction:discord.Interaction):
     await interaction.response.send_message(embed=_wls_embed(interaction,'🐈 The Rules (As Written by a Cat)',
         '**Play:** `/wildlands story` to begin or resume; select dialogue and puzzle choices with buttons.\n'
-        '**Track:** `/wildlands story-journal`. Bad puzzle guesses do not lose progress.\n'
+        '**Replay:** `/wildlands story-restart confirm:True` resets only the story route, not the one-time payout or fishing gear.\n'
+        '**Track:** `/wildlands story-journal`. Branches, relationships and negotiated deals influence later scenes. Bad puzzle guesses do not lose progress.\n'
         '**Merchants:** Story decisions and `/wildlands gather` can discover a merchant. The shop opens to everyone for **2 hours** in its own channel.\n'
         '**Finder bonus:** 10% of other players’ purchases made inside the open shop channel. The bonus is extra Catnip, not a surcharge.\n'
         '**Forever access:** Finish this adventure and both shop channels stay open **for you** even between public discoveries.\n'

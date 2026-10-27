@@ -625,8 +625,6 @@ class _WLFReelView(discord.ui.View):
                 log.exception("Optional rare-fish reaction could not be posted")
 
 
-@_wlf_group.command(name='cast', description='Interactive cast: choose bait and reel in a local fish')
-@app_commands.guild_only()
 async def fishing_cast(interaction: discord.Interaction):
     gid, uid = interaction.guild.id, interaction.user.id
     p = _wlf_player(gid, uid)

@@ -117,6 +117,9 @@ async def cinnamon_send(interaction: discord.Interaction, description: str, *, t
     color, default_title = _cinnamon_embed_tone(description)
     embed = discord.Embed(title=title or default_title, description=description, color=color)
     embed.set_footer(text="Cinnamon • Made with paws 🐾")
+    if interaction.response.is_done():
+        return await interaction.followup.send(embed=embed, ephemeral=ephemeral,
+                                               allowed_mentions=allowed_mentions or discord.AllowedMentions.none())
     return await interaction.response.send_message(embed=embed, ephemeral=ephemeral, allowed_mentions=allowed_mentions or discord.AllowedMentions.none())
 
 # ---------------------------------------------------------------------------
@@ -385,6 +388,7 @@ _CINNAMON_MODULES = (
     "hangry_games.py",
     "wildlands_art.py",
     "wildlands_fishing.py",
+    "wildlands_fishing_game.py",
     "wildlands_story.py",
     "cinnamon_moods.py",
     "cinnamon_personality.py",
