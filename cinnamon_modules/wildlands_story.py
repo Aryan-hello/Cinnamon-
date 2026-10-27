@@ -369,18 +369,23 @@ def _wls_embed(interaction, title, body):
 
 def _wls_scene_embed(interaction, rec):
     idx = min(max(0, int(rec['index'])), len(_WLS_SCENES) - 1)
-    scene = _WLS_SCENES[idx]
+    branch = rec.get('branch')
+    scene = _WLS_BRANCHES.get(branch) if branch else _WLS_SCENES[idx]
+    if scene is None:
+        rec['branch'] = None
+        scene = _WLS_SCENES[idx]
     count = len(_WLS_SCENES)
     chapter = _WLS_CHAPTERS[scene['chapter']]
     progress = min(8, int(((idx + 1) / count) * 8))
     bar = "▰" * progress + "▱" * (8 - progress)
     clues = len(rec.get("clues", []))
+    echo = _wls_echo(rec, idx) if not rec.get('branch') else ''
     e = _wls_embed(interaction, scene['title'],
-                   scene['text'][:3300] + "\n\n**🐾 YOUR MOVE**\nChoose how Cinnamon's mystery continues.")
+                   scene['text'][:2800] + ('\n\n' + echo if echo else '') + "\n\n**🐾 YOUR MOVE**\nChoices shape later scenes.")
     e.add_field(name="🗺️ Region", value=_wlf_area(scene['area'])[1], inline=True)
     e.add_field(name="🔎 Clues", value=f"{clues} found", inline=True)
     e.add_field(name="📊 Progress", value=f"{bar}  **{idx + 1}/{count}**", inline=False)
-    e.set_footer(text=f"{chapter} • Scene {idx + 1}/{count} • Choices save automatically")
+    e.set_footer(text=f"{chapter} • {'Detour' if rec.get('branch') else 'Scene'} {idx + 1}/{count} • Choices are remembered")
     return e
 
 
@@ -394,10 +399,11 @@ class _WLSChoice(discord.ui.Button):
 
 
 class _WLSChoiceView(discord.ui.View):
-    def __init__(self, owner_id, index):
+    def __init__(self, owner_id, index, branch=None):
         super().__init__(timeout=900)
-        self.owner_id, self.index = owner_id, index
-        for idx, opt in enumerate(_WLS_SCENES[index]['choices']):
+        self.owner_id, self.index, self.branch = owner_id, index, branch
+        scene = _WLS_BRANCHES[branch] if branch else _WLS_SCENES[index]
+        for idx, opt in enumerate(scene['choices']):
             self.add_item(_WLSChoice(idx, opt))
 
     async def interaction_check(self, interaction):
@@ -411,32 +417,26 @@ class _WLSChoiceView(discord.ui.View):
             return await interaction.response.send_message('Use Wildlands in a server.',ephemeral=True)
         g,u=interaction.guild.id, interaction.user.id
         rec=_wls_player(g,u)
-        if rec['complete'] or int(rec['index']) != self.index:
+        if rec['complete'] or int(rec['index']) != self.index or rec.get('branch') != self.branch:
             return await interaction.response.send_message('Your adventure moved on! Use `/wildlands story` to resume.',ephemeral=True)
         await interaction.response.defer()  # Merchant channel creation may take longer than Discord's 3s ACK window.
-        if rec.get('complete') or int(rec.get('index',0)) != self.index:
+        if rec.get('complete') or int(rec.get('index',0)) != self.index or rec.get('branch') != self.branch:
             return await interaction.edit_original_response(
                 embed=_wls_embed(interaction,'🐾 Cinnamon Is One Step Ahead',
                     'This choice was already recorded. Use `/wildlands story` to resume.'),view=None)
-        scene=_WLS_SCENES[self.index]
+        scene=_WLS_BRANCHES[self.branch] if self.branch else _WLS_SCENES[self.index]
         opt=scene['choices'][option_idx]
         if not opt[3]:
             return await interaction.edit_original_response(embed=_wls_embed(interaction,'🐾 That Was... A Choice',
-                opt[1]+'\n\nTry another option; Cinnamon says we have a BILLION reasons to keep going.'),view=_WLSChoiceView(u,self.index))
-        history=rec.setdefault('history',[])
-        history.append({'scene':self.index,'choice':opt[0]})
-        if len(history)>80:
-            del history[:-80]
-        if opt[2] and opt[2] not in rec['clues']:
-            rec['clues'].append(opt[2])
-        rec['index']=self.index+1
+                opt[1]+'\n\nTry another option; Cinnamon says we have a BILLION reasons to keep going.'),view=_WLSChoiceView(u,self.index,self.branch))
+        _wls_apply_choice(rec, self.index, option_idx, self.branch)
         if rec['index']<len(_WLS_SCENES):
             next_area=_WLS_SCENES[rec['index']]['area']
             player=_wlf_player(g,u)
             if next_area not in player['areas']:
                 player['areas'].append(next_area)
         notes=opt[1]
-        if self.index == len(_WLS_SCENES)-1:
+        if self.branch is None and self.index == len(_WLS_SCENES)-1:
             # Award exactly once; do not use player-provided currency values.
             if not rec.get('reward_paid'):
                 lock=_WLF_PURCHASE_LOCKS.setdefault(g,asyncio.Lock())
@@ -462,15 +462,16 @@ class _WLSChoiceView(discord.ui.View):
                 '**Cinnamon’s happiness:** INFINITE.\n**Your financial expectations:** DESTROYED.\n'
                 +access+'\n\n🎣 The Rod and Bait Merchants are available to you forever.'),view=None)
         await bd_save_data()
-        if scene['chance']:
+        if not self.branch and scene['chance']:
             notes += await _wlf_attempt_merchant(interaction.guild,finder=interaction.user,
                                                   announce_channel=interaction.channel,
                                                   chance=scene['chance'])
-        if rec['index'] in _WLS_MOOD_STOPS:
+        if not self.branch and not rec.get('branch') and rec['index'] in _WLS_MOOD_STOPS:
             embed=_wls_embed(interaction,'🐈 Cinnamon’s Very Serious Survey',
                 notes+'\n\n**Cinnamon:** “So... ARE YOU HAVING FUN? Be honest, but consider that my feelings are made of delicate fluff.”')
             return await interaction.edit_original_response(embed=embed,view=_WLSMoodView(u,rec['index']))
-        embed=_wls_embed(interaction,'✨ The Story Continues',notes+'\n\n*Cinnamon shakes the map enthusiastically. Something falls out. It is a biscuit.*')
+        followup = ('\n\n**A new scene has opened because of your decision.**' if rec.get('branch') else '\n\n*The expedition carries your decision forward.*')
+        embed=_wls_embed(interaction,'✨ Your Decision Changes Things',notes + followup)
         await interaction.edit_original_response(embed=embed,view=_WLSContinue(u))
 
 
@@ -492,7 +493,7 @@ class _WLSContinue(discord.ui.View):
             return await interaction.response.edit_message(embed=_wls_embed(interaction,'🏆 Adventure Complete',
                 'Cinnamon recovered her most precious chew toy. Your reward was 100,000 Catnip. She still insists it is worth ONE BILLION.'),view=None)
         idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
-        await interaction.response.edit_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(interaction.user.id,idx))
+        await interaction.response.edit_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(interaction.user.id,idx,rec.get('branch')))
 
 
 class _WLSMoodView(discord.ui.View):
@@ -521,7 +522,7 @@ class _WLSMoodView(discord.ui.View):
     @discord.ui.button(label='Just give me the next scene ▶',style=discord.ButtonStyle.secondary)
     async def skip(self,interaction,button):
         rec=_wls_player(interaction.guild.id,interaction.user.id)
-        await interaction.response.edit_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(self.owner_id,rec['index']))
+        await interaction.response.edit_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(self.owner_id,rec['index'],rec.get('branch')))
 
 
 @wildlands_art_group.command(name='story',description='Play Cinnamon’s funny, mysterious, choice-driven treasure adventure')
@@ -547,10 +548,14 @@ async def wildlands_story_journal(interaction:discord.Interaction):
     area=_wls_scene_area=(_WLS_SCENES[idx]['area'] if not rec['complete'] else 'forgotten_ruins')
     recent=rec.get('history',[])[-4:]
     rows=['• '+v['choice'] for v in recent]
+    rel=rec.get('relationship', {})
     msg=(f'**Status:** {"✅ Story completed" if rec["complete"] else "In progress"}\n'
          f'**Scene:** {min(int(rec["index"])+1,len(_WLS_SCENES))}/{len(_WLS_SCENES)}\n'
          f'**Region:** {_wlf_area(area)[1]}\n'
          f'**Clues and memories:** {len(rec.get("clues", []))}\n'
+         f'**Treasure deal:** {rec.get("treasure_deal", "none").title()}\n'
+         f'**Cinnamon trust:** {int(rel.get("trust", 0)):+d} · **Beans alliance:** {int(rel.get("beans_friendship", 0)):+d}\n'
+         f'**Current route:** {rec.get("branch") or "Main expedition"}\n'
          f'**Recent decisions:**\n'+ ('\n'.join(rows) if rows else 'No decisions yet')+'\n\n'
          '**Next:** `/wildlands story` to continue.\n'
          '🎣 Fish, rod, bait and merchant shops stay part of the adventure.')
@@ -562,7 +567,7 @@ async def wildlands_story_journal(interaction:discord.Interaction):
 async def wildlands_story_help(interaction:discord.Interaction):
     await interaction.response.send_message(embed=_wls_embed(interaction,'🐈 The Rules (As Written by a Cat)',
         '**Play:** `/wildlands story` to begin or resume; select dialogue and puzzle choices with buttons.\n'
-        '**Track:** `/wildlands story-journal`. Bad puzzle guesses do not lose progress.\n'
+        '**Track:** `/wildlands story-journal`. Branches, relationships and negotiated deals influence later scenes. Bad puzzle guesses do not lose progress.\n'
         '**Merchants:** Story decisions and `/wildlands gather` can discover a merchant. The shop opens to everyone for **2 hours** in its own channel.\n'
         '**Finder bonus:** 10% of other players’ purchases made inside the open shop channel. The bonus is extra Catnip, not a surcharge.\n'
         '**Forever access:** Finish this adventure and both shop channels stay open **for you** even between public discoveries.\n'
