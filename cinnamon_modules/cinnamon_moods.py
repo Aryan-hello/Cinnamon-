@@ -113,24 +113,57 @@ async def _cm_clear_naughty(guild, member):
 
 
 async def _cm_action(guild, member, kind, quantity=1):
-    """Action cooldown prevents feeding/petting macros from forcing a mood."""
+    """Account for every successful feed; only chatty non-food actions are throttled.
+
+    The economy has *already consumed* the food before calling this handler.
+    Never discard a valid feeding event due to a pet/talk cooldown.
+    """
     g, state = guild.id, _cm_member(guild.id, member.id)
     now = time.time()
+    if kind == "feed":
+        count = max(1, min(99, int(quantity)))
+        # Bounded timestamp/quantity pairs survive storage snapshots/restarts.
+        events = [[float(t), int(q)] for t, q in state.get("food_events", [])
+                  if now - float(t) < _CM_FOOD_WINDOW and float(t) <= now]
+        # Smooth migration from the old food counter, without counting it twice.
+        if "food_events" not in state and now - float(state.get("food_since", 0)) < _CM_FOOD_WINDOW:
+            previous = max(0, int(state.get("food_count", 0)))
+            if previous:
+                events.append([float(state["food_since"]), previous])
+        before = sum(q for _, q in events)
+        events.append([now, count])
+        state["food_events"] = events[-120:]
+        total = sum(q for _, q in state["food_events"])
+        state["food_count"], state["food_since"] = total, now
+        # This flag can reset once the rolling window drops below five.
+        was_overfed = bool(state.get("overfeed_active")) and before >= 5
+        state["overfeed_active"] = total >= 5
+        if total >= 5:
+            if not was_overfed:
+                _cm_adjust(g, -45)
+                await _cm_set_naughty(guild, member)
+                message = ("😾 THAT IS **" + str(total) + "** SNACKS IN TEN MINUTES! "
+                           "YOU ARE TRYING TO BRIBE ME!\n"
+                           "**Cinnamon is now Grumpy.** Naughty List: 30 minutes.")
+            else:
+                _cm_adjust(g, -2)
+                message = (f"😾 Snack #{total} in ten minutes?! Cinnamon accepts it "
+                           "and refuses to admit she wanted more. **Still suspicious.**")
+        else:
+            _cm_adjust(g, min(8, 4 + count))
+            message = {
+                1: "🐟 *happy chewing* First snack. Excellent service.",
+                2: "😺 Second snack?! You know the way to a cat's heart.",
+                3: "🐈 Third snack. Cinnamon narrows her eyes. What do you want?",
+                4: "😼 FOUR snacks. “I know you are up to something.”",
+            }.get(total, f"🐟 {total} snacks. Cinnamon is very attentive.")
+        await bd_save_data()
+        await _cp_log(g, f"Feeding recorded: {count} items; {total} in 10m", member.id)
+        return message + f"\n**Fed recently:** {total}/5 · **Mood:** {_cm_tier(g).title()}"
     if now - float(state.get("last_action", 0)) < _CM_ACTION_COOLDOWN:
         return "🐈 I appreciate the attention, but give me a moment to enjoy it!"
     state["last_action"] = now
-    if kind == "feed":
-        if now - float(state.get("food_since", 0)) > _CM_FOOD_WINDOW:
-            state["food_since"], state["food_count"] = now, 0
-        state["food_count"] = int(state.get("food_count", 0)) + max(1, int(quantity))
-        if state["food_count"] >= 5:
-            _cm_adjust(g, -45)
-            await _cm_set_naughty(guild, member)
-            return ("😾 WHY ARE YOU TRYING TO MANIPULATE ME WITH FOOD?! "
-                    "I'm a CAT, not a vending machine! You are on my Naughty List for 30 minutes.")
-        _cm_adjust(g, 5 + min(3, quantity))
-        msg = "🐟 *happy chewing noises* Very good snack choices, human."
-    elif kind == "pet":
+    if kind == "pet":
         _cm_adjust(g, 8)
         msg = "🐾 *purrs loudly* Okay, that was a very acceptable pet."
     elif kind == "toy":
@@ -141,7 +174,6 @@ async def _cm_action(guild, member, kind, quantity=1):
         msg = "🐈 You actually listened to my concerns? ...Fine. I am slightly less dramatic."
     else:
         return "That action is not in Cinnamon's very important handbook."
-
     if _cm_naughty(g, member.id) and kind in ("pet", "toy", "talk"):
         state["makeup_actions"] = min(3, int(state.get("makeup_actions", 0)) + 1)
         msg += f" ({state['makeup_actions']}/2 steps toward making up.)"
