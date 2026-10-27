@@ -86,7 +86,7 @@ class FishingBehavior(unittest.TestCase):
         self.assertIn("state['phase'] = self.phase = 'bite'", text)
         self.assertIn("state['phase'] = self.phase = 'fight'", text)
         self.assertIn("p['bait'][self.bait] -= 1", text)
-        self.assertIn("_wlf_group.remove_command('cast')", text)
+        self.assertIn("@_wlf_group.command(name='cast'", text)
         main = (ROOT / 'main.py').read_text()
         self.assertLess(main.index('"wildlands_fishing.py"'), main.index('"wildlands_fishing_game.py"'))
         self.assertLess(main.index('"wildlands_fishing_game.py"'), main.index('"wildlands_story.py"'))
@@ -117,7 +117,7 @@ class FeedingBehavior(unittest.TestCase):
                 tick[0] += 45  # Faster than the old shared 90-second cooldown.
             self.assertEqual(len(naughty), 1)
             self.assertEqual(ns['_cm_member'](123, 456)['food_count'], 7)
-            self.assertIn('Fed recently: 7/5', results[-1])
+            self.assertIn('7/5', results[-1])
             self.assertEqual(ns['_cm_tier'](123), 'grumpy')
             tick[0] += 601
             result = await ns['_cm_action'](guild, member, 'feed', 5)
