@@ -591,6 +591,7 @@ async def wildlands_story_journal(interaction:discord.Interaction):
 async def wildlands_story_help(interaction:discord.Interaction):
     await interaction.response.send_message(embed=_wls_embed(interaction,'🐈 The Rules (As Written by a Cat)',
         '**Play:** `/wildlands story` to begin or resume; select dialogue and puzzle choices with buttons.\n'
+        '**Replay:** `/wildlands story-restart confirm:True` resets only the story route, not the one-time payout or fishing gear.\n'
         '**Track:** `/wildlands story-journal`. Branches, relationships and negotiated deals influence later scenes. Bad puzzle guesses do not lose progress.\n'
         '**Merchants:** Story decisions and `/wildlands gather` can discover a merchant. The shop opens to everyone for **2 hours** in its own channel.\n'
         '**Finder bonus:** 10% of other players’ purchases made inside the open shop channel. The bonus is extra Catnip, not a surcharge.\n'
