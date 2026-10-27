@@ -562,6 +562,8 @@ async def economy_leaderboard_cmd(interaction: discord.Interaction):
 @app_commands.autocomplete(item=cinnamon_item_autocomplete)
 @app_commands.guild_only()
 async def economy_feed_cmd(interaction: discord.Interaction, item: str, quantity: app_commands.Range[int, 1, 99] = 1):
+    # Quests, achievements, logs and Upstash saves can exceed Discord's 3s ACK window.
+    await interaction.response.defer()
     try:
         guild_id, user_id = interaction.guild.id, interaction.user.id
         item_id = str(item).strip().lower()
@@ -595,7 +597,7 @@ async def economy_feed_cmd(interaction: discord.Interaction, item: str, quantity
     except Exception as exc:
         log.exception("Economy feed command failed for guild %s", interaction.guild.id if interaction.guild else None)
         if interaction.response.is_done():
-            await interaction.followup.send("❌ I couldn't process that feed/quest action. No further changes were made by the failed step.", ephemeral=True)
+            await interaction.followup.send("❌ A step in feeding failed. Please check your inventory before retrying; the item may already have been used.", ephemeral=True)
         else:
             await cinnamon_send(interaction, "❌ I couldn't process that feed/quest action. Please try again.", ephemeral=True)
 
