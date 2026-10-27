@@ -137,9 +137,6 @@ class _FGView(discord.ui.View):
             if self.phase != 'prepare' or p.get('fishing_session'):
                 return await interaction.edit_original_response(
                     content='🐟 A cast is already in progress.', view=None)
-            if _fg_time.time() < float(p.get('next_cast', 0)):
-                return await interaction.edit_original_response(
-                    content='🎣 Give the water a moment before casting again.', view=None)
             if int(p['bait'].get(self.bait, 0)) < 1:
                 self.configure()
                 return await interaction.edit_original_response(embed=self.render(), view=self)
@@ -155,7 +152,6 @@ class _FGView(discord.ui.View):
                 'area': p['area'], 'fish': f'{p["area"]}:{rarity}', 'cast_at': now,
                 'tension': 48, 'progress': 0, 'turn': 0, 'moves': [], 'goal': 0,
             }
-            p['next_cast'] = now + 30
             self.phase = 'waiting'
             self.configure()
             await bd_save_data()
@@ -307,10 +303,6 @@ async def fishing_cast_game(interaction: discord.Interaction):
                 ephemeral=True)
     if p['area'] not in p['areas']:
         p['area'] = 'whispering_woods'
-    remaining = max(0, _wlf_math.ceil(float(p['next_cast']) - now))
-    if remaining:
-        return await interaction.response.send_message(
-            f'🎣 Rest your rod for {remaining} seconds before casting again.', ephemeral=True)
     if not any(int(p['bait'].get(b['id'], 0)) > 0 for b in _WLF_BAIT):
         return await interaction.response.send_message(
             '🐟 You need bait first. Try the Bait Merchant or /wildlands gather.',
