@@ -202,6 +202,147 @@ _WLS_SCENES = [
 ]
 
 
+
+# Story graph detours. Branches fold back into the same main mystery,
+# but choices leave durable state and dialogue callbacks.
+_WLS_BRANCHES = {
+    'half_talk': _wls_scene(0, 'whispering_woods', 'THE FIFTY-PERCENT CRISIS',
+        'Cinnamon drags over a cardboard box labelled NEGOTIATION TABLE. '
+        '"FIFTY PERCENT? I asked for an adventurer, not a BUSINESS PARTNER!"\n'
+        'Beans arrives with a purple crayon and demands your final offer.', [
+            ('Hold firm at 50%', 'Cinnamon agrees to put half the treasure in writing. "You drive a TERRIBLE bargain. For me."', 'deal_half', True),
+            ('Compromise at 25%', 'She folds her paws. "Twenty-five. FINAL OFFER." Beans starts the paperwork.', 'deal_quarter', True),
+            ('Admit it was a joke', '"You have taken three years off my whiskers." She burns the draft contract.', 'deal_joke', True)]),
+    'half_contract': _wls_scene(0, 'whispering_woods', 'THE WORLD’S WORST CONTRACT',
+        'A napkin contract promises you 50% of whatever the chest contains. '
+        'Beans witnesses it while Cinnamon refuses to make eye contact.', [
+            ('Sign it', '"Fine. My extortionate business associate may now have a map." The ink dries.', 'half_signed', True),
+            ('Let Cinnamon inspect the chest first', '"That... is surprisingly nice," she admits. She signs.', 'half_kind', True),
+            ('Demand a signing bonus fish', '"ABSOLUTELY NOT," she yells, but signs anyway.', 'half_fish', True)]),
+    'quarter_contract': _wls_scene(0, 'whispering_woods', 'THE QUARTER-SHARE TREATY',
+        'Cinnamon draws four squares and a fish to explain twenty-five percent. '
+        'You notice she has erased the word "unpaid."', [
+            ('Sign the fair deal', 'Both of you sign. For once, Cinnamon looks impressed.', 'quarter_signed', True),
+            ('Ask Beans to witness', 'Beans adds "No dramatic betrayal" to the document. Cinnamon reluctantly agrees.', 'beans_witness', True),
+            ('Trade your share for a clue', 'Cinnamon reveals she recognizes the crown on the map. Trust wins over money.', 'trade_share', True)]),
+    'contract_review': _wls_scene(0, 'whispering_woods', 'THE SECRET FISH CLAUSE',
+        'The gravy-stained employment contract says Cinnamon gets EVERY fish found. '
+        '"It is a completely normal condition," she claims.', [
+            ('Negotiate 25% of the treasure', 'Cinnamon signs a revised contract and complains about lawyers.', 'contract_quarter', True),
+            ('Accept the fish clause', 'Cinnamon hands you the hidden map pocket. "You trust me; I trust you."', 'contract_trust', True),
+            ('Get Beans as a witness', 'Beans stamps the napkin. "This is legally ridiculous but I have seen worse."', 'contract_beans', True)]),
+    'employment': _wls_scene(0, 'whispering_woods', 'THE UNPAID JOB INTERVIEW',
+        'Cinnamon wears spectacles and asks one question: "WHAT WOULD YOU SAVE FIRST: ME OR THE TREASURE?"', [
+            ('Protect Cinnamon', '"Good answer," she purrs. "You get first pick of the emergency biscuits."', 'save_cat', True),
+            ('Protect the map', '"Efficient but concerning," she says. She gives you a waterproof folder.', 'save_map', True),
+            ('Ask for lunch breaks', '"One tuna break per three emergencies." She appoints you Chief Snack Officer.', 'lunch_contract', True)]),
+    'rowan_dispute': _wls_scene(1, 'whispering_woods', 'CINNAMON IS NOT LEGAL TENDER',
+        '"YOU TRIED TO TRADE ME FOR A FISHING ROD!" Cinnamon shouts. '
+        'Rowan says he will show you the coast road only if you repair this diplomatic disaster.', [
+            ('Apologize to Cinnamon', 'She reluctantly forgives you. "This is your ONE betrayal allowance."', 'rowan_sorry', True),
+            ('Offer Rowan your own snacks', 'He points out the road. Cinnamon keeps reminding you of the betrayal.', 'rowan_snacks', True),
+            ('Ask Beans to mediate', 'Beans writes a non-transferable-cat treaty. Rowan approves the route.', 'rowan_beans', True)]),
+    'beans_rescue': _wls_scene(4, 'moonlit_marsh', 'BEANS REMEMBERS',
+        'You pull Beans and the cargo ashore. "You helped me when you did not have to," he says. '
+        'He can get you past the Baron’s fortress guards.', [
+            ('Trust Beans with the route', 'Beans gives you a coded key. "Show this to the north guard."', 'beans_route', True),
+            ('Keep his help a secret', 'He draws a back entrance. "Nobody else knows this exists."', 'beans_secret_route', True),
+            ('Recruit Beans to your crew', 'Beans joins you. "I am done making PowerPoints for that villain."', 'beans_recruited', True)]),
+}
+_WLS_ENTRY = {(0, 0): 'employment', (0, 1): 'contract_review',
+              (0, 2): 'half_talk', (4, 2): 'rowan_dispute',
+              (18, 0): 'beans_rescue'}
+_WLS_NEXT = {('half_talk', 0): 'half_contract', ('half_talk', 1): 'quarter_contract'}
+_WLS_EFFECTS = {
+    'deal_half': {'treasure_deal': 'half', 'trust': -2, 'respect': 2},
+    'deal_quarter': {'treasure_deal': 'quarter', 'respect': 1},
+    'half_kind': {'trust': 2}, 'half_fish': {'trust': -1},
+    'trade_share': {'treasure_deal': 'none', 'trust': 3},
+    'contract_quarter': {'treasure_deal': 'quarter'},
+    'contract_trust': {'trust': 2}, 'save_cat': {'trust': 2},
+    'rowan_sorry': {'trust': 2}, 'rowan_snacks': {'trust': -1},
+    'beans_witness': {'beans_friendship': 1},
+    'contract_beans': {'beans_friendship': 1},
+    'rowan_beans': {'beans_friendship': 1},
+    'beans_route': {'beans_friendship': 2},
+    'beans_secret_route': {'beans_friendship': 2},
+    'beans_recruited': {'beans_friendship': 3},
+}
+
+
+def _wls_apply_choice(rec, index, option_index, branch=None):
+    """Apply a narrative decision exactly once after view-state validation."""
+    scene = _WLS_BRANCHES[branch] if branch else _WLS_SCENES[index]
+    opt = scene['choices'][option_index]
+    if not opt[3]:
+        return False  # Repeat puzzle choice without changing state.
+    history = rec.setdefault('history', [])
+    history.append({'scene': branch if branch else index, 'choice': opt[0]})
+    del history[:-80]
+    rec.setdefault('flags', {})
+    rec.setdefault('relationship', {})
+    rec.setdefault('clues', [])
+    if opt[2]:
+        rec['flags'][opt[2]] = True
+        if opt[2] not in rec['clues']:
+            rec['clues'].append(opt[2])
+    for key, value in _WLS_EFFECTS.get(opt[2], {}).items():
+        if key == 'treasure_deal':
+            rec[key] = value
+        else:
+            rel = rec['relationship']
+            rel[key] = max(-9, min(9, int(rel.get(key, 0)) + value))
+    if not branch:
+        if index == 4 and option_index == 2:
+            rel = rec['relationship']
+            rel['trust'] = int(rel.get('trust', 0)) - 2
+        if index == 19 and option_index == 2:
+            rel = rec['relationship']
+            rel['beans_friendship'] = int(rel.get('beans_friendship', 0)) + 1
+        rec['index'] = index + 1
+        rec['branch'] = _WLS_ENTRY.get((index, option_index))
+    else:
+        rec['branch'] = _WLS_NEXT.get((branch, option_index))
+    return True
+
+
+def _wls_echo(rec, index):
+    """Small later callbacks mean paths can reunite without erasing consequences."""
+    flags = rec.get('flags', {})
+    rel = rec.get('relationship', {})
+    deal = rec.get('treasure_deal', 'none')
+    notes = []
+    if index == 1:
+        if deal == 'half':
+            notes.append('**Cinnamon:** "My EXTORTIONATE business partner may now inspect the map too."')
+        elif deal == 'quarter':
+            notes.append('**Cinnamon:** "My twenty-five-percent consultant may inspect the map."')
+        elif flags.get('contract_trust'):
+            notes.append('Cinnamon reveals the secret map pocket because you trusted her earlier.')
+    if index == 6 and flags.get('rowan_trade'):
+        notes.append('Cinnamon guards the fork in the road. "Please do not try to SELL ME again."')
+    if index == 13 and deal == 'half':
+        notes.append('The Baron offers you sixty percent. **Cinnamon:** "DO NOT EVEN THINK ABOUT IT, MR FIFTY-PERCENT!"')
+    if index == 19 and int(rel.get('beans_friendship', 0)) >= 2:
+        notes.append('A secret coded key arrives from Beans. Your marsh rescue has opened a safer way in.')
+    if index == 23:
+        if flags.get('beans_recruited'):
+            notes.append('Beans leaves the Baron’s side and joins you. "I told you I would help."')
+        if deal == 'half':
+            notes.append('**Cinnamon:** "Remember. We have a CONTRACT."')
+    if index == 25:
+        if deal == 'half':
+            notes.append('**Cinnamon:** "Technically you own HALF A CHEW TOY. Never touch your half."')
+        elif deal == 'quarter':
+            notes.append('**Cinnamon:** "You may admire your imaginary quarter of Mr. Squeaks."')
+        elif int(rel.get('trust', 0)) >= 2:
+            notes.append('Cinnamon shares a quiet moment. "You did not even ask for a share. Thank you."')
+        if int(rel.get('beans_friendship', 0)) >= 2:
+            notes.append('Beans salutes you: "You earned a friend, not just a clue."')
+    return '\n\n'.join(notes)
+
+
+
 def _wls_player(guild_id, user_id):
     top = advanced_features_data.setdefault('wildlands_story_v2', {}).setdefault(str(guild_id), {})
     rec = top.setdefault(str(user_id), {})
@@ -210,6 +351,10 @@ def _wls_player(guild_id, user_id):
     rec.setdefault('history', [])
     rec.setdefault('complete', False)
     rec.setdefault('reward_paid', False)
+    rec.setdefault('branch', None)
+    rec.setdefault('flags', {})
+    rec.setdefault('relationship', {})
+    rec.setdefault('treasure_deal', 'none')
     return rec
 
 
