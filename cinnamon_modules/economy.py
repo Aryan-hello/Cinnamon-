@@ -157,6 +157,9 @@ def economy_shop_embed(guild_id: int, user: discord.abc.User, page: int = 0) -> 
     return cinnamon_polish_embed(e)
 
 
+_CINNAMON_SHOP_LOCKS = {}  # One purchase at a time per member.
+
+
 class CinnamonShopView(discord.ui.LayoutView):
     """Components V2 shop: every product has its purchase button attached to it."""
     def __init__(self, guild_id: int, user_id: int, page: int = 0):
@@ -222,8 +225,10 @@ class CinnamonShopView(discord.ui.LayoutView):
         self.add_item(container)
 
     async def _guard(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("🐾 This shop panel belongs to the person who opened it.", ephemeral=True)
+        if (interaction.user.id != self.user_id or not interaction.guild or
+                interaction.guild.id != self.guild_id):
+            await interaction.response.send_message(
+                "This shop panel belongs to a different player.", ephemeral=True)
             return False
         return True
 
@@ -231,40 +236,54 @@ class CinnamonShopView(discord.ui.LayoutView):
         async def callback(interaction: discord.Interaction):
             if not await self._guard(interaction):
                 return
-            data = ECONOMY_ITEMS.get(item_id)
-            if not data:
-                await interaction.response.send_message("🐾 Cinnamon couldn't find that item anymore.", ephemeral=True)
-                return
+            # ACK first: persistence and logging must never consume the
+            # three-second interaction response window.
+            await interaction.response.defer()
             guild_id, user_id = self.guild_id, self.user_id
-            current_qty = int(economy_inventory_for(guild_id, user_id).get(item_id, 0))
-            max_per_person = int(data.get("max_per_person", 0))
-            if max_per_person and current_qty + 1 > max_per_person:
-                await interaction.response.send_message(f"🐾 You reached the **{max_per_person}**-per-person limit for **{data['name']}**.", ephemeral=True)
-                return
-            price = _cm_price(guild_id, user_id, item_id, data.get("price", 0))
-            balance = economy_balance(guild_id, user_id)
-            if balance < price:
-                await interaction.response.send_message(f"🐾 You need **{price:,} Catnip**, but you only have **{balance:,}**.", ephemeral=True)
-                return
-            economy_balances[(guild_id, user_id)] = balance - price
-            inv = economy_inventory_for(guild_id, user_id)
-            inv[item_id] = current_qty + 1
-            await bd_save_data()
-            await economy_log(guild_id, title="🛒 Economy purchase", fields=[
-                ("User", f"{interaction.user} ({user_id})"),
-                ("Item", f"{data['name']} (`{item_id}`)"),
-                ("Quantity", "1"),
-                ("Deducted", f"-{price:,} Catnip"),
-                ("Balance before", f"{balance:,} Catnip"),
-                ("Balance after", f"{balance-price:,} Catnip"),
-                ("Item quantity after", str(inv[item_id])),
-            ])
-            fresh = CinnamonShopView(guild_id, user_id, self.page)
-            await interaction.response.edit_message(view=fresh)
-            await interaction.followup.send(f"🛒 Bought **1× {data.get('emoji', '🐾')} {data['name']}** for **{price:,} Catnip**!", ephemeral=True)
-            await _cp_react(interaction.guild, interaction.user, interaction.channel, "big_purchase", value=price)
-        return callback
+            lock = _CINNAMON_SHOP_LOCKS.setdefault((guild_id, user_id), asyncio.Lock())
+            async with lock:
+                data = ECONOMY_ITEMS.get(item_id)
+                if not data or not data.get("shop_enabled", True):
+                    return await interaction.followup.send(
+                        "This item is no longer available.", ephemeral=True)
+                inv = economy_inventory_for(guild_id, user_id)
+                current_qty = int(inv.get(item_id, 0))
+                limit = int(data.get("max_per_person", 0))
+                if limit and current_qty >= limit:
+                    return await interaction.followup.send(
+                        f"You've reached the {limit}-per-person purchase limit.",
+                        ephemeral=True)
+                price = _cm_price(guild_id, user_id, item_id, data.get("price", 0))
+                balance = economy_balance(guild_id, user_id)
+                if balance < price:
+                    return await interaction.followup.send(
+                        f"Not enough Catnip. You need {price:,}, but have {balance:,}.",
+                        ephemeral=True)
+                economy_balances[(guild_id, user_id)] = balance - price
+                inv[item_id] = current_qty + 1
+                await bd_save_data()
 
+            fresh = CinnamonShopView(guild_id, user_id, self.page)
+            await interaction.edit_original_response(view=fresh)
+            await interaction.followup.send(
+                f"Purchased **1 × {cinnamon_ui_literal(data.get('name', item_id), 90)}** "
+                f"for **{price:,} Catnip**. Remaining: **{balance - price:,}**.",
+                ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+            try:
+                await economy_log(guild_id, title="🛒 Economy purchase", fields=[
+                    ("User", f"{interaction.user} ({user_id})"),
+                    ("Item", f"{data['name']} (`{item_id}`)"),
+                    ("Quantity", "1"),
+                    ("Deducted", f"-{price:,} Catnip"),
+                    ("Balance before", f"{balance:,} Catnip"),
+                    ("Balance after", f"{balance-price:,} Catnip"),
+                    ("Item quantity after", str(inv[item_id])),
+                ])
+                await _cp_react(interaction.guild, interaction.user, interaction.channel,
+                                "big_purchase", value=price)
+            except Exception:
+                log.exception("Optional shop purchase activity could not be posted")
+        return callback
     async def _previous_callback(self, interaction: discord.Interaction):
         if not await self._guard(interaction): return
         fresh = CinnamonShopView(self.guild_id, self.user_id, self.page - 1)
