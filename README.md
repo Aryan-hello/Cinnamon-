@@ -1,115 +1,79 @@
-# Cinnamon — main features release
+# Cinnamon
 
-> **Safe chat actions (October 26, 2026):** Cinnamon can occasionally use a 1–10-second virtual-server timeout joke, only when a server Administrator enables it AND that member personally opts in; limited to once per member per UTC day. Moderators with Timeout Members may ask Cinnamon to mute/unmute a mentioned member via an exact chat phrase, then personally confirm. Kicks and bans need Administrator and confirmation. All other sensitive settings and Catnip administration require Administrator. See [CINNAMON_CHAT_ACTIONS.md](CINNAMON_CHAT_ACTIONS.md). This has automated offline tests but still needs live test-guild verification.
+A Discord bot built around a Catnip economy, interactive games, community tools, and a companion web dashboard.
 
-> **Security & UX release (October 26, 2026):** Fixes negative-Catnip transfer exploit; Cinnamon now answers only when pinged, replied to or directly called, with safe rare no-ping cameos. Admin-confirmed @everyone is the only mass-ping path. /setup has an optional Hangry channel picker, private rod/bait merchant shops, and Mood logs. Fishing gets bait selection and interactive reeling; story and dashboard received major UI improvements. Before public rollout, follow [CINNAMON_FINAL_DEPLOYMENT.md](CINNAMON_FINAL_DEPLOYMENT.md) and back up your persistent state.
+**Stack:** Python 3.11+ · discord.py 2.7+ · Flask · optional Upstash Redis · Google Gemini for Cinnamon's conversation features.
 
-> **Cinnamon social events (October 26, 2026):** Surprise Hangry Games now have random 1–2-hour scheduling, a two-minute Join window, exactly two Hangry Games role pings, and a 1,000–2,500 Catnip winner reward. Cinnamon also asks occasional optional questions, celebrates big moments, and logs mood/favourite/nice/naughty records in #cinnamon-stuff-logs. Re-run `/setup` after deploying and use `/cinnamon-events notify` to opt in. See [CINNAMON_SOCIAL_EVENTS.md](CINNAMON_SOCIAL_EVENTS.md).
+## Features
 
-> **Cinnamon mood & Hangry Games update (October 26, 2026):** `/mood status`, `/mood talk`, `/mood play`, and `/mood apologize` manage Cinnamon's playful server mood and temporary Naughty List. Mood modifies main-shop and merchant prices and fishing rarity odds. Hangry Games staff can add an optional Catnip winner prize under a weekly hosting budget; see [CINNAMON_MOOD_HANGRY_UPDATE.md](CINNAMON_MOOD_HANGRY_UPDATE.md) for rules and safety limits.
+| Area | What members can do |
+| --- | --- |
+| Catnip economy | Earn, transfer, spend, and track Catnip; browse items and inventory. |
+| Quests and achievements | Complete daily/weekly objectives, track milestones, and unlock rewards. |
+| Wildlands | Play a choice-driven treasure mystery, explore locations, and collect fishing gear. |
+| Fishing | Choose bait, wait for a bite, hook, and fight fish using interactive controls. There is no post-cast 30-second cooldown. |
+| Hangry Games | Join hosted games and compete for server rewards. |
+| Community | Levels, role income, giveaways, moderation, and server setup. |
+| Dashboard | Discord OAuth login for authorized server-management features. |
 
-> **Wildlands update (October 26, 2026):** The active mystery is **The Treasure Worth Billions** with Cinnamon, Baron Clawdius, and a final **100,000 Catnip** (one-time) reward. Start with `/wildlands story`; use `/fishing start` for the separate fishing system. Fishing merchants open for two hours when discovered and permanently for story finishers. See [WILDLANDS_UPDATE.md](WILDLANDS_UPDATE.md) for current commands. The old `/adventure` and old `/fish`/`/cook` implementations are retired and are not loaded.
+Cinnamon uses both traditional Discord embeds and **Components V2**. The shop, inventory, quest board, and achievement collection use structured interactive panels. See [Discord UI guidelines](docs/DISCORD_UI.md) for the component conventions and release checklist.
 
+## Run locally
 
-Cinnamon is a single `discord.py` bot with modular feature files and a Flask dashboard. This release consolidates the main dashboard work and adds final guardrails for embed publishing and activity-log filtering. This package contains the main application files only. Live Discord/OAuth and Render behaviour still needs to be checked after deployment.
+1. Create an application and bot in the Discord Developer Portal. Enable the **Message Content** and **Server Members** privileged gateway intents required by the existing features.
+2. Copy `.env.example` to `.env`. Set `DISCORD_TOKEN` and `GEMINI_API_KEY`. For the dashboard, also set the Discord OAuth client ID/secret, `DASHBOARD_SECRET_KEY`, and the exact `DASHBOARD_REDIRECT_URI` registered in Discord.
+3. Install requirements and start the combined bot/dashboard process:
 
-## Included
+   ```bash
+   python -m pip install -r requirements.txt
+   python main.py
+   ```
 
-### Dashboard
-- Live bot-ready status and the existing server overview.
-- Mobile navigation retained, with an in-sidebar settings search that filters dashboard sections as you type.
-- New **Automation Studio** hub for welcome/goodbye rules, always-on Cinnamon, AutoMod, anti-raid, recurring giveaways, and log/recovery links.
-- Existing Moderation & Security, Levels & XP, Achievements, Quests, Friendship, Catnip Economy, Giveaways, Hangry Games, Community & AI, Message Studio, Analytics, Activity Logs, and Settings pages retained.
-- Message Studio checks the combined title, description, and footer text against Discord’s 6,000-character embed limit before publishing.
-- Activity Logs can filter recent retrieved events by category and search text. The view only searches the recent embed-based log sample fetched from configured channels, not all Discord history.
-- Configuration backup download and validated JSON restore for the selected server. Restore rejects backups from another server and does not overwrite balances, inventories, user progress, active giveaways, tokens, or secrets.
-- Existing role-based Catnip income controls and audit logging retained.
+4. Invite the bot using only the permissions it needs. Place its role above roles it must manage. Run `/setup` in a private test server before public use.
 
-### Giveaways
-- Start and end giveaways with up to 100 winners and durations up to one year.
-- Button entry and optional reaction entry, using a configurable entry emoji.
-- Required roles, bypass roles, blacklisted roles, minimum Discord account age, and minimum time in the server.
-- Bonus entries by role (1–20 extra entries per configured role; role bonuses stack, and a person can win only once).
-- Custom embed title/description/colour and custom entry, leave, and denied-entry messages.
-- Optional timed winner role and optional winner thread with auto-close.
-- Reusable templates (`/giveaway template-save`, `/giveaway template-list`, `/giveaway template-start`).
-- Recurring schedules (`/giveaway repeat`, `/giveaway repeat-stop`) and dashboard schedule controls.
-- Reroll a finished giveaway from saved history (`/giveaway reroll` or the dashboard).
-- Persistent history for the most recent 250 finished giveaways; active giveaways, templates, schedules, timed roles, and timed threads are persisted through Cinnamon's existing data store.
+Never commit `.env`, tokens, session secrets, or exported member data.
 
-## Existing giveaway commands
+## Deployment and data
 
-- `/giveaway start` — start a giveaway in the current channel.
-- `/giveaway end` — end an active giveaway by message ID.
-- `/giveaway reroll` — choose a different winner from a finished giveaway.
-- `/giveaway template-save` — save an active giveaway as a template.
-- `/giveaway template-list` — list saved templates.
-- `/giveaway template-start` — start a giveaway from a template.
-- `/giveaway repeat` — schedule a recurring giveaway.
-- `/giveaway repeat-stop` — stop a schedule without cancelling any active giveaway already posted.
+The included `render.yaml` describes one Render **web** service running `python main.py`. Free web instances can sleep; **the deployment configuration does not guarantee an always-online Discord connection**.
 
-The dashboard provides richer entry-rule and embed settings than the compact `/giveaway start` command.
+For ephemeral hosting, configure `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` so balances, story progress, and settings survive redeploys. Without remote storage, the bot uses local JSON files, which can be lost when an ephemeral filesystem resets.
 
-## Deploy on Render/GitHub
+Render's HTTP endpoint and the Discord gateway connection are separate concerns. A healthy web endpoint **does not prove the bot successfully logged in**. Check deployment logs and Discord connectivity after every release.
 
-1. Download and extract `Cinnamon_main_only.zip`.
-2. Replace the matching files in your existing repository with the files from the extracted package. Keep your Render environment variables and secrets unchanged.
-3. Commit and push to GitHub, then wait for Render to deploy.
-4. Keep `DISCORD_TOKEN`, `GEMINI_API_KEY`, Discord OAuth variables, and any Upstash credentials in Render's environment settings only; never put them in the repository or backup JSON.
-5. Test the dashboard OAuth login on Render; this workspace cannot sign in to your Discord account or verify the live OAuth callback from here.
-6. Test dashboard actions in a private test server and verify each action’s Discord permissions before relying on it in your main server.
+The existing `DISCORD_RETRY_SECONDS` controls the interval following a failed Discord login; it does not bypass Discord rate limits.
 
-## Storage and backup notes
+## Repository structure
 
-Upstash is recommended when configured because local JSON storage may not survive a Render redeploy. Configuration backups are per-server and exclude member balances, inventories, XP/progress data, active giveaway message IDs, bot tokens, and API secrets. The existing `/recall` recovery scan remains available for supported information retained in configured log channels.
+```text
+main.py                   Discord bot entry point and modular loader
+cinnamon_modules/         Commands, game systems, shared UI, and moderation
+dashboard.py              Flask dashboard
+Static/ and static/       Dashboard assets and Wildlands art registry
+tests/                    Offline regressions and UI contract checks
+.github/workflows/        CI and repository automation
+docs/                     Current development guidance
+```
 
-## Validation performed
+The feature modules execute inside a **shared namespace** loaded by `main.py`; they are not standalone Python programs. The loading order is intentional. When changing the UI, preserve compatibility between legacy `discord.ui.View` embeds and Components V2 `discord.ui.LayoutView` messages.
 
-- Python syntax compilation for `main.py`, `dashboard.py`, and every module.
-- JavaScript syntax check for `static/dashboard-mobile.js`.
-- AST-based rendering checks for all live dashboard page functions, including empty and populated giveaway states.
-- Configuration backup export/restore round-trip and wrong-server rejection tests.
-- Static checks for giveaway persistence, templates, recurring schedules, eligibility controls, rerolls, reaction entry handlers, timed roles/threads, and dashboard action routing.
+## Checks before merging
 
-These are offline/static checks, not a live Discord integration test. Real permissions, slash-command registration, and OAuth still need to be confirmed after deployment.
+```bash
+python -m compileall -q main.py cinnamon_modules tests
+python -m unittest discover -s tests -v
+```
 
-## Known limitations
-- Analytics currently shows live counters, not historical charts. Historical charts require durable time-series collection that is not included here.
-- Automation Studio organizes existing configuration; it does not run arbitrary scripts or provide a general-purpose automation rule engine.
-- The configuration restore form validates and restores supported settings, but it does not yet provide a persistent staged review page that survives a process restart.
-- Message Studio currently sends an embed with title, description, footer, colour and optional HTTPS image; editable fields/buttons and saved template versioning are not included in this release.
-- Offline checks cannot prove that Discord OAuth, gateway events, slash-command registration, bot role hierarchy, or Render storage work in your live environment.
+Automated tests cover formatting, selected game logic, and code contracts. They **do not** replace a live test-guild pass. Check interactions on Discord mobile and desktop, button ownership, timeout behavior, currency integrity, dashboard OAuth permissions, and persistence after a process restart.
 
-## Cinnamon Wildlands — existing Runway artwork import (Oct 24, 2026)
+## Documentation
 
-This update includes **50 references to artwork that was already generated in Runway**. It does not create new artwork or spend Runway credits:
+- [Discord UI & interaction guidelines](docs/DISCORD_UI.md)
+- [Deployment and safety checks](CINNAMON_FINAL_DEPLOYMENT.md) — historical release notes may describe older mechanics; use current code as the source of truth.
+- [Chat actions and consent rules](CINNAMON_CHAT_ACTIONS.md)
+- [Quest and achievement notes](README_CINNAMON_ACHIEVEMENTS_QUESTS.md)
+- [Release history](CINNAMON_RELEASE_NOTES.md)
 
-- 46 transparent background-removed cutouts, kept as `cutout_01` through `cutout_46` because Runway's recent asset list did **not** identify which particular fish, rod, or bait each image portrays. They are *not* arbitrarily assigned item names.
-- Four named fishing places: Woodland Fishing Pier, Moonlit Fishing Pool, Frostfall Fishing Spot, and Ruins Fishing Pool.
+## Project status
 
-**Important: these are links, not image bytes.** The source URLs expire, with the earliest on **25 October 2026 at 14:12 IST**. For permanent images in the GitHub repository, include `tools/runway_art_urls.txt`, `tools/import_runway_art.py`, and `.github/workflows/import-runway-art.yml` in your GitHub commit **before that expiry**. The GitHub Action called **Save Cinnamon Runway artwork** automatically downloads, converts to optimized WebP, and commits up to 50 files under `static/wildlands/` on that push. Use GitHub → Actions → **Save Cinnamon Runway artwork** → **Run workflow** as a manual alternative, while the links are valid. The repository must allow GitHub Actions to write contents. Once saved in GitHub, the artwork is permanent across Render free-tier redeploys and no longer needs Runway URL authentication.
-
-Runway image bytes could not be transferred directly into the ZIP in this environment. Import success must be verified in your repository's GitHub Actions log or using `/wildlands art-status` after deployment. This release does not claim that the image files are already bundled.
-
-**New commands:** `/wildlands places` shows a polished gallery for the four locations; `/wildlands art-vault` is a staff-only numbered browser for the 46 unlabelled cutouts; `/wildlands art-status` reports installed files. Both galleries use responsive image-left/text-right cards generated by Pillow and Prev/Next buttons. The bot replies with a friendly message when artwork has not yet been saved instead of breaking. The artwork registry and `wildlands_local_asset(key)` helper can be connected to future Wildlands fishing, rod, and bait item screens after the exact cutouts have been matched by name.
-
-This ZIP contains the previously supplied main bot/dashboard, with Wildlands art support added; **it does not yet contain the entire Wildlands gameplay system**, because that was not present in the supplied Cinnamon source archive. The remaining 24 older Runway images (environment, merchant, resource, lore, and encounter art) did not appear in the connected Runway recent-assets listing, so they are not included in this initial importer.
-
-## Wildlands image files when you cannot reopen the Runway chat
-
-This package works without displaying any image preview in ChatGPT. It contains
-**links to 50 existing Runway generations**, not the underlying image bytes.
-After uploading the whole project to GitHub, the included **Save Cinnamon Runway artwork**
-GitHub Action runs on push and writes actual WebP images into your repository.
-The bot also has an optional, background-only deployment fallback that attempts
-to download any still-missing images on Render without blocking bot startup.
-This fallback is enabled by default and can be disabled with
-`CINNAMON_WILDLANDS_AUTO_FETCH=0`. Because Render free disks can reset, run
-the GitHub Action to make the downloaded assets permanent.
-
-**The uploaded ZIP is not an image ZIP.** No actual image files can be embedded
-from that archive alone. The original 24 older images for environments, merchants,
-resources, lore, and encounters remain missing from the Runway recent-assets list.
-The 46 cutouts are intentionally unassigned until their specific identities can
-be confirmed. To connect the images to named fish/rod/bait cards, the complete
-Wildlands fishing gameplay source and an asset-to-item mapping are still needed.
+Features on `main` are implemented and have offline regression coverage. Live behavior depends on the configured Discord application, permissions, network connectivity, and persistent storage. New changes should be developed in a short-lived branch, checked in CI, merged through a pull request, and cleaned up after merging.

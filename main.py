@@ -83,11 +83,13 @@ except Exception:
 # Cinnamon UI / Embed style
 # ---------------------------------------------------------------------------
 
-CINNAMON_EMBED_COLOR = 0xE6A23C
-CINNAMON_SUCCESS_COLOR = 0x57F287
-CINNAMON_ERROR_COLOR = 0xED4245
-CINNAMON_INFO_COLOR = 0x5865F2
-CINNAMON_GOLD_COLOR = 0xF1C40F
+# Match the semantic colors defined in cinnamon_modules/ui_system.py.
+# These constants also remain available to earlier feature modules.
+CINNAMON_EMBED_COLOR = 0xD97732
+CINNAMON_SUCCESS_COLOR = 0x3BA77A
+CINNAMON_ERROR_COLOR = 0xD75A56
+CINNAMON_INFO_COLOR = 0x648DD0
+CINNAMON_GOLD_COLOR = 0xE5AC43
 
 def _cinnamon_embed_tone(text: str):
     t = (text or "").lstrip()
@@ -114,13 +116,17 @@ def cinnamon_page_footer(section: str, page: int, pages: int, extra: str = "") -
     return f"Cinnamon • {section} • {page}/{pages}{tail}"
 
 async def cinnamon_send(interaction: discord.Interaction, description: str, *, title: str | None = None, ephemeral: bool = False, allowed_mentions=None):
+    # Route generic notices through the same presentation layer as feature cards.
+    # Keep the original interaction lifecycle: a deferred command sends a follow-up.
     color, default_title = _cinnamon_embed_tone(description)
-    embed = discord.Embed(title=title or default_title, description=description, color=color)
-    embed.set_footer(text="Cinnamon • Made with paws 🐾")
+    embed = cinnamon_ui_card("Notice", title or default_title, description,
+                             color=color, footer="Cinnamon  /  Notice")
+    mentions = allowed_mentions if allowed_mentions is not None else discord.AllowedMentions.none()
     if interaction.response.is_done():
         return await interaction.followup.send(embed=embed, ephemeral=ephemeral,
-                                               allowed_mentions=allowed_mentions or discord.AllowedMentions.none())
-    return await interaction.response.send_message(embed=embed, ephemeral=ephemeral, allowed_mentions=allowed_mentions or discord.AllowedMentions.none())
+                                               allowed_mentions=mentions)
+    return await interaction.response.send_message(embed=embed, ephemeral=ephemeral,
+                                                   allowed_mentions=mentions)
 
 # ---------------------------------------------------------------------------
 # Config
