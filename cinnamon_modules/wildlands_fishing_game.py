@@ -121,13 +121,17 @@ class _FGView(discord.ui.View):
         if self.phase == 'fight':
             move = state['moves'][state['turn']]
             tension = max(0, min(100, int(state['tension'])))
-            gauge = '█' * (tension // 10) + '░' * (10 - tension // 10)
+            line_status = ('⚠️ Critical' if tension <= 20 or tension >= 80
+                           else 'Stable' if 35 <= tension <= 65 else 'Unsteady')
             return _wlf_embed('🐟 Fish on the line!',
-                f"The fish **{_FG_MOVES[move][0]}**!\n\n"
-                f"**Line tension:** {gauge} {tension}%\n"
-                f"**Progress:** {state['progress']}/{state['goal']}\n\n"
-                "Give line, hold steady, or reel hard. Too much or too little "
-                f"tension lets the fish escape. {_FG_TURN_WINDOW} seconds per move.")
+                f"**Fish movement**\n{_FG_MOVES[move][0].capitalize()}.\n\n"
+                f"**Line tension**  ·  {line_status}\n"
+                f"{cinnamon_ui_progress(tension, 100, 10)}\n\n"
+                f"**Catch progress**\n"
+                f"{cinnamon_ui_progress(state['progress'], state['goal'], 10)}\n\n"
+                f"**Choose your move**  ·  {_FG_TURN_WINDOW}s to respond\n"
+                "Give line, hold steady, or reel hard. Extreme tension breaks the line; "
+                "too little lets the fish escape.")
         return _wlf_embed('🎣 Fishing is over', 'Cast again for another fish.')
 
     async def cast(self, interaction):

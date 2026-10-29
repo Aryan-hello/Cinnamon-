@@ -234,11 +234,146 @@ def quest_scope_embed(guild_id,user_id,scope="daily",page=0):
     return cinnamon_polish_embed(e)
 
 
+def _quest_ui_values(record, progress):
+    """Progress for both counter quests and multi-requirement quests."""
+    needs = record.get("needs")
+    if needs:
+        goal = sum(max(0, int(v)) for v in needs.values())
+        amount = sum(min(max(0, int(progress.get(k, 0))), int(v)) for k, v in needs.items())
+        return amount, max(1, goal)
+    goal = max(1, int(record.get("target", 1)))
+    amount = int(progress.get("count", progress.get("value", 0)))
+    return min(max(0, amount), goal), goal
+
+
+def _quest_next_reset(scope):
+    now = cinnamon_now()
+    days = 1 if scope == "daily" else 7 - now.weekday()
+    next_day = (now + datetime.timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return f"<t:{int(next_day.timestamp())}:R>"
+
+
+class CinnamonQuestBoard(discord.ui.LayoutView):
+    """Private quest board. Text-first progress, context and instant navigation."""
+
+    def __init__(self, guild_id, user_id, scope="daily", page=0):
+        super().__init__(timeout=300)
+        self.guild_id, self.user_id, self.scope, self.page = guild_id, user_id, scope, page
+        self._build()
+
+    def _build(self):
+        self.clear_items()
+        d = _ensure_rolls(self.guild_id)
+        u = _user(self.guild_id, self.user_id)
+        defs = DAILY_QUESTS if self.scope == "daily" else WEEKLY_QUESTS
+        ids = d.get(self.scope + "_ids", [])
+        pages = max(1, (len(ids) + 2) // 3)
+        self.page = max(0, min(self.page, pages - 1))
+        completed = sum(_completed(defs[qid], _prog(u, self.scope, qid))
+                        for qid in ids if qid in defs)
+        color = CINNAMON_UI["brand"] if self.scope == "daily" else 0x8674C2
+        panel = discord.ui.Container(accent_color=color)
+        panel.add_item(discord.ui.TextDisplay(
+            f"# {'☀️ Daily' if self.scope == 'daily' else '📅 Weekly'} quests\n"
+            f"**{completed}/{len(ids)} completed**  ·  "
+            f"**{int(u.get('qp', 0)):,} QP**  ·  Resets {_quest_next_reset(self.scope)}\n"
+            f"Page **{self.page + 1}/{pages}**"
+        ))
+        panel.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+
+        visible = ids[self.page * 3:(self.page + 1) * 3]
+        if not visible:
+            panel.add_item(discord.ui.TextDisplay("No quests are available yet."))
+        for qid in visible:
+            record = defs.get(qid)
+            if not record:
+                continue
+            current = _prog(u, self.scope, qid)
+            amount, goal = _quest_ui_values(record, current)
+            done = _completed(record, current)
+            detail_button = discord.ui.Button(label="Details", style=discord.ButtonStyle.secondary)
+            detail_button.callback = self._detail_callback(qid)
+            panel.add_item(discord.ui.Section(
+                f"### {'✅' if done else '◻️'} {cinnamon_ui_literal(record['name'], 85)}",
+                f"{cinnamon_ui_progress(amount, goal)}\n"
+                f"**{int(record['qp']):,} QP**  ·  **{int(record['xp']):,} XP**",
+                accessory=detail_button,
+            ))
+            panel.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+
+        nav = discord.ui.ActionRow()
+        prev = discord.ui.Button(label="Previous", style=discord.ButtonStyle.secondary, disabled=self.page == 0)
+        nxt = discord.ui.Button(label="Next", style=discord.ButtonStyle.primary, disabled=self.page >= pages - 1)
+        daily = discord.ui.Button(label="Daily", style=discord.ButtonStyle.success if self.scope == "daily" else discord.ButtonStyle.secondary)
+        weekly = discord.ui.Button(label="Weekly", style=discord.ButtonStyle.success if self.scope == "weekly" else discord.ButtonStyle.secondary)
+        prev.callback = self._prev
+        nxt.callback = self._next
+        daily.callback = self._daily
+        weekly.callback = self._weekly
+        for item in (prev, nxt, daily, weekly):
+            nav.add_item(item)
+        panel.add_item(nav)
+        self.add_item(panel)
+
+    async def _guard(self, interaction):
+        if (interaction.user.id != self.user_id or not interaction.guild or
+                interaction.guild.id != self.guild_id):
+            await interaction.response.send_message(
+                "This quest board belongs to a different player.", ephemeral=True)
+            return False
+        return True
+
+    def _detail_callback(self, qid):
+        async def show(interaction):
+            if not await self._guard(interaction):
+                return
+            d = _ensure_rolls(self.guild_id)
+            defs = DAILY_QUESTS if self.scope == "daily" else WEEKLY_QUESTS
+            if qid not in d.get(self.scope + "_ids", []) or qid not in defs:
+                return await interaction.response.send_message(
+                    "Quests have rotated. Open /quest to see your new ones.", ephemeral=True)
+            record = defs[qid]
+            progress = _prog(_user(self.guild_id, self.user_id), self.scope, qid)
+            amount, goal = _quest_ui_values(record, progress)
+            card = cinnamon_ui_card(
+                "Quests", cinnamon_ui_literal(record["name"], 160),
+                cinnamon_ui_literal(record["desc"], 900),
+                color=CINNAMON_UI["brand"] if self.scope == "daily" else 0x8674C2,
+                footer="Resets " + ("daily" if self.scope == "daily" else "weekly"),
+            )
+            card.add_field(name="Progress", value=cinnamon_ui_progress(amount, goal), inline=False)
+            card.add_field(name="Reward", value=f"{int(record['qp']):,} QP  ·  {int(record['xp']):,} XP", inline=False)
+            card.add_field(name="Status", value="Complete" if _completed(record, progress) else "In progress", inline=False)
+            await interaction.response.send_message(
+                embed=card, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+        return show
+
+    async def _show(self, interaction, scope=None, page=None):
+        if await self._guard(interaction):
+            await interaction.response.edit_message(
+                view=CinnamonQuestBoard(self.guild_id, self.user_id,
+                                        scope or self.scope,
+                                        self.page if page is None else page))
+
+    async def _prev(self, interaction):
+        await self._show(interaction, page=self.page - 1)
+
+    async def _next(self, interaction):
+        await self._show(interaction, page=self.page + 1)
+
+    async def _daily(self, interaction):
+        await self._show(interaction, scope="daily", page=0)
+
+    async def _weekly(self, interaction):
+        await self._show(interaction, scope="weekly", page=0)
+
+
 @bot.tree.command(name="quest",description="Open paginated daily and weekly Cinnamon quests")
 @app_commands.guild_only()
 async def quest_cmd(interaction):
-    view=QuestPageView(interaction.guild.id,interaction.user.id,"daily",0)
-    await interaction.response.send_message(embed=quest_scope_embed(interaction.guild.id,interaction.user.id,"daily",0),view=view)
+    await interaction.response.send_message(
+        view=CinnamonQuestBoard(interaction.guild.id, interaction.user.id),
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 # Canonical daily/weekly quest commands are /quests daily and /quests weekly.
 # /quest remains a convenient paginated entrypoint.
@@ -294,19 +429,17 @@ quests_view_group = app_commands.Group(name="quests", description="View Cinnamon
 @quests_view_group.command(name="daily", description="View your 5 active daily Cinnamon quests")
 @app_commands.guild_only()
 async def quests_daily_view_cmd(interaction):
-    view = QuestPageView(interaction.guild.id, interaction.user.id, "daily", 0)
     await interaction.response.send_message(
-        embed=quest_scope_embed(interaction.guild.id, interaction.user.id, "daily", 0),
-        view=view, ephemeral=True)
+        view=CinnamonQuestBoard(interaction.guild.id, interaction.user.id, "daily"),
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 @quests_view_group.command(name="weekly", description="View your 5 active weekly Cinnamon quests")
 @app_commands.guild_only()
 async def quests_weekly_view_cmd(interaction):
-    view = QuestPageView(interaction.guild.id, interaction.user.id, "weekly", 0)
     await interaction.response.send_message(
-        embed=quest_scope_embed(interaction.guild.id, interaction.user.id, "weekly", 0),
-        view=view, ephemeral=True)
+        view=CinnamonQuestBoard(interaction.guild.id, interaction.user.id, "weekly"),
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 @quests_view_group.command(name="progress", description="View your Cinnamon quest progress and Quest Points")
