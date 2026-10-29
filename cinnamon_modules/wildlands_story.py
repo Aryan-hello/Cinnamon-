@@ -470,18 +470,21 @@ def _wls_scene_embed(interaction, rec):
         scene = _WLS_SCENES[idx]
     count = len(_WLS_SCENES)
     chapter = _WLS_CHAPTERS[scene['chapter']]
-    progress = min(8, int(((idx + 1) / count) * 8))
-    bar = "▰" * progress + "▱" * (8 - progress)
-    clues = len(rec.get("clues", []))
     echo = _wls_echo(rec, idx) if not rec.get('branch') else ''
-    e = _wls_embed(interaction, scene['title'],
-                   scene['text'][:2800] + ('\n\n' + echo if echo else '') + "\n\n**🐾 YOUR MOVE**\nChoices shape later scenes.")
-    e.add_field(name="🗺️ Region", value=_wlf_area(scene['area'])[1], inline=True)
-    e.add_field(name="🔎 Clues", value=f"{clues} found", inline=True)
-    e.add_field(name="📊 Progress", value=f"{bar}  **{idx + 1}/{count}**", inline=False)
-    e.set_footer(text=f"{chapter} • {'Detour' if rec.get('branch') else 'Scene'} {idx + 1}/{count} • Choices are remembered")
+    body = scene['text'][:2700]
+    if echo:
+        body += '\n\n' + echo
+    body += '\n\n**Your next move**\nChoose how the expedition continues.'
+    e = cinnamon_ui_card(
+        'Wildlands', scene['title'], body,
+        color=CINNAMON_UI['brand'],
+        footer=f"{chapter}  ·  {'Branch' if branch else 'Scene'} {idx + 1}/{count}",
+    )
+    e.add_field(name='Region', value=_wlf_area(scene['area'])[1], inline=True)
+    e.add_field(name='Clues', value=str(len(rec.get('clues', []))), inline=True)
+    e.add_field(name='Story progress',
+                value=cinnamon_ui_progress(idx + 1, count, 8), inline=False)
     return e
-
 
 class _WLSChoice(discord.ui.Button):
     def __init__(self, idx, data):
@@ -631,7 +634,10 @@ async def wildlands_story(interaction:discord.Interaction):
             'You have permanent access to both merchant shops!\n\n'
             '“I SAID THE *TREASURE* WAS WORTH A BILLION,” Cinnamon reminds you.'+access),ephemeral=True)
     idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
-    await interaction.response.send_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(interaction.user.id,idx),ephemeral=True)
+    await interaction.response.send_message(
+        embed=_wls_scene_embed(interaction, rec),
+        view=_WLSChoiceView(interaction.user.id, idx, rec.get('branch')),
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 
