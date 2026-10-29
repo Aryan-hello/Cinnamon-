@@ -90,6 +90,20 @@ class PresentationTests(unittest.TestCase):
         self.assertIn("_WLSChoiceView(interaction.user.id, idx, rec.get('branch'))", story)
         self.assertIn("cinnamon_ui_card(", story)
 
+    def test_general_notices_use_shared_presentation(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn('embed = cinnamon_ui_card("Notice"', main)
+        self.assertIn('allowed_mentions=mentions', main)
+        self.assertIn('CINNAMON_EMBED_COLOR = 0xD97732', main)
+
+    def test_branch_cleanup_only_removes_integrated_work(self):
+        workflow = (ROOT / ".github/workflows/remove-merged-branches.yml").read_text()
+        self.assertIn("Boolean(pr.merged_at)", workflow)
+        self.assertIn("pr.head.sha === branch.commit.sha", workflow)
+        self.assertIn("compare.data.ahead_by === 0", workflow)
+        self.assertIn("branch.name === main || branch.protected", workflow)
+        self.assertIn("contents: write", workflow)
+
     def test_fishing_displays_text_progress(self):
         game = (MODULES / "wildlands_fishing_game.py").read_text()
         self.assertIn("cinnamon_ui_progress(tension, 100", game)
