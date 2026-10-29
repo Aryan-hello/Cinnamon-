@@ -20,12 +20,9 @@ CINNAMON_BLUE = 0x6EA8FE
 CINNAMON_MUTED = 0x8E9AAF
 
 def cinnamon_embed(title: str, description: str = "", *, color=CINNAMON_ORANGE, user=None, footer="Cinnamon"):
-    e = discord.Embed(title=title, description=description, color=color, timestamp=datetime.datetime.now(datetime.timezone.utc))
-    if user is not None:
-        e.set_author(name=user.display_name, icon_url=user.display_avatar.url)
-        e.set_thumbnail(url=user.display_avatar.url)
-    e.set_footer(text=footer)
-    return e
+    """Compatibility helper for the remaining classic embeds."""
+    section = str(footer).split("•")[0].replace("Cinnamon", "").strip() or "Cinnamon"
+    return cinnamon_ui_card(section, title, description, color=color, user=user, footer=footer)
 
 def cinnamon_field(e, name, value, inline=False):
     e.add_field(name=name, value=str(value) if value else "—", inline=inline)
@@ -195,15 +192,17 @@ class CinnamonShopView(discord.ui.LayoutView):
                 price = _cm_price(self.guild_id, self.user_id, item_id, item.get("price", 0))
                 name = item.get("name", item_id)
                 emoji = item.get("emoji", "🐾")
-                desc = str(item.get("description", "No description provided."))[:500]
+                desc = cinnamon_ui_literal(item.get("description", "No description provided."), 210)
+                can_buy = price <= balance and (not limit or owned < limit)
                 button = discord.ui.Button(
-                    label=f"{price:,}", emoji="🪙", style=discord.ButtonStyle.success,
-                    custom_id=f"cinnamon_v2_shop_buy_{item_id}_{self.page}",
+                    label="Buy 1" if can_buy else "Unavailable",
+                    style=discord.ButtonStyle.success if can_buy else discord.ButtonStyle.secondary,
+                    disabled=not can_buy,
                 )
                 button.callback = self._make_buy_callback(item_id)
                 section = discord.ui.Section(
-                    f"### {emoji} {name}",
-                    f"{desc}\n**{price:,} Catnip**  •  {limit_text}  •  Own: **{owned}**",
+                    f"### {cinnamon_ui_literal(emoji, 20)} {cinnamon_ui_literal(name, 85)}",
+                    f"{desc}\n**{price:,} Catnip**  ·  {limit_text}  ·  Owned: **{owned}**",
                     accessory=button,
                 )
                 container.add_item(section)
@@ -278,8 +277,9 @@ class CinnamonShopView(discord.ui.LayoutView):
 
     async def _inventory_callback(self, interaction: discord.Interaction):
         if not await self._guard(interaction): return
-        view = InventoryPageView(self.guild_id, self.user_id, 0)
-        await interaction.response.edit_message(embed=inventory_embed(self.guild_id, self.user_id, 0), view=view)
+        # Components V2 cannot be converted back to embeds by message edit.
+        await interaction.response.edit_message(
+            view=CinnamonInventoryView(self.guild_id, self.user_id, self.user_id))
 
     async def _close_callback(self, interaction: discord.Interaction):
         if not await self._guard(interaction): return
@@ -287,6 +287,93 @@ class CinnamonShopView(discord.ui.LayoutView):
             if hasattr(child, "disabled"):
                 child.disabled = True
         await interaction.response.edit_message(view=self)
+
+
+class CinnamonInventoryView(discord.ui.LayoutView):
+    """Inventory and shop share a V2 layout, so switching never drops message flags."""
+
+    def __init__(self, guild_id, member_id, viewer_id, page=0):
+        super().__init__(timeout=300)
+        self.guild_id, self.member_id, self.viewer_id, self.page = guild_id, member_id, viewer_id, page
+        self._build()
+
+    def _build(self):
+        self.clear_items()
+        inventory = economy_inventory_for(self.guild_id, self.member_id)
+        items = [(key, int(quantity)) for key, quantity in inventory.items()
+                 if int(quantity) > 0 and key in ECONOMY_ITEMS]
+        page_size = 5
+        pages = max(1, (len(items) + page_size - 1) // page_size)
+        self.page = max(0, min(self.page, pages - 1))
+        guild = bot.get_guild(self.guild_id)
+        member = guild.get_member(self.member_id) if guild else None
+        label = cinnamon_ui_literal(member.display_name, 80) if member else "Member"
+
+        panel = discord.ui.Container(accent_color=CINNAMON_UI["info"])
+        panel.add_item(discord.ui.TextDisplay(
+            f"# 🎒 {label}'s Inventory\n"
+            f"**{len(items)} item types**  ·  "
+            f"**{sum(qty for _, qty in items):,} total items**\n"
+            f"🌿 **{economy_balance(self.guild_id, self.member_id):,} Catnip**  ·  "
+            f"Page **{self.page + 1}/{pages}**"
+        ))
+        panel.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+        visible = items[self.page * page_size:(self.page + 1) * page_size]
+        if not visible:
+            panel.add_item(discord.ui.TextDisplay("No items yet. Visit the shop to get started."))
+        for item_id, qty in visible:
+            item = ECONOMY_ITEMS[item_id]
+            panel.add_item(discord.ui.TextDisplay(
+                f"**{cinnamon_ui_literal(item.get('emoji', '🐾'), 20)} "
+                f"{cinnamon_ui_literal(item.get('name', item_id), 95)}**  ·  **×{qty:,}**"
+            ))
+            panel.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+
+        nav = discord.ui.ActionRow()
+        prev = discord.ui.Button(label="Previous", style=discord.ButtonStyle.secondary, disabled=self.page == 0)
+        nxt = discord.ui.Button(label="Next", style=discord.ButtonStyle.primary, disabled=self.page >= pages - 1)
+        shop = discord.ui.Button(label="Open shop", style=discord.ButtonStyle.success)
+        close = discord.ui.Button(label="Close", style=discord.ButtonStyle.secondary)
+        prev.callback = self._prev
+        nxt.callback = self._next
+        shop.callback = self._shop
+        close.callback = self._close
+        for button in (prev, nxt, shop, close):
+            nav.add_item(button)
+        panel.add_item(nav)
+        self.add_item(panel)
+
+    async def _guard(self, interaction):
+        if (interaction.user.id != self.viewer_id or not interaction.guild or
+                interaction.guild.id != self.guild_id):
+            await interaction.response.send_message(
+                "This inventory panel belongs to a different viewer.", ephemeral=True)
+            return False
+        return True
+
+    async def _show(self, interaction, page):
+        if await self._guard(interaction):
+            await interaction.response.edit_message(
+                view=CinnamonInventoryView(
+                    self.guild_id, self.member_id, self.viewer_id, page))
+
+    async def _prev(self, interaction):
+        await self._show(interaction, self.page - 1)
+
+    async def _next(self, interaction):
+        await self._show(interaction, self.page + 1)
+
+    async def _shop(self, interaction):
+        if await self._guard(interaction):
+            await interaction.response.edit_message(
+                view=CinnamonShopView(self.guild_id, self.viewer_id))
+
+    async def _close(self, interaction):
+        if await self._guard(interaction):
+            for child in self.walk_children():
+                if hasattr(child, "disabled"):
+                    child.disabled = True
+            await interaction.response.edit_message(view=self)
 
 
 class InventoryPageView(discord.ui.View):
@@ -314,10 +401,10 @@ class InventoryPageView(discord.ui.View):
         self.page+=1; self._refresh(); await i.response.edit_message(embed=inventory_embed(self.guild_id,self.user_id,self.page),view=self)
     async def _shop(self,i):
         if not await self._guard(i): return
-        # Components V2 owns the entire message. Do not attach the legacy
-        # embed to a LayoutView or Discord will reject the message payload.
-        view=CinnamonShopView(self.guild_id,self.user_id,0)
-        await i.response.edit_message(view=view)
+        # Existing legacy messages cannot safely morph into a V2 panel.
+        await i.response.send_message(
+            view=CinnamonShopView(self.guild_id, i.user.id), ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
     async def _close(self,i):
         if not await self._guard(i): return
         for child in self.children: child.disabled=True
@@ -385,8 +472,10 @@ async def economy_balance_cmd(interaction: discord.Interaction, member: discord.
 @economy_group.command(name="inventory", description="See your Cinnamon items")
 @app_commands.guild_only()
 async def economy_inventory_cmd(interaction: discord.Interaction, member: discord.Member | None = None):
-    member=member or interaction.user; view=InventoryPageView(interaction.guild.id,member.id,0)
-    await interaction.response.send_message(embed=inventory_embed(interaction.guild.id,member.id,0),view=view,allowed_mentions=discord.AllowedMentions.none())
+    member = member or interaction.user
+    await interaction.response.send_message(
+        view=CinnamonInventoryView(interaction.guild.id, member.id, interaction.user.id),
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 @economy_group.command(name="shop", description="Open Cinnamon's interactive Catnip shop")
@@ -397,7 +486,7 @@ async def economy_shop_cmd(interaction: discord.Interaction):
     # their products like the modern Discord shop UI.
     view = CinnamonShopView(interaction.guild.id, interaction.user.id, 0)
     await interaction.response.send_message(
-        view=view, allowed_mentions=discord.AllowedMentions.none()
+        view=view, ephemeral=True, allowed_mentions=discord.AllowedMentions.none()
     )
     await economy_log(
         interaction.guild.id,
