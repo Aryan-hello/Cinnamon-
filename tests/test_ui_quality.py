@@ -44,7 +44,8 @@ class PresentationTests(unittest.TestCase):
         )
         literal = load_function(MODULES / "ui_system.py", "cinnamon_ui_literal",
                                 {"discord": SimpleNamespace(utils=fake_utils)})
-        self.assertNotIn("\\x01", literal("bad\\x01text"))
+        control = chr(1)
+        self.assertNotIn(control, literal("bad" + control + "text"))
         self.assertEqual(literal("a" * 60, 20), "a" * 19 + "…")
         self.assertIn("\\*", literal("*sale*", 100))
 
