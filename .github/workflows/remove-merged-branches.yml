@@ -66,6 +66,6 @@ jobs:
               }
             }
 
-            core.summary.addHeading('Branch hygiene')
+            await core.summary.addHeading('Branch hygiene')
               .addRaw(`Removed ${removed} integrated branches. Retained ${retained} unmerged or inaccessible branches.`)
               .write();
