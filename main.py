@@ -379,6 +379,7 @@ _CINNAMON_MODULES = (
     "moderation.py",
     "levels_games.py",
     "server_setup.py",
+    "ui_system.py",
     # Economy is loaded before the quest/achievement modules so all shared
     # economy state/helpers exist when those systems are registered.
     "economy.py",
