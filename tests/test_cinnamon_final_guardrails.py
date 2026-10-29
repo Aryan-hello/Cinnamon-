@@ -90,8 +90,8 @@ class FinalPreDeploymentTests(unittest.TestCase):
 
     def test_story_embeds_and_fishing_interaction(self):
         story=source("wildlands_story.py")
-        self.assertIn("e.add_field(name=\"📊 Progress\"",story)
-        self.assertIn("e.add_field(name=\"🔎 Clues\"",story)
+        self.assertIn("e.add_field(name='Story progress'", story)
+        self.assertIn("e.add_field(name='Clues'", story)
         fish=source("wildlands_fishing.py")
         for x in ("_WLFReelView", "Choose which bait to use", "Reel gently",
                   "Keep steady", "YANK!", "asyncio.Lock()", "self.used = True",
