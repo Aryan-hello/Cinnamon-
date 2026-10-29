@@ -369,11 +369,132 @@ def achievement_list_embed(guild_id,user_id,page=0):
         e.add_field(name=f"{status} {a['name']}",value=f"{bar} **{shown:,}/{target:,}**\n{a['description']}  ·  *{achievement_rarity(aid,a)}*",inline=False)
     return cinnamon_polish_embed(e)
 
+class CinnamonAchievementCollection(discord.ui.LayoutView):
+    """A compact, private collection with details adjacent to every entry."""
+
+    def __init__(self, guild_id, user_id, page=0):
+        super().__init__(timeout=300)
+        self.guild_id, self.user_id, self.page = guild_id, user_id, page
+        self._build()
+
+    def _build(self):
+        self.clear_items()
+        entries = list(ACHIEVEMENTS.items())
+        per_page = 4
+        pages = max(1, (len(entries) + per_page - 1) // per_page)
+        self.page = max(0, min(self.page, pages - 1))
+        unlocked = set(_state(self.guild_id, self.user_id)["unlocked"])
+        completed = sum(aid in unlocked for aid, _ in entries)
+
+        panel = discord.ui.Container(accent_color=CINNAMON_UI["gold"])
+        panel.add_item(discord.ui.TextDisplay(
+            "# 🏆 Achievements\n"
+            f"**{completed}/{len(entries)} unlocked**  ·  Page **{self.page + 1}/{pages}**\n"
+            "Browse milestones or open an entry for its reward and requirements."
+        ))
+        panel.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+        visible = entries[self.page * per_page:(self.page + 1) * per_page]
+        if not visible:
+            panel.add_item(discord.ui.TextDisplay("No achievements are available yet."))
+        for aid, record in visible:
+            target = max(1, int(record["target"]))
+            progress = min(max(0, int(_value(self.guild_id, self.user_id, record["metric"]))), target)
+            done = aid in unlocked
+            detail_button = discord.ui.Button(
+                label="Details", style=discord.ButtonStyle.secondary,
+            )
+            detail_button.callback = self._detail_callback(aid)
+            panel.add_item(discord.ui.Section(
+                f"### {'✅' if done else '◻️'} {cinnamon_ui_literal(record['name'], 85)}",
+                f"{'Unlocked' if done else 'In progress'}  ·  "
+                f"{cinnamon_ui_literal(achievement_rarity(aid, record), 40)}\n"
+                f"{cinnamon_ui_progress(progress, target)}",
+                accessory=detail_button,
+            ))
+            panel.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+
+        nav = discord.ui.ActionRow()
+        prev = discord.ui.Button(
+            label="Previous", style=discord.ButtonStyle.secondary,
+            disabled=self.page == 0,
+        )
+        nxt = discord.ui.Button(
+            label="Next", style=discord.ButtonStyle.primary,
+            disabled=self.page >= pages - 1,
+        )
+        close = discord.ui.Button(label="Close", style=discord.ButtonStyle.secondary)
+        prev.callback = self._prev
+        nxt.callback = self._next
+        close.callback = self._close
+        for item in (prev, nxt, close):
+            nav.add_item(item)
+        panel.add_item(nav)
+        self.add_item(panel)
+
+    async def _guard(self, interaction):
+        if (interaction.user.id != self.user_id or not interaction.guild or
+                interaction.guild.id != self.guild_id):
+            await interaction.response.send_message(
+                "This collection belongs to a different player.", ephemeral=True)
+            return False
+        return True
+
+    def _detail_callback(self, aid):
+        async def show(interaction):
+            if not await self._guard(interaction):
+                return
+            record = ACHIEVEMENTS.get(aid)
+            if record is None:
+                return await interaction.response.send_message(
+                    "This achievement is no longer available.", ephemeral=True)
+            target = max(1, int(record["target"]))
+            progress = min(max(0, int(_value(self.guild_id, self.user_id, record["metric"]))), target)
+            rewards = []
+            if record.get("catnip"):
+                rewards.append(f"{int(record['catnip']):,} Catnip")
+            if record.get("xp"):
+                rewards.append(f"{int(record['xp']):,} XP")
+            if record.get("points"):
+                rewards.append(f"{int(record['points']):,} AP")
+            if record.get("role"):
+                rewards.append(f"{cinnamon_ui_literal(record['role'], 80)} role")
+            card = cinnamon_ui_card(
+                "Achievements", cinnamon_ui_literal(record["name"], 160),
+                cinnamon_ui_literal(record["description"], 850),
+                color=CINNAMON_UI["gold"], footer="Achievement details",
+            )
+            card.add_field(
+                name="Progress", value=cinnamon_ui_progress(progress, target), inline=False)
+            card.add_field(
+                name="Reward", value="  ·  ".join(rewards) if rewards else "Badge", inline=False)
+            await interaction.response.send_message(
+                embed=card, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+        return show
+
+    async def _prev(self, interaction):
+        if await self._guard(interaction):
+            await interaction.response.edit_message(
+                view=CinnamonAchievementCollection(self.guild_id, self.user_id, self.page - 1))
+
+    async def _next(self, interaction):
+        if await self._guard(interaction):
+            await interaction.response.edit_message(
+                view=CinnamonAchievementCollection(self.guild_id, self.user_id, self.page + 1))
+
+    async def _close(self, interaction):
+        if await self._guard(interaction):
+            for item in self.walk_children():
+                if hasattr(item, "disabled"):
+                    item.disabled = True
+            await interaction.response.edit_message(view=self)
+
+
 @achievement_group.command(name="list",description="View normal achievements and progress")
 @app_commands.guild_only()
 async def achievement_list_cmd(interaction):
-    view=AchievementListView(interaction.guild.id,interaction.user.id,0)
-    await interaction.response.send_message(embed=achievement_list_embed(interaction.guild.id,interaction.user.id,0),view=view)
+    await interaction.response.send_message(
+        view=CinnamonAchievementCollection(interaction.guild.id, interaction.user.id),
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 @achievement_group.command(name="profile",description="View your complete achievement profile")
 @app_commands.guild_only()
