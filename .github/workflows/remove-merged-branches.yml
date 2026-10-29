@@ -1,0 +1,71 @@
+name: Remove merged branches
+
+# Keep active development branches. Delete only branch heads already contained
+# in main or preserved by a merged PR (including squash merges).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prune:
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune integrated branches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const repoInfo = (await github.rest.repos.get({owner, repo})).data;
+            const main = repoInfo.default_branch;
+            const branches = await github.paginate(github.rest.repos.listBranches, {
+              owner, repo, per_page: 100
+            });
+            const closedPRs = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'closed', per_page: 100
+            });
+            const integrated = closedPRs.filter(pr =>
+              Boolean(pr.merged_at) && pr.head.repo?.full_name === repoInfo.full_name
+            );
+            let removed = 0;
+            let retained = 0;
+
+            for (const branch of branches) {
+              if (branch.name === main || branch.protected) continue;
+
+              // A merged PR is sufficient only if the branch has not moved
+              // since merge. This is important for squash-merged histories.
+              let safe = integrated.some(pr =>
+                pr.head.ref === branch.name && pr.head.sha === branch.commit.sha
+              );
+              if (!safe) {
+                const compare = await github.rest.repos.compareCommitsWithBasehead({
+                  owner, repo, basehead: `${main}...${branch.name}`
+                });
+                safe = compare.data.ahead_by === 0;
+              }
+              if (!safe) {
+                retained++;
+                core.notice(`Preserving unmerged work: ${branch.name}`);
+                continue;
+              }
+
+              try {
+                await github.rest.git.deleteRef({owner, repo, ref: `heads/${branch.name}`});
+                removed++;
+                core.info(`Deleted integrated branch ${branch.name}`);
+              } catch (error) {
+                retained++;
+                core.warning(`Could not delete ${branch.name}: ${error.message}`);
+              }
+            }
+
+            core.summary.addHeading('Branch hygiene')
+              .addRaw(`Removed ${removed} integrated branches. Retained ${retained} unmerged or inaccessible branches.`)
+              .write();
