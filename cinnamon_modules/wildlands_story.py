@@ -3,7 +3,7 @@
 Loaded *after* wildlands_fishing.py by main.py. The shared
 advanced_features_data/Upstash snapshot stores story progress separately from
 existing fishing inventories and older Wildlands saves. Story UI is ephemeral,
-with a fresh session available through /wildlands story after view expiration.
+with a fresh session available through /cinnamon stories after view expiration.
 """
 
 _WLS_CHAPTERS = (
@@ -505,7 +505,7 @@ class _WLSChoiceView(discord.ui.View):
 
     async def interaction_check(self, interaction):
         if interaction.user.id != self.owner_id:
-            await interaction.response.send_message('🐈 This adventure belongs to someone else! Open `/wildlands story` to play your own.',ephemeral=True)
+            await interaction.response.send_message('🐈 This adventure belongs to someone else! Open `/cinnamon stories` to play your own.',ephemeral=True)
             return False
         return True
 
@@ -515,12 +515,12 @@ class _WLSChoiceView(discord.ui.View):
         g,u=interaction.guild.id, interaction.user.id
         rec=_wls_player(g,u)
         if rec['complete'] or int(rec['index']) != self.index or rec.get('branch') != self.branch:
-            return await interaction.response.send_message('Your adventure moved on! Use `/wildlands story` to resume.',ephemeral=True)
+            return await interaction.response.send_message('Your adventure moved on! Use `/cinnamon stories` to resume.',ephemeral=True)
         await interaction.response.defer()  # Merchant channel creation may take longer than Discord's 3s ACK window.
         if rec.get('complete') or int(rec.get('index',0)) != self.index or rec.get('branch') != self.branch:
             return await interaction.edit_original_response(
                 embed=_wls_embed(interaction,'🐾 Cinnamon Is One Step Ahead',
-                    'This choice was already recorded. Use `/wildlands story` to resume.'),view=None)
+                    'This choice was already recorded. Use `/cinnamon stories` to resume.'),view=None)
         scene=_WLS_BRANCHES[self.branch] if self.branch else _WLS_SCENES[self.index]
         opt=scene['choices'][option_idx]
         if not opt[3]:
@@ -579,7 +579,7 @@ class _WLSContinue(discord.ui.View):
 
     async def interaction_check(self, interaction):
         if interaction.user.id!=self.owner_id:
-            await interaction.response.send_message('This is not your adventure. Open `/wildlands story`.',ephemeral=True)
+            await interaction.response.send_message('This is not your adventure. Open `/cinnamon stories`.',ephemeral=True)
             return False
         return True
 
@@ -622,7 +622,10 @@ class _WLSMoodView(discord.ui.View):
         await interaction.response.edit_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(self.owner_id,rec['index'],rec.get('branch')))
 
 
-@wildlands_art_group.command(name='story',description='Play Cinnamon’s funny, mysterious, choice-driven treasure adventure')
+_cinnamon_stories_group = app_commands.Group(name='cinnamon', description='Cinnamon’s interactive adventures and stories')
+bot.tree.add_command(_cinnamon_stories_group)
+
+@_cinnamon_stories_group.command(name='stories',description='Play and continue Cinnamon’s interactive stories')
 @app_commands.guild_only()
 async def wildlands_story(interaction:discord.Interaction):
     rec=_wls_player(interaction.guild.id,interaction.user.id)
@@ -680,7 +683,7 @@ async def wildlands_story_journal(interaction:discord.Interaction):
          f'**Cinnamon trust:** {int(rel.get("trust", 0)):+d} · **Beans alliance:** {int(rel.get("beans_friendship", 0)):+d}\n'
          f'**Current route:** {rec.get("branch") or "Main expedition"}\n'
          f'**Recent decisions:**\n'+ ('\n'.join(rows) if rows else 'No decisions yet')+'\n\n'
-         '**Next:** `/wildlands story` to continue.\n'
+         '**Next:** `/cinnamon stories` to continue.\n'
          '🎣 Fish, rod, bait and merchant shops stay part of the adventure.')
     await interaction.response.send_message(embed=_wls_embed(interaction,'📖 Your Adventure Journal',msg),ephemeral=True)
 
@@ -689,7 +692,7 @@ async def wildlands_story_journal(interaction:discord.Interaction):
 @app_commands.guild_only()
 async def wildlands_story_help(interaction:discord.Interaction):
     await interaction.response.send_message(embed=_wls_embed(interaction,'🐈 The Rules (As Written by a Cat)',
-        '**Play:** `/wildlands story` to begin or resume; select dialogue and puzzle choices with buttons.\n'
+        '**Play:** `/cinnamon stories` to begin or resume; select dialogue and puzzle choices with buttons.\n'
         '**Replay:** `/wildlands story-restart confirm:True` resets only the story route, not the one-time payout or fishing gear.\n'
         '**Track:** `/wildlands story-journal`. Branches, relationships and negotiated deals influence later scenes. Bad puzzle guesses do not lose progress.\n'
         '**Merchants:** Story decisions and `/wildlands gather` can discover a merchant. The shop opens to everyone for **2 hours** in its own channel.\n'
