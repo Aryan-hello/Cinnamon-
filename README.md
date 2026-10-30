@@ -21,7 +21,7 @@ Cinnamon uses both traditional Discord embeds and **Components V2**. The shop, i
 ## Run locally
 
 1. Create an application and bot in the Discord Developer Portal. Enable the **Message Content** and **Server Members** privileged gateway intents required by the existing features.
-2. Copy `.env.example` to `.env`. Set `DISCORD_TOKEN` and `GEMINI_API_KEY`. For the dashboard, also set the Discord OAuth client ID/secret, `DASHBOARD_SECRET_KEY`, and the exact `DASHBOARD_REDIRECT_URI` registered in Discord.
+2. Copy `.env.example` to `.env`. Set `DISCORD_TOKEN` and `GEMINI_API_KEY`. For the dashboard, also set the Discord OAuth client ID/secret, `DASHBOARD_SESSION_SECRET`, and the exact `DASHBOARD_REDIRECT_URI` registered in Discord.
 3. Install requirements and start the combined bot/dashboard process:
 
    ```bash
@@ -60,7 +60,7 @@ The feature modules execute inside a **shared namespace** loaded by `main.py`; t
 ## Checks before merging
 
 ```bash
-python -m compileall -q main.py cinnamon_modules tests
+python -m compileall -q main.py dashboard.py cinnamon_modules tests
 python -m unittest discover -s tests -v
 ```
 
@@ -77,3 +77,4 @@ Automated tests cover formatting, selected game logic, and code contracts. They 
 ## Project status
 
 Features on `main` are implemented and have offline regression coverage. Live behavior depends on the configured Discord application, permissions, network connectivity, and persistent storage. New changes should be developed in a short-lived branch, checked in CI, merged through a pull request, and cleaned up after merging.
+

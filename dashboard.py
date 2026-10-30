@@ -109,7 +109,13 @@ def _run_bot(coro, timeout=20):
         coro.close()
         raise RuntimeError("Cinnamon event loop is unavailable")
     future = asyncio.run_coroutine_threadsafe(coro, loop)
-    return future.result(timeout=timeout)
+    try:
+        return future.result(timeout=timeout)
+    except TimeoutError:
+        # Stop pending work when the request gives up so a retry does not leave
+        # a second moderation action or message running in the background.
+        future.cancel()
+        raise
 
 
 def _save():
@@ -309,7 +315,7 @@ def _shell(guild, guilds, tab, body, notice=None):
         if str(item.get("id")) in {str(g.id) for g in (_bot.guilds if _bot else [])} and (item.get("owner") or (int(item.get("permissions", "0")) & (0x8 | 0x20))):
             selected = " selected" if str(item.get("id")) == str(gid) else ""
             options.append(f"<option value='{_esc(item['id'])}'{selected}>{_esc(item.get('name','Server'))}</option>")
-    select = "<form action='/dashboard' method='get'><input type='hidden' name='tab' value='overview'><div class='serverbox'><label>Selected server</label><select name='guild_id' onchange='this.form.submit()'>" + "".join(options) + "</select></div></form>"
+    select = "<form action='/dashboard' method='get'><input type='hidden' name='tab' value='overview'><div class='serverbox'><label for='dashboardGuildSelect'>Selected server</label><select id='dashboardGuildSelect' name='guild_id'>" + "".join(options) + "</select><button class='btn secondary small' type='submit'>Switch server</button></div></form>"
     side = "<aside class='side' id='liveSidebar' aria-label='Dashboard categories'><button class='mobile-nav-close' id='liveMenuClose' type='button' aria-label='Close categories'>×</button><div class='brand'><img class='mascot' src='/static/cinnamon_mascot.svg' alt=''><span>Cinnamon <span style='font-weight:500;color:var(--taupe)'>Control</span></span></div>" + select + _nav(gid, tab) + "<div class='sidefoot'>Cozy controls, careful paws. 🐾<br>Changes are logged where configured.</div></aside><button class='nav-backdrop' id='liveNavBackdrop' type='button' aria-label='Close categories'></button>"
     notice_html = f"<div class='notice'>{_esc(notice)}</div>" if notice else ""
     title = f"{guild.name} • Cinnamon Dashboard"
@@ -881,7 +887,7 @@ def _moderate(guild, actor_id, form):
         me=guild.me
         if not actor.guild_permissions.administrator and not actor.guild_permissions.manage_guild:
             raise PermissionError("Your current server permissions do not allow dashboard moderation.")
-        if target.top_role >= actor.top_role and actor.id != guild.owner_id and not actor.guild_permissions.administrator:
+        if target.top_role >= actor.top_role and actor.id != guild.owner_id:
             raise PermissionError("You cannot moderate a member with an equal or higher role.")
         if target.top_role >= me.top_role: raise PermissionError("Cinnamon's highest role must be above the target member's role.")
         if action=="kick":
@@ -1769,3 +1775,4 @@ def security_headers(response):
     response.headers["Cache-Control"]="no-store"
     response.headers["Content-Security-Policy"]="default-src 'self' https://cdn.discordapp.com; img-src 'self' https://cdn.discordapp.com data:; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
     return response
+

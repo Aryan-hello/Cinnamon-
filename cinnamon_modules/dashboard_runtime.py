@@ -31,6 +31,8 @@ BD_DATA_FILE = os.environ.get("BOT_DATA_FILE", "cinnamon_data.json")
 BD_UPSTASH_URL = os.environ.get("UPSTASH_REDIS_REST_URL")
 BD_UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN")
 BD_REDIS_KEY = "cinnamon_bot_data"
+_BD_SAVE_LOCK = asyncio.Lock()
+import tempfile as _bd_tempfile
 
 
 def _bd_encode() -> dict:
@@ -90,6 +92,10 @@ def _bd_decode(raw: dict):
     welcome_config = {int(k): v for k, v in raw.get("welcome_config", {}).items()}
     goodbye_config = {int(k): v for k, v in raw.get("goodbye_config", {}).items()}
     automod_config = {int(k): v for k, v in raw.get("automod_config", {}).items()}
+    ai_channels = {int(k): v for k, v in raw.get("ai_channels", {}).items()}
+    disabled_channels = defaultdict(set, {int(g): set(map(int, ids)) for g, ids in raw.get("disabled_channels", {}).items()})
+    log_channels = {int(k): v for k, v in raw.get("log_channels", {}).items()}
+    category_log_channels = {int(g): dict(cfg) for g, cfg in raw.get("category_log_channels", {}).items()}
     xp_data = {tuple(map(int, k.split(":"))):v for k, v in raw.get("xp_data", {}).items()}
     xp_per_message = {int(g): int(v) for g, v in raw.get("xp_per_message", {}).items()}
     xp_channels = defaultdict(set, {int(g): set(map(int, ids)) for g, ids in raw.get("xp_channels", {}).items()})
@@ -109,7 +115,8 @@ def _bd_decode(raw: dict):
     economy_inventory = {tuple(map(int, k.split(":"))): v for k, v in raw.get("economy_inventory", {}).items()}
     economy_cooldowns = {}
     for k, v in raw.get("economy_cooldowns", {}).items():
-        parts = k.split(":")
+        # Actions such as income:<role_id> and give:<member_id> contain colons.
+        parts = k.split(":", 2)
         if len(parts) == 3:
             economy_cooldowns[(int(parts[0]), int(parts[1]), parts[2])] = v
     economy_log_channels = {int(k): v for k, v in raw.get("economy_log_channels", {}).items()}
@@ -119,13 +126,22 @@ def _bd_decode(raw: dict):
         if len(parts) == 2:
             economy_level_rewards_claimed[(int(parts[0]), int(parts[1]))] = [int(x) for x in levels]
     economy_income_roles = {int(g): {int(r): cfg for r, cfg in roles.items()} for g, roles in raw.get("economy_income_roles", {}).items()}
-    # Migrate legacy/default shop prices to the new 1,000+ Catnip floor.
-    price_floor_defaults = {"tuna":1000,"treat":1000,"churu":1500,"catnip_ball":2000,"fish":2500}
-    for item_id, minimum in price_floor_defaults.items():
-        if item_id in ECONOMY_ITEMS:
-            ECONOMY_ITEMS[item_id]["price"] = max(int(ECONOMY_ITEMS[item_id].get("price",minimum)), minimum)
-    for item_id, item in ECONOMY_ITEMS.items():
-        if isinstance(item, dict): item["price"] = max(1000, int(item.get("price",1000)))
+    # A saved catalog is authoritative, including removals and an empty shop.
+    # Older snapshots without this field keep the built-in catalog. Update in
+    # place so existing views/helpers retain their shared catalog reference.
+    saved_items = raw.get("economy_items")
+    if isinstance(saved_items, dict):
+        ECONOMY_ITEMS.clear()
+        ECONOMY_ITEMS.update(saved_items)
+    else:
+        # Migrate only legacy/default catalogs. Explicitly saved prices are
+        # administrator choices and may validly be below these default floors.
+        price_floor_defaults = {"tuna":1000,"treat":1000,"churu":1500,"catnip_ball":2000,"fish":2500}
+        for item_id, minimum in price_floor_defaults.items():
+            if item_id in ECONOMY_ITEMS:
+                ECONOMY_ITEMS[item_id]["price"] = max(int(ECONOMY_ITEMS[item_id].get("price",minimum)), minimum)
+        for item_id, item in ECONOMY_ITEMS.items():
+            if isinstance(item, dict): item["price"] = max(1000, int(item.get("price",1000)))
     achievement_data = {}
     for k,v in raw.get("achievement_data", {}).items():
         parts=k.split(":")
@@ -158,7 +174,11 @@ async def bd_load_data():
                     BD_UPSTASH_URL, json=["GET", BD_REDIS_KEY],
                     headers={"Authorization": f"Bearer {BD_UPSTASH_TOKEN}"},
                 ) as resp:
-                    result = (await resp.json()).get("result")
+                    resp.raise_for_status()
+                    payload = await resp.json()
+                    if not isinstance(payload, dict) or "result" not in payload or payload.get("error"):
+                        raise ValueError("Upstash did not return a successful GET response")
+                    result = payload["result"]
             if result:
                 _bd_decode(json.loads(result))
             return
@@ -175,22 +195,49 @@ async def bd_load_data():
 async def bd_save_data():
     """Persist settings. See bd_load_data for storage choice. Never raises —
     a failed save shouldn't break a command."""
-    encoded = _bd_encode()
-    if BD_UPSTASH_URL and BD_UPSTASH_TOKEN:
+    # Take each snapshot after the preceding write finishes. Otherwise an
+    # older, slower SET can overwrite newer balances and server settings.
+    async with _BD_SAVE_LOCK:
+        encoded = _bd_encode()
+        if BD_UPSTASH_URL and BD_UPSTASH_TOKEN:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        BD_UPSTASH_URL, json=["SET", BD_REDIS_KEY, json.dumps(encoded)],
+                        headers={"Authorization": f"Bearer {BD_UPSTASH_TOKEN}"},
+                    ) as resp:
+                        resp.raise_for_status()
+                        payload = await resp.json()
+                        if not isinstance(payload, dict) or payload.get("error") or payload.get("result") != "OK":
+                            raise ValueError("Upstash did not confirm the bot data save")
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+                log.error(f"Failed to save bot data to Upstash: {e}")
+            return
+        # Never truncate the last good snapshot before its replacement is
+        # fully written. Keep the temporary file on the same filesystem so
+        # os.replace is atomic, and remove it if serialization or I/O fails.
+        temporary_path = None
         try:
-            async with aiohttp.ClientSession() as session:
-                await session.post(
-                    BD_UPSTASH_URL, json=["SET", BD_REDIS_KEY, json.dumps(encoded)],
-                    headers={"Authorization": f"Bearer {BD_UPSTASH_TOKEN}"},
-                )
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            log.error(f"Failed to save bot data to Upstash: {e}")
-        return
-    try:
-        with open(BD_DATA_FILE, "w") as f:
-            json.dump(encoded, f)
-    except OSError as e:
-        log.error(f"Failed to save bot data: {e}")
+            destination = os.path.abspath(BD_DATA_FILE)
+            with _bd_tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=os.path.dirname(destination),
+                prefix=".cinnamon-", suffix=".tmp", delete=False,
+            ) as f:
+                temporary_path = f.name
+                json.dump(encoded, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary_path, destination)
+        except (OSError, TypeError, ValueError) as e:
+            log.error(f"Failed to save bot data: {e}")
+        finally:
+            if temporary_path is not None:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
+                except OSError as e:
+                    log.warning(f"Failed to remove temporary bot data file: {e}")
 
 
 def dashboard_state_provider() -> dict:
@@ -308,3 +355,4 @@ async def storage_status() -> dict:
             "LIKELY WIPED on a Render redeploy (no persistent disk on the free tier)."
         ) if file_writable else "Local file isn't writable — data isn't being saved at all right now.",
     }
+
