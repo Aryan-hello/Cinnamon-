@@ -11,8 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_functions(names, namespace):
+    import asyncio
     from cinnamon_modules.brain_intent import plan_intent
+    from cinnamon_modules.brain_activation import is_directly_addressed, strip_bot_addressing
     namespace.setdefault('plan_intent', plan_intent)
+    namespace.setdefault('asyncio', asyncio)
+    namespace.setdefault('is_directly_addressed', is_directly_addressed)
+    namespace.setdefault('strip_bot_addressing', strip_bot_addressing)
+    namespace.setdefault('_cinnamon_brain_intent_model_call', AsyncMock(return_value='{"intent":"chat","confidence":0.99,"phrase":"ordinary chat"}'))
     tree = ast.parse((ROOT / 'cinnamon_modules/core_events.py').read_text())
     body = []
     for node in tree.body:
