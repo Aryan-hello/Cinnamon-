@@ -17,6 +17,7 @@ _CR_LOCK = _cr_asyncio.Lock()
 _CR_MAX_ACTIVE = 10
 _CR_BATCH = 6
 _CR_STALE_RECORD_SECONDS = 30 * 86400
+_CR_MAX_LATE_SECONDS = 24 * 3600
 
 
 def _cr_server(gid):
@@ -128,6 +129,32 @@ async def _cr_tick():
     if not _cb_storage_available():
         return
     now = int(_cr_time.time())
+    # Expire reminders that would arrive more than a day late after downtime.
+    # Completed history older than 30 days is discarded to bound stored data.
+    async with _CR_LOCK:
+        changed = []
+        for guild in advanced_features_data.get("cinnamon_reminders_v1", {}).values():
+            if not isinstance(guild, dict):
+                continue
+            for member in guild.get("members", {}).values():
+                if not isinstance(member, dict):
+                    continue
+                for rid, item in list(member.items()):
+                    status = item.get("status")
+                    if status == "scheduled" and now - int(item.get("due_at", now)) > _CR_MAX_LATE_SECONDS:
+                        old = dict(item)
+                        item["status"], item["finished_at"] = "missed", now
+                        changed.append((member, rid, old))
+                    elif status in ("sent", "failed", "cancelled", "missed", "uncertain", "sending"):
+                        last = int(item.get("finished_at", item.get("attempted_at",
+                               item.get("created_at", now))))
+                        if now - last > _CR_STALE_RECORD_SECONDS:
+                            changed.append((member, rid, dict(item)))
+                            member.pop(rid, None)
+        if changed and not await bd_save_data():
+            for member, rid, old in changed:
+                member[rid] = old
+            return
     due = []
     for gid, guild in list(advanced_features_data.get("cinnamon_reminders_v1", {}).items()):
         if not isinstance(guild, dict):
