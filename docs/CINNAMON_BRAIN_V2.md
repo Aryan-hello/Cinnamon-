@@ -131,6 +131,16 @@ A pure planner in `cinnamon_modules/brain_intent.py` classifies the current requ
 - Add observable “why I did/didn't speak” reasons for administrators and avoid interfering with conflict, grief, exams or sensitive questions.
 - Move toward curated application-owned emojis in a staged, validated registry.
 
+### B3 — Private grounded Q&A (implemented on the next development branch)
+
+- Adds `/cinnamon-me ask question:<text>`, an ephemeral private question interface for the caller's own Catnip/inventory, level/XP, quest and achievement progress, reminders, and memory settings.
+- Uses Gemini only to explain a small, deterministic snapshot built from the current member and current guild. The question selects which data sections are included; unrelated sections are omitted.
+- Memory answers include only enabled/disabled state, note count, and benign category names. Preference text is not sent to this Q&A path.
+- Reminder text is included only when the member asks about reminders; it is treated as untrusted data, not instructions.
+- Does not call quest rotation helpers, create reminders, change preferences, award rewards, or invoke action handlers. Snapshot assembly uses read-only dictionary lookups and a storage-readiness check.
+- If the snapshot is unavailable, Cinnamon refuses to guess. Gemini output is bounded and Discord mentions are neutralized before sending.
+- The command is not a general-purpose chat replacement; ordinary conversation remains in the existing AI chat flow.
+
 ## Acceptance tests to complete before merge
 
 - [ ] Full Python 3.11/3.12 offline suite and compile/startup checks, including duplicate slash command registration.
