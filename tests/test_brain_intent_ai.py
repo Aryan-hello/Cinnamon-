@@ -23,8 +23,8 @@ def test_fallback_only_called_for_chat_plan():
         async def model(prompt):
             calls.append(prompt)
             return '{"intent":"private_data","confidence":0.95,"phrase":"my balance"}'
-        deterministic=plan_intent('how stacked am I')
-        result=await classify_intent_with_fallback('how stacked am I', deterministic_plan=deterministic, model_call=model)
+        deterministic=plan_intent('finances are confusing')
+        result=await classify_intent_with_fallback('finances are confusing', deterministic_plan=deterministic, model_call=model)
         assert deterministic.intent == 'chat' and result.intent == 'private_data' and len(calls)==1
         known=IntentPlan('help','deterministic',('help','chat'))
         assert await classify_intent_with_fallback('help me',deterministic_plan=known,model_call=model) is known
@@ -33,7 +33,7 @@ def test_fallback_only_called_for_chat_plan():
 
 def test_model_failure_returns_deterministic_plan():
     async def run():
-        original=plan_intent('how stacked am I')
+        original=plan_intent('finances are confusing')
         async def broken(prompt): raise TimeoutError('offline')
-        assert await classify_intent_with_fallback('how stacked am I',deterministic_plan=original,model_call=broken) is original
+        assert await classify_intent_with_fallback('finances are confusing',deterministic_plan=original,model_call=broken) is original
     asyncio.run(run())
