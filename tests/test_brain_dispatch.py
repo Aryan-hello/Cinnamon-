@@ -144,7 +144,7 @@ class AssistanceDispatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_invited_help_bypasses_grumpy_mood_and_pranks(self):
         user = SimpleNamespace(id=99)
         author = SimpleNamespace(id=11, bot=False, display_name='Member')
-        message = SimpleNamespace(author=author, content='<@99> how do I fish?',
+        message = SimpleNamespace(author=author, webhook_id=None, content='<@99> how do I fish?',
                                   guild=SimpleNamespace(id=3), channel=SimpleNamespace(id=4),
                                   mentions=[user], mention_everyone=False, reference=None)
         assistance = AsyncMock(return_value=True)
@@ -171,7 +171,7 @@ class AssistanceDispatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_disabled_channel_does_not_enter_conversation_memory(self):
         user = SimpleNamespace(id=99)
         message = SimpleNamespace(author=SimpleNamespace(id=11, bot=False, display_name='Member'),
-                                  content='private conversation', guild=SimpleNamespace(id=3),
+                                  webhook_id=None, content='private conversation', guild=SimpleNamespace(id=3),
                                   channel=SimpleNamespace(id=4), mentions=[])
         memory = defaultdict(lambda: deque(maxlen=10))
         ns = load_functions({'on_message'}, {
