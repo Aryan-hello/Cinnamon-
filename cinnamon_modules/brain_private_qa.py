@@ -41,6 +41,16 @@ _ALL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_OTHER_MEMBER_REFERENCE = re.compile(
+    r"<@!?\d{15,22}>|<@&\d{15,22}>|"
+    r"\b(?:his|her|their|someone else|another member|other member|other user)\b|"
+    r"\b(?:does|has|is)\s+(?!my\b|i\b|me\b|this\b|that\b|the\b)"
+    r"[a-z][a-z0-9_-]{1,31}\b|"
+    r"\b(?!what['’]s\b|who['’]s\b|it['’]s\b|that['’]s\b|there['’]s\b)"
+    r"[a-z][a-z0-9_-]{1,31}['’]s\b",
+    re.IGNORECASE,
+)
+
 
 def classify_private_question(question: str) -> tuple[str, ...]:
     """Identify which of the requester's own data scopes are relevant.
@@ -53,6 +63,7 @@ def classify_private_question(question: str) -> tuple[str, ...]:
     clean = question.strip()
     if (not 2 <= len(clean) <= _MAX_QUESTION
             or _ACTION_REQUEST.match(clean)
+            or _OTHER_MEMBER_REFERENCE.search(clean)
             or re.search(r"/[a-z][a-z0-9_-]*", clean, re.IGNORECASE)):
         return ()
     if _ALL_PATTERN.search(clean):
