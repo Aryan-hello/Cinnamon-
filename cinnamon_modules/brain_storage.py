@@ -417,3 +417,53 @@ class SnapshotStore:
         self.ready = True
         self.status, self.reason = "ready", result.reason
         return result
+
+
+
+def describe_action_storage_blocker(store, *, allow_local=False):
+    """Explain a blocked action without exposing credentials or raw storage.
+
+    This function is advisory only; it must NEVER weaken the actual durable
+    transaction gate. Confirmed-action security is enforced separately.
+    """
+    if store is None:
+        return "Storage has not initialized. No action was taken. Ask an administrator to inspect the startup logs."
+    backend = getattr(store, "backend", None)
+    if isinstance(backend, UpstashSnapshotBackend) and (
+            not backend.url or not backend.token):
+        return (
+            "Upstash is only partly configured. Set both "
+            "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN "
+            "in the bot service's Environment, then redeploy. "
+            "Protect existing Catnip balances before switching databases. "
+            "No action was taken."
+        )
+    if not store.durable and not allow_local:
+        return (
+            "Cinnamon is using a local JSON file, not verified durable storage. "
+            "On Render Free, confirmed Catnip changes need Upstash: configure "
+            "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN. "
+            "Back up or migrate existing balances before switching. "
+            "Do not enable a local-storage bypass on an ephemeral disk. "
+            "No action was taken."
+        )
+    if store.status == "uncertain" or store.pending_receipt:
+        return (
+            "A previous storage transaction has an unresolved outcome. "
+            "Cinnamon will not risk duplicating it. Ask an administrator to "
+            "check private logs and reconcile the saved data. No new action was taken."
+        )
+    if store.status == "conflict":
+        return (
+            "Cinnamon detected a conflicting or stale storage snapshot. "
+            "Check for another active bot instance and investigate saved data. "
+            "No action was taken."
+        )
+    if not store.ready:
+        return (
+            "Cinnamon could not safely load saved data (state: " +
+            str(getattr(store, "status", "unavailable"))[:40] +
+            "). Run /datastatus check and review private startup logs. "
+            "Never delete the saved data just to clear this warning. No action was taken."
+        )
+    return None
