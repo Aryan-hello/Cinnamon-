@@ -298,9 +298,11 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
     history = channel_memories[channel_id]
     convo = "\n".join(f"{name}: {text}" for name, text in history)
 
-    custom_emoji_names = curated_emoji_names(
-        (e.name for e in guild.emojis), mood=_cm_tier(guild.id))
+    custom_emoji_names = (
+        curated_emoji_names(
+            (e.name for e in guild.emojis), mood=_cm_tier(guild.id))
         if guild else []
+    )
     emoji_note = (
         f"This server also has these custom emoji you may react with by bare name "
         f"(no colons): {', '.join(custom_emoji_names)}."
