@@ -378,14 +378,36 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
 # Main prefix commands. Hangry Games and the real quest/achievement systems stay slash-only.
 @bot.command(name="help", aliases=["commands"])
 async def prefix_help(ctx):
-    e=discord.Embed(title="🐾 Cinnamon — Help",description="Use ? before a command. Mention or ID works for member arguments.",color=discord.Color.blurple())
-    e.add_field(name="Moderation",value="`?kick`, `?ban`, `?unban`, `?mute`, `?unmute`, `?warn`, `?warnings`, `?clearwarnings`, `?purge`, `?slowmode`",inline=False)
-    e.add_field(name="AI",value="`?ask <message>` (`?ai`, `?chat`)",inline=False)
-    e.add_field(name="Normal",value="`?ping`, `?botstatus`, `?userinfo [member]`, `?serverinfo`, `?afk [reason]`, `?rank [member]`, `/help`, `/dashboard`, `/leaderboard`, `/achievement`, `/quest`, `/craft`, `/mystery`, `/black-market`",inline=False)
-    e.add_field(name="Economy",value="`?balance` (`?bal`, `?wallet`), `?inventory` (`?inv`), `?shop`, `?buy <item> [qty]`, `?daily`, `?work`, `?give <member> <amount>` (`?pay`), `?econlb`, `?craft`, `?mystery`, `?blackmarket`",inline=False)
-    await ctx.reply(embed=e,mention_author=False)
+    """Live prefix command directory, including nested commands and aliases."""
+    entries = _help_prefix_entries(bot.walk_commands())
+    pages = _help_command_pages(entries, max_chars=940)
+    total = len(pages)
+    embeds = []
+    for index, body in enumerate(pages, start=1):
+        embed = cinnamon_embed(
+            "🐾 Cinnamon · Prefix commands",
+            "These commands are registered right now. Use `?command`, "
+            "or `/help` for slash commands and more details.",
+            color=CINNAMON_ORANGE, user=ctx.author,
+            footer=cinnamon_page_footer("Prefix Help", index, total, 
+                                         f"{len(entries)} commands"),
+        )
+        embed.add_field(name="Available commands", value=body, inline=False)
+        embeds.append(embed)
+    await ctx.reply(
+        embed=embeds[0],
+        view=HelpPagesView(ctx.author.id, embeds),
+        mention_author=False, allowed_mentions=discord.AllowedMentions.none(),
+    )
     if ctx.guild:
-        await send_log(ctx.guild.id, title="📖 Prefix help opened", description=f"{ctx.author} ({ctx.author.id}) opened the prefix-command guide.", category="dashboard")
+        try:
+            await send_log(
+                ctx.guild.id, title="📖 Prefix help opened",
+                description=f"{ctx.author} ({ctx.author.id}) opened the live prefix guide.",
+                category="dashboard",
+            )
+        except Exception:
+            log.exception("Failed to log prefix help view")
 
 @bot.command(name="ping")
 async def prefix_ping(ctx): await ctx.reply(f"🐾 Pong! {round(bot.latency*1000)} ms",mention_author=False)
@@ -625,7 +647,7 @@ async def prefix_econlb(ctx):
 @bot.command(name="rank")
 @commands.guild_only()
 async def prefix_rank(ctx,member:discord.Member=None):
-    m=member or ctx.author; xp=int(xp_data.get((ctx.guild.id,m.id),0)); level=level_from_xp(xp); embed=cinnamon_embed("🏅 Rank & XP",f"**{m.mention}**\n\nYour current level progress is below.",color=CINNAMON_ORANGE,user=m,footer="Cinnamon Levels • Use ?level for the image rank card")
+    m=member or ctx.author; xp=int(xp_data.get((ctx.guild.id,m.id),0)); level=level_from_xp(xp); embed=cinnamon_embed("🏅 Rank & XP",f"**{m.mention}**\n\nYour current level progress is below.",color=CINNAMON_ORANGE,user=m,footer="Cinnamon Levels • Use /rank for your level card")
     cinnamon_field(embed,"🏅 Level",f"**{level}**",True); cinnamon_field(embed,"✨ Total XP",f"**{xp:,} XP**",True)
     await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
@@ -639,9 +661,23 @@ async def prefix_leaderboard(ctx):
 
 @bot.command(name="botstatus",aliases=["status"])
 async def prefix_botstatus(ctx):
-    embed=cinnamon_embed("🐾 Cinnamon Status", "Cinnamon is online and ready.\n\nEverything looks good from the bot's side.", color=CINNAMON_GREEN, user=ctx.author, footer="Cinnamon • System Status")
-    cinnamon_field(embed,"📡 Latency",f"**{round(bot.latency*1000)} ms**",True)
-    cinnamon_field(embed,"🟢 Status","**Online**",True)
+    storage = await storage_status()
+    ready = storage["transactions_ready"]
+    embed = cinnamon_embed(
+        "🐾 Cinnamon Status",
+        "My Discord connection is working, but that doesn't mean every "
+        "database feature is healthy.",
+        color=CINNAMON_GREEN if ready else CINNAMON_MUTED,
+        user=ctx.author, footer="Cinnamon • Live System Status",
+    )
+    cinnamon_field(embed,"📡 Discord latency",f"**{round(bot.latency*1000)} ms**",True)
+    cinnamon_field(embed,"💾 Storage backend",storage["backend"],True)
+    cinnamon_field(embed,"🗃️ Snapshot","Loaded" if storage["snapshot_ready"] else "Unavailable",True)
+    cinnamon_field(embed,"🌿 Confirmed Catnip actions",
+                   "Ready" if ready else "Blocked for data safety",True)
+    if not ready:
+        cinnamon_field(embed,"🛡️ Admin diagnosis",
+                       "Run `/datastatus check` for the reason.",False)
     await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.event
