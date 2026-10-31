@@ -374,7 +374,7 @@ async def _cp_auto_prompt(guild, channel, cog):
         return False
     # Stop if someone disabled the feature, independence, or channel permission.
     ready, _ = _cb_game_eligibility(guild, channel, cog)
-    if not ready or not _cb_prompt_allowed(guild.id, now=now + 1):
+    if not ready or not _cb_settings(guild.id).get("prompts_enabled", False):
         return False
     try:
         await channel.send(
