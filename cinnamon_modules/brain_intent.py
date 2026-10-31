@@ -65,12 +65,12 @@ def plan_intent(text: str) -> IntentPlan:
         return IntentPlan("chat", "empty_request", ("chat",))
     if _REMINDER.search(clean):
         intent, reason = "reminder", "reminder_language"
-    elif _MEMORY.search(clean):
-        intent, reason = "memory", "explicit_memory_language"
-    elif _HELP.search(clean) or "/" in clean:
-        intent, reason = "help", "question_or_command_explanation"
     elif _ACTION.search(clean):
         intent, reason = "action", "action_like_language"
+    elif _MEMORY.search(clean):
+        intent, reason = "memory", "explicit_memory_language"
+    elif _HELP.search(clean) or re.search(r"/[a-z][a-z0-9_-]*", clean, re.IGNORECASE):
+        intent, reason = "help", "question_or_command_explanation"
     else:
         intent, reason = "chat", "no_confident_specialized_intent"
 
