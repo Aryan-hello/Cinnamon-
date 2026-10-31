@@ -1092,73 +1092,106 @@ def _message_studio(guild, state):
 
 def _activity_logs(guild, state):
     gid = guild.id
-    routes = state.get("category_log_channels", {}).get(gid, {}) or state.get("category_log_channels", {}).get(str(gid), {})
-    configured = []
-    for category, channel_id in routes.items():
-        channel = guild.get_channel(int(channel_id)) if str(channel_id).isdigit() else None
-        if channel and hasattr(channel, "history"):
-            configured.append((str(category), channel))
-    # Include the legacy main/economy/Hangry channels even if not in category routes.
-    for category, channel_id in [("moderation", state.get("log_channels", {}).get(gid)), ("economy", state.get("economy_log_channels", {}).get(gid))]:
-        channel = guild.get_channel(int(channel_id)) if channel_id and str(channel_id).isdigit() else None
-        if channel and hasattr(channel, "history") and all(ch.id != channel.id for _, ch in configured):
-            configured.append((category, channel))
-    hg = state.get("hg_cog")
-    if hg:
-        channel = guild.get_channel(hg.hg_log_channels.get(gid, 0))
-        if channel and hasattr(channel, "history") and all(ch.id != channel.id for _, ch in configured):
-            configured.append(("hangry", channel))
-    if not configured:
-        return ("<h1>Activity logs</h1><p class='muted'>No configured log channels are visible to Cinnamon. Run <b>/setup</b> or open Settings & Logs.</p>"
-                f"<div class='actions'><a class='btn' href='/dashboard?guild_id={gid}&tab=system'>Open Settings & Logs</a></div>")
-    async def read_recent():
-        rows = []
-        for category, channel in configured[:15]:
-            try:
-                async for message in channel.history(limit=8, oldest_first=False):
-                    if not message.embeds:
-                        continue
-                    for embed in message.embeds[:1]:
-                        rows.append((message.created_at, category, channel.name, embed.title or "Cinnamon log event", embed.description or "", str(message.jump_url)))
-            except Exception as exc:
-                rows.append((None, category, channel.name, "Could not read this log channel", type(exc).__name__, ""))
-        rows.sort(key=lambda item: item[0] or dt.datetime.min.replace(tzinfo=dt.timezone.utc), reverse=True)
-        return rows[:40]
-    try:
-        entries = _run_bot(read_recent(), timeout=25)
-    except Exception:
-        log.exception("Dashboard activity log read failed")
-        entries = []
+    reader = state.get("audit_recent")
+    status_reader = state.get("audit_storage_status")
+    entries = []
+    source_note = "External Upstash activity history"
+    storage_status = {}
+    if callable(reader):
+        try:
+            events = _run_bot(reader(gid, limit=100), timeout=20)
+            if callable(status_reader):
+                storage_status = _run_bot(status_reader(), timeout=12) or {}
+            for event in events:
+                try:
+                    when = dt.datetime.fromisoformat(str(event.get("timestamp", "")).replace("Z", "+00:00"))
+                except (TypeError, ValueError):
+                    when = None
+                metadata = event.get("metadata") or {}
+                detail_parts = []
+                if event.get("actor_id"):
+                    detail_parts.append("Actor ID: " + str(event["actor_id"]))
+                if event.get("target_id"):
+                    detail_parts.append("Target ID: " + str(event["target_id"]))
+                if event.get("channel_id"):
+                    detail_parts.append("Channel ID: " + str(event["channel_id"]))
+                detail_parts.extend(str(k) + ": " + str(v) for k, v in list(metadata.items())[:5])
+                entries.append((when, str(event.get("category", "general")), "Upstash",
+                                str(event.get("action", "Activity")), " · ".join(detail_parts), ""))
+        except Exception:
+            log.exception("External activity log read failed for guild %s", gid)
+            source_note = "External history unavailable — showing recent Discord log messages instead"
+    if not entries:
+        routes = state.get("category_log_channels", {}).get(gid, {}) or state.get("category_log_channels", {}).get(str(gid), {})
+        configured = []
+        for category, channel_id in routes.items():
+            channel = guild.get_channel(int(channel_id)) if str(channel_id).isdigit() else None
+            if channel and hasattr(channel, "history"):
+                configured.append((str(category), channel))
+        for category, channel_id in [("moderation", state.get("log_channels", {}).get(gid)),
+                                      ("economy", state.get("economy_log_channels", {}).get(gid))]:
+            channel = guild.get_channel(int(channel_id)) if channel_id and str(channel_id).isdigit() else None
+            if channel and hasattr(channel, "history") and all(ch.id != channel.id for _, ch in configured):
+                configured.append((category, channel))
+        hg = state.get("hg_cog")
+        if hg:
+            channel = guild.get_channel(hg.hg_log_channels.get(gid, 0))
+            if channel and hasattr(channel, "history") and all(ch.id != channel.id for _, ch in configured):
+                configured.append(("hangry", channel))
+        async def read_recent():
+            rows = []
+            for category, channel in configured[:15]:
+                try:
+                    async for message in channel.history(limit=8, oldest_first=False):
+                        if not message.embeds:
+                            continue
+                        embed = message.embeds[0]
+                        rows.append((message.created_at, category, channel.name,
+                                     embed.title or "Cinnamon log event", embed.description or "",
+                                     str(message.jump_url)))
+                except Exception as exc:
+                    rows.append((None, category, channel.name, "Could not read this log channel",
+                                 type(exc).__name__, ""))
+            rows.sort(key=lambda item: item[0] or dt.datetime.min.replace(tzinfo=dt.timezone.utc), reverse=True)
+            return rows[:40]
+        try:
+            entries = _run_bot(read_recent(), timeout=25)
+        except Exception:
+            log.exception("Discord activity log fallback failed")
+            entries = []
+        source_note = "Discord log-channel fallback (limited history)"
     query = request.args.get("q", "").strip()[:100].casefold()
     category_filter = request.args.get("category", "all").strip().casefold()
-    allowed_categories = {category.casefold() for category, _ in configured}
-    if category_filter not in allowed_categories and category_filter != "all":
+    categories = sorted({row[1].casefold() for row in entries})
+    if category_filter not in categories and category_filter != "all":
         category_filter = "all"
     if category_filter != "all":
         entries = [row for row in entries if row[1].casefold() == category_filter]
     if query:
-        entries = [row for row in entries if query in " ".join((row[1], row[2], row[3], row[4])).casefold()]
+        entries = [row for row in entries if query in " ".join(map(str, row[1:5])).casefold()]
     category_options = "<option value='all'>All categories</option>" + "".join(
-        f"<option value='{_esc(category.casefold())}'{' selected' if category.casefold() == category_filter else ''}>{_esc(category.title())}</option>"
-        for category, _channel in configured if category.casefold() != "all"
+        f"<option value='{_esc(category)}'{' selected' if category == category_filter else ''}>{_esc(category.title())}</option>"
+        for category in categories
     )
     filters_html = (f"<form method='get' action='/dashboard' class='formgrid'><input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='tab' value='activity_logs'>"
-                    f"<div class='field'><label>Search recent events</label><input name='q' maxlength='100' value='{_esc(query)}' placeholder='Search title, detail, channel…'></div>"
+                    f"<div class='field'><label>Search recent events</label><input name='q' maxlength='100' value='{_esc(query)}' placeholder='Search event, actor ID, details…'></div>"
                     f"<div class='field'><label>Category</label><select name='category'>{category_options}</select></div><div class='field'><label>&nbsp;</label><button class='btn' type='submit'>Filter events</button> <a class='btn secondary' href='/dashboard?guild_id={gid}&tab=activity_logs'>Clear</a></div></form>")
     if not entries:
-        rows_html = "<tr><td colspan='4'>No recent embed-based log entries found. This view reads up to 8 recent messages from each configured log channel.</td></tr>"
+        rows_html = "<tr><td colspan='4'>No external records found yet. New events will appear after external audit storage is connected.</td></tr>"
     else:
         rows = []
-        for when, category, channel_name, title, description, jump_url in entries:
+        for when, category, channel_name, title, description, jump_url in entries[:100]:
             timestamp = when.strftime("%Y-%m-%d %H:%M UTC") if when else "Unavailable"
-            link = f"<a class='btn secondary small' href='{_esc(jump_url)}' target='_blank' rel='noopener noreferrer'>Open in Discord</a>" if jump_url.startswith("https://discord.com/") else "—"
-            rows.append(f"<tr><td>{_esc(timestamp)}</td><td>{_esc(category.title())}<br><small>#{_esc(channel_name)}</small></td><td><b>{_esc(title[:180])}</b><br><small>{_esc(description[:260])}</small></td><td>{link}</td></tr>")
+            link = f"<a class='btn secondary small' href='{_esc(jump_url)}' target='_blank' rel='noopener noreferrer'>Open in Discord</a>" if jump_url.startswith("https://discord.com/") else "External record"
+            rows.append(f"<tr><td>{_esc(timestamp)}</td><td>{_esc(category.title())}<br><small>{_esc(channel_name)}</small></td><td><b>{_esc(title[:180])}</b><br><small>{_esc(description[:260])}</small></td><td>{link}</td></tr>")
         rows_html = "".join(rows)
-    channel_list = "".join(f"<span class='pill'>{_esc(category.title())}: #{_esc(channel.name)}</span> " for category, channel in configured)
-    return ("<h1>Activity logs</h1><p class='muted'>Recent embed-based events from the channels Cinnamon is configured to read. This is a viewer, not a replacement for Discord's full message history.</p>"
-            f"<article class='card full'><h2>Sources</h2><div class='actions'>{channel_list}</div><p class='muted'>Up to 8 recent messages are checked per configured channel, then the newest 40 events are shown. Use the link to open an entry in Discord.</p></article>"
-            f"<article class='card full'><h2>Find an event</h2>{filters_html}<p class='muted'>Filters apply to the recent events currently retrieved from configured channels.</p></article>"
-            f"<article class='card full'><h2>Recent events</h2><div class='tablewrap'><table><thead><tr><th>Time</th><th>Category / channel</th><th>Event</th><th>Link</th></tr></thead><tbody>{rows_html}</tbody></table></div></article>"
+    health = ("Connected" if storage_status.get("connected") else
+              "Not verified" if not storage_status else "Unavailable")
+    return ("<h1>Activity logs</h1><p class='muted'>Searchable external audit records stored separately from Cinnamon's bot snapshot. Private message text and AI prompts/replies are not stored by the shared logger.</p>"
+            f"<article class='card full'><h2>External storage</h2><div class='toggle'><b>Upstash audit connection</b><span class='pill {'good' if storage_status.get('connected') else 'warn'}'>{_esc(health)}</span></div>"
+            f"<p class='muted'>{_esc(source_note)} · {len(entries)} record(s) currently loaded · Retention: {_esc(storage_status.get('retention_days', 'unknown'))} days · Per-server cap: {_esc(storage_status.get('max_events', 'unknown'))}</p></article>"
+            f"<article class='card full'><h2>Find an event</h2>{filters_html}</article>"
+            f"<article class='card full'><h2>Recent events</h2><div class='tablewrap'><table><thead><tr><th>Time</th><th>Category / source</th><th>Event</th><th>Location</th></tr></thead><tbody>{rows_html}</tbody></table></div></article>"
             f"<div class='actions'><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=system'>Manage log routing</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=analytics'>View analytics</a></div>")
 
 
