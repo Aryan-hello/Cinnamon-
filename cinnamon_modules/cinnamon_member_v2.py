@@ -91,6 +91,8 @@ def _me_private_snapshot(gid, uid, scopes):
                     member_progress = {}
                 ids = board_ids if isinstance(board_ids, (list, tuple)) else []
                 for qid in list(ids)[:5]:
+                    if not isinstance(qid, (str, int)):
+                        continue
                     definition = definitions.get(qid)
                     if not isinstance(definition, dict):
                         continue
@@ -169,16 +171,17 @@ def _me_private_snapshot(gid, uid, scopes):
             for item in active_reminders[:10]:
                 try:
                     due_at = int(item.get("due_at", 0))
-                except (TypeError, ValueError):
+                    due_at_utc = _me_datetime.datetime.fromtimestamp(
+                        due_at, tz=_me_datetime.timezone.utc
+                    ).isoformat()
+                except (TypeError, ValueError, OverflowError, OSError):
                     continue
                 if due_at <= 0:
                     continue
                 reminders.append({
                     "id": str(item.get("id", ""))[:16],
                     "task": str(item.get("text", ""))[:120],
-                    "due_at_utc": _me_datetime.datetime.fromtimestamp(
-                        due_at, tz=_me_datetime.timezone.utc
-                    ).isoformat(),
+                    "due_at_utc": due_at_utc,
                 })
             snapshot["reminders"] = {
                 "available": True,
