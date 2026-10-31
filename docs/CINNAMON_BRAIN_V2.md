@@ -86,9 +86,25 @@ A pure planner in `cinnamon_modules/brain_intent.py` classifies the current requ
 
 ## Proposed next increments
 
+### B1 — Private progress view (implemented on the stacked development branch)
+
+- `/cinnamon-me progress` privately combines the member's existing level/XP, XP-to-next-level, quest history and Quest Points, current daily/weekly completion counts, and unlocked achievement totals.
+- Reuses the bot's own level-threshold functions; no duplicated XP formula.
+- Read-only and ephemeral; it never awards XP, rotates quests, unlocks achievements, changes Catnip, or writes state.
+- Missing saved quest data is reported as unavailable rather than guessed.
+
+### B2 — Deterministic intent planner (implemented on the next development branch)
+
+- Routes only the **current member-authored request** into reminder, memory, help, trusted-action, or ordinary-chat handler order.
+- Explicit reminder and memory language is recognized before generic help/chat. Personal phrases such as "show my progress" and "my day" reach the existing registered help.
+- The planner is a routing hint only: it has no Discord, Gemini, storage, permissions, or execution dependencies.
+- Existing trusted Python handlers remain the only place that can save a reminder, change memory, or propose an admin action. Their original requester, guild, permission, confirmation and durable-write checks are unchanged.
+- Uncertain text falls back to the normal conversation path. Quoted/history text is never fed back into the planner as an executable request.
+- Regression tests cover memory save/view/forget, reminder requests, progress questions, action-like requests and casual chat. A memory-regex escaping bug discovered by CI was corrected before final verification.
+
 ### B — Better answers and safe action planning
 
-- Route user requests through a **deterministic intent planner** (help, personal lookup, explicit preference save, reminder create, trusted admin proposal, casual chat).
+- Expand explainable read-only help: current quest progress, feature status and known cooldowns, with permission-aware views.
 - Show the member exactly what Cinnamon understood before executing any consequential action.
 - Expand explainable read-only help: current quest progress, feature status and known cooldowns, with permission-aware views.
 - Add “I don’t know” responses rather than hallucinated commands, balances or settings.
