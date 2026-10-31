@@ -9,11 +9,217 @@ from cinnamon_modules.brain_member_v2 import (
     format_timezone_offset as _me_timezone,
     level_progress as _me_level_progress,
 )
+from cinnamon_modules.brain_private_qa import (
+    build_private_prompt as _me_build_private_prompt,
+    classify_private_question as _me_classify_private_question,
+    sanitize_private_answer as _me_sanitize_private_answer,
+)
 
 _me_group = app_commands.Group(
     name="cinnamon-me",
     description="Private personal tools and privacy controls for Cinnamon",
 )
+
+
+def _me_private_snapshot(gid, uid, scopes):
+    """Build a minimal snapshot from only this member's current-guild records."""
+    ready = _cb_storage_available()
+    snapshot = {}
+
+    if "wallet" in scopes:
+        if ready:
+            inventory = economy_inventory_for(gid, uid)
+            items = []
+            for item_id, quantity in list(inventory.items())[:20]:
+                try:
+                    amount = max(0, int(quantity))
+                except (TypeError, ValueError):
+                    continue
+                if amount <= 0:
+                    continue
+                item = ECONOMY_ITEMS.get(item_id, {})
+                items.append({
+                    "name": str(item.get("name", item_id))[:60],
+                    "quantity": amount,
+                })
+            snapshot["wallet"] = {
+                "available": True,
+                "catnip": max(0, int(economy_balance(gid, uid))),
+                "inventory": items,
+            }
+        else:
+            snapshot["wallet"] = {"available": False, "reason": "saved snapshot unavailable"}
+
+    if "progress" in scopes:
+        if ready:
+            xp = max(0, int(xp_data.get((gid, uid), 0)))
+            level = _me_level_progress(
+                xp, level_from_xp=level_from_xp,
+                total_xp_for_level=total_xp_for_level, max_level=MAX_LEVEL,
+            )
+            guild_quests = quest_data.get(gid, {})
+            member_quests = guild_quests.get("users", {}).get(str(uid), {})
+            history = member_quests.get("completed_history", [])
+            progress = {
+                "available": True,
+                "level": level["level"],
+                "max_level": MAX_LEVEL,
+                "total_xp": level["total_xp"],
+                "xp_remaining": level["xp_remaining"],
+                "quest_points": max(0, int(member_quests.get("qp", 0))),
+                "quests_completed": len(history) if isinstance(history, list) else 0,
+            }
+
+            def quest_rows(board_ids, definitions, member_progress):
+                rows = []
+                for qid in list(board_ids or [])[:5]:
+                    definition = definitions.get(qid)
+                    if not isinstance(definition, dict):
+                        continue
+                    state = member_progress.get(qid, {})
+                    if not isinstance(state, dict):
+                        state = {}
+                    row = {
+                        "name": str(definition.get("name", qid))[:80],
+                        "completed": bool(_completed(definition, state)),
+                    }
+                    target = definition.get("target")
+                    if type(target) is int:
+                        row["target"] = target
+                    current = state.get("count", state.get("value"))
+                    if type(current) is int:
+                        row["current"] = max(0, current)
+                    rows.append(row)
+                return rows
+
+            if guild_quests.get("daily_date") == _today():
+                progress["daily_quests"] = quest_rows(
+                    guild_quests.get("daily_ids", []), DAILY_QUESTS,
+                    member_quests.get("daily", {}),
+                )
+            else:
+                progress["daily_quests"] = "not_current_or_not_initialized"
+            if guild_quests.get("weekly_key") == _week():
+                progress["weekly_quests"] = quest_rows(
+                    guild_quests.get("weekly_ids", []), WEEKLY_QUESTS,
+                    member_quests.get("weekly", {}),
+                )
+            else:
+                progress["weekly_quests"] = "not_current_or_not_initialized"
+
+            achievements = achievement_data.get((gid, uid), {})
+            unlocked = achievements.get("unlocked", []) if isinstance(achievements, dict) else []
+            secret = achievements.get("secret_unlocked", []) if isinstance(achievements, dict) else []
+            progress["achievements_unlocked"] = len(unlocked) if isinstance(unlocked, list) else 0
+            progress["secret_achievements_discovered"] = len(secret) if isinstance(secret, list) else 0
+            snapshot["progress"] = progress
+        else:
+            snapshot["progress"] = {"available": False, "reason": "saved snapshot unavailable"}
+
+    if "reminders" in scopes:
+        if ready:
+            reminders = []
+            for item in _cr_active(gid, uid)[:10]:
+                try:
+                    due_at = int(item.get("due_at", 0))
+                except (TypeError, ValueError):
+                    continue
+                if due_at <= 0:
+                    continue
+                reminders.append({
+                    "id": str(item.get("id", ""))[:16],
+                    "task": str(item.get("text", ""))[:120],
+                    "due_at_utc": _me_datetime.datetime.fromtimestamp(
+                        due_at, tz=_me_datetime.timezone.utc
+                    ).isoformat(),
+                })
+            snapshot["reminders"] = {
+                "available": True,
+                "timezone": _me_timezone(_cr_offset(gid, uid)),
+                "scheduled": reminders,
+            }
+        else:
+            snapshot["reminders"] = {"available": False, "reason": "saved snapshot unavailable"}
+
+    if "memory" in scopes:
+        if ready:
+            memory = _cmem_member(gid, uid)
+            enabled = bool(memory.get("enabled", True))
+            notes = memory.get("notes", []) if enabled else []
+            categories = sorted({
+                str(note.get("category", ""))[:30]
+                for note in notes if isinstance(note, dict) and note.get("category")
+            })
+            # Preference text is deliberately excluded from the Q&A context.
+            snapshot["memory"] = {
+                "available": True,
+                "enabled": enabled,
+                "note_count": len(notes) if isinstance(notes, list) else 0,
+                "categories": categories,
+            }
+        else:
+            snapshot["memory"] = {"available": False, "reason": "saved snapshot unavailable"}
+
+    return snapshot, ready
+
+
+def _me_generate_private_answer(question, snapshot):
+    """Synchronous Gemini call; invoked in a worker thread by the command."""
+    system_instruction, contents = _me_build_private_prompt(question, snapshot)
+    response = gemini_client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            max_output_tokens=260,
+            temperature=0.25,
+        ),
+    )
+    return _me_sanitize_private_answer(getattr(response, "text", ""))
+
+
+@_me_group.command(name="ask", description="Privately ask AI about your own Cinnamon data")
+@app_commands.guild_only()
+@app_commands.describe(question="Ask about your Catnip, progress, quests, reminders, or saved settings")
+async def cinnamon_me_ask(interaction: discord.Interaction, question: str):
+    question = str(question or "").strip()
+    scopes = _me_classify_private_question(question)
+    if not scopes:
+        return await interaction.response.send_message(
+            "🐾 I can answer private, read-only questions about your own Catnip, "
+            "inventory, level, XP, quests, achievements, reminders, and memory settings. "
+            "I can't perform actions or answer general questions here. Try asking "
+            "something like 'How close am I to the next level?'",
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    snapshot, ready = _me_private_snapshot(
+        interaction.guild.id, interaction.user.id, scopes
+    )
+    if not ready:
+        return await interaction.response.send_message(
+            "⚠️ My saved data snapshot isn't ready, so I can't verify that information "
+            "right now. I won't guess. Please try again after storage is healthy.",
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        answer = await asyncio.to_thread(
+            _me_generate_private_answer, question, snapshot
+        )
+    except Exception as exc:
+        log.warning("Private member Q&A failed (%s)", type(exc).__name__)
+        answer = ""
+    if not answer:
+        answer = (
+            "🐾 I couldn't produce a verified answer just now. "
+            "Your data wasn't changed; please try again in a moment."
+        )
+    await interaction.followup.send(
+        answer[:1400], ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
 
 
 @_me_group.command(name="today", description="Privately see today's reminders and your Cinnamon settings")
