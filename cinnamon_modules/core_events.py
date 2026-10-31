@@ -471,7 +471,7 @@ async def _cinnamon_try_assistance(message, clean_content):
     handlers = {
         "reminder": globals().get("_cr_maybe_handle"),
         "memory": globals().get("_cmem_maybe_handle"),
-        "private_data": _ch_private_data_redirect,
+        "private_data": globals().get("_ch_private_data_redirect"),
         "help": _ch_maybe_handle,
         "action": _ca_maybe_handle,
     }
