@@ -122,7 +122,8 @@ async def send_log(guild_id, *, title, description="", color=discord.Color.blurp
     if guild_id is not None:
         actor_id = getattr(getattr(interaction, "user", None), "id", None)
         channel_id = getattr(getattr(interaction, "channel", None), "id", None)
-        metadata = {"description": str(description)[:200]} if description else {}
+        # Do not persist descriptions: some legacy log descriptions contain user-written text.
+        metadata = {}
         for name, value in (fields or []):
             key = str(name).strip()
             low = key.lower()
@@ -134,7 +135,23 @@ async def send_log(guild_id, *, title, description="", color=discord.Color.blurp
                 match = re.search(r"\((\d{5,25})\)", str(value))
                 if match:
                     actor_id = int(match.group(1))
-        await audit_event(guild_id, category or "general", title, actor_id=actor_id,
+        lowered = (str(title) + " " + str(description)).lower()
+        inferred = category
+        if inferred is None:
+            rules = [
+                (("economy", "catnip", "shop item", "income role", "cinnamon fed", "tuna"), "economy"),
+                (("ai ", " ai", "gemini", "ai channel"), "ai"),
+                (("achievement",), "achievements"),
+                (("quest",), "quests"),
+                (("level", "xp", "rank"), "levels"),
+                (("giveaway", "poll"), "community"),
+                (("hangry",), "hangrygames"),
+                (("role added", "role removed", "reaction role", "role income"), "roles"),
+                (("welcome", "goodbye", "setup", "configuration", "log channel"), "setup"),
+                (("dashboard", "message studio", "web dashboard"), "dashboard"),
+            ]
+            inferred = next((label for needles, label in rules if any(n in lowered for n in needles)), "moderation")
+        await audit_event(guild_id, inferred, title, actor_id=actor_id,
                           channel_id=channel_id, metadata=metadata)
     return await _original_send_log(guild_id, title=title, description=description, color=color,
                                     interaction=interaction, fields=fields, category=category)
