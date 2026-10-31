@@ -329,4 +329,3 @@ async def storage_status() -> dict:
             "LIKELY WIPED on a Render redeploy (no persistent disk on the free tier)."
         ) if file_writable else "Local file isn't writable — data isn't being saved at all right now.",
     }
-

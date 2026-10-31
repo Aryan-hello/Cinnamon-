@@ -1842,4 +1842,3 @@ def security_headers(response):
     response.headers["Cache-Control"]="no-store"
     response.headers["Content-Security-Policy"]="default-src 'self' https://cdn.discordapp.com; img-src 'self' https://cdn.discordapp.com data:; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
     return response
-

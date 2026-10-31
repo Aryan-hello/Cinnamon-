@@ -78,4 +78,3 @@ Automated tests cover formatting, selected game logic, and code contracts. They 
 ## Project status
 
 Features on `main` are implemented and have offline regression coverage. Live behavior depends on the configured Discord application, permissions, network connectivity, and persistent storage. New changes should be developed in a short-lived branch, checked in CI, merged through a pull request, and cleaned up after merging.
-
