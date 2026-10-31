@@ -168,6 +168,7 @@ async def modinfo(interaction: discord.Interaction, user: discord.User):
 
 # --- Health / status ---------------------------------------------------------
 
+@bot.tree.command(name="ping", description="Check Cinnamon's Discord gateway latency")
 async def ping(interaction: discord.Interaction):
     latency_ms = round(bot.latency * 1000)
     await cinnamon_send(interaction, 
@@ -176,24 +177,45 @@ async def ping(interaction: discord.Interaction):
     )
 
 
+@bot.tree.command(name="botstatus", description="Check Cinnamon's Discord and storage health")
 @app_commands.guild_only()
 async def botstatus(interaction: discord.Interaction):
+    # Defer before a possible 5-second backend PING to avoid Discord timeouts.
+    await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
     hg_cog = bot.get_cog("HangryGamesCog")
     storage = await storage_status()
-    embed = discord.Embed(title="🐾 Cinnamon status", color=discord.Color.blurple())
-    embed.add_field(name="Discord latency", value=f"{round(bot.latency * 1000)} ms", inline=True)
+    actions_ready = storage["transactions_ready"]
+    embed = discord.Embed(
+        title="🐾 Cinnamon status",
+        description="Discord gateway health is separate from saved-data health.",
+        color=discord.Color.green() if actions_ready else discord.Color.orange(),
+    )
+    embed.add_field(name="Discord latency",
+                    value=f"{round(bot.latency * 1000)} ms", inline=True)
     embed.add_field(name="Servers", value=str(len(bot.guilds)), inline=True)
     embed.add_field(name="Members here", value=str(guild.member_count or 0), inline=True)
-    embed.add_field(name="AI channel", value="Enabled" if ai_channels.get(guild.id) else "Off", inline=True)
-    embed.add_field(name="Auto-mod", value="Configured" if guild.id in automod_config else "Off", inline=True)
-    embed.add_field(name="Anti-raid", value="Enabled" if antiraid_config.get(guild.id, {}).get("enabled") else "Off", inline=True)
-    embed.add_field(name="XP / leveling", value="Active", inline=True)
-    embed.add_field(name="Hangry Games", value="Ready" if hg_cog else "Starting", inline=True)
-    embed.add_field(name="Storage", value=storage["backend"], inline=True)
-    embed.set_footer(text="Use /help for commands. 🐾")
-    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
-
+    embed.add_field(name="AI channel",
+                    value="Configured" if ai_channels.get(guild.id) else "Not configured",
+                    inline=True)
+    embed.add_field(name="Auto-mod",
+                    value="Configured" if guild.id in automod_config else "Off",
+                    inline=True)
+    embed.add_field(name="Hangry Games",
+                    value="Ready" if hg_cog else "Not loaded", inline=True)
+    embed.add_field(name="Storage",
+                    value=storage["backend"], inline=True)
+    embed.add_field(name="Saved snapshot",
+                    value="Ready" if storage["snapshot_ready"] else "Unavailable",
+                    inline=True)
+    embed.add_field(name="Confirmed Catnip actions",
+                    value="Ready" if actions_ready else "Blocked for safety",
+                    inline=True)
+    embed.set_footer(text="Administrators: /datastatus check explains storage blockers.")
+    await interaction.followup.send(
+        embed=cinnamon_polish_embed(embed), ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
 
 # Category-specific logging controls. Existing /logchannel remains the fallback.
 categorylogs_group = app_commands.Group(name="categorylogs", description="Configure separate Cinnamon log channels")
@@ -650,6 +672,7 @@ async def prefix_setup(ctx: commands.Context):
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def setupstatus_cmd(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
     hg_cog = bot.get_cog("HangryGamesCog")
     rows = [
@@ -678,69 +701,21 @@ async def setupstatus_cmd(interaction: discord.Interaction):
     embed = discord.Embed(title="🐾 Cinnamon setup status", description="\n".join(lines), color=discord.Color.blurple())
     embed.add_field(name="AutoMod", value="Configured" if guild.id in automod_config else "Not configured", inline=True)
     embed.add_field(name="Anti-raid", value="Enabled" if antiraid_config.get(guild.id, {}).get("enabled") else "Off", inline=True)
-    embed.add_field(name="Persistent storage", value=(await storage_status())["backend"], inline=True)
+    storage = await storage_status()
+    embed.add_field(name="Persistent storage", value=storage["backend"], inline=True)
+    embed.add_field(
+        name="Confirmed Catnip changes",
+        value="Ready" if storage["transactions_ready"] else "Blocked — /datastatus check",
+        inline=True,
+    )
     embed.set_footer(text="Run /setup to create/configure the standard Cinnamon channels.")
-    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
+    await interaction.followup.send(embed=cinnamon_polish_embed(embed), ephemeral=True)
 
 
 # --- Help ---------------------------------------------------------------------
 
-_HELP_EVERYONE = (
-    "`/pet` `/treat` `/nap` `/zoomies` — cat antics\n"
-    "`/afk` — set an AFK note (auto-replies when you're pinged)\n"
-    "`/rank` · `/leaderboard` — your level, and the top 10\n"
-    "`/userinfo` · `/serverinfo` — info about a member or the server\n"
-    "`/poll` — start a poll with 2–4 options\n"
-    "`/ping` · `/botstatus` — check Cinnamon's health\n"
-    "`/help` — this menu\n"
-    "Chat with me any time by mentioning me or replying to me. 🐾"
-)
-_HELP_ECONOMY = (
-    "`/economy balance` · `/economy inventory` — your Catnip and items\n"
-    "`/economy daily` · `/economy work` · `?work` — earn Catnip\n"
-    "`/economy shop` · `/economy buy` · `/economy iteminfo` — view, buy, and inspect items\n"
-    "`/economy feed` — give Cinnamon items\n"
-    "`/mood status` · `talk` · `play` · `apologize` — cheer up Cinnamon and make amends\n"
-    "`/economy give` — give Catnip to another member\n"
-    "`/collect` — collect income from your income roles\n"
-    "`/economy leaderboard` — richest members\n"
-)
-
-_HELP_HANGRY = (
-    "`/hangrygames new` — open a lobby (Start needs Manage Messages)\n"
-    "`/hangrygames giveaway` — lobby with a prize and optional winner role\n"
-    "`/hangrygames role` — start straight away with everyone in a role\n"
-    "`/hangrygames stats` · `leaderboard` — wins, kills, and top winners\n"
-    "`/hangrygames cancel` — stop the game or lobby in this channel\n"
-    "`/hangrygames budget` — weekly hosted Catnip prize budget and completed games\n"
-    "`/cinnamon-events status` · `auto` · `channel` · `notify` · `questions` · `cameos` · `announce` · `people` · `test-game` — surprise games and interactions"
-)
-_HELP_MODS = (
-    "`/warn` · `/warnings` — warn someone / see their warnings\n"
-    "`/kick` `/ban` `/tempban` `/unban`\n"
-    "`/mute` · `/unmute` — timeouts\n"
-    "`/modinfo` — someone's full mod history, read from the log channel\n"
-    "`/purge` `/slowmode` `/lock` `/unlock` — channel tools\n"
-    "`/role add` · `/reactionrole create` `remove` — roles\n"
-    "`/aichannel` `/disableaichannel` `/disableai` `/enableai` — where I chat"
-)
-_HELP_ADMINS = (
-    "`/logchannel` · `/disablelogchannel` — mod log\n"
-    "`/datastatus check` `recover` · `/recall` — storage health and log recovery scan\n"
-    "`/welcome` · `/goodbye` — `set` or `disable` join/leave messages\n"
-    "`/automod` — `word add/remove/list`, `spam`, `mentions`, `invites`\n"
-    "`/antiraid enable` `disable` — join-spike alerts\n"
-    "`/levelrole add` `remove` `list` — roles at certain levels\n"
-    "`/giveaway start` `end` — prize giveaways\n"
-    "`/clearwarnings` · `/role add-all`\n"
-    "`/hangrygames logchannel` `disablelogchannel` `log` — its own log channel\n"
-    "`/economy logs` — choose the economy transaction log channel\n"
-    "`/economy snapshot` — create a complete pre-reset backup\n"
-    "`/economy restore-snapshot` — restore the latest backup from economy logs\n"
-    "`/economy admin addcatnip` · `removecatnip` — admin balance controls\n"
-    "`/economy income` — admin income-role management\n"
-    "`/economy item-add` · `/economy item-remove` — admin inventory controls\n`/economy add-item-shop` · `/economy edit-shop-item` · `/economy remove-item-shop` — admin shop controls\n`/economy add-role-income` · `/economy remove-role-income` — admin role income controls\n`/economy iteminfo` — detailed item information"
-)
+# Help pages are now built from Discord's registered commands at request time.
+# Do not add separate static lists of slash names here: they become stale.
 
 
 class HelpPagesView(discord.ui.View):
@@ -771,35 +746,88 @@ class HelpPagesView(discord.ui.View):
 
 @app_commands.guild_only()
 async def help_cmd(interaction: discord.Interaction):
-    commands_list = _all_leaf_commands(); pages=[]; current_lines=[]; current_len=0; last_root=None
-    for command in commands_list:
-        path=_command_path(command); root=path.split()[0].lstrip("/"); description=getattr(command,"description",None) or "No description provided."
-        line=f"**{path}** — {description}"; line=line[:897]+"..." if len(line)>900 else line
-        heading="" if root==last_root else f"\n**{root.replace('-', ' ').replace('_', ' ').title()}**"
-        extra=len(heading)+len(line)+1
-        if current_lines and current_len+extra>3000:
-            pages.append("\n".join(current_lines)); current_lines=[]; current_len=0; heading=f"**{root.replace('-', ' ').replace('_', ' ').title()}**"; extra=len(heading)+len(line)+1
-        current_lines.extend([heading,line]); current_len+=extra; last_root=root
-    if current_lines: pages.append("\n".join(current_lines))
+    """Always show real registered slash commands, never stale text lists."""
+    # The live command tree includes the GroupCog after startup. Every field
+    # stays below Discord's 1024-character hard limit (the old guide used 3000).
+    entries = _help_slash_entries(_all_leaf_commands())
+    page_bodies = _help_command_pages(entries, max_chars=940, group_roots=True)
+    registered = _help_registered_paths(entries)
+    count = len(entries)
+    total_pages = len(page_bodies) + 1
+    embeds = []
+    for index, body in enumerate(page_bodies, start=1):
+        embed = cinnamon_embed(
+            "📖 Cinnamon · Slash commands",
+            "These commands come from Cinnamon's live command registry. "
+            "Use Next to browse.",
+            color=CINNAMON_BLUE,
+            footer=cinnamon_page_footer(
+                "Help", index, total_pages, f"{count} registered commands"),
+        )
+        embed.add_field(name="Commands", value=body, inline=False)
+        embeds.append(embed)
 
-    embeds=[]; total=len(commands_list)
-    for index,body in enumerate(pages,start=1):
-        e=cinnamon_embed(f"📖 Cinnamon Help","Browse Cinnamon's commands with the buttons below.",color=CINNAMON_BLUE,footer=cinnamon_page_footer("Help",index,len(pages)+1,f"{total} commands"))
-        e.add_field(name="Commands",value=body,inline=False); embeds.append(e)
-    guide=cinnamon_embed("🐾 Using Cinnamon","A quick guide to the bot.",color=CINNAMON_ORANGE,footer=cinnamon_page_footer("Help",len(embeds)+1,len(embeds)+1,"Guide"))
-    guide.add_field(name="🚀 Start here",value="Run `/setup` in a new server. Then use `/help` whenever you need the command directory. Open the web control panel with `/dashboard`.",inline=False)
-    guide.add_field(name="🎮 Everyday",value="Use `/pet`, `/mood status`, `/mood play`, `/rank`, `/economy shop`, `/quests daily`, and `/achievement list`. Cinnamon’s mood changes shop prices and fishing luck! Stories begin with `/cinnamon stories`; fishing starts with `/fishing start`.",inline=False)
-    guide.add_field(name="🛡️ Admin",value="Moderation, logging, recovery, and configuration commands require the appropriate Discord permissions.",inline=False)
-    guide.add_field(name="🧭 Web dashboard",value="`/dashboard` opens Cinnamon Control. Message Studio, analytics, activity logs, and every dashboard change are linked to the `cinnamon-dashboard-logs` audit channel created by `/setup`.",inline=False)
-    guide.add_field(name="💾 Reset protection",value="Run `/economy snapshot` before a reset and restore it afterward if needed.",inline=False)
+    def available(*paths):
+        return _help_available_shortcuts(registered, paths) or "See the command pages."
+
+    guide = cinnamon_embed(
+        "🐾 Using Cinnamon",
+        "A quick start guide assembled from commands Cinnamon actually has.",
+        color=CINNAMON_ORANGE,
+        footer=cinnamon_page_footer("Help", total_pages, total_pages, "Quick start"),
+    )
+    guide.add_field(
+        name="🚀 Getting started",
+        value=available("/setup", "/setupstatus", "/dashboard", "/help"),
+        inline=False,
+    )
+    guide.add_field(
+        name="🌿 Everyday",
+        value=available("/pet", "/rank", "/economy balance", "/economy work",
+                        "/economy shop", "/quests daily", "/achievement list",
+                        "/questshop"),
+        inline=False,
+    )
+    guide.add_field(
+        name="🎮 Games and stories",
+        value=available("/hangrygames new", "/fishing start", "/fishing cast",
+                        "/cinnamon stories", "/wildlands gather", "/mood status"),
+        inline=False,
+    )
+    guide.add_field(
+        name="🧠 Cinnamon's brain",
+        value=available("/cinnamon-memory view", "/cinnamon-memory save",
+                        "/cinnamon-reminder create", "/cinnamon-reminder list",
+                        "/cinnamon-mind status", "/cinnamon-incident policy"),
+        inline=False,
+    )
+    guide.add_field(
+        name="🛡️ Staff and data safety",
+        value=available("/datastatus check", "/cinnamon-mind actions",
+                        "/economy admin addcatnip", "/recall", "/botstatus"),
+        inline=False,
+    )
+    guide.add_field(
+        name="🐱 Tip",
+        value="Try mentioning Cinnamon and asking 'how do quests work?' "
+              "or 'what does /recall do?'. Command permissions are still "
+              "checked when you run them. A writable local file does not "
+              "guarantee Catnip data survives a redeploy.",
+        inline=False,
+    )
     embeds.append(guide)
-    view=HelpPagesView(interaction.user.id,embeds,0)
-    await interaction.response.send_message(embed=embeds[0],view=view,ephemeral=True)
+    await interaction.response.send_message(
+        embed=embeds[0], view=HelpPagesView(interaction.user.id, embeds),
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
+    )
     try:
-        await send_log(interaction.guild.id, title="📖 Slash help opened", description=f"{interaction.user} ({interaction.user.id}) opened the slash-command guide.", interaction=interaction, category="dashboard")
+        await send_log(
+            interaction.guild.id, title="📖 Slash help opened",
+            description=f"{interaction.user} ({interaction.user.id}) opened help.",
+            interaction=interaction, category="dashboard",
+        )
     except Exception:
         log.exception("Could not log help command use")
-
 
 # Explicit registration is required because help_cmd uses a reusable callback
 # rather than the @bot.tree.command decorator.
