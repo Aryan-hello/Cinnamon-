@@ -119,16 +119,32 @@ def cinnamon_page_footer(section: str, page: int, pages: int, extra: str = "") -
     return f"Cinnamon • {section} • {page}/{pages}{tail}"
 
 async def cinnamon_send(interaction: discord.Interaction, description: str, *, title: str | None = None, ephemeral: bool = False, allowed_mentions=None):
-    # Route generic notices through the same presentation layer as feature cards.
-    # Keep the original interaction lifecycle: a deferred command sends a follow-up.
-    color, default_title = _cinnamon_embed_tone(description)
-    embed = cinnamon_ui_card("Notice", title or default_title, description,
-                             color=color, footer="Cinnamon  /  Notice")
+    """Send a lightweight reply as a normal Discord message.
+
+    Simple confirmations, errors, and conversational responses should feel like
+    Cinnamon speaking naturally rather than opening a card for every command.
+    Structured command results keep their own embeds/views. If a notice is too
+    long for Discord's 2,000-character message limit, retain the old embed
+    presentation so longer settings/help text is not lost.
+    """
+    text = f"**{title}**\\n{description}" if title else str(description)
     mentions = allowed_mentions if allowed_mentions is not None else discord.AllowedMentions.none()
+    use_embed_fallback = len(text) > 1900
+
+    if use_embed_fallback:
+        color, default_title = _cinnamon_embed_tone(description)
+        embed = cinnamon_ui_card("Notice", title or default_title, description,
+                                 color=color, footer="Cinnamon  /  Notice")
+        if interaction.response.is_done():
+            return await interaction.followup.send(embed=embed, ephemeral=ephemeral,
+                                                   allowed_mentions=mentions)
+        return await interaction.response.send_message(embed=embed, ephemeral=ephemeral,
+                                                       allowed_mentions=mentions)
+
     if interaction.response.is_done():
-        return await interaction.followup.send(embed=embed, ephemeral=ephemeral,
+        return await interaction.followup.send(content=text, ephemeral=ephemeral,
                                                allowed_mentions=mentions)
-    return await interaction.response.send_message(embed=embed, ephemeral=ephemeral,
+    return await interaction.response.send_message(content=text, ephemeral=ephemeral,
                                                    allowed_mentions=mentions)
 
 # ---------------------------------------------------------------------------
