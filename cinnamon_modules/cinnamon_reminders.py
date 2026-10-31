@@ -39,10 +39,15 @@ def _cr_format(item):
             f" · {item.get('status', 'unknown')}")
 
 
-async def _cr_schedule(gid, uid, spec):
+async def _cr_schedule(gid, uid, spec, *, source_id=None):
     """Atomically acknowledge in the snapshot before claiming a reminder."""
     async with _CR_LOCK:
         member = _cr_member(gid, uid)
+        # Re-delivery of the same Discord request must not schedule again.
+        if source_id is not None:
+            for prior in member.values():
+                if prior.get("source_id") == int(source_id):
+                    return prior, ""
         if len(_cr_active(gid, uid)) >= _CR_MAX_ACTIVE:
             return None, "I can keep up to 10 active reminders per member. Cancel an old one first."
         rid = _cr_uuid.uuid4().hex[:10]
@@ -50,7 +55,8 @@ async def _cr_schedule(gid, uid, spec):
             rid = _cr_uuid.uuid4().hex[:10]
         item = {"id": rid, "text": spec.text,
                 "due_at": int(spec.due_at), "timezone": spec.timezone_label,
-                "status": "scheduled", "created_at": int(_cr_time.time())}
+                "status": "scheduled", "created_at": int(_cr_time.time()),
+                "source_id": int(source_id) if source_id is not None else None}
         member[rid] = item
         if not await bd_save_data():
             member.pop(rid, None)
@@ -158,7 +164,8 @@ async def _cr_maybe_handle(message, clean_content):
         return True
     if spec is None:
         return False
-    item, error = await _cr_schedule(message.guild.id, message.author.id, spec)
+    item, error = await _cr_schedule(message.guild.id, message.author.id, spec,
+                                     source_id=message.id)
     if error:
         response = "🐈 " + error
     else:
@@ -193,7 +200,8 @@ async def cinnamon_reminder_create(interaction: discord.Interaction, text: str, 
     if spec is None:
         return await interaction.followup.send(
             "Use a time like 'in 1 hour' or 'tomorrow at 6 PM'.", ephemeral=True)
-    item, error = await _cr_schedule(interaction.guild.id, interaction.user.id, spec)
+    item, error = await _cr_schedule(interaction.guild.id, interaction.user.id, spec,
+                                     source_id=interaction.id)
     await interaction.followup.send(
         ("🐈 " + error) if error else
         f"🐱 Saved reminder `{item['id']}` for <t:{item['due_at']}:F>. "
