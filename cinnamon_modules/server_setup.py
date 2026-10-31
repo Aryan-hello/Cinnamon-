@@ -814,22 +814,67 @@ except Exception as help_registration_error:
 datastatus_group = app_commands.Group(name="datastatus", description="Check or recover Cinnamon's persisted data")
 
 
-@datastatus_group.command(name="check", description="Check whether persistent storage is actually connected right now")
+@datastatus_group.command(name="check", description="Check snapshot health and why Catnip actions are blocked")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def datastatus_check(interaction: discord.Interaction):
+    # A remote Redis PING may take several seconds. Acknowledge the slash
+    # command immediately, and keep diagnostics private to this admin.
+    await interaction.response.defer(ephemeral=True)
     status = await storage_status()
-    icon = "✅" if status["connected"] else "⚠️"
+    ready = status["transactions_ready"]
+    icon = "✅" if ready else "⚠️"
     guild_warnings = sum(1 for g, _ in warnings_data.keys() if g == interaction.guild.id)
     hg_cog = bot.get_cog("HangryGamesCog")
     hg_game_num = hg_cog.game_counts.get(interaction.guild.id, 0) if hg_cog else 0
-    embed = discord.Embed(title=f"{icon} Storage status", color=discord.Color.green() if status["connected"] else discord.Color.orange())
-    embed.add_field(name="Backend", value=status["backend"], inline=True)
-    embed.add_field(name="Connected", value="Yes" if status["connected"] else "No", inline=True)
-    embed.add_field(name="Detail", value=status["detail"], inline=False)
-    embed.add_field(name="This server's warnings tracked", value=str(guild_warnings), inline=True)
-    embed.add_field(name="This server's Hangry Games count", value=str(hg_game_num), inline=True)
-    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
+
+    embed = discord.Embed(
+        title=f"{icon} Cinnamon storage & Catnip diagnostics",
+        description="Read-only status. This command never changes balances or saved data.",
+        color=discord.Color.green() if ready else discord.Color.orange(),
+    )
+    embed.add_field(name="Actual backend", value=status["backend"], inline=True)
+    embed.add_field(name="Upstash configuration",
+                    value=status["upstash_configuration"], inline=True)
+    embed.add_field(
+        name="Backend check",
+        value=("Connected" if status["connected"] else "Unavailable")
+              if status["durable"] else
+              ("Local path appears writable" if status["connected"]
+               else "Local path not writable"),
+        inline=True,
+    )
+    embed.add_field(name="Persistent across Render redeploys",
+                    value="Yes" if status["durable"] else "No guarantee",
+                    inline=True)
+    embed.add_field(name="Snapshot loaded",
+                    value="Yes" if status["snapshot_ready"] else "No",
+                    inline=True)
+    embed.add_field(name="Snapshot state",
+                    value=status["snapshot_status"], inline=True)
+    embed.add_field(name="Confirmed Catnip actions",
+                    value="✅ READY" if ready else "🔒 BLOCKED",
+                    inline=True)
+    embed.add_field(name="Unresolved transaction",
+                    value="Yes — investigate before retrying"
+                          if status["pending_transaction"] else "No",
+                    inline=True)
+    embed.add_field(name="This server's warnings",
+                    value=str(guild_warnings), inline=True)
+    embed.add_field(name="This server's Hangry Games count",
+                    value=str(hg_game_num), inline=True)
+    embed.add_field(name="What this means / how to fix",
+                    value=status["detail"][:900], inline=False)
+    if status["local_override"] and not status["durable"]:
+        embed.add_field(
+            name="⚠️ Unsafe local override",
+            value="CINNAMON_ALLOW_LOCAL_ACTIONS is enabled. Do not use it on "
+                  "Render's ephemeral filesystem; use durable storage instead.",
+            inline=False,
+        )
+    embed.set_footer(text="Never share database tokens or secret environment values.")
+    await interaction.followup.send(
+        embed=cinnamon_polish_embed(embed), ephemeral=True)
 
 
 async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -> dict:
