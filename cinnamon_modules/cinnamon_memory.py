@@ -233,7 +233,7 @@ async def _cmem_maybe_handle(message, clean_content):
         return False
     text = str(clean_content or "").strip()
     text = _cmem_re.sub(
-        r"^(?:(?:hey|hi|hello|yo|please)[,! ]+)?cinnamon\\s*[,!:.]?\\s*(?:please\\s+)?",
+        r"^(?:(?:hey|hi|hello|yo|please)[,! ]+)?cinnamon\s*[,!:.]?\s*(?:please\s+)?",
         "", text, count=1, flags=_cmem_re.I,
     )
 
