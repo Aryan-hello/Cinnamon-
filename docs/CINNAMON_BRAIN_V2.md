@@ -75,6 +75,15 @@ Cinnamon's **registry-backed help** now recognizes the new commands for timezone
 - No inference of real-world location or sensitive personal details.
 - No new database migrations needed: per-member timezone overrides are optional fields under the existing reminder state.
 
+## Brain v2 Increment B — deterministic intent routing (implementation in progress)
+
+A pure planner in `cinnamon_modules/brain_intent.py` classifies the current request as reminder, memory, help, action-like, or ordinary chat. The shared assistance dispatcher tries the corresponding existing Python handler first, then preserves the existing safe fallback order.
+
+- Classification uses only the current member-authored request; it does not inspect channel history or send additional content to Gemini.
+- A route is not permission, consent, or execution authority. Existing reminder/memory validators, action parsing, Discord permission checks, durable receipts and confirmation controls remain responsible for their own operations.
+- Uncertain text stays ordinary chat. Action-like requests are routed to the existing action validator instead of being treated as harmless chat.
+- Tests cover intent classification and shared dispatcher integration. GitHub Actions is still running for the latest commit; failures from earlier intermediate commits are being corrected and are not release evidence.
+
 ## Proposed next increments
 
 ### B — Better answers and safe action planning
