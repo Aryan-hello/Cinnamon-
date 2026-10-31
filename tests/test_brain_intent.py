@@ -35,7 +35,7 @@ class IntentPlannerTests(unittest.TestCase):
 
     def test_plans_are_bounded_and_never_authorize(self):
         plan = plan_intent("Cinnamon, add 500 Catnip to @member")
-        self.assertIn("no_confident_specialized_intent", {plan.reason, "action_like_language"})
+        self.assertEqual(plan.intent, "action")
         self.assertEqual(plan.route_order[-1], "chat")
         self.assertFalse(hasattr(plan, "authorized"))
         self.assertFalse(hasattr(plan, "execute"))
