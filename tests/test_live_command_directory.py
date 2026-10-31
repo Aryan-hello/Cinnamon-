@@ -62,8 +62,38 @@ class LiveDirectoryTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].path, "?quest daily")
         self.assertIn("Args: [member]", entries[0].description)
-        self.assertIn("?todays", entries[0].description)
+        self.assertIn("?quest todays", entries[0].description)
+        self.assertNotIn("also ?todays", entries[0].description)
         self.assertNotIn("secret-command", str(entries))
+
+    def test_group_aliases_and_top_level_aliases_are_not_mislabeled(self):
+        group = SimpleNamespace(
+            qualified_name="automod word add", aliases=["insert"],
+            signature="<word>", brief="", help="Add banned word", hidden=False,
+        )
+        top = SimpleNamespace(
+            qualified_name="balance", aliases=["bal"], signature="",
+            brief="", help="Check wallet", hidden=False,
+        )
+        entries = prefix_entries([group, top])
+        texts = {item.path: item.description for item in entries}
+        self.assertIn("?automod word insert", texts["?automod word add"])
+        self.assertIn("?bal", texts["?balance"])
+        self.assertNotIn("also ?insert", texts["?automod word add"])
+
+    def test_remaining_user_facing_references_use_real_subcommands(self):
+        levels = (ROOT / "cinnamon_modules/levels_games.py").read_text(encoding="utf-8")
+        reminders = (ROOT / "cinnamon_modules/cinnamon_reminders.py").read_text(encoding="utf-8")
+        memory = (ROOT / "cinnamon_modules/cinnamon_memory.py").read_text(encoding="utf-8")
+        personality = (ROOT / "cinnamon_modules/cinnamon_personality.py").read_text(encoding="utf-8")
+        self.assertNotIn("`/levelrewards add`", levels)
+        self.assertIn("`/level-rewards add`", levels)
+        self.assertIn("`/cinnamon-reminder list`", reminders)
+        self.assertIn("`/cinnamon-reminder cancel`", reminders)
+        self.assertIn("`/cinnamon-memory view`", memory)
+        self.assertIn("`/cinnamon-memory forget`", memory)
+        self.assertNotIn("Only two role alerts", personality)
+        self.assertIn("up to two opt-in role alerts", personality)
 
     def test_empty_directory_is_still_displayable(self):
         self.assertEqual(command_pages([]), [
