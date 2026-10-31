@@ -72,7 +72,7 @@ async def _cmem_remove(gid, uid, note_id=None):
         member = _cmem_member(gid, uid)
         before = _cmem_copy.deepcopy(member.get("notes", []))
         tickets = _cmem_root(gid).setdefault("tickets", {})
-        prior_tickets = _cmem_copy.deepcopy(tickets) if note_id is None else None
+        prior_tickets = _cmem_copy.deepcopy(tickets)
         if note_id is None:
             member["notes"] = []
             for ticket in tickets.values():
@@ -84,11 +84,17 @@ async def _cmem_remove(gid, uid, note_id=None):
             member["notes"] = [n for n in before if n.get("id") != str(note_id).strip().lower()]
             if len(before) == len(member["notes"]):
                 return False, "I couldn't find that memory ID in your notes."
+            for ticket in tickets.values():
+                if (ticket.get("uid") == int(uid)
+                        and ticket.get("note_id") == str(note_id).strip().lower()
+                        and ticket.get("status") == "open"):
+                    ticket["status"] = "withdrawn"
+                    ticket["original"] = ""
+                    ticket["detail"] = ""
         if not await bd_save_data():
             member["notes"] = before
-            if prior_tickets is not None:
-                tickets.clear()
-                tickets.update(prior_tickets)
+            tickets.clear()
+            tickets.update(prior_tickets)
             return False, "Memory storage didn't confirm the change. Try again later."
         return True, ("All your Cinnamon notes were cleared." if note_id is None
                       else "That note was removed from your memory.")
