@@ -433,7 +433,8 @@ def _count(mapping, gid):
     return sum(1 for key in mapping if isinstance(key, tuple) and key[0] == gid)
 
 
-async def _apply_brain_settings(state, gid, *, independence_enabled, chat_actions_enabled):
+async def _apply_brain_settings(state, gid, *, independence_enabled, chat_actions_enabled,
+                                prompts_enabled=None, ai_judgment_enabled=None):
     """A failed save can never turn a protective pause back on in this process."""
     advanced = state["advanced_features_data"]
     brain = advanced.setdefault("cinnamon_brain_v1", {}).setdefault(
@@ -442,8 +443,14 @@ async def _apply_brain_settings(state, gid, *, independence_enabled, chat_action
         str(gid), {"enabled": False})
     previous_brain = bool(brain.get("independence_enabled", True))
     previous_actions = bool(actions.get("enabled", False))
+    previous_prompts = bool(brain.get("prompts_enabled", False))
+    previous_reasoning = bool(brain.get("ai_judgment_enabled", False))
     brain["independence_enabled"] = bool(independence_enabled)
     actions["enabled"] = bool(chat_actions_enabled)
+    if prompts_enabled is not None:
+        brain["prompts_enabled"] = bool(prompts_enabled)
+    if ai_judgment_enabled is not None:
+        brain["ai_judgment_enabled"] = bool(ai_judgment_enabled)
     saved = False
     try:
         saved = await state["bd_save_data"]()
@@ -460,6 +467,10 @@ async def _apply_brain_settings(state, gid, *, independence_enabled, chat_action
                 actions["enabled"] = False
             elif actions.get("enabled"):
                 actions["enabled"] = previous_actions
+            if prompts_enabled is not None:
+                brain["prompts_enabled"] = previous_prompts if prompts_enabled else False
+            if ai_judgment_enabled is not None:
+                brain["ai_judgment_enabled"] = previous_reasoning if ai_judgment_enabled else False
     if not saved:
         raise ValueError("The durable save could not be verified. Disabled switches remain off in this session; an unacknowledged write may still persist. Verify storage before restarting.")
 
@@ -508,7 +519,13 @@ def _mind(guild, state):
         "><span><b>Independent activities</b><small>Pause spontaneous games, questions and cameos. Direct requests remain available.</small></span></label>" +
         "<label class='toggle'><input type='checkbox' name='chat_actions_enabled'" +
         (" checked" if actions.get("enabled", False) else "") +
-        "><span><b>Conversational actions</b><small>Off by default. Authorized Catnip adjustments and timeouts require confirmation and reliable storage.</small></span></label>")
+        "><span><b>Conversational actions</b><small>Off by default. Authorized Catnip adjustments and timeouts require confirmation and reliable storage.</small></span></label>" +
+        "<label class='toggle'><input type='checkbox' name='prompts_enabled'" +
+        (" checked" if brain.get("prompts_enabled", False) else "") +
+        "><span><b>Community questions</b><small>Optional no-ping questions, only in Cinnamon's approved activity channel.</small></span></label>" +
+        "<label class='toggle'><input type='checkbox' name='ai_judgment_enabled'" +
+        (" checked" if brain.get("ai_judgment_enabled", False) else "") +
+        "><span><b>AI activity advice</b><small>Optional Gemini decision from counts and mood only, never raw member conversations. Cinnamon may decide to stay quiet.</small></span></label>")
     health_text = "Ready" if storage.get("ready") else "Unavailable"
     if storage.get("pending"):
         health_text = "Waiting for transaction reconciliation"
@@ -1379,7 +1396,9 @@ def dashboard_action():
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
                 state, gid, independence_enabled="independence_enabled" in request.form,
-                chat_actions_enabled="chat_actions_enabled" in request.form))
+                chat_actions_enabled="chat_actions_enabled" in request.form,
+                prompts_enabled="prompts_enabled" in request.form,
+                ai_judgment_enabled="ai_judgment_enabled" in request.form))
             _audit(gid,actor,"Dashboard: Cinnamon boundaries updated",
                    f"Independence={bool('independence_enabled' in request.form)}; conversational actions={bool('chat_actions_enabled' in request.form)}.")
             session["dashboard_notice"]="Cinnamon's activity and action boundaries saved."
