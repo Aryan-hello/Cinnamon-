@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_functions(names, namespace):
+    from cinnamon_modules.brain_intent import plan_intent
+    namespace.setdefault('plan_intent', plan_intent)
     tree = ast.parse((ROOT / 'cinnamon_modules/core_events.py').read_text())
     body = []
     for node in tree.body:
