@@ -33,6 +33,11 @@ _MEMORY = re.compile(
     r"(?:turn|switch)\s+(?:my\s+)?memory\s+(?:on|off)\b)",
     re.IGNORECASE,
 )
+_SELF_SERVICE_HELP = re.compile(
+    r"^(?:show\\s+my\\s+(?:progress|privacy|level|xp)|"
+    r"my\\s+(?:day|progress|privacy|level|xp))\\b",
+    re.IGNORECASE,
+)
 _HELP = re.compile(
     r"^(?:(?:what|how|why|explain|help|tell\s+me|show\s+(?:me|my))\b|"
     r"my\s+(?:day|progress|privacy|level|xp)\b|"
@@ -71,6 +76,8 @@ def plan_intent(text: str) -> IntentPlan:
         intent, reason = "action", "action_like_language"
     elif _MEMORY.search(clean):
         intent, reason = "memory", "explicit_memory_language"
+    elif _SELF_SERVICE_HELP.search(clean):
+        intent, reason = "help", "existing_private_command_help"
     elif classify_private_question(clean):
         intent, reason = "private_data", "private_member_data_question"
     elif _HELP.search(clean) or re.search(r"/[a-z][a-z0-9_-]*", clean, re.IGNORECASE):
