@@ -1,78 +1,120 @@
-# Cinnamon: Surprise Hangry Games & Personality — October 26, 2026
+# Cinnamon Social Events — Current Code Reference (31 October 2026)
 
-Cinnamon is a chaotic cat with an actual mood, friends, favourite visitors, playful grudges, spontaneous questions and reactions to members' achievements. This is the current **design/implementation guide**, not evidence of a tested live Render deployment.
+This document replaces the October 26 description of how Cinnamon's
+surprise Hangry Games and optional personality messages operate.
+It describes the **current code**, not proof of a successful live
+Discord/Render deployment. See
+[the Cinnamon Brain design](docs/CINNAMON_BRAIN_PHASE2.md) and
+[the active command audit](docs/COMMAND_AUDIT.md) for additional limits.
 
 ## Surprise Hangry Games
 
-After an administrator re-runs **/setup**, Cinnamon creates or reuses:
-- **#cinnamon-games** — the public channel for the surprise games.
-- **Hangry Games** — a role members can opt into for game announcement pings.
-- **#cinnamon-stuff-logs** — private personality/mood/favourites/nice-and-naughty logs. Existing #cinnamon-hangry still receives detailed game logs and prize results.
+Running `/setup` creates or repairs the approved game channel, the
+**Hangry Games** notification role, and private event logs. The game channel
+can subsequently be selected with `/cinnamon-events channel`.
+A member must separately opt in with
+`/cinnamon-events notify enabled:true` to receive the role's alerts.
 
-When automatic games are enabled, Cinnamon chooses the next event **randomly 1–2 hours into the future**. After a restart, saved next-event timestamps prevent an immediate duplicate burst. A game already running in the channel causes a scheduled surprise to be skipped, not duplicated.
+With automatic games enabled, Cinnamon schedules an **activity opportunity**
+every 1–2 hours. **An opportunity is not a promised game.** The independent
+activity policy decides whether to stay quiet, ask an optional no-ping
+community question, or begin a game. The choice is constrained by:
 
-The automatic lobby:
-1. Picks an **integer prize between 1,000 and 2,500 Catnip** from the game economy (not the host's personal wallet).
-2. Sends **one Hangry Games role ping at creation** with an in-character announcement and the Join button.
-3. Exactly **90 seconds after posting**, sends the **second and final role ping**, warning that only 30 seconds remain.
-4. At **120 seconds**, starts if at least two non-bot players joined; otherwise cancels, pays nobody, and Cinnamon theatrically complains about the missing audience. Cancellation mildly reduces her server mood.
-5. Pays the winner the prize via the existing Hangry Games winner-payout path. The normal winner mention at the end is for the winner, **not an extra Hangry Games role ping**. Cinnamon congratulates the winner.
-6. Surprise games **do not consume any human moderator's weekly Hangry Games prize budget** and cannot award the bot a host-farming bonus.
+- A healthy stored snapshot, an enabled independence switch and the
+  administrator-approved game channel.
+- Guild and bot permissions, an existing Hangry Games role, and no other
+  conflicting game/lobby.
+- Genuine recent participation: at least six recent human messages from
+  at least two members, with activity in the last ten minutes.
+- A quiet period after a previously unanswered game, and temporary quiet
+  periods for discussions that may need more care.
 
-Cinnamon avoids spam by using **two role mentions only**, and members can unsubscribe. Administrator commands allow disabling automatic games or choosing another public channel.
+The ordinary automatic game lobby has a two-minute join window and
+**1,000–2,500 Catnip** from the game economy, not from a member's wallet.
+It may mention the opted-in Hangry Games role **once at creation**.
+At the 90-second check it sends a second role alert **only if someone
+has joined**; if nobody joins, Cinnamon does not repeat the ping.
+At 120 seconds, at least two non-bot entrants are required to launch the
+game. Otherwise she cancels quietly, logs the result privately, and
+backs off for six hours. There is **no public cancellation tantrum or
+automatic mood penalty for an unanswered game**.
 
-## Commands
+Normal winner rewards go through the existing Hangry Games payout path.
+Automated surprise games do not spend a human host's weekly prize budget.
+Do not assume a game will start merely because the next check is due.
 
-| Command | Who | Purpose |
+## Commands and permissions
+
+| Registered command | Who can use it | What it does |
 | --- | --- | --- |
-| `/cinnamon-events status` | Everyone | See enabled state, approximate next game and favourite visitors |
-| `/cinnamon-events notify enabled:true/false` | Everyone | Add/remove your own Hangry Games notification role |
-| `/cinnamon-events questions enabled:true/false` | Everyone | Opt in/out of occasional personal questions |
-| `/cinnamon-events auto enabled:true/false` | Manage Server | Enable/disable automatic games |
-| `/cinnamon-events channel` | Manage Server | Set the public game channel |
-| `/cinnamon-events people` | Manage Server | View favourite visitors, nice counts, current Naughty List and mood |
-| `/cinnamon-events test-game` | Manage Server | Immediately open one two-minute test lobby without changing schedule |
-| `/setup` | Manage Server | Create/reuse required channels, logs and roles |
-| `/recall` | Manage Server | Recover missing absolute Cinnamon personality records from Stuff logs |
+| `/cinnamon-events status` | Members | Game state, activity-check time, notification info |
+| `/cinnamon-events notify` | Members | Opt in or out of the Hangry Games notification role |
+| `/cinnamon-events questions` | Members | Opt in/out of *personal* random questions |
+| `/cinnamon-events auto` | Administrators | Enable/disable scheduled surprise-game opportunities |
+| `/cinnamon-events channel` | Administrators | Choose the approved surprise-game channel |
+| `/cinnamon-events people` | Administrators | See favourite visitors and nice/naughty summaries |
+| `/cinnamon-events test-game` | Administrators | Request a test lobby, still subject to safety/permission checks |
+| `/cinnamon-events cameos` | Administrators | Enable/disable very rare non-pinging cameo lines |
+| `/cinnamon-events announce` | Administrators | Explicitly confirm a mass announcement, with cooldown |
+| `/cinnamon-mind status` | Administrators | Explain why voluntary activity is READY or WAIT |
+| `/cinnamon-mind independence` | Administrators | Pause or resume Cinnamon's voluntary activities |
+| `/cinnamon-mind prompts` | Administrators | Allow occasional no-ping community questions |
+| `/cinnamon-mind reasoning` | Administrators | Opt in to metadata-only Gemini activity advice |
+| `/setup` | Administrators | Create or repair configured resources |
+| `/datastatus check` | Administrators | Inspect actual saved-data and confirmed-action readiness |
 
-**IMPORTANT:** Servers that previously ran /setup must run it again to add the new channel and role. The first setup enables the feature by default. Subsequent setups preserve an admin's previously disabled setting. Roles are mentionable to allow Cinnamon's alerts, so administrators should apply role-mention rules if needed.
+The `/cinnamon-events questions` switch is **not** a reminder switch.
+Members may still request personal reminders using
+`/cinnamon-reminder create`, `/cinnamon-reminder list`, and
+`/cinnamon-reminder cancel`.
 
-## Personal Cinnamon questions
+## Personal questions, public questions and cameos
 
-When a member **directly talks to Cinnamon** (mentions Cinnamon or replies to her), there is a **small 8% chance** she'll ask a goofy question about tuna, potatoes, or cat laws.
+A member directly interacting with Cinnamon may receive an optional,
+silly **personal question**, with at most an **8% chance** per eligible
+invitation. It is limited to one per member per 24 hours and one per
+server per six hours. Members may opt out, and Cinnamon respects the
+global independence and sensitive-discussion quiet controls.
+A question waiting longer than two minutes is marked missed; no
+automatic negative mood penalty is applied just because no one answered.
+A later answer may trigger a playful response.
 
-- At most **one personal mention per member per 24 hours**, and **one question per server per six hours**.
-- She does **not** ping the person repeatedly or guilt them for not replying. If they haven't answered after two minutes, her global mood dips only very slightly and this is noted in the private Stuff log.
-- If the person later talks to Cinnamon again in the same channel (within 24 hours), she playfully exclaims **YOU ARE LATE!!** or celebrates a timely reply. Answering improves her mood.
-- Every member can disable questions with `/cinnamon-events questions enabled:false`.
-- Cinnamon does **not** store the content of personal messages in the Stuff logs, only counts, events and a small status record.
+Separately, administrators can allow rare **public no-ping community
+questions** via `/cinnamon-mind prompts`. These are proposed only at
+eligible activity opportunities, use the approved activity channel,
+and have backoff behavior if nobody responds. Gemini-assisted activity
+advice is opt-in and only receives aggregate activity counts and mood.
+Model output cannot execute commands or bypass the Python restrictions.
 
-## Celebrations and funny reactions
+Cinnamon may also make a rare cat-jealousy one-liner about another cat,
+subject to a low random chance, six-hour limits, disabled channels,
+storage readiness, and independence/serious-context controls. It
+does not start a Gemini conversation or ping members.
 
-Cinnamon may react to:
-- **Expensive purchases (5,000+ Catnip):** playful mockery like “MISTER MONEYBAGS!”
-- **Legendary and Mythical fish:** excitement over impressive catches.
-- **Hangry Games wins:** congratulates the winner.
-- **Giveaway wins:** congratulations for members who win.
-- **Nice visitors:** the tone becomes noticeably more excited.
-- **Naughty members:** the pre-existing temporary Naughty List and its repair options still work.
+## Reactions, records and recovery
 
-Reactions have **15-minute cooldowns per user and event type**; they are ordinary messages without extra mentions. Multiple-winner giveaways limit the number of public Cinnamon celebration lines.
+In-game achievements, purchases and wins may prompt occasional
+in-character celebrations. A big purchase reaction requires at least
+5,000 Catnip and reactions have a 15-minute cooldown per member/event.
+Nice/favourite lists are based on in-game deeds, not a hidden archive
+of members' private conversations.
 
-The "Nice" and "Favourite visitors" lists are based on positive **in-game** actions, **not** private chat surveillance. **Aryan remains Cinnamon's favourite human in the Wildlands story**, regardless of visitor rankings.
+Cinnamon stores relevant state in her existing snapshot and records
+limited administrative personality snapshots in private configured logs.
+`/recall` can reconstruct **only records for which appropriate evidence
+was actually logged**; it does not restore everything or retrieve private
+AI memory. The store uses guarded snapshot commits and Upstash's
+compare-and-set mechanism when configured. On Render Free, local
+JSON may be lost on redeployment; configure and test durable storage,
+and avoid simultaneous writers.
 
-## Logs, restore and data
+## Before a public release
 
-Cinnamon logs mood scores and changes, action counts, nice deeds, current Naughty List expiration, favourite visitor standings, question interactions and game events in **#cinnamon-stuff-logs**, which /setup secures to server administrators. Hangry game matches, winners, prizes and cancellations are also recorded in the existing **#cinnamon-hangry** channel.
-
-The shared Upstash/local `advanced_features_data` contains `cinnamon_social_v1`. The Stuff log embeds contain **absolute snapshots** of recorded values rather than a stream of deltas. `/recall` scans this log (including discovering the channel by name if its saved mapping disappeared), **fills missing records only**, and reports how many personality records/mood snapshots were actually reconstructed. It cannot reconstruct chat messages or data that was never logged.
-
-## Testing and limitations
-
-- GitHub Actions checks code compilation, module order, command registration and offline tests. **Discord/Render have not been live tested** by these static tests.
-- Use `/cinnamon-events test-game` in a private server to validate role permissions, Join buttons, two role pings, 120-second start, winner award and cancellation.
-- Test surprise schedule persistence over Render restarts, /setup idempotency, /recall restores, shop and fish reactions, random question limits and member opt-out.
-- This bot's current Upstash/JSON persistence does not provide atomic distributed transactions; running **multiple Cinnamon processes with the same data store** risks lost writes.
-- A service restart in the middle of a two-minute game lobby can abandon that temporary lobby; the next scheduled event is not automatically duplicated. Avoid deploying during test games.
-
-**Nothing in this feature resets player Catnip, inventories, fishing catches, Wildlands story progress, existing mood data, staff budgets or previous Hangry Games statistics.**
+- Confirm `/help` and `?help` list the registered commands after Discord sync.
+- Verify an active, a quiet and a single-member server; no unexpected games.
+- Test the opted-in role ping, no second ping when zero players join,
+  quiet cancellation and six-hour backoff in a private test guild.
+- Verify administrator-only settings and member-only consent controls.
+- Recheck permission changes during a lobby, game winner payout, and
+  persistence after a restart.
+- Never infer a live Discord success from passing offline unit tests.
