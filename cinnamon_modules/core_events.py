@@ -5,6 +5,8 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
+from cinnamon_modules.brain_activation import is_directly_addressed, strip_bot_addressing
+
 async def _send_admin_error_dm(user, *, command_name: str, error: BaseException, context: str = ""):
     """Privately send useful diagnostics to a server Administrator after a command fails.
 
@@ -752,11 +754,10 @@ async def on_message(message: discord.Message):
     speaker = message.author.display_name
     content = message.content.strip()
 
-    # Strip the bot's own mention text out of the message before we store/send it.
-    clean_content = content
-    if bot.user:
-        clean_content = clean_content.replace(f"<@{bot.user.id}>", "").strip()
-        clean_content = clean_content.replace(f"<@!{bot.user.id}>", "").strip()
+    # Strip direct addressing syntax before intent parsing and chat generation.
+    clean_content = strip_bot_addressing(
+        content, bot_user_id=bot.user.id if bot.user else None,
+    )
 
     # --- XP: award for genuine chat messages, at most once per user per 60s ---
     if message.guild and clean_content:
@@ -783,10 +784,8 @@ async def on_message(message: discord.Message):
         if callable(context_observer):
             context_observer(guild_id, clean_content)
 
-    was_mentioned = bot.user is not None and bot.user in message.mentions and not message.mention_everyone
-
-    # Check if this message is a reply to one of Cinnamon's own messages.
-    was_reply_to_bot = False
+    # A reply is valid only when its resolved target is Cinnamon's own message.
+    reply_author_id = None
     if message.reference and bot.user:
         ref = message.reference.resolved
         if ref is None:
@@ -794,30 +793,25 @@ async def on_message(message: discord.Message):
                 ref = await message.channel.fetch_message(message.reference.message_id)
             except (discord.NotFound, discord.HTTPException):
                 ref = None
-        if isinstance(ref, discord.Message) and ref.author.id == bot.user.id:
-            was_reply_to_bot = True
+        if isinstance(ref, discord.Message):
+            reply_author_id = ref.author.id
 
-    # The AI channel is a place to FIND Cinnamon, not an invitation to
-    # interrupt everyone. Respond only to explicit ping, reply, or direct name.
-    is_ai_channel = guild_id is not None and ai_channels.get(guild_id) == channel_id
-    called_by_name = _cp_direct_name(clean_content)
-    invited = bool(was_mentioned or was_reply_to_bot or called_by_name)
+    was_mentioned = bot.user is not None and bot.user in message.mentions and not message.mention_everyone
+    was_reply_to_bot = bot.user is not None and reply_author_id == bot.user.id
+    invited = is_directly_addressed(
+        content, bot_user_id=bot.user.id if bot.user else None,
+        reply_author_id=reply_author_id,
+    )
     if not invited:
-        if message.guild:
-            try:
-                await _cp_maybe_cameo(message)  # One-line aside, not a conversation.
-            except Exception:
-                log.exception("Cinnamon's voluntary aside was suppressed")
+        # Always-on channels and voluntary cameos never activate Brain V2.
         return
 
-    if (clean_content or was_mentioned or was_reply_to_bot) and invited:
-        # Keep an always-on AI channel from turning chat bursts into Gemini bursts.
+    if invited and (clean_content or was_mentioned or was_reply_to_bot):
         now = time.monotonic()
-        if called_by_name and not (was_mentioned or was_reply_to_bot):
-            last_ai = ai_cooldowns.get(channel_id, 0.0)
-            if now - last_ai < AI_CHANNEL_COOLDOWN_SECONDS:
-                return
-            ai_cooldowns[channel_id] = now
+        last_ai = ai_cooldowns.get(channel_id, 0.0)
+        if now - last_ai < AI_CHANNEL_COOLDOWN_SECONDS:
+            return
+        ai_cooldowns[channel_id] = now
 
         if await _cinnamon_try_assistance(message, clean_content):
             return
