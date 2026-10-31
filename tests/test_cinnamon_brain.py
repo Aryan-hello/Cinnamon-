@@ -120,7 +120,7 @@ class CinnamonBrainPolicyTests(unittest.TestCase):
         self.assertIn("_cb_game_decision(", personality)
         self.assertIn("last_unanswered_game_at", personality)
         self.assertIn('bot.tree.add_command(_cb_group)', BRAIN_SOURCE)
-        self.assertIn('@bot.listen("on_message")', BRAIN_SOURCE)
+        self.assertIn("_cb_observe(guild_id, message.author.id)", (ROOT / "cinnamon_modules" / "core_events.py").read_text(encoding="utf-8"))
         self.assertNotIn("ask_gemini(", BRAIN_SOURCE)
         self.assertNotIn("target.timeout(", BRAIN_SOURCE)
 
