@@ -25,10 +25,9 @@ _REMINDER = re.compile(
     re.IGNORECASE,
 )
 _MEMORY = re.compile(
-    r"^(?:(?:remember|save|forget|delete|clear|edit|change|show|view)\b.{0,100}"
-    r"(?:preference|memory|note|remember)|"
-    r"(?:what|show|view)\s+(?:do\s+you\s+)?remember\s+about\s+me\b|"
-    r"(?:turn|switch)\s+(?:my\s+)?memory\s+(?:on|off)\b)",
+    r"^(?:(?:remember|save|forget|delete|clear|edit|change|show|view)\\b|"
+    r"(?:what|show|view)\\s+(?:do\\s+you\\s+)?remember\\s+about\\s+me\\b|"
+    r"(?:turn|switch)\\s+(?:my\\s+)?memory\\s+(?:on|off)\\b)",
     re.IGNORECASE,
 )
 _HELP = re.compile(
