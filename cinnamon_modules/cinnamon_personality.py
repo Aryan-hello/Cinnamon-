@@ -47,6 +47,7 @@ async def _cp_maybe_cameo(message):
     gid, ch = message.guild.id, message.channel
     s = _cp_server(gid)
     if (not _cb_independence_enabled(gid) or not _cb_storage_available()
+            or (callable(globals().get("_cx_serious")) and _cx_serious(gid))
             or not s.get("cameos_enabled", True)):
         return False
     if (ch.id in disabled_channels[gid] or
@@ -176,6 +177,7 @@ async def _cp_maybe_question(message):
     s, p = _cp_server(gid), _cp_person(gid, uid)
     now = _cp_time.time()
     if (not _cb_independence_enabled(gid) or not _cb_storage_available() or
+        (callable(globals().get("_cx_serious")) and _cx_serious(gid)) or
         not s.get("questions_enabled", True) or p.get("questions_optout") or
         now - float(p.get("last_question", 0)) < 86400 or
         now - float(s.get("last_question", 0)) < 21600 or
@@ -397,6 +399,13 @@ async def _cp_tick():
                 except Exception:
                     _cp_server(guild.id)["last_brain_reason"] = "scheduler_error"
                     log.exception("Cinnamon activity check failed in guild %s", guild.id)
+            # Reuse this one scheduler for member-requested reminders too.
+            try:
+                await _cr_tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Cinnamon reminder scheduler pass failed")
             await asyncio.sleep(15)
     except asyncio.CancelledError:
         raise
