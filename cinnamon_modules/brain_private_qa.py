@@ -51,7 +51,9 @@ def classify_private_question(question: str) -> tuple[str, ...]:
     if type(question) is not str:
         return ()
     clean = question.strip()
-    if not 2 <= len(clean) <= _MAX_QUESTION or _ACTION_REQUEST.match(clean):
+    if (not 2 <= len(clean) <= _MAX_QUESTION
+            or _ACTION_REQUEST.match(clean)
+            or re.search(r"/[a-z][a-z0-9_-]*", clean, re.IGNORECASE)):
         return ()
     if _ALL_PATTERN.search(clean):
         return ("wallet", "progress", "reminders", "memory")
