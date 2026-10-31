@@ -449,17 +449,26 @@ async def _ch_maybe_handle(message, clean_content):
 
 
 async def _cinnamon_try_assistance(message, clean_content):
-    """Trusted, acknowledged personal requests and help precede Gemini."""
-    reminder_handler = globals().get("_cr_maybe_handle")
-    memory_handler = globals().get("_cmem_maybe_handle")
-    if message.guild and callable(reminder_handler) and await reminder_handler(message, clean_content):
-        return True
-    if message.guild and callable(memory_handler) and await memory_handler(message, clean_content):
-        return True
-    if await _ch_maybe_handle(message, clean_content):
-        return True
-    if message.guild and await _ca_maybe_handle(message, clean_content):
-        return True
+    """Route current requests through a deterministic plan and trusted handlers."""
+    from cinnamon_modules.brain_intent import plan_intent
+
+    plan = plan_intent(clean_content)
+    handlers = {
+        "reminder": globals().get("_cr_maybe_handle"),
+        "memory": globals().get("_cmem_maybe_handle"),
+        "help": _ch_maybe_handle,
+        "action": _ca_maybe_handle,
+    }
+    for route in plan.route_order:
+        if route == "chat":
+            break
+        handler = handlers.get(route)
+        if not callable(handler):
+            continue
+        if route in {"reminder", "memory", "action"} and message.guild is None:
+            continue
+        if await handler(message, clean_content):
+            return True
     return False
 
 @bot.command(name="userinfo",aliases=["whois"])
