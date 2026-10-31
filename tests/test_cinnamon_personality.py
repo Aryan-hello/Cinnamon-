@@ -79,6 +79,7 @@ class PersonalityTests(unittest.TestCase):
               "_CP_QUESTIONS": ("What is a suspicious potato?",),
               "_cp_random": SimpleNamespace(random=lambda: 0.0, choice=lambda values: values[0]),
               "bd_save_data": save, "_cp_log": log,
+              "_cb_independence_enabled": lambda gid: True,
               "discord": SimpleNamespace(
                   AllowedMentions=SimpleNamespace(users=lambda **x:None),
                   HTTPException=type("MockHTTPException", (Exception,), {})),
@@ -101,7 +102,7 @@ class PersonalityTests(unittest.TestCase):
             self.assertEqual(len(counts), 1)
         asyncio.run(check())
 
-    def test_surprise_lobby_two_pings_and_no_player_cancellation(self):
+    def test_surprise_lobby_is_quiet_when_no_one_joins(self):
         for participants in (0, 2):
             emitted, launched, disappointments, edited = [], [], [], []
             elapsed = [0.0]
@@ -147,22 +148,28 @@ class PersonalityTests(unittest.TestCase):
             ns = {"discord": discord, "HGLobbyView": View,
                   "asyncio": SimpleNamespace(sleep=pause),
                   "_cp_random": SimpleNamespace(randint=lambda low, high: 1700),
-                  "_cp_time": SimpleNamespace(monotonic=lambda: elapsed[0]),
+                  "_cp_time": SimpleNamespace(monotonic=lambda: elapsed[0],
+                                              time=lambda: 123456 + elapsed[0]),
                   "_CP_LAUNCHING": set(),
+                  "advanced_features_data": {},
+                  "_cb_independence_enabled": lambda gid: True,
+                  "guild_channel_send_allowed": lambda guild, channel: True,
                   "_cp_log": eventlog,
                   "bd_save_data": store,
                   "_cm_adjust": letdown,
                   "log": SimpleNamespace(warning=lambda *args:None)}
-            load_helpers({"_cp_auto_start"}, ns)
+            load_helpers({"_cp_server", "_cp_auto_start"}, ns)
             asyncio.run(ns["_cp_auto_start"](guild, Channel(), cog))
             role_pings = [m for m in emitted if "<@&444>" in m]
-            self.assertEqual(len(role_pings), 2)
+            self.assertEqual(len(role_pings), 1 if participants == 0 else 2)
             self.assertEqual(elapsed[0], 120.0)
             self.assertEqual(ns["_CP_LAUNCHING"], set())
             if participants == 0:
                 self.assertEqual(len(launched), 0)
-                self.assertEqual(len(disappointments), 1)
-                self.assertIn("YOU ALL LEFT MEEEEE", emitted[-1])
+                self.assertEqual(len(disappointments), 0)
+                self.assertEqual(len(emitted), 1, "No repeat pings or cancellation spam")
+                self.assertGreater(
+                    ns["_cp_server"](3)["last_unanswered_game_at"], 123456)
             else:
                 self.assertEqual(len(launched), 1)
                 self.assertEqual(launched[0][1]["catnip_prize"], 1700)
