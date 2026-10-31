@@ -428,6 +428,7 @@ async def cinnamon_me_privacy(interaction: discord.Interaction):
         "• Preference notes are saved only when you explicitly ask. "
         f"You have **{note_count}** saved in this server.\n"
         "• Only your notes are shown to Gemini when **you** ask Cinnamon to chat.\n"
+        "• Private \`/cinnamon-me ask\` sends only the data sections relevant to your question; preference text is excluded.\n"
         "• Your timezone is "
         + ("a personal fixed UTC offset.\n" if timezone_saved
            else "the shared server default.\n")
