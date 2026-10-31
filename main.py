@@ -127,7 +127,7 @@ async def cinnamon_send(interaction: discord.Interaction, description: str, *, t
     long for Discord's 2,000-character message limit, retain the old embed
     presentation so longer settings/help text is not lost.
     """
-    text = f"**{title}**\\n{description}" if title else str(description)
+    text = f"**{title}**\n{description}" if title else str(description)
     mentions = allowed_mentions if allowed_mentions is not None else discord.AllowedMentions.none()
     use_embed_fallback = len(text) > 1900
 
