@@ -400,6 +400,8 @@ _CINNAMON_MODULES = (
     "cinnamon_moods.py",
     "cinnamon_personality.py",
     "cinnamon_actions.py",
+    # Independent activity policy and admin controls; no new AI execution rights.
+    "cinnamon_brain.py",
 )
 
 
