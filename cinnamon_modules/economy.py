@@ -909,14 +909,14 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
     return restored, created
 
 
-@economy_admin_group.command(name="addcatnip", description="Admin: add Catnip to a member")
+@economy_admin_group.command(name="addcatnip", description="Admin: add Catnip (requires durable storage)")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
     await _ca_admin_catnip_command(interaction, member, amount, True)
 
 
-@economy_admin_group.command(name="removecatnip", description="Admin: remove Catnip from a member")
+@economy_admin_group.command(name="removecatnip", description="Admin: remove Catnip (requires durable storage)")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def economy_removecatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
