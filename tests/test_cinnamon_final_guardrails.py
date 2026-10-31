@@ -67,6 +67,7 @@ class FinalPreDeploymentTests(unittest.TestCase):
         self.assertIn("if not invited:", core)
         self.assertNotIn("_cp_maybe_cameo(message)", core)
         self.assertNotIn("is_ai_channel", core)
+        self.assertIn("message.author.bot or message.webhook_id is not None", core)
         mind = source("cinnamon_personality.py")
         self.assertIn('_cp_random.random() >= 0.02', mind)
         self.assertIn("21600", mind)
