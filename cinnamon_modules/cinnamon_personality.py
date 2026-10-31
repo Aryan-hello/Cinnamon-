@@ -46,7 +46,7 @@ async def _cp_maybe_cameo(message):
         return False
     gid, ch = message.guild.id, message.channel
     s = _cp_server(gid)
-    if not s.get("cameos_enabled", True):
+    if not _cb_independence_enabled(gid) or not s.get("cameos_enabled", True):
         return False
     if (ch.id in disabled_channels[gid] or
         ch.id in set(category_log_channels.get(gid, {}).values()) or
@@ -171,7 +171,8 @@ async def _cp_maybe_question(message):
     gid, uid = message.guild.id, message.author.id
     s, p = _cp_server(gid), _cp_person(gid, uid)
     now = _cp_time.time()
-    if (not s.get("questions_enabled", True) or p.get("questions_optout") or
+    if (not _cb_independence_enabled(gid) or
+        not s.get("questions_enabled", True) or p.get("questions_optout") or
         now - float(p.get("last_question", 0)) < 86400 or
         now - float(s.get("last_question", 0)) < 21600 or
         _cp_random.random() >= .08):
@@ -243,7 +244,9 @@ async def _cp_recover(guild, limit=1200):
 async def _cp_auto_start(guild, channel, cog):
     """Two role pings ONLY: creation and 30-second warning, then a 2m start."""
     role = discord.utils.get(guild.roles, name="Hangry Games")
-    if not role or not guild.me or cog._busy(channel.id) or channel.id in _CP_LAUNCHING:
+    if (not _cb_independence_enabled(guild.id) or
+            not guild_channel_send_allowed(guild, channel) or
+            not role or not guild.me or cog._busy(channel.id) or channel.id in _CP_LAUNCHING):
         return
     _CP_LAUNCHING.add(channel.id)
     prize = _cp_random.randint(1000, 2500)
@@ -267,7 +270,7 @@ async def _cp_auto_start(guild, channel, cog):
                                ("Join window", "120 seconds"), ("Role", str(role.id))])
         await _cp_log(guild.id, "Surprise game started")
         await asyncio.sleep(max(0, 90 - (_cp_time.monotonic() - started_at)))
-        if not view.started and cog.lobbies.get(channel.id) is view:
+        if not view.started and cog.lobbies.get(channel.id) is view and view.players:
             await channel.send(
                 f"{role.mention} 😼 30 SECONDS LEFT! JOIN NOW! I DID NOT POLISH A TROPHY FOR NOTHING!",
                 allowed_mentions=discord.AllowedMentions(users=False, roles=[role], everyone=False))
@@ -281,16 +284,14 @@ async def _cp_auto_start(guild, channel, cog):
         cog.lobbies.pop(channel.id, None)
         await post.edit(embed=view.embed(), view=view)
         if len(view.players) < 2:
-            _cm_adjust(guild.id, -16)
+            # Silence is feedback: cancel without another public message or
+            # mood penalty. Give the server six hours before another attempt.
+            _cp_server(guild.id)["last_unanswered_game_at"] = _cp_time.time()
             await bd_save_data()
-            await channel.send(
-                "😾 GAME CANCELLED! EVIL PEOPLE! YOU ALL LEFT MEEEEE! "
-                "I even had a prize ready! *dramatically flops onto the carpet*",
-                allowed_mentions=discord.AllowedMentions.none())
-            await cog._log(guild.id, title="😾 Cinnamon surprise game cancelled",
+            await cog._log(guild.id, title="🐈 Cinnamon surprise game quietly cancelled",
                            fields=[("Reason", "Fewer than 2 players"),
                                    ("Joined", str(len(view.players))), ("Prize unpaid", str(prize))])
-            await _cp_log(guild.id, "Surprise game cancelled, Cinnamon annoyed")
+            await _cp_log(guild.id, "Surprise game cancelled for low engagement")
             return
         await cog.launch(channel, dict(view.players), guild.me, None, None,
                          catnip_prize=prize, sponsor=guild.me)
@@ -318,10 +319,19 @@ async def _cp_tick():
                         s["next_at"] = now + _cp_random.randint(3600, 7200)
                         await bd_save_data()
                     elif due <= now and cog:
+                        # The clock creates an opportunity, not an obligation
+                        # to ping: Cinnamon needs real recent engagement too.
                         s["next_at"] = now + _cp_random.randint(3600, 7200)
-                        await bd_save_data()
                         channel = guild.get_channel(int(s["auto_channel"]))
-                        if channel is not None and not cog._busy(channel.id):
+                        channel_ok = bool(channel and guild_channel_send_allowed(guild, channel))
+                        ready, reason = _cb_game_decision(
+                            guild.id, now=now,
+                            cancelled_at=s.get("last_unanswered_game_at", 0),
+                            auto_enabled=bool(s.get("auto_enabled")),
+                            channel_ok=channel_ok)
+                        s["last_brain_reason"] = reason
+                        await bd_save_data()
+                        if ready and not cog._busy(channel.id):
                             asyncio.create_task(_cp_auto_start(guild, channel, cog))
                 for uid, p in list(s.get("people", {}).items()):
                     q = p.get("pending")
@@ -355,14 +365,14 @@ async def cinnamon_events_status(interaction: discord.Interaction):
     desc = f"🎮 Surprise games: {'ON' if data.get('auto_enabled') else 'OFF'}\n"
     desc += f"📢 Game channel: {ch.mention if ch else 'Run /setup'}\n"
     if due and data.get("auto_enabled"):
-        desc += f"⏳ Next surprise game: <t:{due}:R>\n"
+        desc += f"⏳ Next activity check: <t:{due}:R>\n"
     fav = _cp_favourites(interaction.guild.id)
     desc += ("😻 Favourite visitors: " + ", ".join(f"<@{uid}>" for uid, _ in fav)
              if fav else "😺 No favourite visitors ranked yet!")
     card = discord.Embed(title="🎮 Cinnamon's Surprise Games",
                          description=desc, color=0xD89138)
     card.add_field(name="🌿 Winner prize",value="1,000–2,500 Catnip",inline=True)
-    card.add_field(name="⏳ Join window",value="2 minutes · 2 role pings",inline=True)
+    card.add_field(name="⏳ Join window",value="2 minutes · up to 2 opt-in role pings",inline=True)
     card.add_field(name="🛡️ Safety",value="Autonomous @everyone is disabled. Personal questions are optional.",inline=False)
     card.set_footer(text="Cinnamon Mind • /cinnamon-events notify to receive game alerts")
     await interaction.response.send_message(embed=card, ephemeral=True,
@@ -382,7 +392,7 @@ async def cinnamon_events_auto(interaction: discord.Interaction, enabled: bool):
     await _cp_log(interaction.guild.id, "Surprise games " + ("enabled" if enabled else "disabled"))
     await interaction.response.send_message(
         "🐈 Surprise Hangry Games " + ("enabled" if enabled else "disabled") +
-        ". When enabled, the next game arrives within 1–2 hours.", ephemeral=True)
+        ". When enabled, Cinnamon checks for real member activity; quiet servers are skipped.", ephemeral=True)
 
 @_cp_group.command(name="channel", description="Admin: choose Cinnamon's surprise Hangry Games channel")
 @app_commands.guild_only()
@@ -424,7 +434,7 @@ async def cinnamon_events_notify(interaction: discord.Interaction, enabled: bool
         await interaction.user.remove_roles(role, reason="Opted out of surprise Hangry Games announcements")
     await interaction.response.send_message(
         "🎮 You will " + ("receive" if enabled else "no longer receive") +
-        " the two role alerts for surprise games.", ephemeral=True)
+        " up to two opt-in role alerts for surprise games.", ephemeral=True)
 
 @_cp_group.command(name="people", description="Admin: view Cinnamon's favourite visitors and nice/naughty records")
 @app_commands.guild_only()
