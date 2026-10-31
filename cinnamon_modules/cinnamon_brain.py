@@ -70,6 +70,9 @@ def _cb_game_decision(guild_id, *, now=None, cancelled_at=0,
         return False, "channel_unavailable"
     if cancelled_at and now - float(cancelled_at) < _CB_EMPTY_GAME_BACKOFF:
         return False, "cooldown_after_unanswered_game"
+    serious_check = globals().get("_cx_serious")
+    if callable(serious_check) and serious_check(guild_id, now=now):
+        return False, "serious_conversation"
     stats = _cb_activity_stats(guild_id, now=now)
     if stats["messages"] < _CB_MIN_MESSAGES:
         return False, "not_enough_recent_conversation"
@@ -145,6 +148,7 @@ async def cinnamon_mind_status(interaction: discord.Interaction):
         "not_enough_recent_conversation": "Waiting for a little more conversation.",
         "not_enough_people_engaged": "Waiting for more people to participate.",
         "server_has_gone_quiet": "The conversation has gone quiet.",
+        "serious_conversation": "A conversation may need some space, so no surprise game.",
         "active_conversation": "The server has enough activity for an occasional game.",
         "storage_unavailable": "Durable activity state is unavailable; staying quiet.",
         "game_unavailable": "The game system or opt-in notification role is missing.",
