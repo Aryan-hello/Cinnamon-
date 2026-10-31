@@ -43,11 +43,16 @@ def prefix_entries(commands: Iterable[object]) -> list[DirectoryEntry]:
         if not name:
             continue
         path = "?" + name
-        # A callback docstring is optional. Do not invent a command description.
+        # Python prefix commands expose real argument syntax and aliases.
+        # Use Discord's registered signature instead of guessing parameters.
+        signature = _clean(getattr(command, "signature", ""), length=95)
         description = _clean(
             getattr(command, "brief", "") or getattr(command, "help", ""),
-            length=140,
+            length=100,
         )
+        if signature:
+            description = ("Args: " + signature +
+                           ("; " + description if description else ""))
         aliases = tuple(str(x).strip() for x in getattr(command, "aliases", ()) or ()
                         if str(x).strip())
         if aliases:
