@@ -140,6 +140,9 @@ A pure planner in `cinnamon_modules/brain_intent.py` classifies the current requ
 - Does not call quest rotation helpers, create reminders, change preferences, award rewards, or invoke action handlers. Snapshot assembly uses read-only dictionary lookups and a storage-readiness check.
 - If the snapshot is unavailable, Cinnamon refuses to guess. Gemini output is bounded and Discord mentions are neutralized before sending.
 - The command is not a general-purpose chat replacement; ordinary conversation remains in the existing AI chat flow.
+- Prefix `?ask` requests that clearly ask for member-owned account data are redirected to the private slash command before Gemini receives them; no account details are posted in the channel.
+- Ordinary Gemini chat is explicitly instructed not to invent balances/progress or reveal another member's private data from channel history.
+- Questions asking about a different member are refused by the private Q&A prompt rather than answered using the requester's snapshot.
 
 ## Acceptance tests to complete before merge
 
