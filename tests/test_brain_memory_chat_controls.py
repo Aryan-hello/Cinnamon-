@@ -41,6 +41,8 @@ class MemoryChatControlTests(unittest.IsolatedAsyncioTestCase):
         set_enabled = AsyncMock(return_value=True)
         handler = load_handler({
             "_cmem_re": re,
+            "_cmem_parse": lambda text: None,
+            "_CMEM_ERROR": ValueError,
             "_cmem_set_enabled": set_enabled,
             "discord": SimpleNamespace(AllowedMentions=FakeAllowedMentions),
         })
@@ -54,6 +56,8 @@ class MemoryChatControlTests(unittest.IsolatedAsyncioTestCase):
         set_enabled = AsyncMock(return_value=False)
         handler = load_handler({
             "_cmem_re": re,
+            "_cmem_parse": lambda text: None,
+            "_CMEM_ERROR": ValueError,
             "_cmem_set_enabled": set_enabled,
             "discord": SimpleNamespace(AllowedMentions=FakeAllowedMentions),
         })
@@ -66,6 +70,8 @@ class MemoryChatControlTests(unittest.IsolatedAsyncioTestCase):
         set_enabled = AsyncMock(return_value=True)
         handler = load_handler({
             "_cmem_re": re,
+            "_cmem_parse": lambda text: None,
+            "_CMEM_ERROR": ValueError,
             "_cmem_set_enabled": set_enabled,
             "discord": SimpleNamespace(AllowedMentions=FakeAllowedMentions),
         })
@@ -78,6 +84,8 @@ class MemoryChatControlTests(unittest.IsolatedAsyncioTestCase):
         remove = AsyncMock()
         handler = load_handler({
             "_cmem_re": re,
+            "_cmem_parse": lambda text: None,
+            "_CMEM_ERROR": ValueError,
             "_cmem_set_enabled": set_enabled,
             "_cmem_remove": remove,
             "discord": SimpleNamespace(AllowedMentions=FakeAllowedMentions),
@@ -94,6 +102,8 @@ class MemoryChatControlTests(unittest.IsolatedAsyncioTestCase):
         remove = AsyncMock(return_value=(True, "All your Cinnamon notes were cleared."))
         handler = load_handler({
             "_cmem_re": re,
+            "_cmem_parse": lambda text: None,
+            "_CMEM_ERROR": ValueError,
             "_cmem_remove": remove,
             "discord": SimpleNamespace(AllowedMentions=FakeAllowedMentions),
         })
@@ -105,6 +115,8 @@ class MemoryChatControlTests(unittest.IsolatedAsyncioTestCase):
     async def test_edit_request_points_to_self_service_command(self):
         handler = load_handler({
             "_cmem_re": re,
+            "_cmem_parse": lambda text: None,
+            "_CMEM_ERROR": ValueError,
             "discord": SimpleNamespace(AllowedMentions=FakeAllowedMentions),
         })
         message = self.make_message()
@@ -116,6 +128,8 @@ class MemoryChatControlTests(unittest.IsolatedAsyncioTestCase):
     async def test_view_request_points_to_private_command(self):
         handler = load_handler({
             "_cmem_re": re,
+            "_cmem_parse": lambda text: None,
+            "_CMEM_ERROR": ValueError,
             "discord": SimpleNamespace(AllowedMentions=FakeAllowedMentions),
         })
         message = self.make_message()
@@ -128,6 +142,8 @@ class MemoryChatControlTests(unittest.IsolatedAsyncioTestCase):
         set_enabled = AsyncMock()
         handler = load_handler({
             "_cmem_re": re,
+            "_cmem_parse": lambda text: None,
+            "_CMEM_ERROR": ValueError,
             "_cmem_set_enabled": set_enabled,
             "discord": SimpleNamespace(AllowedMentions=FakeAllowedMentions),
         })
