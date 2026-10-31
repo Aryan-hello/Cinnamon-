@@ -465,11 +465,33 @@ async def _ch_private_data_redirect(message, clean_content):
     )
     return True
 
-async def _cinnamon_try_assistance(message, clean_content):
-    """Route current requests through a deterministic plan and trusted handlers."""
-    from cinnamon_modules.brain_intent import plan_intent
+async def _cinnamon_brain_intent_model_call(prompt: str) -> str:
+    """Return a constrained Gemini intent suggestion; this function cannot execute actions."""
+    def _call():
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                max_output_tokens=120,
+                temperature=0.1,
+                response_mime_type="application/json",
+            ),
+        )
+        return response.text or ""
+    return await asyncio.wait_for(asyncio.to_thread(_call), timeout=9.0)
 
-    plan = plan_intent(clean_content)
+
+async def _cinnamon_try_assistance(message, clean_content):
+    """Route current requests through deterministic rules and a bounded AI fallback."""
+    from cinnamon_modules.brain_intent import plan_intent
+    from cinnamon_modules.brain_intent_ai import classify_intent_with_fallback
+
+    deterministic = plan_intent(clean_content)
+    plan = await classify_intent_with_fallback(
+        clean_content,
+        deterministic_plan=deterministic,
+        model_call=_cinnamon_brain_intent_model_call,
+    )
     handlers = {
         "reminder": globals().get("_cr_maybe_handle"),
         "memory": globals().get("_cmem_maybe_handle"),
