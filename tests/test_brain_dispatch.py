@@ -40,7 +40,7 @@ class AssistanceDispatchTests(unittest.IsolatedAsyncioTestCase):
             AllowedMentions=SimpleNamespace(none=lambda: None),
         )
         channel = SimpleNamespace(send=AsyncMock())
-        author = SimpleNamespace(send=AsyncMock())
+        author = SimpleNamespace(id=12, send=AsyncMock())
         message = SimpleNamespace(
             guild=SimpleNamespace(id=7), author=author, channel=channel,
         )
@@ -66,7 +66,7 @@ class AssistanceDispatchTests(unittest.IsolatedAsyncioTestCase):
             AllowedMentions=SimpleNamespace(none=lambda: None),
         )
         channel = SimpleNamespace(send=AsyncMock())
-        author = SimpleNamespace(send=AsyncMock(side_effect=Forbidden()))
+        author = SimpleNamespace(id=12, send=AsyncMock(side_effect=Forbidden()))
         message = SimpleNamespace(
             guild=SimpleNamespace(id=7), author=author, channel=channel,
         )
@@ -154,6 +154,7 @@ class AssistanceDispatchTests(unittest.IsolatedAsyncioTestCase):
             'discord': SimpleNamespace(Message=object),
             'bot': SimpleNamespace(user=user, get_context=AsyncMock(return_value=SimpleNamespace(valid=False))),
             'afk_users': {}, 'run_automod': AsyncMock(return_value=False),
+            'ai_cooldowns': {}, 'AI_CHANNEL_COOLDOWN_SECONDS': 2,
             'award_xp': AsyncMock(), 'channel_memories': memory,
             'disabled_channels': defaultdict(set), 'category_log_channels': {},
             '_cb_observe': Mock(), 'ai_channels': {}, '_cp_direct_name': lambda text: False,
