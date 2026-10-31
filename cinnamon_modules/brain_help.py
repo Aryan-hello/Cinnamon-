@@ -153,9 +153,16 @@ def _describe_command(guide: CommandGuide, catalog: Mapping[str, CommandGuide], 
     result = "*checks her command ledger* **" + guide.path + "** — " + guide.description
     result += "\nUsage: `" + guide.syntax + "`"
     path = guide.path.lower()
-    if path.startswith("/economy admin ") or path in {"/dashboard", "/setup", "/ban", "/kick"}:
-        result += "\nThis command requires server owner or Administrator authority; its own checks still apply."
-    elif path in {"/mute", "/unmute"}:
+    if path == "/dashboard":
+        result += ("\nAnyone can request the dashboard link. Viewing or changing "
+                   "server settings requires server owner or Administrator authorization.")
+    elif path.startswith("/economy admin "):
+        result += ("\nAdministrator permission and verified durable storage "
+                   "are required for Catnip balance changes.")
+    elif path in {"/setup", "/setupstatus", "/ban", "/kick",
+                  "/datastatus check", "/datastatus recover", "/recall"} or path.startswith("/cinnamon-mind "):
+        result += "\nThis command requires Administrator permissions; its own checks still apply."
+    elif path in {"/mute", "/unmute", "/cinnamon-incident review"}:
         result += "\nModeration permissions and Discord role hierarchy still apply."
     return result
 
