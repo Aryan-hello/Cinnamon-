@@ -212,7 +212,7 @@ async def _cmem_maybe_handle(message, clean_content):
     await message.reply(
         "🐱 " + error if error else
         f"🐈 Saved a {pref.category} preference! View or delete it privately "
-        "with `/cinnamon-memory`. I'm only collecting what you explicitly asked me to keep.",
+        "with `/cinnamon-memory view` or `/cinnamon-memory forget`. I only save what you explicitly ask me to keep.",
         mention_author=False, allowed_mentions=discord.AllowedMentions.none())
     return True
 
