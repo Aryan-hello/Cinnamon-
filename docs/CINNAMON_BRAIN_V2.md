@@ -100,7 +100,8 @@ A pure planner in `cinnamon_modules/brain_intent.py` classifies the current requ
 - The planner is a routing hint only: it has no Discord, Gemini, storage, permissions, or execution dependencies.
 - Existing trusted Python handlers remain the only place that can save a reminder, change memory, or propose an admin action. Their original requester, guild, permission, confirmation and durable-write checks are unchanged.
 - Uncertain text falls back to the normal conversation path. Quoted/history text is never fed back into the planner as an executable request.
-- Regression tests cover memory save/view/forget, reminder requests, progress questions, action-like requests and casual chat. A memory-regex escaping bug discovered by CI was corrected before final verification.
+- Natural memory controls now understand direct "turn my memory off/on", "forget everything about me", "clear my notes", "show my notes", and "edit my preferences" requests. Clear/delete operations use the existing member-scoped, storage-acknowledged memory functions; ambiguous single-note requests ask for the note ID rather than deleting everything. Failed storage writes never receive a success reply.
+- Regression tests cover memory save/view/forget, opt-in/out, clearing, editing guidance, reminder requests, progress questions, action-like requests and casual chat. CI caught and corrected both a double-escaped memory-intent regex and an unnormalized polite wake phrase.
 
 ### B — Better answers and safe action planning
 
