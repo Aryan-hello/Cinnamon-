@@ -6,6 +6,11 @@ helps Cinnamon decide when a surprise game would be welcome.
 """
 from collections import deque as _cb_deque
 import time as _cb_time
+from cinnamon_modules.brain_decision import (
+    ActivitySignals as _CBSignals,
+    interpret_activity_choice as _cb_interpret_choice,
+    default_activity as _cb_default_activity,
+)
 
 _CB_WINDOW_SECONDS = 30 * 60
 _CB_FRESH_SECONDS = 10 * 60
@@ -124,6 +129,67 @@ def _cb_game_eligibility(guild, channel, cog, *, now=None, own_lobby=None,
     return True, "explicit_test"
 
 
+def _cb_prompt_allowed(gid, *, now=None):
+    now = _cb_time.time() if now is None else float(now)
+    settings = _cb_settings(gid)
+    social = _cp_server(gid)
+    return bool(
+        settings.get("prompts_enabled", False)
+        and now - float(social.get("last_public_prompt_at", 0)) >= 4 * 3600
+        and now - float(social.get("last_ignored_prompt_at", 0)) >= 6 * 3600
+    )
+
+
+def _cb_model_choice(signals, *, prompt_allowed):
+    """Gemini sees only aggregated counts and mood, NEVER member chat text."""
+    choices = "wait, game, prompt" if prompt_allowed else "wait, game"
+    task = (
+        "Choose a suitable next community activity for a safe Discord cat bot. "
+        "Return only a JSON object with a key 'choice' and one of: " + choices + ". "
+        "Usually wait if a surprise would feel disruptive; avoid over-engagement. "
+        f"Recent message count: {signals.messages}; "
+        f"distinct human members: {signals.members}; "
+        f"mood: {signals.mood}. "
+        "A choice does NOT execute anything; all safety checks happen in Python."
+    )
+    response = gemini_client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=task,
+        config=types.GenerateContentConfig(
+            system_instruction="You are a cautious activity recommender. "
+            "You have no permission to perform actions. Output only valid JSON.",
+            max_output_tokens=60,
+            temperature=0.2,
+            response_mime_type="application/json",
+        ),
+    )
+    return _cb_interpret_choice(
+        getattr(response, "text", None), prompt_allowed=prompt_allowed)
+
+
+async def _cb_choose_activity(gid, *, now=None):
+    """A suggestion only; the scheduler rechecks permissions before posting."""
+    now = _cb_time.time() if now is None else float(now)
+    social = _cp_server(gid)
+    stats = _cb_activity_stats(gid, now=now)
+    signals = _CBSignals(
+        int(stats["messages"]), int(stats["members"]),
+        _cm_tier(gid), _cb_prompt_allowed(gid, now=now))
+    if not _cb_settings(gid).get("ai_judgment_enabled", False):
+        return _cb_default_activity(
+            signals, int(social.get("brain_opportunities", 0)))
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_cb_model_choice, signals,
+                              prompt_allowed=signals.allowed_prompt),
+            timeout=12)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.warning("Cinnamon's activity adviser was unavailable; choosing silence")
+        return "wait"
+
+
 _cb_group = app_commands.Group(
     name="cinnamon-mind",
     description="Cinnamon's independent activity controls and diagnostics",
@@ -162,6 +228,8 @@ async def cinnamon_mind_status(interaction: discord.Interaction):
         f"Recent conversation: **{stats['messages']}** messages from **{stats['members']}** members "
         "over the past 30 minutes.\n"
         f"Conversational actions: **{'ON' if _ca_settings(gid).get('enabled') else 'OFF'}**\n"
+        f"Community prompts: **{'ON' if _cb_settings(gid).get('prompts_enabled') else 'OFF'}**\n"
+        f"AI activity advice: **{'ON' if _cb_settings(gid).get('ai_judgment_enabled') else 'OFF'}**\n"
         f"Storage: **{getattr(globals().get('bd_store'), 'status', 'unavailable')}**\n"
         f"Decision: **{'READY' if allowed else 'WAIT'}** — {reason_labels[reason]}\n"
         "This is only a readiness check, not a promise to start a game immediately.",
@@ -227,6 +295,41 @@ async def cinnamon_mind_actions(interaction: discord.Interaction, enabled: bool)
     await interaction.followup.send(
         "🐈 Confirmed conversational actions are " + ("ON" if enabled else "OFF") +
         ". Permissions and confirmation still apply to every request.",
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@_cb_group.command(name="prompts", description="Admin: allow occasional community questions without member pings")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(administrator=True)
+async def cinnamon_mind_prompts(interaction: discord.Interaction, enabled: bool):
+    await interaction.response.defer(ephemeral=True)
+    _cb_settings(interaction.guild.id)["prompts_enabled"] = bool(enabled)
+    if not await bd_save_data():
+        _cb_settings(interaction.guild.id)["prompts_enabled"] = False
+        return await interaction.followup.send(
+            "🐾 Prompts are off because storage didn't confirm the setting.",
+            ephemeral=True)
+    await interaction.followup.send(
+        "🐈 Public community questions are " + ("enabled" if enabled else "disabled") +
+        ". Cinnamon will still decide if a moment is appropriate; there are no member pings.",
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@_cb_group.command(name="reasoning", description="Admin: enable optional Gemini-assisted activity suggestions")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(administrator=True)
+async def cinnamon_mind_reasoning(interaction: discord.Interaction, enabled: bool):
+    await interaction.response.defer(ephemeral=True)
+    _cb_settings(interaction.guild.id)["ai_judgment_enabled"] = bool(enabled)
+    if not await bd_save_data():
+        _cb_settings(interaction.guild.id)["ai_judgment_enabled"] = False
+        return await interaction.followup.send(
+            "🐾 AI activity advice remains disabled because saving failed.",
+            ephemeral=True)
+    await interaction.followup.send(
+        "🧠 Gemini-assisted activity suggestions " + ("enabled" if enabled else "disabled") +
+        ". Only aggregate activity counts and mood are sent to Gemini, "
+        "never member messages. Every suggestion remains subject to hard Python checks.",
         ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
