@@ -199,7 +199,7 @@ async def _cr_maybe_handle(message, clean_content):
         response = (f"🐱 Reminder saved! I'll DM you about **{discord.utils.escape_markdown(item['text'])}** "
                     f"on <t:{item['due_at']}:F> ({spec.timezone_label}). "
                     f"Your reminder ID is `{item['id']}`. "
-                    "You can see or cancel it with `/cinnamon-reminder`.")
+                    "You can view it with `/cinnamon-reminder list` or cancel it with `/cinnamon-reminder cancel`.")
     await message.reply(response[:1800], mention_author=False,
                         allowed_mentions=discord.AllowedMentions.none())
     return True
