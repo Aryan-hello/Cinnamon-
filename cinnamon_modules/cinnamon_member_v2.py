@@ -45,6 +45,33 @@ async def cinnamon_me_today(interaction: discord.Interaction):
         "",
         f"🧠 Saved preferences: **{note_count}** "
         + ("(memory enabled)" if enabled else "(memory disabled)"),
+    ])
+    # Display READ-ONLY summaries of the member's existing, loaded economy
+    # and quests. Do not rotate/reset quests, grant rewards or fake balances.
+    if _cb_storage_available():
+        balance = int(economy_balances.get((gid, uid), ECONOMY_STARTING_BALANCE))
+        guild_quests = quest_data.get(gid, {})
+        quest_member = guild_quests.get("users", {}).get(str(uid), {})
+        qp = int(quest_member.get("qp", 0))
+        lines.append(f"🌿 Your Catnip: **{balance:,}** · Quest Points: **{qp:,}**")
+        if guild_quests.get("daily_date") == _today():
+            daily_ids = guild_quests.get("daily_ids", [])
+            daily_progress = quest_member.get("daily", {})
+            complete = sum(
+                1 for qid in daily_ids
+                if qid in DAILY_QUESTS and
+                _completed(DAILY_QUESTS[qid], daily_progress.get(qid, {}))
+            )
+            lines.append(
+                f"📜 Daily quests: **{complete}/{len(daily_ids)}** completed. "
+                "Open `/quests daily` for details.")
+        else:
+            lines.append("📜 Today's quest rotation hasn't been checked yet. "
+                         "Open `/quests daily` for the current board.")
+    else:
+        lines.append("⚠️ Saved economy and quest data is not ready; "
+                     "I won't guess about your balances.")
+    lines.extend([
         "",
         "Use `/cinnamon-reminder create` to add a reminder, "
         "`/cinnamon-reminder snooze` to delay one, or "
