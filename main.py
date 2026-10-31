@@ -210,9 +210,8 @@ disabled_channels = defaultdict(set)
 log_channels = {}
 category_log_channels = {}  # guild_id -> {category: channel_id}
 
-# NOTE: ai_channels, disabled_channels, and log_channels live only in memory —
-# they reset whenever the bot restarts or redeploys. Fine for now; swap in a
-# small JSON file or database later if you want these settings to survive a restart.
+# Channel settings and log routes are restored by bd_load_data on startup and
+# persisted alongside balances and inventory by bd_save_data.
 
 # --- Extended feature state ---------------------------------------------------
 # Persisted (via bd_load_data/bd_save_data, see "Extended Features" section
