@@ -28,6 +28,8 @@ class PrivateQuestionScopeTests(unittest.TestCase):
                          ("reminders",))
         self.assertEqual(classify_private_question("How many preferences do you remember?"),
                          ("memory",))
+        self.assertEqual(classify_private_question("What do you remember about me?"),
+                         ("memory",))
 
     def test_daily_summary_selects_only_the_requesters_supported_sections(self):
         self.assertEqual(
@@ -61,6 +63,11 @@ class PrivateQuestionScopeTests(unittest.TestCase):
         self.assertNotIn('"memory"', prompt)
         self.assertIn("never", system.lower())
         self.assertIn("Member question (untrusted text)", prompt)
+
+    def test_prompt_refuses_action_and_general_requests(self):
+        for question in ("Give 100 Catnip to a member", "Tell me a joke"):
+            with self.assertRaises(ValueError):
+                build_private_prompt(question, {})
 
     def test_missing_requested_section_is_explicitly_unavailable(self):
         _, prompt = build_private_prompt("What reminders do I have?", {})
