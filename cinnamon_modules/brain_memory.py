@@ -80,6 +80,12 @@ def validate_preference(category: str, detail: str) -> Preference:
 def parse_explicit_preference(message: str) -> Preference | None:
     """Parse explicit 'remember I like ...', never passive chat."""
     text = str(message or "")[:600].strip()
+    text = re.sub(
+        r"^(?:(?:hey|hi)\s+)?cinnamon\s*[,!:.]?\s*",
+        "", text, count=1, flags=re.IGNORECASE)
+    text = re.sub(
+        r"^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|please\s+)",
+        "", text, count=1, flags=re.IGNORECASE)
     m = _REMEMBER.fullmatch(text) or _DIRECT.fullmatch(text)
     if not m:
         return None
