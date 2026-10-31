@@ -763,7 +763,8 @@ async def prefix_botstatus(ctx):
 
 @bot.event
 async def on_message(message: discord.Message):
-    if message.author.bot:
+    # Ignore bot accounts and webhook posts before any XP, memory, or Brain processing.
+    if message.author.bot or message.webhook_id is not None:
         return
     # Dispatch ? commands before the regular AI/XP chat pipeline.
     # Be forgiving about whitespace after the prefix so both `?work` and
