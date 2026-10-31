@@ -68,6 +68,9 @@ def parse_reminder_request(message: str, *, now: datetime,
     Ambiguous times and requests without a subject are rejected.
     """
     text = _WAKE.sub("", str(message or "")[:1000]).strip()
+    text = re.sub(
+        r"^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|please\s+)",
+        "", text, count=1, flags=re.IGNORECASE)
     if not _PREFIX.match(text):
         return None
     remainder = _PREFIX.sub("", text, count=1).strip()
