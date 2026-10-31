@@ -62,6 +62,8 @@ class PrivateQuestionScopeTests(unittest.TestCase):
         self.assertNotIn('"reminders"', prompt)
         self.assertNotIn('"memory"', prompt)
         self.assertIn("never", system.lower())
+        self.assertIn("anyone other than the requester", system)
+        self.assertIn("never substitute the requester's values", system)
         self.assertIn("Member question (untrusted text)", prompt)
 
     def test_prompt_refuses_action_and_general_requests(self):
