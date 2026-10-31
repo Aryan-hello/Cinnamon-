@@ -16,7 +16,7 @@ _AUDIT_SCRIPT = (
     "redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3])); "
     "return redis.call('LLEN', KEYS[1])"
 )
-_PRIVATE = {"content", "before", "after", "message", "prompt", "response", "reply",
+_PRIVATE = {"content", "before", "after", "message", "reason", "details", "prompt", "response", "reply",
             "transcript", "conversation", "chat history", "attachment", "token", "secret"}
 
 
