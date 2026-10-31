@@ -8,7 +8,7 @@ class IntentPlannerTests(unittest.TestCase):
     def test_reminder_requests_are_routed_before_chat(self):
         for text in ("remind me to study in 20 minutes",
                      "Cinnamon, set a reminder for tomorrow",
-                     "show my reminders"):
+                     "show my reminders", "my reminders"):
             self.assertEqual(plan_intent(text).intent, "reminder")
 
     def test_memory_requests_are_routed_without_saving_anything(self):
@@ -23,6 +23,8 @@ class IntentPlannerTests(unittest.TestCase):
     def test_help_questions_and_slash_explanations_are_routed_to_help(self):
         self.assertEqual(plan_intent("how do I fish?").intent, "help")
         self.assertEqual(plan_intent("explain /quests progress").intent, "help")
+        self.assertEqual(plan_intent("show my progress").intent, "help")
+        self.assertEqual(plan_intent("my day").intent, "help")
 
     def test_action_like_requests_never_fall_through_as_ordinary_chat(self):
         for text in ("add 500 Catnip to @member", "mute @member for 5 minutes",
