@@ -394,18 +394,51 @@ async def prefix_ping(ctx): await ctx.reply(f"🐾 Pong! {round(bot.latency*1000
 @commands.guild_only()
 async def prefix_ask(ctx,*,prompt:str):
     if ctx.channel.id in disabled_channels[ctx.guild.id]: return
+    if await _cinnamon_try_assistance(ctx.message, prompt):
+        return
     ai_success=False
     async with ctx.typing():
         try:
-            result=await asyncio.to_thread(ask_gemini,ctx.channel.id,ctx.author.display_name,prompt,ctx.guild)
+            result=await asyncio.to_thread(ask_gemini,ctx.channel.id,ctx.author.display_name,prompt,ctx.guild,ctx.author.id)
             reply=result.get("reply") or "*paws at the screen* Try again?"
             ai_success=bool(result.get("reply"))
         except Exception:
             log.exception("Prefix AI failed"); reply="*paws at the screen, confused* I couldn't answer just now. Try again soon?"
-    channel_memories[ctx.channel.id].append((ctx.author.display_name,prompt)); channel_memories[ctx.channel.id].append(("Cinnamon",reply))
+    channel_memories[ctx.channel.id].append((ctx.author.display_name,prompt[:2000])); channel_memories[ctx.channel.id].append(("Cinnamon",reply[:2000]))
     if ai_success:
         await achievement_record(ctx.guild.id,ctx.author.id,"ai_reply",1)
     await ctx.reply(reply[:1900],mention_author=False,allowed_mentions=discord.AllowedMentions.none())
+
+
+async def _ch_maybe_handle(message, clean_content):
+    """Explain real registered commands without executing them or calling Gemini."""
+    offset = CINNAMON_TIMEZONE_OFFSET_MINUTES
+    sign = "+" if offset >= 0 else "-"
+    hours, minutes = divmod(abs(offset), 60)
+    answer = answer_help(
+        clean_content, build_command_catalog(_all_leaf_commands()),
+        timezone_label=f"UTC{sign}{hours:02d}:{minutes:02d}",
+    )
+    if answer is None:
+        return False
+    await message.reply(answer[:1900], mention_author=False,
+                        allowed_mentions=discord.AllowedMentions.none())
+    return True
+
+
+async def _cinnamon_try_assistance(message, clean_content):
+    """Trusted, acknowledged personal requests and help precede Gemini."""
+    reminder_handler = globals().get("_cr_maybe_handle")
+    memory_handler = globals().get("_cmem_maybe_handle")
+    if message.guild and callable(reminder_handler) and await reminder_handler(message, clean_content):
+        return True
+    if message.guild and callable(memory_handler) and await memory_handler(message, clean_content):
+        return True
+    if await _ch_maybe_handle(message, clean_content):
+        return True
+    if message.guild and await _ca_maybe_handle(message, clean_content):
+        return True
+    return False
 
 @bot.command(name="userinfo",aliases=["whois"])
 @commands.guild_only()
@@ -668,15 +701,26 @@ async def on_message(message: discord.Message):
     if message.guild and clean_content:
         await award_xp(message)
 
-    if clean_content:
-        channel_memories[message.channel.id].append((speaker, clean_content))
-
     guild_id = message.guild.id if message.guild else None
     channel_id = message.channel.id
 
     # A disabled channel overrides everything else — Cinnamon stays silent here.
     if guild_id is not None and channel_id in disabled_channels[guild_id]:
         return
+
+    if clean_content:
+        channel_memories[message.channel.id].append((speaker, clean_content[:2000]))
+
+    # Cinnamon Brain sees only chat that survived moderation and disabled-
+    # channel checks. Store aggregate activity timestamps, never message text.
+    if (guild_id is not None and len(clean_content) >= 3
+            and not clean_content.startswith(("?", "/"))
+            and channel_id not in set(category_log_channels.get(guild_id, {}).values())):
+        _cb_observe(guild_id, message.author.id)
+        # Store only a short-lived boolean quiet signal for serious topics.
+        context_observer = globals().get("_cx_observe")
+        if callable(context_observer):
+            context_observer(guild_id, clean_content)
 
     was_mentioned = bot.user is not None and bot.user in message.mentions and not message.mention_everyone
 
@@ -714,9 +758,9 @@ async def on_message(message: discord.Message):
                 return
             ai_cooldowns[channel_id] = now
 
+        if await _cinnamon_try_assistance(message, clean_content):
+            return
         if guild_id is not None:
-            if await _ca_maybe_handle(message, clean_content):
-                return
             if await _ca_maybe_prank(message):
                 return
         late_note = await _cp_answer(message) if guild_id is not None and clean_content else ""
@@ -736,7 +780,7 @@ async def on_message(message: discord.Message):
                 async with message.channel.typing():
                     try:
                         result = await asyncio.to_thread(
-                            ask_gemini, message.channel.id, speaker, clean_content, message.guild
+                            ask_gemini, message.channel.id, speaker, clean_content, message.guild, message.author.id
                         )
                         ai_reply_success = bool(result.get("reply"))
                     except Exception as e:
@@ -750,7 +794,7 @@ async def on_message(message: discord.Message):
 
         if late_note:
             reply = late_note + reply
-        channel_memories[message.channel.id].append(("Cinnamon", reply))
+        channel_memories[message.channel.id].append(("Cinnamon", reply[:2000]))
 
         # In the dedicated AI channel, chat naturally instead of quote-replying
         # to every single message — but still use a reply if directly pinged.
@@ -786,41 +830,41 @@ async def on_message(message: discord.Message):
 @commands.guild_only()
 @commands.has_guild_permissions(administrator=True)
 async def prefix_addcatnip(ctx, member: discord.Member, amount: int):
-    if amount <= 0:
-        return await ctx.reply("❌ Amount must be greater than 0.", mention_author=False)
-    gid = ctx.guild.id
-    before = economy_balance(gid, member.id)
-    economy_balances[(gid, member.id)] = before + amount
-    await bd_save_data()
-    await economy_log(gid, title="🌿 Catnip added", fields=[
-        ("Moderator", f"{ctx.author} ({ctx.author.id})"),
-        ("Member", f"{member} ({member.id})"),
-        ("Amount", f"+{amount:,} Catnip"),
-        ("Balance before", f"{before:,}"),
-        ("Balance after", f"{before + amount:,}"),
-    ])
-    await ctx.reply(f"🌿 Added **{amount:,} Catnip** to {member.mention}. Balance: **{before + amount:,}**.", mention_author=False)
+    await _change_catnip_prefix(ctx, member, amount, True)
 
 
 @bot.command(name="removecatnip", aliases=["remove-catnip"])
 @commands.guild_only()
 @commands.has_guild_permissions(administrator=True)
 async def prefix_removecatnip(ctx, member: discord.Member, amount: int):
-    if amount <= 0:
-        return await ctx.reply("❌ Amount must be greater than 0.", mention_author=False)
-    gid = ctx.guild.id
-    before = economy_balance(gid, member.id)
-    removed = min(before, amount)
-    economy_balances[(gid, member.id)] = before - removed
-    await bd_save_data()
-    await economy_log(gid, title="🌿 Catnip removed", fields=[
-        ("Moderator", f"{ctx.author} ({ctx.author.id})"),
-        ("Member", f"{member} ({member.id})"),
-        ("Amount", f"-{removed:,} Catnip"),
-        ("Balance before", f"{before:,}"),
-        ("Balance after", f"{before - removed:,}"),
+    await _change_catnip_prefix(ctx, member, amount, False)
+
+
+async def _change_catnip_prefix(ctx, member, amount, add):
+    """Keep legacy admin commands on the same durable currency boundary."""
+    try:
+        actor = await ctx.guild.fetch_member(ctx.author.id)
+    except discord.HTTPException:
+        return await ctx.reply("I couldn't verify your current permissions. Try again shortly.",
+                               mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+    if actor.id != ctx.guild.owner_id and not actor.guild_permissions.administrator:
+        return await ctx.reply("⛔ This needs the server owner or an Administrator.",
+                               mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+    result = await _ca_adjust_catnip(ctx.guild.id, actor.id, member.id, amount, add,
+                                    f"prefix:{ctx.message.id}")
+    if result["status"] != "committed":
+        return await ctx.reply("🐾 " + result.get("reason", "I couldn't confirm that adjustment."),
+                               mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+    verb = "Added" if add else "Removed"
+    await economy_log(ctx.guild.id, title=f"🌿 Catnip {verb.lower()}", fields=[
+        ("Administrator", f"{actor} ({actor.id})"), ("Member", str(member.id)),
+        ("Amount", str(result["actual"])), ("Balance before", str(result["before"])),
+        ("Balance after", str(result["after"])), ("Receipt", result["receipt_id"]),
     ])
-    await ctx.reply(f"🌿 Removed **{removed:,} Catnip** from {member.mention}. Balance: **{before - removed:,}**.", mention_author=False)
+    await ctx.reply(f"🌿 {verb} **{result['actual']:,} Catnip** "
+                    f"{'to' if add else 'from'} {member.mention}. "
+                    f"Balance: **{result['after']:,}**.", mention_author=False,
+                    allowed_mentions=discord.AllowedMentions.none())
 
 
 # ---- XP admin ---------------------------------------------------------------

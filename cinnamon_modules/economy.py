@@ -798,6 +798,8 @@ async def economy_snapshot_cmd(interaction: discord.Interaction):
 
 async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000, *, merge_only: bool = False) -> tuple[int, str]:
     """Restore a snapshot. merge_only fills missing state without overwriting live accounts."""
+    if not merge_only and globals().get("_ca_transactions_pending", lambda: False)():
+        return 0, "A currency transaction needs reconciliation; full restoration is temporarily blocked."
     channel_id = economy_log_channels.get(guild.id) or category_log_channels.get(guild.id, {}).get("economy") or log_channels.get(guild.id)
     if not channel_id:
         return 0, "No economy log channel is configured."
@@ -826,6 +828,9 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
     if latest is None:
         return 0, "No economy snapshot was found in the log channel."
 
+    # Reading Discord attachments awaited I/O; recheck before absolute writes.
+    if not merge_only and globals().get("_ca_transactions_pending", lambda: False)():
+        return 0, "A currency transaction began during the scan; retry restoration after reconciliation."
     restored = 0
     for uid_text, user in latest.get("users", {}).items():
         try:
@@ -908,25 +913,14 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def economy_addcatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
-    guild_id = interaction.guild.id
-    before = economy_balance(guild_id, member.id)
-    economy_balances[(guild_id, member.id)] = before + amount
-    await bd_save_data()
-    await economy_log(guild_id, title="🛠️ Admin Catnip added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Amount", f"+{amount:,} Catnip"), ("Balance before", f"{before:,}"), ("Balance after", f"{before+amount:,}")])
-    await cinnamon_send(interaction, f"✅ Added **{amount:,} Catnip** to {member.mention}. New balance: **{economy_balance(guild_id, member.id):,}**.", ephemeral=True)
+    await _ca_admin_catnip_command(interaction, member, amount, True)
 
 
 @economy_admin_group.command(name="removecatnip", description="Admin: remove Catnip from a member")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def economy_removecatnip_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
-    guild_id = interaction.guild.id
-    current = economy_balance(guild_id, member.id)
-    removed = min(current, amount)
-    economy_balances[(guild_id, member.id)] = current - removed
-    await bd_save_data()
-    await economy_log(guild_id, title="🛠️ Admin Catnip removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Amount", f"-{removed:,} Catnip"), ("Balance before", f"{current:,}"), ("Balance after", f"{current-removed:,}")])
-    await cinnamon_send(interaction, f"✅ Removed **{removed:,} Catnip** from {member.mention}. New balance: **{economy_balance(guild_id, member.id):,}**.", ephemeral=True)
+    await _ca_admin_catnip_command(interaction, member, amount, False)
 
 
 @economy_group.command(name="income", description="Admin: manage Catnip income roles")

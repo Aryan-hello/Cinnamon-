@@ -15,13 +15,14 @@ A Discord bot built around a Catnip economy, interactive games, community tools,
 | Hangry Games | Join hosted games and compete for server rewards. |
 | Community | Levels, role income, giveaways, moderation, and server setup. |
 | Dashboard | Discord OAuth login for authorized server-management features. |
+| Cinnamon Brain Phase 2 (development only) | Self-reminders, explicit private preference notes, serious-context restraint, optional activity adviser and curated reactions. Not yet live-tested. |
 
 Cinnamon uses both traditional Discord embeds and **Components V2**. The shop, inventory, quest board, and achievement collection use structured interactive panels. See [Discord UI guidelines](docs/DISCORD_UI.md) for the component conventions and release checklist.
 
 ## Run locally
 
 1. Create an application and bot in the Discord Developer Portal. Enable the **Message Content** and **Server Members** privileged gateway intents required by the existing features.
-2. Copy `.env.example` to `.env`. Set `DISCORD_TOKEN` and `GEMINI_API_KEY`. For the dashboard, also set the Discord OAuth client ID/secret, `DASHBOARD_SECRET_KEY`, and the exact `DASHBOARD_REDIRECT_URI` registered in Discord.
+2. Copy `.env.example` to `.env`. Set `DISCORD_TOKEN` and `GEMINI_API_KEY`. For the dashboard, also set the Discord OAuth client ID/secret, `DASHBOARD_SESSION_SECRET`, and the exact `DASHBOARD_REDIRECT_URI` registered in Discord.
 3. Install requirements and start the combined bot/dashboard process:
 
    ```bash
@@ -60,7 +61,7 @@ The feature modules execute inside a **shared namespace** loaded by `main.py`; t
 ## Checks before merging
 
 ```bash
-python -m compileall -q main.py cinnamon_modules tests
+python -m compileall -q main.py dashboard.py cinnamon_modules tests
 python -m unittest discover -s tests -v
 ```
 
@@ -68,6 +69,8 @@ Automated tests cover formatting, selected game logic, and code contracts. They 
 
 ## Documentation
 
+- [Cinnamon Brain implementation, release status, and private-server test guide](docs/CINNAMON_BRAIN.md)
+- [Brain Phase 2: reminders, memory, autonomy, privacy and live-test checklist](docs/CINNAMON_BRAIN_PHASE2.md) (draft branch, not production-ready)
 - [Discord UI & interaction guidelines](docs/DISCORD_UI.md)
 - [Deployment and safety checks](CINNAMON_FINAL_DEPLOYMENT.md) — historical release notes may describe older mechanics; use current code as the source of truth.
 - [Chat actions and consent rules](CINNAMON_CHAT_ACTIONS.md)

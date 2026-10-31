@@ -4,6 +4,7 @@ import re
 import types
 import unittest
 from pathlib import Path
+from cinnamon_modules.brain_actions import ActionValidationError, parse_action
 
 ROOT=Path(__file__).resolve().parents[1]
 ACTIONS=(ROOT/"cinnamon_modules"/"cinnamon_actions.py").read_text(encoding="utf8")
@@ -11,14 +12,9 @@ TREE=ast.parse(ACTIONS)
 
 
 def load_rules():
-    names={"_CA_MENTION","_CA_TARGET","_CA_TIMEOUT","_CA_SIMPLE",
-           "_CA_DANGEROUS_INTENT"}
-    functions={"_ca_wake_text","_ca_seconds","_ca_permission_reason"}
+    functions={"_ca_permission_reason"}
     body=[]
     for node in TREE.body:
-        if isinstance(node,ast.Assign) and any(
-            isinstance(t,ast.Name) and t.id in names for t in node.targets):
-            body.append(node)
         if isinstance(node,ast.FunctionDef) and node.name in functions:
             body.append(node)
     ns={"_ca_re":re}
@@ -34,31 +30,28 @@ def build_member(guild,uid,rank,admin=False,moderator=False,bot=False):
 
 class SafeCinnamonActionsTests(unittest.TestCase):
     def test_exact_staff_instructions_only(self):
-        ns=load_rules()
-        wake=ns["_ca_wake_text"]
-        m=ns["_CA_TIMEOUT"]
-        s=ns["_CA_SIMPLE"]
         user_id="123456789012345678"
-        self.assertIsNotNone(m.fullmatch(wake(f"hey Cinnamon, mute <@{user_id}> for 1 hour")))
-        self.assertIsNotNone(m.fullmatch(wake(f"Cinnamon: time out <@!{user_id}> 10 seconds")))
-        self.assertIsNotNone(m.fullmatch("mute this member for 1 hour"))
-        self.assertIsNotNone(s.fullmatch(f"unmute <@{user_id}>"))
-        self.assertIsNotNone(s.fullmatch(f"ban <@{user_id}>"))
-        self.assertIsNone(m.fullmatch(f"mute <@{user_id}> for 1 hour and ban someone"))
-        self.assertIsNone(s.fullmatch("kick everyone"))
-        self.assertIsNone(m.fullmatch("mute this member"))
-        self.assertIsNone(ns["_CA_TIMEOUT"].fullmatch("mute 123456789012345678 for 1 hour"))
+        def parse(text, **kwargs):
+            return parse_action(text, requester_id=1, target_ids=[int(user_id)], **kwargs)
+        self.assertEqual(parse(f"hey Cinnamon, mute <@{user_id}> for 1 hour").seconds, 3600)
+        self.assertEqual(parse(f"Cinnamon: time out <@!{user_id}> 10 seconds").seconds, 10)
+        self.assertEqual(parse_action("mute this member for 1 hour", requester_id=1,
+                                      target_ids=[], reply_target_id=int(user_id)).seconds, 3600)
+        self.assertEqual(parse(f"unmute <@{user_id}>").action, 'moderation.remove_timeout')
+        for text in (f"ban <@{user_id}>", f"mute <@{user_id}> for 1 hour and ban someone",
+                     "kick everyone", "mute this member", f"mute {user_id} for 1 hour"):
+            with self.subTest(text=text), self.assertRaises(ActionValidationError):
+                parse(text)
 
     def test_time_units_and_limits(self):
-        f=load_rules()["_ca_seconds"]
-        self.assertEqual(f("1","sec"),1)
-        self.assertEqual(f("10","seconds"),10)
-        self.assertEqual(f("60","minutes"),3600)
-        self.assertEqual(f("1","hour"),3600)
-        self.assertEqual(f("1","day"),86400)
-        self.assertIsNone(f("0","seconds"))
-        self.assertIsNone(f("29","days"))
-        self.assertIsNone(f("25","hours"))
+        target=123456789012345678
+        for quantity, unit, expected in ((1,'sec',1),(10,'seconds',10),(60,'minutes',3600),
+                                         (1,'hour',3600),(1,'day',86400)):
+            self.assertEqual(parse_action(f'mute <@{target}> for {quantity} {unit}',
+                                          requester_id=1,target_ids=[target]).seconds,expected)
+        for duration in ('0 seconds','29 days','25 hours'):
+            with self.assertRaises(ActionValidationError):
+                parse_action(f'mute <@{target}> for {duration}',requester_id=1,target_ids=[target])
 
     def test_permission_levels_and_role_hierarchy(self):
         fn=load_rules()["_ca_permission_reason"]
@@ -71,7 +64,7 @@ class SafeCinnamonActionsTests(unittest.TestCase):
         self.assertIsNone(fn(guild,mod,ordinary,"timeout"))
         self.assertIsNotNone(fn(guild,mod,ordinary,"ban"))
         admin=build_member(guild,333,80,admin=True)
-        self.assertIsNone(fn(guild,admin,ordinary,"kick"))
+        self.assertIsNotNone(fn(guild,admin,ordinary,"kick"))
         self.assertIsNotNone(fn(guild,admin,build_member(guild,444,90),"timeout"))
         self.assertIsNotNone(fn(guild,admin,build_member(guild,555,20,moderator=True),"timeout"))
         self.assertIsNotNone(fn(guild,admin,build_member(guild,556,20,admin=True),"kick"))
@@ -93,13 +86,13 @@ class SafeCinnamonActionsTests(unittest.TestCase):
 
     def test_moderation_requires_actor_confirmation_twice(self):
         self.assertIn("interaction.user.id != self.requester_id",ACTIONS)
-        self.assertIn("_ca_permission_reason(guild, actor, target, self.action)",ACTIONS)
+        self.assertIn("_ca_permission_reason(guild, actor, target, self.action, me=me)",ACTIONS)
         self.assertIn("async with self.lock:",ACTIONS)
         self.assertIn("self.used = True",ACTIONS)
         self.assertIn("await interaction.response.defer(ephemeral=True)",ACTIONS)
-        self.assertIn("await send_log(guild.id, title=",ACTIONS)
+        self.assertIn("await send_log(self.gid, title=",ACTIONS)
         self.assertIn("allowed_mentions=discord.AllowedMentions.none()",ACTIONS)
-        self.assertIn("if not isinstance(ref, discord.Message) or ref.author.bot:",ACTIONS)
+        self.assertIn("not ref.author.bot and ref.guild and ref.guild.id == message.guild.id",ACTIONS)
 
     def test_global_integration_and_admin_dashboard(self):
         main=(ROOT/"main.py").read_text(encoding="utf8")

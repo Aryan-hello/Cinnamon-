@@ -46,7 +46,9 @@ async def _cp_maybe_cameo(message):
         return False
     gid, ch = message.guild.id, message.channel
     s = _cp_server(gid)
-    if not s.get("cameos_enabled", True):
+    if (not _cb_independence_enabled(gid) or not _cb_storage_available()
+            or (callable(globals().get("_cx_serious")) and _cx_serious(gid))
+            or not s.get("cameos_enabled", True)):
         return False
     if (ch.id in disabled_channels[gid] or
         ch.id in set(category_log_channels.get(gid, {}).values()) or
@@ -62,7 +64,10 @@ async def _cp_maybe_cameo(message):
     if _cp_random.random() >= 0.02:
         return False
     s["last_cameo"], s[key] = now, now
-    await bd_save_data()
+    if not await bd_save_data():
+        return False
+    if not _cb_independence_enabled(gid) or not guild_channel_send_allowed(message.guild, ch):
+        return False
     try:
         await ch.send("😾 Oh. We're admiring OTHER cats in this household now. Interesting. *tail flick*",
                       allowed_mentions=discord.AllowedMentions.none())
@@ -171,12 +176,19 @@ async def _cp_maybe_question(message):
     gid, uid = message.guild.id, message.author.id
     s, p = _cp_server(gid), _cp_person(gid, uid)
     now = _cp_time.time()
-    if (not s.get("questions_enabled", True) or p.get("questions_optout") or
+    if (not _cb_independence_enabled(gid) or not _cb_storage_available() or
+        (callable(globals().get("_cx_serious")) and _cx_serious(gid)) or
+        not s.get("questions_enabled", True) or p.get("questions_optout") or
         now - float(p.get("last_question", 0)) < 86400 or
         now - float(s.get("last_question", 0)) < 21600 or
         _cp_random.random() >= .08):
         return
     p["last_question"], s["last_question"] = now, now
+    if not await bd_save_data():
+        return
+    if (not _cb_independence_enabled(gid)
+            or not guild_channel_send_allowed(message.guild, message.channel)):
+        return
     try:
         msg = await message.channel.send(
             f"{message.author.mention} 🐈 CINNAMON HAS A QUESTION! {_cp_random.choice(_CP_QUESTIONS)}\n"
@@ -240,19 +252,35 @@ async def _cp_recover(guild, limit=1200):
         await bd_save_data()
     return {"members": restored, "mood": mood, "scanned": n}
 
-async def _cp_auto_start(guild, channel, cog):
-    """Two role pings ONLY: creation and 30-second warning, then a 2m start."""
-    role = discord.utils.get(guild.roles, name="Hangry Games")
-    if not role or not guild.me or cog._busy(channel.id) or channel.id in _CP_LAUNCHING:
+async def _cp_auto_start(guild, channel, cog, *, explicit=False):
+    """Open one bounded lobby; recheck its boundaries before every outward step."""
+    eligible, reason = _cb_game_eligibility(
+        guild, channel, cog, check_activity=not explicit)
+    if not eligible:
+        _cp_server(guild.id)["last_brain_reason"] = reason
         return
     _CP_LAUNCHING.add(channel.id)
+    role = discord.utils.get(guild.roles, name="Hangry Games")
     prize = _cp_random.randint(1000, 2500)
     view = HGLobbyView(cog, guild.me, catnip_prize=prize, sponsor=guild.me)
     view.auto_managed = True
     for button in view.children:
         if button.label == "Start 🔴":
             button.disabled = True
+    post = None
+    unanswered_recorded = False
     try:
+        _cp_server(guild.id)["last_initiated_at"] = _cp_time.time()
+        # A persisted reservation precedes even an explicitly requested test
+        # lobby. If storage is unavailable, no invitation is sent.
+        if not await bd_save_data():
+            _cp_server(guild.id)["last_brain_reason"] = "storage_unavailable"
+            return
+        eligible, reason = _cb_game_eligibility(
+            guild, channel, cog, own_lobby=view, check_activity=not explicit)
+        if not eligible:
+            _cp_server(guild.id)["last_brain_reason"] = reason
+            return
         post = await channel.send(
             f"{role.mention} 🐈 CINNAMON DECLARES HANGRY GAMES!\n"
             f"{prize:,} Catnip to the champion! You have TWO MINUTES to join, "
@@ -267,74 +295,172 @@ async def _cp_auto_start(guild, channel, cog):
                                ("Join window", "120 seconds"), ("Role", str(role.id))])
         await _cp_log(guild.id, "Surprise game started")
         await asyncio.sleep(max(0, 90 - (_cp_time.monotonic() - started_at)))
-        if not view.started and cog.lobbies.get(channel.id) is view:
+        if view.started or cog.lobbies.get(channel.id) is not view:
+            return
+        eligible, reason = _cb_game_eligibility(
+            guild, channel, cog, own_lobby=view, check_activity=not explicit)
+        if not eligible:
+            _cp_server(guild.id)["last_brain_reason"] = reason
+            return
+        if view.players:
             await channel.send(
                 f"{role.mention} 😼 30 SECONDS LEFT! JOIN NOW! I DID NOT POLISH A TROPHY FOR NOTHING!",
                 allowed_mentions=discord.AllowedMentions(users=False, roles=[role], everyone=False))
         await asyncio.sleep(max(0, 120 - (_cp_time.monotonic() - started_at)))
         if view.started or cog.lobbies.get(channel.id) is not view:
             return
-        view.started = True
-        for button in view.children:
-            button.disabled = True
-        view.stop()
-        cog.lobbies.pop(channel.id, None)
-        await post.edit(embed=view.embed(), view=view)
+        eligible, reason = _cb_game_eligibility(
+            guild, channel, cog, own_lobby=view, check_activity=not explicit)
+        if not eligible:
+            _cp_server(guild.id)["last_brain_reason"] = reason
+            return
         if len(view.players) < 2:
-            _cm_adjust(guild.id, -16)
+            # Record feedback before any Discord edit: revoked permissions
+            # cannot accidentally erase the six-hour quiet period.
+            _cp_server(guild.id)["last_unanswered_game_at"] = _cp_time.time()
+            unanswered_recorded = True
             await bd_save_data()
-            await channel.send(
-                "😾 GAME CANCELLED! EVIL PEOPLE! YOU ALL LEFT MEEEEE! "
-                "I even had a prize ready! *dramatically flops onto the carpet*",
-                allowed_mentions=discord.AllowedMentions.none())
-            await cog._log(guild.id, title="😾 Cinnamon surprise game cancelled",
+            await cog._log(guild.id, title="🐈 Cinnamon surprise game quietly cancelled",
                            fields=[("Reason", "Fewer than 2 players"),
                                    ("Joined", str(len(view.players))), ("Prize unpaid", str(prize))])
-            await _cp_log(guild.id, "Surprise game cancelled, Cinnamon annoyed")
             return
+        # Remove our lobby before launch so the existing game implementation
+        # sees a free channel. A failure here never creates a second launch.
+        cog.lobbies.pop(channel.id, None)
+        view.started = True
+        view.stop()
         await cog.launch(channel, dict(view.players), guild.me, None, None,
                          catnip_prize=prize, sponsor=guild.me)
     except (discord.HTTPException, discord.Forbidden) as exc:
-        log.warning("Surprise Hangry Games start failed in guild %s: %s", guild.id, exc)
+        log.warning("Surprise game failed in guild %s (%s)", guild.id, type(exc).__name__)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("Surprise game suppressed in guild %s", guild.id)
+    finally:
         if cog.lobbies.get(channel.id) is view:
             cog.lobbies.pop(channel.id, None)
         view.started = True
         view.stop()
-    finally:
+        for button in view.children:
+            button.disabled = True
+        if post is not None and len(view.players) < 2 and not unanswered_recorded:
+            _cp_server(guild.id)["last_unanswered_game_at"] = _cp_time.time()
+            try:
+                await bd_save_data()
+            except Exception:
+                log.exception("Cinnamon could not save unanswered-game feedback for guild %s", guild.id)
+        if post is not None:
+            try:
+                await post.edit(embed=view.embed(), view=view)
+            except (discord.HTTPException, discord.Forbidden):
+                pass
         _CP_LAUNCHING.discard(channel.id)
 
+
+async def _cp_auto_prompt(guild, channel, cog):
+    """One optional community question, with no mentions or competing scheduler."""
+    if not _cb_prompt_allowed(guild.id):
+        return False
+    ready, _ = _cb_game_eligibility(guild, channel, cog)
+    if not ready:
+        return False
+    social = _cp_server(guild.id)
+    now = _cp_time.time()
+    social["last_public_prompt_at"] = now
+    social["prompt_pending_until"] = now + 15 * 60
+    # Durable claim before the first public message prevents restart spam.
+    if not await bd_save_data():
+        return False
+    # Stop if someone disabled the feature, independence, or channel permission.
+    ready, _ = _cb_game_eligibility(guild, channel, cog)
+    if not ready or not _cb_settings(guild.id).get("prompts_enabled", False):
+        return False
+    try:
+        await channel.send(
+            "🐈 **CINNAMON HAS A QUESTION FOR THE ENTIRE KINGDOM!**\\n" +
+            _cp_random.choice(_CP_QUESTIONS) +
+            "\\nNo pressure to reply. I am just collecting scientific evidence. 😼",
+            allowed_mentions=discord.AllowedMentions.none())
+        await _cp_log(guild.id, "Optional no-ping community question posted")
+        return True
+    except (discord.Forbidden, discord.HTTPException):
+        social["prompt_pending_until"] = 0
+        await bd_save_data()
+        return False
+
+
+async def _cp_tick_guild(guild, cog, now):
+    """Process one guild independently so a broken guild cannot stop the clock."""
+    s = _cp_server(guild.id)
+    # A recent human response counts as engagement; no response triggers a
+    # long prompt backoff without blaming or pinging members.
+    pending_until = float(s.get("prompt_pending_until", 0) or 0)
+    if pending_until:
+        sent_at = float(s.get("last_public_prompt_at", 0) or 0)
+        activity = globals().get("_CB_ACTIVITY", {}).get(guild.id, ())
+        answered = any(ts > sent_at for ts, _ in activity)
+        if answered or now > pending_until:
+            s["prompt_pending_until"] = 0
+            if not answered:
+                s["last_ignored_prompt_at"] = now
+            await bd_save_data()
+    if s.get("auto_enabled") and s.get("auto_channel"):
+        due = float(s.get("next_at", 0))
+        if not due:
+            s["next_at"] = now + _cp_random.randint(3600, 7200)
+            await bd_save_data()
+        elif due <= now and cog:
+            channel = guild.get_channel(int(s["auto_channel"]))
+            ready, reason = _cb_game_eligibility(guild, channel, cog, now=now)
+            # The clock creates an opportunity, not an obligation to speak.
+            s["next_at"] = now + _cp_random.randint(3600, 7200)
+            s["last_brain_reason"] = reason
+            s["brain_opportunities"] = int(s.get("brain_opportunities", 0)) + 1
+            saved = await bd_save_data()
+            if ready and saved:
+                chooser = globals().get("_cb_choose_activity")
+                choice = (await chooser(guild.id, now=now)
+                          if callable(chooser) else "game")
+                s["last_brain_choice"] = choice
+                if choice == "game":
+                    asyncio.create_task(_cp_auto_start(guild, channel, cog))
+                elif choice == "prompt" and callable(globals().get("_cp_auto_prompt")):
+                    asyncio.create_task(_cp_auto_prompt(guild, channel, cog))
+            elif not saved:
+                s["last_brain_reason"] = "storage_unavailable"
+    for uid, p in list(s.get("people", {}).items()):
+        q = p.get("pending")
+        if q and q.get("status") == "waiting" and now - float(q.get("asked_at", 0)) > 120:
+            q["status"] = "missed"
+            await bd_save_data()
+
+
 async def _cp_tick():
-    """Persist next-due before opening a lobby; avoid duplicate restart pings."""
+    """One scheduler; each guild and iteration recovers independently."""
     try:
         await bot.wait_until_ready()
         while not bot.is_closed():
             now = _cp_time.time()
             cog = bot.get_cog("HangryGamesCog")
             for guild in bot.guilds:
-                s = _cp_server(guild.id)
-                if s.get("auto_enabled") and s.get("auto_channel"):
-                    due = float(s.get("next_at", 0))
-                    if not due:
-                        s["next_at"] = now + _cp_random.randint(3600, 7200)
-                        await bd_save_data()
-                    elif due <= now and cog:
-                        s["next_at"] = now + _cp_random.randint(3600, 7200)
-                        await bd_save_data()
-                        channel = guild.get_channel(int(s["auto_channel"]))
-                        if channel is not None and not cog._busy(channel.id):
-                            asyncio.create_task(_cp_auto_start(guild, channel, cog))
-                for uid, p in list(s.get("people", {}).items()):
-                    q = p.get("pending")
-                    if q and q.get("status") == "waiting" and now - float(q.get("asked_at", 0)) > 120:
-                        q["status"] = "missed"
-                        _cm_adjust(guild.id, -2)
-                        await bd_save_data()
-                        await _cp_log(guild.id, "Question unanswered: a little sad", int(uid))
+                try:
+                    await _cp_tick_guild(guild, cog, now)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    _cp_server(guild.id)["last_brain_reason"] = "scheduler_error"
+                    log.exception("Cinnamon activity check failed in guild %s", guild.id)
+            # Reuse this one scheduler for member-requested reminders too.
+            try:
+                await _cr_tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Cinnamon reminder scheduler pass failed")
             await asyncio.sleep(15)
     except asyncio.CancelledError:
         raise
-    except Exception:
-        log.exception("Cinnamon social and games scheduler stopped")
     finally:
         bot._cp_scheduler_running = False
 
@@ -355,14 +481,14 @@ async def cinnamon_events_status(interaction: discord.Interaction):
     desc = f"🎮 Surprise games: {'ON' if data.get('auto_enabled') else 'OFF'}\n"
     desc += f"📢 Game channel: {ch.mention if ch else 'Run /setup'}\n"
     if due and data.get("auto_enabled"):
-        desc += f"⏳ Next surprise game: <t:{due}:R>\n"
+        desc += f"⏳ Next activity check: <t:{due}:R>\n"
     fav = _cp_favourites(interaction.guild.id)
     desc += ("😻 Favourite visitors: " + ", ".join(f"<@{uid}>" for uid, _ in fav)
              if fav else "😺 No favourite visitors ranked yet!")
     card = discord.Embed(title="🎮 Cinnamon's Surprise Games",
                          description=desc, color=0xD89138)
     card.add_field(name="🌿 Winner prize",value="1,000–2,500 Catnip",inline=True)
-    card.add_field(name="⏳ Join window",value="2 minutes · 2 role pings",inline=True)
+    card.add_field(name="⏳ Join window",value="2 minutes · up to 2 opt-in role pings",inline=True)
     card.add_field(name="🛡️ Safety",value="Autonomous @everyone is disabled. Personal questions are optional.",inline=False)
     card.set_footer(text="Cinnamon Mind • /cinnamon-events notify to receive game alerts")
     await interaction.response.send_message(embed=card, ephemeral=True,
@@ -382,7 +508,7 @@ async def cinnamon_events_auto(interaction: discord.Interaction, enabled: bool):
     await _cp_log(interaction.guild.id, "Surprise games " + ("enabled" if enabled else "disabled"))
     await interaction.response.send_message(
         "🐈 Surprise Hangry Games " + ("enabled" if enabled else "disabled") +
-        ". When enabled, the next game arrives within 1–2 hours.", ephemeral=True)
+        ". When enabled, Cinnamon checks for real member activity; quiet servers are skipped.", ephemeral=True)
 
 @_cp_group.command(name="channel", description="Admin: choose Cinnamon's surprise Hangry Games channel")
 @app_commands.guild_only()
@@ -424,7 +550,7 @@ async def cinnamon_events_notify(interaction: discord.Interaction, enabled: bool
         await interaction.user.remove_roles(role, reason="Opted out of surprise Hangry Games announcements")
     await interaction.response.send_message(
         "🎮 You will " + ("receive" if enabled else "no longer receive") +
-        " the two role alerts for surprise games.", ephemeral=True)
+        " up to two opt-in role alerts for surprise games.", ephemeral=True)
 
 @_cp_group.command(name="people", description="Admin: view Cinnamon's favourite visitors and nice/naughty records")
 @app_commands.guild_only()
@@ -458,7 +584,12 @@ async def cinnamon_events_test_game(interaction: discord.Interaction):
         return await interaction.response.send_message("🐈 A game is already running in that channel!", ephemeral=True)
     if not discord.utils.get(interaction.guild.roles, name="Hangry Games"):
         return await interaction.response.send_message("🐈 Run /setup to create the Hangry Games role.", ephemeral=True)
-    asyncio.create_task(_cp_auto_start(interaction.guild, channel, cog))
+    eligible, reason = _cb_game_eligibility(
+        interaction.guild, channel, cog, check_activity=False)
+    if not eligible:
+        return await interaction.response.send_message(
+            "🐈 Test lobby stayed quiet: " + reason.replace("_", " ") + ".", ephemeral=True)
+    asyncio.create_task(_cp_auto_start(interaction.guild, channel, cog, explicit=True))
     await interaction.response.send_message("🎮 Test lobby starting now! Two minutes to join. Only two role alerts.", ephemeral=True)
 
 

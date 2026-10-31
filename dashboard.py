@@ -109,14 +109,21 @@ def _run_bot(coro, timeout=20):
         coro.close()
         raise RuntimeError("Cinnamon event loop is unavailable")
     future = asyncio.run_coroutine_threadsafe(coro, loop)
-    return future.result(timeout=timeout)
+    try:
+        return future.result(timeout=timeout)
+    except TimeoutError:
+        # Stop pending work when the request gives up so a retry does not leave
+        # a second moderation action or message running in the background.
+        future.cancel()
+        raise
 
 
 def _save():
     save_fn = _state().get("bd_save_data")
     if not callable(save_fn):
         raise RuntimeError("Dashboard storage callback is not configured")
-    _run_bot(save_fn())
+    if not _run_bot(save_fn()):
+        raise ValueError("The durable save could not be verified. Check storage before trying again.")
 
 
 def _audit(guild_id, actor, title, detail):
@@ -306,10 +313,10 @@ def _shell(guild, guilds, tab, body, notice=None):
     gid = guild.id
     options = []
     for item in guilds:
-        if str(item.get("id")) in {str(g.id) for g in (_bot.guilds if _bot else [])} and (item.get("owner") or (int(item.get("permissions", "0")) & (0x8 | 0x20))):
+        if str(item.get("id")) in {str(g.id) for g in (_bot.guilds if _bot else [])} and (item.get("owner") or (int(item.get("permissions", "0")) & 0x8)):
             selected = " selected" if str(item.get("id")) == str(gid) else ""
             options.append(f"<option value='{_esc(item['id'])}'{selected}>{_esc(item.get('name','Server'))}</option>")
-    select = "<form action='/dashboard' method='get'><input type='hidden' name='tab' value='overview'><div class='serverbox'><label>Selected server</label><select name='guild_id' onchange='this.form.submit()'>" + "".join(options) + "</select></div></form>"
+    select = "<form action='/dashboard' method='get'><input type='hidden' name='tab' value='overview'><div class='serverbox'><label for='dashboardGuildSelect'>Selected server</label><select id='dashboardGuildSelect' name='guild_id'>" + "".join(options) + "</select><button class='btn secondary small' type='submit'>Switch server</button></div></form>"
     side = "<aside class='side' id='liveSidebar' aria-label='Dashboard categories'><button class='mobile-nav-close' id='liveMenuClose' type='button' aria-label='Close categories'>×</button><div class='brand'><img class='mascot' src='/static/cinnamon_mascot.svg' alt=''><span>Cinnamon <span style='font-weight:500;color:var(--taupe)'>Control</span></span></div>" + select + _nav(gid, tab) + "<div class='sidefoot'>Cozy controls, careful paws. 🐾<br>Changes are logged where configured.</div></aside><button class='nav-backdrop' id='liveNavBackdrop' type='button' aria-label='Close categories'></button>"
     notice_html = f"<div class='notice'>{_esc(notice)}</div>" if notice else ""
     title = f"{guild.name} • Cinnamon Dashboard"
@@ -383,25 +390,31 @@ def _form(guild_id, action, content, button="Save changes", danger=False):
     return f"<form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{guild_id}'><input type='hidden' name='action' value='{_esc(action)}'>{content}<div class='actions'><button class='btn{style}' type='submit'>{_esc(button)}</button></div></form>"
 
 
+async def _dashboard_is_admin(guild, uid):
+    """Recheck membership and role permissions without trusting an OAuth/cache claim."""
+    if uid == guild.owner_id:
+        return True
+    try:
+        member = await guild.fetch_member(uid)
+        roles = await guild.fetch_roles()
+        member_role_ids = {role.id for role in member.roles}
+        return any(role.permissions.administrator for role in roles
+                   if role.id == guild.id or role.id in member_role_ids)
+    except Exception:
+        return False
+
+
 def _get_access(sid, guilds, guild_id):
     guild_item = next((g for g in guilds if str(g.get("id")) == str(guild_id)), None)
     guild = _bot.get_guild(int(guild_id)) if _bot and str(guild_id).isdigit() else None
     if not guild_item or not guild or str(guild.id) not in {str(g.get("id")) for g in guilds}:
         abort(404)
     perms = int(guild_item.get("permissions", "0"))
-    oauth_allowed = bool(guild_item.get("owner") or (perms & (0x8 | 0x20)))
+    oauth_allowed = bool(guild_item.get("owner") or (perms & 0x8))
     if not oauth_allowed:
         abort(403)
     uid = int(_tokens[sid]["user"]["id"])
-    async def verify():
-        if uid == guild.owner_id:
-            return True
-        try:
-            member = guild.get_member(uid) or await guild.fetch_member(uid)
-        except Exception:
-            return False
-        return bool(member.guild_permissions.administrator or member.guild_permissions.manage_guild)
-    if not _run_bot(verify()):
+    if not _run_bot(_dashboard_is_admin(guild, uid)):
         abort(403)
     return guild, guild_item
 
@@ -412,7 +425,7 @@ def _dashboard_context():
         return None
     guilds = _discord_get(sid, "/users/@me/guilds")
     bot_ids = {str(g.id) for g in (_bot.guilds if _bot else [])}
-    eligible = [g for g in guilds if str(g.get("id")) in bot_ids and (g.get("owner") or (int(g.get("permissions", "0")) & (0x8 | 0x20)))]
+    eligible = [g for g in guilds if str(g.get("id")) in bot_ids and (g.get("owner") or (int(g.get("permissions", "0")) & 0x8))]
     return sid, guilds, eligible
 
 
@@ -420,11 +433,57 @@ def _count(mapping, gid):
     return sum(1 for key in mapping if isinstance(key, tuple) and key[0] == gid)
 
 
+async def _apply_brain_settings(state, gid, *, independence_enabled, chat_actions_enabled,
+                                prompts_enabled=None, ai_judgment_enabled=None):
+    """A failed save can never turn a protective pause back on in this process."""
+    advanced = state["advanced_features_data"]
+    brain = advanced.setdefault("cinnamon_brain_v1", {}).setdefault(
+        str(gid), {"independence_enabled": True})
+    actions = advanced.setdefault("cinnamon_actions_v2", {}).setdefault(
+        str(gid), {"enabled": False})
+    previous_brain = bool(brain.get("independence_enabled", True))
+    previous_actions = bool(actions.get("enabled", False))
+    previous_prompts = bool(brain.get("prompts_enabled", False))
+    previous_reasoning = bool(brain.get("ai_judgment_enabled", False))
+    brain["independence_enabled"] = bool(independence_enabled)
+    actions["enabled"] = bool(chat_actions_enabled)
+    if prompts_enabled is not None:
+        brain["prompts_enabled"] = bool(prompts_enabled)
+    if ai_judgment_enabled is not None:
+        brain["ai_judgment_enabled"] = bool(ai_judgment_enabled)
+    saved = False
+    try:
+        saved = await state["bd_save_data"]()
+    except Exception:
+        pass
+    finally:
+        if not saved:
+            # Also runs when a timed-out web request cancels this coroutine.
+            if not independence_enabled:
+                brain["independence_enabled"] = False
+            elif brain.get("independence_enabled"):
+                brain["independence_enabled"] = previous_brain
+            if not chat_actions_enabled:
+                actions["enabled"] = False
+            elif actions.get("enabled"):
+                actions["enabled"] = previous_actions
+            if prompts_enabled is not None:
+                brain["prompts_enabled"] = previous_prompts if prompts_enabled else False
+            if ai_judgment_enabled is not None:
+                brain["ai_judgment_enabled"] = previous_reasoning if ai_judgment_enabled else False
+    if not saved:
+        raise ValueError("The durable save could not be verified. Disabled switches remain off in this session; an unacknowledged write may still persist. Verify storage before restarting.")
+
+
 def _mind(guild, state):
     """Server-local personality controls, with clearly locked safety boundaries."""
     gid = guild.id
     cfg = state.get("cinnamon_social", {}).get(str(gid), {}) or {}
     play = state.get("cinnamon_actions", {}).get(str(gid), {}) or {}
+    advanced = state.get("advanced_features_data", {})
+    brain = state.get("cinnamon_brain", advanced.get("cinnamon_brain_v1", {})).get(str(gid), {}) or {}
+    actions = state.get("cinnamon_trusted_actions", advanced.get("cinnamon_actions_v2", {})).get(str(gid), {}) or {}
+    storage = state.get("brain_storage", {})
     mood = state.get("cinnamon_moods", {}).get(str(gid), {}) or {}
     score = int(mood.get("score", 0))
     tier = "Delighted 😻" if score >= 35 else "Grumpy 😾" if score <= -35 else "Normal 🐈"
@@ -442,7 +501,7 @@ def _mind(guild, state):
         "<label class='toggle'><input type='checkbox' name='" + key + "'" + (" checked" if cfg.get(key, default) else "") +
         "><span><b>" + label + "</b><small>" + desc + "</small></span></label>"
         for key,default,label,desc in [
-            ("auto_enabled", False, "Automatic Hangry Games", "One game every 1–2 hours; two role pings maximum; no admin budget used."),
+            ("auto_enabled", False, "Automatic Hangry Games", "Requires recent engagement and available permissions; often stays quiet. Two opt-in role pings maximum."),
             ("cameos_enabled", True, "Rare jealous one-liners", "Maximum one six-hour cameo per server; never tags anyone."),
             ("questions_enabled", True, "Funny questions after being called", "One per person per day; members can individually opt out."),
         ])
@@ -454,16 +513,36 @@ def _mind(guild, state):
     log_text = "".join("<div class='toggle'><b>" + _esc(label) + "</b><span>" +
                        _esc(guild.get_channel(logs.get(cat)).mention if logs.get(cat) and guild.get_channel(logs.get(cat)) else "Run /setup") +
                        "</span></div>" for cat,label in [("stuff","Personality"),("mood","Mood & Naughty List")])
+    boundary_controls = (
+        "<label class='toggle'><input type='checkbox' name='independence_enabled'" +
+        (" checked" if brain.get("independence_enabled", True) else "") +
+        "><span><b>Independent activities</b><small>Pause spontaneous games, questions and cameos. Direct requests remain available.</small></span></label>" +
+        "<label class='toggle'><input type='checkbox' name='chat_actions_enabled'" +
+        (" checked" if actions.get("enabled", False) else "") +
+        "><span><b>Conversational actions</b><small>Off by default. Authorized Catnip adjustments and timeouts require confirmation and reliable storage.</small></span></label>" +
+        "<label class='toggle'><input type='checkbox' name='prompts_enabled'" +
+        (" checked" if brain.get("prompts_enabled", False) else "") +
+        "><span><b>Community questions</b><small>Optional no-ping questions, only in Cinnamon's approved activity channel.</small></span></label>" +
+        "<label class='toggle'><input type='checkbox' name='ai_judgment_enabled'" +
+        (" checked" if brain.get("ai_judgment_enabled", False) else "") +
+        "><span><b>AI activity advice</b><small>Optional Gemini decision from counts and mood only, never raw member conversations. Cinnamon may decide to stay quiet.</small></span></label>")
+    health_text = "Ready" if storage.get("ready") else "Unavailable"
+    if storage.get("pending"):
+        health_text = "Waiting for transaction reconciliation"
+    last_reason = str(cfg.get("last_brain_reason", "No activity decision yet")).replace("_", " ")
     return (f"<h1>🐈 Cinnamon Mind</h1><p class='muted'>Cinnamon's playful character, with hard limits on what she may do."
             f" AI writes dialogue; it cannot independently transfer Catnip, punish users or broadcast @everyone.</p>"
             f"<div class='grid'><article class='card third'><div class='statlabel'>Current mood</div><div class='stat'>{_esc(tier)}</div><p class='muted'>Score {score:+d}</p></article>"
-            f"<article class='card third'><div class='statlabel'>Next surprise game</div><div class='stat' style='font-size:18px'>{_esc(next_text)}</div></article>"
+            f"<article class='card third'><div class='statlabel'>Next activity check</div><div class='stat' style='font-size:18px'>{_esc(next_text)}</div></article>"
             f"<article class='card third'><div class='statlabel'>Favourite visitors</div><div class='stat'>{len(top)}</div></article>"
+            f"<article class='card half'><h2>Activity and action boundaries</h2>{_form(gid,'brain_settings',boundary_controls,'Save boundaries')}"
+            f"<p class='muted'>Storage: {_esc(health_text)} · {'Durable' if storage.get('durable') else 'Local or unavailable'} · {_esc(storage.get('status', 'unknown'))}</p>"
+            f"<p class='muted'>Last activity decision: {_esc(last_reason)}</p></article>"
             f"<article class='card half'><h2>Autonomy & gameplay</h2>{_form(gid,'mind_settings',form,'Save Cinnamon settings')}</article>"
             f"<article class='card half'><h2>Safety lock</h2><p class='pill good'>🔒 AI @everyone: disabled</p>"
             f"<p class='muted'>Mass announcements require Discord Administrator + an explicit 60-second confirmation in Discord. "
             f"Conversation participation requires a direct ping, reply or Cinnamon's name; voluntary jealousy is only a rare one-line aside.</p>"
-            f"<p class='muted'>No AI-driven moderation or Catnip grants.</p></article>"
+            f"<p class='muted'>No autonomous punishments or currency changes. Staff-requested conversational actions are separately checked and confirmed.</p></article>"
             f"<article class='card half'><h2>Favourite people</h2>{ranked}</article>"
             f"<article class='card half'><h2>Cinnamon's private logs</h2>{log_text}"
             f"<p class='muted'>Use /recall to fill missing mood/visitor snapshots without overwriting live state.</p></article></div>")
@@ -589,7 +668,8 @@ def _achievements(guild,state):
     rows="".join(f"<tr><td><b>{_esc(aid)}</b><div class='muted'>{_esc(a.get('name','Unnamed'))}</div></td><td>{_esc(a.get('description',''))}</td><td>{'Secret' if aid in secret else 'Normal'}</td><td>{'Enabled' if a.get('enabled',True) else 'Disabled'}</td></tr>" for aid,a in list(normal.items())[:100]) or "<tr><td colspan='4'>No achievement definitions exposed.</td></tr>"
     secrets_count=len(secret); enabled=cfg.get("enabled",True)
     achievement_form="<div class='formgrid'><div class='field'><label>Achievement log channel</label>"+_channel_select(guild,"channel_id",log_id)+"</div></div><label class='toggle'><input type='checkbox' name='enabled' "+("checked" if enabled else "")+"><span><b>Enable achievement tracking</b><small>Disabling pauses achievement processing; existing unlock data is retained.</small></span></label>"
-    return f"<h1>Achievements</h1><p class='muted'>Monitor achievements and manage the server-level configuration without exposing every achievement command in the web panel.</p><div class='grid'><article class='card third'><div class='statlabel'>Normal achievements</div><div class='stat'>{len(normal):,}</div></article><article class='card third'><div class='statlabel'>Secret achievements</div><div class='stat'>{secrets_count:,}</div></article><article class='card third'><div class='statlabel'>Members tracked</div><div class='stat'>{unique_users:,}</div></article><article class='card half'><h2>Achievement system</h2><div class='toggle'><b>Status</b><span class='pill {'good' if enabled else 'warn'}'>{'Enabled' if enabled else 'Disabled'}</span></div><div class='toggle'><b>Total unlock records</b><span>{unlocked:,}</span></div><div class='toggle'><b>Achievement logs</b><span>{_esc(logch.mention if logch else 'Not configured')}</span></div><div class='toggle'><b>Reward roles missing</b><span>{len(missing):,}</span></div><p class='muted'>Use Discord's achievement commands for individual awards, revokes and definition editing. The dashboard focuses on server configuration and visibility.</p>{_form(gid,'achievement_settings',achievement_form,'Save achievement settings')}</article><article class='card half'><h2>Reward-role readiness</h2><div class='tablewrap'><table><thead><tr><th>Role</th><th>Status</th></tr></thead><tbody>{''.join(f"<tr><td>@{_esc(n)}</td><td><span class='pill {'good' if n not in missing else 'warn'}'>{'Ready' if n not in missing else 'Missing'}</span></td></tr>" for n in role_names)}</tbody></table></div></article><article class='card full'><h2>Achievement catalog</h2><div class='tablewrap'><table><thead><tr><th>ID / Name</th><th>Description</th><th>Type</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div></article></div>"
+    role_readiness_rows = ''.join(f"<tr><td>@{_esc(n)}</td><td><span class='pill {'good' if n not in missing else 'warn'}'>{'Ready' if n not in missing else 'Missing'}</span></td></tr>" for n in role_names)
+    return f"<h1>Achievements</h1><p class='muted'>Monitor achievements and manage the server-level configuration without exposing every achievement command in the web panel.</p><div class='grid'><article class='card third'><div class='statlabel'>Normal achievements</div><div class='stat'>{len(normal):,}</div></article><article class='card third'><div class='statlabel'>Secret achievements</div><div class='stat'>{secrets_count:,}</div></article><article class='card third'><div class='statlabel'>Members tracked</div><div class='stat'>{unique_users:,}</div></article><article class='card half'><h2>Achievement system</h2><div class='toggle'><b>Status</b><span class='pill {'good' if enabled else 'warn'}'>{'Enabled' if enabled else 'Disabled'}</span></div><div class='toggle'><b>Total unlock records</b><span>{unlocked:,}</span></div><div class='toggle'><b>Achievement logs</b><span>{_esc(logch.mention if logch else 'Not configured')}</span></div><div class='toggle'><b>Reward roles missing</b><span>{len(missing):,}</span></div><p class='muted'>Use Discord's achievement commands for individual awards, revokes and definition editing. The dashboard focuses on server configuration and visibility.</p>{_form(gid,'achievement_settings',achievement_form,'Save achievement settings')}</article><article class='card half'><h2>Reward-role readiness</h2><div class='tablewrap'><table><thead><tr><th>Role</th><th>Status</th></tr></thead><tbody>{role_readiness_rows}</tbody></table></div></article><article class='card full'><h2>Achievement catalog</h2><div class='tablewrap'><table><thead><tr><th>ID / Name</th><th>Description</th><th>Type</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div></article></div>"
 
 
 def _quests(guild,state):
@@ -683,6 +763,8 @@ def _giveaways(guild,state):
     for mid,gw in active.items():
         if int(gw.get("guild_id",0))!=gid: continue
         remain=max(0,int((float(gw.get('ends_at',0))-time.time())//60))
+        entry_message = _esc(gw.get("entry_message", "🎉 You're entered! Tap again to leave."))
+        denied_message = _esc(gw.get("denied_message", "You do not meet this giveaway's entry requirements."))
         content=(f"<p class='muted'>Message ID: <code>{int(mid)}</code> · Entries: {len(set(gw.get('entrants',[])))} · Ends in approx. {remain} min</p>"
         f"<div class='formgrid'><div class='field'><label>Prize</label><input name='prize' maxlength='200' value='{_esc(gw.get('prize',''))}' required></div>"
         f"<div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='{int(gw.get('winners',1))}' required></div>"
@@ -701,9 +783,9 @@ def _giveaways(guild,state):
         f"<div class='field'><label>Embed colour (hex)</label><input name='embed_color' maxlength='7' value='{_esc(str(gw.get('embed_color','FEE75C')).lstrip('#'))}'></div>"
         f"<div class='field'><label>Embed title (optional)</label><input name='embed_title' maxlength='256' value='{_esc(gw.get('embed_title',''))}'></div>"
         f"<div class='field full'><label>Embed description (optional)</label><textarea name='embed_description' maxlength='3500'>{_esc(gw.get('embed_description',''))}</textarea></div>"
-        f"<div class='field'><label>Entry confirmation</label><input name='entry_message' maxlength='300' value='{_esc(gw.get('entry_message','🎉 You\'re entered! Tap again to leave.'))}'></div>"
+        f"<div class='field'><label>Entry confirmation</label><input name='entry_message' maxlength='300' value='{entry_message}'></div>"
         f"<div class='field'><label>Leave confirmation</label><input name='leave_message' maxlength='300' value='{_esc(gw.get('leave_message','You left the giveaway.'))}'></div>"
-        f"<div class='field full'><label>Eligibility-denied message</label><input name='denied_message' maxlength='300' value='{_esc(gw.get('denied_message','You do not meet this giveaway\'s entry requirements.'))}'></div></div>")
+        f"<div class='field full'><label>Eligibility-denied message</label><input name='denied_message' maxlength='300' value='{denied_message}'></div></div>")
         edit=_form(gid,"giveaway_edit",f"<input type='hidden' name='message_id' value='{int(mid)}'>{content}","Save giveaway")
         template_form=_form(gid,"giveaway_template_save",f"<input type='hidden' name='message_id' value='{int(mid)}'><div class='field'><label>Template name</label><input name='template_name' maxlength='40' required placeholder='e.g. Monthly Tuna'></div>","Save as template")
         end=(f"<form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_end'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn secondary small'>End & pick winners</button></form>"
@@ -879,9 +961,9 @@ def _moderate(guild, actor_id, form):
         actor=guild.get_member(actor_id) or await guild.fetch_member(actor_id)
         target=guild.get_member(uid) or await guild.fetch_member(uid)
         me=guild.me
-        if not actor.guild_permissions.administrator and not actor.guild_permissions.manage_guild:
+        if actor_id != guild.owner_id and not actor.guild_permissions.administrator:
             raise PermissionError("Your current server permissions do not allow dashboard moderation.")
-        if target.top_role >= actor.top_role and actor.id != guild.owner_id and not actor.guild_permissions.administrator:
+        if target.top_role >= actor.top_role and actor.id != guild.owner_id:
             raise PermissionError("You cannot moderate a member with an equal or higher role.")
         if target.top_role >= me.top_role: raise PermissionError("Cinnamon's highest role must be above the target member's role.")
         if action=="kick":
@@ -1279,7 +1361,7 @@ def dashboard_home():
     if not context: return redirect(url_for("cinnamon_dashboard.login"))
     sid,guilds,eligible=context
     if not eligible:
-        body="<section class='hero'><div><h1>No manageable server found</h1><p>Add Cinnamon to a server where you have Manage Server or Administrator permission, then reload.</p></div><img class='heroimg' src='/static/cinnamon_mascot.svg' alt='Cinnamon'></section>"
+        body="<section class='hero'><div><h1>No manageable server found</h1><p>Add Cinnamon to a server where you are the owner or have Administrator permission, then reload.</p></div><img class='heroimg' src='/static/cinnamon_mascot.svg' alt='Cinnamon'></section>"
         return _page("<main class='main'>"+_header()+body+"</main>")
     guild_id=request.args.get("guild_id") or eligible[0]["id"]
     guild,guild_item=_get_access(sid,guilds,guild_id)
@@ -1306,13 +1388,21 @@ def dashboard_action():
         actor=_tokens[sid]["user"].get("username","dashboard user")
         async def authorize_dashboard_edit():
             uid=int(_tokens[sid]["user"]["id"])
-            member=guild.get_member(uid) or await guild.fetch_member(uid)
-            return uid == guild.owner_id or bool(member.guild_permissions.administrator)
+            return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
         if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
-        if action=="mind_settings":
+        if action=="brain_settings":
+            _run_bot(_apply_brain_settings(
+                state, gid, independence_enabled="independence_enabled" in request.form,
+                chat_actions_enabled="chat_actions_enabled" in request.form,
+                prompts_enabled="prompts_enabled" in request.form,
+                ai_judgment_enabled="ai_judgment_enabled" in request.form))
+            _audit(gid,actor,"Dashboard: Cinnamon boundaries updated",
+                   f"Independence={bool('independence_enabled' in request.form)}; conversational actions={bool('chat_actions_enabled' in request.form)}.")
+            session["dashboard_notice"]="Cinnamon's activity and action boundaries saved."
+        elif action=="mind_settings":
             raw=request.form.get("channel_id","").strip()
             if not raw.isdigit(): raise ValueError("Choose a valid Hangry Games channel.")
             channel=guild.get_channel(int(raw))
@@ -1320,8 +1410,9 @@ def dashboard_action():
                 raise ValueError("Choose a text channel in this server.")
             if not channel.permissions_for(guild.default_role).view_channel:
                 raise ValueError("Surprise games must run in a public channel. Members need to see the join button.")
-            if not guild.me or not channel.permissions_for(guild.me).send_messages:
-                raise ValueError("Cinnamon must be able to post in the selected game channel.")
+            perms = channel.permissions_for(guild.me) if guild.me else None
+            if not perms or not (perms.view_channel and perms.send_messages and perms.embed_links):
+                raise ValueError("Cinnamon needs View Channel, Send Messages and Embed Links in the selected game channel.")
             flags={k:k in request.form for k in ("auto_enabled","cameos_enabled","questions_enabled")}
             play_on="play_enabled" in request.form
             async def apply_mind():
@@ -1332,7 +1423,8 @@ def dashboard_action():
                 social["auto_channel"]=channel.id
                 if old!=channel.id or (flags["auto_enabled"] and not social.get("next_at")):
                     social["next_at"]=time.time()+__import__("random").randint(3600,7200)
-                await state["bd_save_data"]()
+                if not await state["bd_save_data"]():
+                    raise ValueError("The durable settings save could not be verified. Check storage before trying again.")
             _run_bot(apply_mind())
             _audit(gid,actor,"Dashboard: Cinnamon Mind settings updated",
                    f"Hangry channel #{channel.name}; flags={flags}.")
@@ -1742,11 +1834,11 @@ def dashboard_action():
             session["dashboard_notice"]=f"{mod_action.title()} action completed for {target}."
         else:
             raise ValueError("Unknown dashboard action.")
-        tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
+        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice"]=str(exc)[:300]
-        return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab={"economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","moderate":"moderation","automod":"moderation","antiraid":"moderation","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","message_send":"message_studio"}.get(request.form.get("action"),"community")))
+        return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","moderate":"moderation","automod":"moderation","antiraid":"moderation","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","message_send":"message_studio"}.get(request.form.get("action"),"community")))
     except Exception as exc:
         log.exception("Dashboard action failed (%s)",type(exc).__name__)
         session["dashboard_notice"]="The change could not be completed. Check Cinnamon's Render logs and bot permissions."
