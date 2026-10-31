@@ -358,9 +358,53 @@ async def _cp_auto_start(guild, channel, cog, *, explicit=False):
         _CP_LAUNCHING.discard(channel.id)
 
 
+async def _cp_auto_prompt(guild, channel, cog):
+    """One optional community question, with no mentions or competing scheduler."""
+    if not _cb_prompt_allowed(guild.id):
+        return False
+    ready, _ = _cb_game_eligibility(guild, channel, cog)
+    if not ready:
+        return False
+    social = _cp_server(guild.id)
+    now = _cp_time.time()
+    social["last_public_prompt_at"] = now
+    social["prompt_pending_until"] = now + 15 * 60
+    # Durable claim before the first public message prevents restart spam.
+    if not await bd_save_data():
+        return False
+    # Stop if someone disabled the feature, independence, or channel permission.
+    ready, _ = _cb_game_eligibility(guild, channel, cog)
+    if not ready or not _cb_prompt_allowed(guild.id, now=now + 1):
+        return False
+    try:
+        await channel.send(
+            "🐈 **CINNAMON HAS A QUESTION FOR THE ENTIRE KINGDOM!**\\n" +
+            _cp_random.choice(_CP_QUESTIONS) +
+            "\\nNo pressure to reply. I am just collecting scientific evidence. 😼",
+            allowed_mentions=discord.AllowedMentions.none())
+        await _cp_log(guild.id, "Optional no-ping community question posted")
+        return True
+    except (discord.Forbidden, discord.HTTPException):
+        social["prompt_pending_until"] = 0
+        await bd_save_data()
+        return False
+
+
 async def _cp_tick_guild(guild, cog, now):
     """Process one guild independently so a broken guild cannot stop the clock."""
     s = _cp_server(guild.id)
+    # A recent human response counts as engagement; no response triggers a
+    # long prompt backoff without blaming or pinging members.
+    pending_until = float(s.get("prompt_pending_until", 0) or 0)
+    if pending_until:
+        sent_at = float(s.get("last_public_prompt_at", 0) or 0)
+        activity = globals().get("_CB_ACTIVITY", {}).get(guild.id, ())
+        answered = any(ts > sent_at for ts, _ in activity)
+        if answered or now > pending_until:
+            s["prompt_pending_until"] = 0
+            if not answered:
+                s["last_ignored_prompt_at"] = now
+            await bd_save_data()
     if s.get("auto_enabled") and s.get("auto_channel"):
         due = float(s.get("next_at", 0))
         if not due:
@@ -372,9 +416,17 @@ async def _cp_tick_guild(guild, cog, now):
             # The clock creates an opportunity, not an obligation to speak.
             s["next_at"] = now + _cp_random.randint(3600, 7200)
             s["last_brain_reason"] = reason
+            s["brain_opportunities"] = int(s.get("brain_opportunities", 0)) + 1
             saved = await bd_save_data()
             if ready and saved:
-                asyncio.create_task(_cp_auto_start(guild, channel, cog))
+                chooser = globals().get("_cb_choose_activity")
+                choice = (await chooser(guild.id, now=now)
+                          if callable(chooser) else "game")
+                s["last_brain_choice"] = choice
+                if choice == "game":
+                    asyncio.create_task(_cp_auto_start(guild, channel, cog))
+                elif choice == "prompt" and callable(globals().get("_cp_auto_prompt")):
+                    asyncio.create_task(_cp_auto_prompt(guild, channel, cog))
             elif not saved:
                 s["last_brain_reason"] = "storage_unavailable"
     for uid, p in list(s.get("people", {}).items()):
