@@ -50,6 +50,13 @@ from google.genai import types
 import aiohttp
 
 from cinnamon_modules.brain_help import answer_help, build_command_catalog
+from cinnamon_modules.brain_command_directory import (
+    slash_entries as _help_slash_entries,
+    prefix_entries as _help_prefix_entries,
+    command_pages as _help_command_pages,
+    registered_paths as _help_registered_paths,
+    available_shortcuts as _help_available_shortcuts,
+)
 from cinnamon_modules.brain_expression import curated_emoji_names, safe_reaction
 
 try:
