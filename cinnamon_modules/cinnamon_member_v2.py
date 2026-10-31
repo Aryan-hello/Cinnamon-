@@ -28,7 +28,7 @@ def _me_private_snapshot(gid, uid, scopes):
 
     if "wallet" in scopes:
         if ready:
-            inventory = economy_inventory_for(gid, uid)
+            inventory = economy_inventory.get((gid, uid), {})
             items = []
             for item_id, quantity in list(inventory.items())[:20]:
                 try:
@@ -44,7 +44,7 @@ def _me_private_snapshot(gid, uid, scopes):
                 })
             snapshot["wallet"] = {
                 "available": True,
-                "catnip": max(0, int(economy_balance(gid, uid))),
+                "catnip": max(0, int(economy_balances.get((gid, uid), ECONOMY_STARTING_BALANCE))),
                 "inventory": items,
             }
         else:
@@ -119,7 +119,13 @@ def _me_private_snapshot(gid, uid, scopes):
     if "reminders" in scopes:
         if ready:
             reminders = []
-            for item in _cr_active(gid, uid)[:10]:
+            reminder_root = advanced_features_data.get("cinnamon_reminders_v1", {}).get(str(gid), {})
+            reminder_member = reminder_root.get("members", {}).get(str(uid), {})
+            active_reminders = [
+                item for item in reminder_member.values()
+                if isinstance(item, dict) and item.get("status") == "scheduled"
+            ]
+            for item in active_reminders[:10]:
                 try:
                     due_at = int(item.get("due_at", 0))
                 except (TypeError, ValueError):
@@ -135,7 +141,9 @@ def _me_private_snapshot(gid, uid, scopes):
                 })
             snapshot["reminders"] = {
                 "available": True,
-                "timezone": _me_timezone(_cr_offset(gid, uid)),
+                "timezone": _me_timezone(
+                    int(reminder_root.get("timezones", {}).get(str(uid), CINNAMON_TIMEZONE_OFFSET_MINUTES))
+                ),
                 "scheduled": reminders,
             }
         else:
@@ -143,7 +151,7 @@ def _me_private_snapshot(gid, uid, scopes):
 
     if "memory" in scopes:
         if ready:
-            memory = _cmem_member(gid, uid)
+            memory = advanced_features_data.get("cinnamon_memory_v1", {}).get(str(gid), {}).get("members", {}).get(str(uid), {})
             enabled = bool(memory.get("enabled", True))
             notes = memory.get("notes", []) if enabled else []
             categories = sorted({
