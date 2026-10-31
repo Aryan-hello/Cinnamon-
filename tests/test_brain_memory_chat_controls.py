@@ -90,6 +90,29 @@ class MemoryChatControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/cinnamon-memory view",
                       message.reply.await_args.args[0])
 
+    async def test_clear_request_uses_member_scoped_removal(self):
+        remove = AsyncMock(return_value=(True, "All your Cinnamon notes were cleared."))
+        handler = load_handler({
+            "_cmem_re": re,
+            "_cmem_remove": remove,
+            "discord": SimpleNamespace(AllowedMentions=FakeAllowedMentions),
+        })
+        message = self.make_message()
+        handled = await handler(message, "clear my notes")
+        self.assertTrue(handled)
+        remove.assert_awaited_once_with(10, 20)
+
+    async def test_edit_request_points_to_self_service_command(self):
+        handler = load_handler({
+            "_cmem_re": re,
+            "discord": SimpleNamespace(AllowedMentions=FakeAllowedMentions),
+        })
+        message = self.make_message()
+        handled = await handler(message, "edit my preferences")
+        self.assertTrue(handled)
+        self.assertIn("/cinnamon-memory edit",
+                      message.reply.await_args.args[0])
+
     async def test_view_request_points_to_private_command(self):
         handler = load_handler({
             "_cmem_re": re,
