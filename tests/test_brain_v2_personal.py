@@ -13,7 +13,7 @@ import unittest
 
 from cinnamon_modules.brain_member_v2 import (
     PersonalSettingError, parse_timezone_setting,
-    format_timezone_offset, due_today,
+    format_timezone_offset, due_today, level_progress,
 )
 from cinnamon_modules.brain_memory import (
     MemoryValidationError, validate_preference,
@@ -77,6 +77,44 @@ class TimezoneTests(unittest.TestCase):
     def test_today_requires_time_zone_aware_now(self):
         with self.assertRaises(ValueError):
             due_today([], now=datetime(2026, 10, 31), offset_minutes=330)
+
+
+class LevelProgressTests(unittest.TestCase):
+    @staticmethod
+    def thresholds(level):
+        return level * 100
+
+    @staticmethod
+    def level_for_xp(xp):
+        return min(5, xp // 100)
+
+    def test_progress_at_start_and_mid_level(self):
+        result = level_progress(
+            150, level_from_xp=self.level_for_xp,
+            total_xp_for_level=self.thresholds, max_level=5)
+        self.assertEqual(result, {
+            "level": 1, "total_xp": 150, "xp_into_level": 50,
+            "xp_for_level": 100, "xp_remaining": 50, "max_level": False,
+        })
+
+    def test_exact_level_boundary_and_max_level(self):
+        boundary = level_progress(
+            200, level_from_xp=self.level_for_xp,
+            total_xp_for_level=self.thresholds, max_level=5)
+        self.assertEqual(boundary["level"], 2)
+        self.assertEqual(boundary["xp_into_level"], 0)
+        maximum = level_progress(
+            900, level_from_xp=self.level_for_xp,
+            total_xp_for_level=self.thresholds, max_level=5)
+        self.assertTrue(maximum["max_level"])
+        self.assertEqual(maximum["xp_remaining"], 0)
+
+    def test_invalid_xp_and_thresholds_are_rejected(self):
+        for xp in (-1, True, 2.5):
+            with self.subTest(xp=xp), self.assertRaises(ValueError):
+                level_progress(
+                    xp, level_from_xp=self.level_for_xp,
+                    total_xp_for_level=self.thresholds, max_level=5)
 
 
 class SettingsStorageTests(unittest.IsolatedAsyncioTestCase):
