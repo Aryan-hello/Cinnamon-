@@ -17,7 +17,7 @@ class IntentPlannerTests(unittest.TestCase):
                      "turn my memory off",
                      "forget my saved preference",
                      "show my notes",
-                     "Cinnamon, please save that I like mystery stories"):
+                     "Cinnamon, please remember I like mystery stories"):
             self.assertEqual(plan_intent(text).intent, "memory")
 
     def test_help_questions_and_slash_explanations_are_routed_to_help(self):
