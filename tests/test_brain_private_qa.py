@@ -46,6 +46,7 @@ class PrivateQuestionScopeTests(unittest.TestCase):
             "Ban that member",
             "What is the capital of India?",
             "Tell me a joke",
+            "explain /quests progress",
             "",
             "x",
         ):
