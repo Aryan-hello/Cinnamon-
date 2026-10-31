@@ -40,6 +40,9 @@ class PrivateQuestionScopeTests(unittest.TestCase):
     def test_actions_and_general_questions_are_not_private_data_queries(self):
         for question in (
             "Give 500 Catnip to Alex",
+            "Can you give 500 Catnip to Alex?",
+            "Please remove my reminder",
+            "Could you change my timezone?",
             "Ban that member",
             "What is the capital of India?",
             "Tell me a joke",
