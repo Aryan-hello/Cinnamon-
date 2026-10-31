@@ -9,8 +9,9 @@ Setup:
        on hosts with no persistent disk (e.g. Render free tier). Without these,
        warnings, XP, Hangry Games counts, and all other bot config are saved to
        a local JSON file instead, which is wiped on every redeploy on most free
-       hosts (a plain restart is fine either way). Run /logchannel or
-       /datastatus check any time to see which mode is active.
+       hosts (a plain restart is fine either way). Run /datastatus check as an Administrator to inspect storage
+       and confirmed Catnip transaction readiness. /logchannel configures logs;
+       it does not test storage.
      - BOT_DATA_FILE, HANGRY_GAMES_DATA_FILE — override the local JSON file
        paths above (only relevant when Upstash isn't configured).
      - PORT — port for the Flask keep-alive server (defaults to 8080).
