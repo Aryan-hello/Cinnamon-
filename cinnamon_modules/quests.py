@@ -37,7 +37,7 @@ WEEKLY_QUESTS = {
 "employee_week":{"name":"Employee of the Week","desc":"Complete 30 /work sessions.","kind":"counter","metric":"work","target":30,"qp":550,"xp":3000},
 "overtime_grind":{"name":"Overtime Grind","desc":"Complete 45 /work sessions.","kind":"counter","metric":"work","target":45,"qp":850,"xp":4500},
 "workaholism":{"name":"Workaholism","desc":"Complete 20 /work sessions.","kind":"counter","metric":"work","target":20,"qp":400,"xp":2500},
-"payday_routine":{"name":"Payday Routine","desc":"Use /collect on your income roles 15 times.","kind":"counter","metric":"collect","target":15,"qp":500,"xp":3000},
+"payday_routine":{"name":"Payday Routine","desc":"Use /economy collect on your income roles 15 times.","kind":"counter","metric":"collect","target":15,"qp":500,"xp":3000},
 "server_socialite":{"name":"Server Socialite","desc":"Send 300 messages across any channel.","kind":"counter","metric":"messages","target":300,"qp":450,"xp":2500},
 "chatterbox":{"name":"Chatterbox","desc":"Send 600 messages throughout the week.","kind":"counter","metric":"messages","target":600,"qp":750,"xp":4000},
 "dedicated_attendant":{"name":"Dedicated Attendant","desc":"Complete 15 Daily Quests over the week.","kind":"counter","metric":"daily_completed","target":15,"qp":750,"xp":4000},
