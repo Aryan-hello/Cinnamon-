@@ -1,4 +1,6 @@
 """Tests for Cinnamon's grounded private read-only Q&A helpers."""
+import ast
+from pathlib import Path
 import unittest
 
 from cinnamon_modules.brain_private_qa import (
@@ -82,6 +84,43 @@ class PrivateQuestionScopeTests(unittest.TestCase):
         self.assertNotIn("@everyone", answer)
         self.assertIn("a member", answer)
         self.assertLessEqual(len(sanitize_private_answer("x" * 2000)), 1400)
+
+
+    def test_runtime_snapshot_uses_read_only_lookups(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / "cinnamon_modules" / "cinnamon_member_v2.py").read_text(encoding="utf8")
+        tree = ast.parse(source)
+        function = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_me_private_snapshot"
+        )
+        called = {
+            node.func.id if isinstance(node.func, ast.Name)
+            else node.func.attr if isinstance(node.func, ast.Attribute)
+            else ""
+            for node in ast.walk(function) if isinstance(node, ast.Call)
+        }
+        forbidden = {
+            "bd_save_data", "economy_balance", "economy_inventory_for",
+            "_ensure_rolls", "_cr_active", "_cr_member", "_cr_offset",
+            "_cmem_member", "_cmem_context",
+        }
+        self.assertFalse(called & forbidden, sorted(called & forbidden))
+        self.assertIn("_cb_storage_available", called)
+
+    def test_private_ask_command_is_ephemeral_and_never_calls_action_handlers(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / "cinnamon_modules" / "cinnamon_member_v2.py").read_text(encoding="utf8")
+        tree = ast.parse(source)
+        function = next(
+            node for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "cinnamon_me_ask"
+        )
+        source_text = ast.get_source_segment(source, function)
+        self.assertIn("ephemeral=True", source_text)
+        self.assertIn("asyncio.to_thread", source_text)
+        self.assertNotIn("_ca_maybe_handle", source_text)
+        self.assertNotIn("bd_save_data", source_text)
 
     def test_non_text_model_output_is_rejected(self):
         self.assertEqual(sanitize_private_answer(None), "")
