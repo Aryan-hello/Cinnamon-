@@ -29,6 +29,8 @@ def _me_private_snapshot(gid, uid, scopes):
     if "wallet" in scopes:
         if ready:
             inventory = economy_inventory.get((gid, uid), {})
+            if not isinstance(inventory, dict):
+                inventory = {}
             items = []
             for item_id, quantity in list(inventory.items())[:20]:
                 try:
@@ -120,7 +122,17 @@ def _me_private_snapshot(gid, uid, scopes):
         if ready:
             reminders = []
             reminder_root = advanced_features_data.get("cinnamon_reminders_v1", {}).get(str(gid), {})
+            if not isinstance(reminder_root, dict):
+                reminder_root = {}
             reminder_member = reminder_root.get("members", {}).get(str(uid), {})
+            if not isinstance(reminder_member, dict):
+                reminder_member = {}
+            try:
+                reminder_offset = int(reminder_root.get("timezones", {}).get(str(uid), CINNAMON_TIMEZONE_OFFSET_MINUTES))
+                if not -720 <= reminder_offset <= 840:
+                    reminder_offset = CINNAMON_TIMEZONE_OFFSET_MINUTES
+            except (TypeError, ValueError):
+                reminder_offset = CINNAMON_TIMEZONE_OFFSET_MINUTES
             active_reminders = [
                 item for item in reminder_member.values()
                 if isinstance(item, dict) and item.get("status") == "scheduled"
@@ -141,9 +153,7 @@ def _me_private_snapshot(gid, uid, scopes):
                 })
             snapshot["reminders"] = {
                 "available": True,
-                "timezone": _me_timezone(
-                    int(reminder_root.get("timezones", {}).get(str(uid), CINNAMON_TIMEZONE_OFFSET_MINUTES))
-                ),
+                "timezone": _me_timezone(reminder_offset),
                 "scheduled": reminders,
             }
         else:
@@ -151,9 +161,16 @@ def _me_private_snapshot(gid, uid, scopes):
 
     if "memory" in scopes:
         if ready:
-            memory = advanced_features_data.get("cinnamon_memory_v1", {}).get(str(gid), {}).get("members", {}).get(str(uid), {})
+            memory_root = advanced_features_data.get("cinnamon_memory_v1", {}).get(str(gid), {})
+            if not isinstance(memory_root, dict):
+                memory_root = {}
+            memory = memory_root.get("members", {}).get(str(uid), {})
+            if not isinstance(memory, dict):
+                memory = {}
             enabled = bool(memory.get("enabled", True))
             notes = memory.get("notes", []) if enabled else []
+            if not isinstance(notes, list):
+                notes = []
             categories = sorted({
                 str(note.get("category", ""))[:30]
                 for note in notes if isinstance(note, dict) and note.get("category")
