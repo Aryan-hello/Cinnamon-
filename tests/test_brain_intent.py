@@ -33,6 +33,21 @@ class IntentPlannerTests(unittest.TestCase):
             self.assertEqual(plan.intent, "action")
             self.assertEqual(plan.route_order[0], "action")
 
+    def test_private_account_questions_route_away_from_public_chat(self):
+        for text in (
+            "How much Catnip do I have?",
+            "Can you tell me my balance?",
+            "How close am I to the next level?",
+            "How many quests have I completed?",
+        ):
+            plan = plan_intent(text)
+            self.assertEqual(plan.intent, "private_data", text)
+            self.assertEqual(plan.route_order[0], "private_data", text)
+
+    def test_reminder_and_memory_intents_keep_their_trusted_handlers_first(self):
+        self.assertEqual(plan_intent("What reminders do I have?").intent, "reminder")
+        self.assertEqual(plan_intent("What do you remember about me?").intent, "memory")
+
     def test_casual_chat_remains_chat(self):
         plan = plan_intent("I had a nice day and played a game.")
         self.assertEqual(plan.intent, "chat")
