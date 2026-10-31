@@ -48,7 +48,7 @@ _ACTION = re.compile(
     re.IGNORECASE,
 )
 _WAKE = re.compile(
-    r"^(?:(?:hey|hi|hello|yo|please)[,! ]+)?cinnamon\s*[,!:.]?\s*",
+    r"^(?:(?:hey|hi|hello|yo|please)[,! ]+)?cinnamon\s*[,!:.]?\s*(?:please\s+)?",
     re.IGNORECASE,
 )
 
