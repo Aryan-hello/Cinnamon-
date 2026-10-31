@@ -223,5 +223,93 @@ class MemorySelfEditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ns["_cmem_root"](1)["tickets"]["ticket1"]["status"], "open")
 
 
+class MyDayPrivacyTests(unittest.IsolatedAsyncioTestCase):
+    def run_context(self, *, ready=True):
+        messages = []
+        class Response:
+            async def send_message(self, content, **kwargs):
+                messages.append((content, kwargs))
+        member_reminders = {
+            (1, 10): {
+                "abc": {"id": "abc", "text": "Review my quests", "status": "scheduled",
+                        "due_at": int(datetime.now(timezone.utc).timestamp()) + 120},
+            },
+            (1, 11): {
+                "private": {"id": "private", "text": "Another person's task",
+                            "status": "scheduled",
+                            "due_at": int(datetime.now(timezone.utc).timestamp()) + 120}
+            },
+        }
+        balances = {(1, 10): 6250, (1, 11): 999999}
+        quests = {1: {"users": {
+            "10": {"qp": 350, "daily": {"quick_shift": {"count": 3}}},
+            "11": {"qp": 9999}
+        }, "daily_date": "test-day", "daily_ids": ["quick_shift"]}}
+        storage_before = copy.deepcopy((member_reminders, balances, quests))
+        utils = SimpleNamespace(escape_markdown=lambda value: value)
+        discord = SimpleNamespace(
+            AllowedMentions=SimpleNamespace(none=lambda: None),
+            utils=utils)
+        namespace = {
+            "_me_datetime": __import__("datetime"),
+            "_cr_offset": lambda guild, user: 330,
+            "_cr_member": lambda guild, user: member_reminders.get((guild, user), {}),
+            "_me_due_today": due_today,
+            "_me_timezone": format_timezone_offset,
+            "_cmem_member": lambda guild, user: (
+                {"enabled": True, "notes": [{"detail": "stories"}]}
+                if guild == 1 and user == 10 else
+                {"enabled": True, "notes": []}),
+            "_cb_storage_available": lambda: ready,
+            "economy_balances": balances,
+            "ECONOMY_STARTING_BALANCE": 100,
+            "quest_data": quests,
+            "_today": lambda: "test-day",
+            "DAILY_QUESTS": {"quick_shift": {"target": 3}},
+            "_completed": lambda definition, progress: (
+                int(progress.get("count", 0)) >= definition["target"]),
+            "_cr_server": lambda guild: {"timezones": {}},
+            "discord": discord,
+        }
+        namespace = runtime_functions(
+            "cinnamon_member_v2.py",
+            {"cinnamon_me_today", "cinnamon_me_privacy"}, namespace)
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(id=1), user=SimpleNamespace(id=10),
+            response=Response())
+        return namespace, interaction, messages, (
+            member_reminders, balances, quests), storage_before
+
+    async def test_private_today_uses_existing_member_data_without_writes(self):
+        ns, interaction, messages, state, original = self.run_context()
+        await ns["cinnamon_me_today"](interaction)
+        text, options = messages[0]
+        self.assertTrue(options["ephemeral"])
+        self.assertIn("6,250", text)
+        self.assertIn("350", text)
+        self.assertIn("1/1", text)
+        self.assertNotIn("Another person's task", text)
+        self.assertNotIn("999,999", text)
+        self.assertEqual(copy.deepcopy(state), original)
+
+    async def test_private_today_refuses_to_guess_when_snapshot_unready(self):
+        ns, interaction, messages, state, original = self.run_context(ready=False)
+        await ns["cinnamon_me_today"](interaction)
+        text, options = messages[0]
+        self.assertTrue(options["ephemeral"])
+        self.assertIn("not ready", text)
+        self.assertNotIn("6,250", text)
+        self.assertEqual(copy.deepcopy(state), original)
+
+    async def test_privacy_view_does_not_show_other_members_data(self):
+        ns, interaction, messages, _, _ = self.run_context()
+        await ns["cinnamon_me_privacy"](interaction)
+        text, options = messages[0]
+        self.assertTrue(options["ephemeral"])
+        self.assertIn("erase", text)
+        self.assertIn("/cinnamon-memory edit", text)
+        self.assertNotIn("Another person's task", text)
+
+
 if __name__ == "__main__":
     unittest.main()
