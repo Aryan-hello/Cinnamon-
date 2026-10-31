@@ -472,7 +472,7 @@ async def _cp_ready():
 
 _cp_group = app_commands.Group(name="cinnamon-events", description="Surprise Hangry Games and Cinnamon's personality")
 
-@_cp_group.command(name="status", description="See Cinnamon's surprise games and favourite visitors")
+@_cp_group.command(name="status", description="See Cinnamon's activity checks and favourite visitors")
 @app_commands.guild_only()
 async def cinnamon_events_status(interaction: discord.Interaction):
     data = _cp_server(interaction.guild.id)
@@ -494,7 +494,7 @@ async def cinnamon_events_status(interaction: discord.Interaction):
     await interaction.response.send_message(embed=card, ephemeral=True,
                                             allowed_mentions=discord.AllowedMentions.none())
 
-@_cp_group.command(name="auto", description="Admin: enable or disable Cinnamon surprise games")
+@_cp_group.command(name="auto", description="Admin: enable activity checks for surprise games and optional questions")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def cinnamon_events_auto(interaction: discord.Interaction, enabled: bool):
@@ -531,9 +531,9 @@ async def cinnamon_events_questions(interaction: discord.Interaction, enabled: b
     await bd_save_data()
     await interaction.response.send_message(
         "🐈 Random questions " + ("enabled" if enabled else "disabled") +
-        " for you. Cinnamon will never send reminders.", ephemeral=True)
+        " for you. This setting does not affect reminders you explicitly request.", ephemeral=True)
 
-@_cp_group.command(name="notify", description="Opt in or out of the two surprise Hangry Games role pings")
+@_cp_group.command(name="notify", description="Opt in or out of up to two Hangry Games role alerts")
 @app_commands.guild_only()
 async def cinnamon_events_notify(interaction: discord.Interaction, enabled: bool):
     role = discord.utils.get(interaction.guild.roles, name="Hangry Games")
