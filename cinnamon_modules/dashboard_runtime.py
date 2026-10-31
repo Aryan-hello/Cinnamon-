@@ -239,6 +239,7 @@ def dashboard_state_provider() -> dict:
         "category_log_channels": category_log_channels,
         "BD_UPSTASH_URL": BD_UPSTASH_URL, "BD_UPSTASH_TOKEN": BD_UPSTASH_TOKEN,
         "bd_save_data": bd_save_data, "send_log": send_log,
+        "audit_recent": globals().get("audit_recent"), "audit_storage_status": globals().get("audit_storage_status"),
         "recall_guild_data": recall_guild_data,
         "level_from_xp": level_from_xp, "giveaway_embed": _giveaway_embed,
         "giveaway_view": GiveawayView, "finish_giveaway": finish_giveaway,

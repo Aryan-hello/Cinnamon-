@@ -422,6 +422,8 @@ _CINNAMON_MODULES = (
     "core_events.py",
     "general_moderation.py",
     "dashboard_runtime.py",
+    # Separate bounded Upstash audit history; loaded after snapshot configuration.
+    "audit_storage.py",
     "moderation.py",
     "levels_games.py",
     "server_setup.py",
