@@ -50,6 +50,7 @@ from google.genai import types
 import aiohttp
 
 from cinnamon_modules.brain_help import answer_help, build_command_catalog
+from cinnamon_modules.brain_expression import curated_emoji_names, safe_reaction
 
 try:
     from dotenv import load_dotenv
@@ -183,8 +184,9 @@ Special behavioral triggers:
 Strict rules:
 - Always G-rated and family-friendly.
 - Keep replies SHORT and punchy: 1-3 sentences MAX.
-- Always weave in a vivid italicized cat action, like *chirps softly* or
-  *makes biscuits*.
+- In playful conversation, a short italicized cat action can add character.
+  During sensitive or serious discussions, prioritize helpfulness and leave
+  theatrical cat actions or jokes out when they would be inappropriate.
 - You may occasionally sprinkle one relevant emoji into your reply text too,
   in addition to your cat actions — don't overdo it.
 - If asked who your owner, creator, or favorite person is, always answer
@@ -296,7 +298,9 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
     history = channel_memories[channel_id]
     convo = "\n".join(f"{name}: {text}" for name, text in history)
 
-    custom_emoji_names = [e.name for e in guild.emojis] if guild else []
+    custom_emoji_names = curated_emoji_names(
+        (e.name for e in guild.emojis), mood=_cm_tier(guild.id))
+        if guild else []
     emoji_note = (
         f"This server also has these custom emoji you may react with by bare name "
         f"(no colons): {', '.join(custom_emoji_names)}."
@@ -351,6 +355,9 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
 
     if not reply:
         reply = "*blinks slowly, unsure what just happened*"
+    reaction = safe_reaction(
+        reaction, custom_emoji_names,
+        serious=(_cx_tone(trigger_text).startswith("gentle")))
     return {"reply": reply, "reaction": reaction}
 
 
