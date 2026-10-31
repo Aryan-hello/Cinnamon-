@@ -34,8 +34,8 @@ _MEMORY = re.compile(
     re.IGNORECASE,
 )
 _SELF_SERVICE_HELP = re.compile(
-    r"^(?:show\\s+my\\s+(?:progress|privacy|level|xp)|"
-    r"my\\s+(?:day|progress|privacy|level|xp))\\b",
+    r"^(?:show\s+my\s+(?:progress|privacy|level|xp)|"
+    r"my\s+(?:day|progress|privacy|level|xp))\b",
     re.IGNORECASE,
 )
 _HELP = re.compile(
