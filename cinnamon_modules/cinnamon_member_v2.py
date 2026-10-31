@@ -26,6 +26,12 @@ def _me_private_snapshot(gid, uid, scopes):
     ready = _cb_storage_available()
     snapshot = {}
 
+    def safe_int(value, default=0):
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError, OverflowError):
+            return default
+
     if "wallet" in scopes:
         if ready:
             inventory = economy_inventory.get((gid, uid), {})
@@ -46,7 +52,7 @@ def _me_private_snapshot(gid, uid, scopes):
                 })
             snapshot["wallet"] = {
                 "available": True,
-                "catnip": max(0, int(economy_balances.get((gid, uid), ECONOMY_STARTING_BALANCE))),
+                "catnip": safe_int(economy_balances.get((gid, uid), ECONOMY_STARTING_BALANCE), ECONOMY_STARTING_BALANCE),
                 "inventory": items,
             }
         else:
@@ -54,13 +60,20 @@ def _me_private_snapshot(gid, uid, scopes):
 
     if "progress" in scopes:
         if ready:
-            xp = max(0, int(xp_data.get((gid, uid), 0)))
+            xp = safe_int(xp_data.get((gid, uid), 0))
             level = _me_level_progress(
                 xp, level_from_xp=level_from_xp,
                 total_xp_for_level=total_xp_for_level, max_level=MAX_LEVEL,
             )
             guild_quests = quest_data.get(gid, {})
-            member_quests = guild_quests.get("users", {}).get(str(uid), {})
+            if not isinstance(guild_quests, dict):
+                guild_quests = {}
+            users = guild_quests.get("users", {})
+            if not isinstance(users, dict):
+                users = {}
+            member_quests = users.get(str(uid), {})
+            if not isinstance(member_quests, dict):
+                member_quests = {}
             history = member_quests.get("completed_history", [])
             progress = {
                 "available": True,
@@ -68,22 +81,29 @@ def _me_private_snapshot(gid, uid, scopes):
                 "max_level": MAX_LEVEL,
                 "total_xp": level["total_xp"],
                 "xp_remaining": level["xp_remaining"],
-                "quest_points": max(0, int(member_quests.get("qp", 0))),
+                "quest_points": safe_int(member_quests.get("qp", 0)),
                 "quests_completed": len(history) if isinstance(history, list) else 0,
             }
 
             def quest_rows(board_ids, definitions, member_progress):
                 rows = []
-                for qid in list(board_ids or [])[:5]:
+                if not isinstance(member_progress, dict):
+                    member_progress = {}
+                ids = board_ids if isinstance(board_ids, (list, tuple)) else []
+                for qid in list(ids)[:5]:
                     definition = definitions.get(qid)
                     if not isinstance(definition, dict):
                         continue
                     state = member_progress.get(qid, {})
                     if not isinstance(state, dict):
                         state = {}
+                    try:
+                        completed = bool(_completed(definition, state))
+                    except (TypeError, ValueError, KeyError):
+                        completed = False
                     row = {
                         "name": str(definition.get("name", qid))[:80],
-                        "completed": bool(_completed(definition, state)),
+                        "completed": completed,
                     }
                     target = definition.get("target")
                     if type(target) is int:
@@ -121,14 +141,23 @@ def _me_private_snapshot(gid, uid, scopes):
     if "reminders" in scopes:
         if ready:
             reminders = []
-            reminder_root = advanced_features_data.get("cinnamon_reminders_v1", {}).get(str(gid), {})
+            reminder_store = advanced_features_data.get("cinnamon_reminders_v1", {})
+            if not isinstance(reminder_store, dict):
+                reminder_store = {}
+            reminder_root = reminder_store.get(str(gid), {})
             if not isinstance(reminder_root, dict):
                 reminder_root = {}
-            reminder_member = reminder_root.get("members", {}).get(str(uid), {})
+            reminder_members = reminder_root.get("members", {})
+            if not isinstance(reminder_members, dict):
+                reminder_members = {}
+            reminder_member = reminder_members.get(str(uid), {})
             if not isinstance(reminder_member, dict):
                 reminder_member = {}
             try:
-                reminder_offset = int(reminder_root.get("timezones", {}).get(str(uid), CINNAMON_TIMEZONE_OFFSET_MINUTES))
+                timezones = reminder_root.get("timezones", {})
+                if not isinstance(timezones, dict):
+                    timezones = {}
+                reminder_offset = int(timezones.get(str(uid), CINNAMON_TIMEZONE_OFFSET_MINUTES))
                 if not -720 <= reminder_offset <= 840:
                     reminder_offset = CINNAMON_TIMEZONE_OFFSET_MINUTES
             except (TypeError, ValueError):
@@ -161,10 +190,16 @@ def _me_private_snapshot(gid, uid, scopes):
 
     if "memory" in scopes:
         if ready:
-            memory_root = advanced_features_data.get("cinnamon_memory_v1", {}).get(str(gid), {})
+            memory_store = advanced_features_data.get("cinnamon_memory_v1", {})
+            if not isinstance(memory_store, dict):
+                memory_store = {}
+            memory_root = memory_store.get(str(gid), {})
             if not isinstance(memory_root, dict):
                 memory_root = {}
-            memory = memory_root.get("members", {}).get(str(uid), {})
+            memory_members = memory_root.get("members", {})
+            if not isinstance(memory_members, dict):
+                memory_members = {}
+            memory = memory_members.get(str(uid), {})
             if not isinstance(memory, dict):
                 memory = {}
             enabled = bool(memory.get("enabled", True))
