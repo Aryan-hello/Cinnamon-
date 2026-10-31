@@ -299,6 +299,15 @@ async def storage_status() -> dict:
     """Live health check of the persistence backend. Does NOT touch real data —
     just confirms the connection actually works right now. Returns
     {"backend": "Upstash Redis" | "local JSON file", "connected": bool, "detail": str}."""
+    if bool(BD_UPSTASH_URL) != bool(BD_UPSTASH_TOKEN):
+        return {
+            "backend": "Upstash Redis (incomplete)",
+            "connected": False,
+            "detail": ("Only one of the required Upstash REST credentials was set. "
+                       "Add BOTH UPSTASH_REDIS_REST_URL and "
+                       "UPSTASH_REDIS_REST_TOKEN in the host's Environment. "
+                       "Cinnamon will not use the local JSON fallback in this state."),
+        }
     if BD_UPSTASH_URL and BD_UPSTASH_TOKEN:
         try:
             async with aiohttp.ClientSession() as session:
