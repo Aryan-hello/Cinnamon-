@@ -110,16 +110,25 @@ def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_la
     elif topic == "reminders":
         body = ("I can DM you about a task at a future time. Try 'Cinnamon, remind me to check "
                 "quests in 30 minutes' or choose a date like 'tomorrow at 6 PM'. "
-                "Times use the configured server offset (" + timezone_label + "). "
-                "I cannot remind another member without their request.")
-        paths = ("/cinnamon-reminder create", "/cinnamon-reminder list", "/cinnamon-reminder cancel")
+                "Times use your personal fixed UTC offset when set, or the server default "
+                "(" + timezone_label + "). I can't remind another person without their request.")
+        paths = ("/cinnamon-reminder create", "/cinnamon-reminder list",
+                 "/cinnamon-reminder cancel", "/cinnamon-reminder snooze",
+                 "/cinnamon-reminder timezone", "/cinnamon-me today")
     elif topic == "memory":
         body = ("I save only ordinary preferences you intentionally ask me to keep: "
                 "games, stories, hobbies, or how you like explanations. "
                 "Your private notes belong to you in this server. "
-                "You can inspect, delete, disable, or request correction anytime.")
+                "You can privately edit, delete or disable notes anytime without waiting for staff.")
         paths = ("/cinnamon-memory status", "/cinnamon-memory save", "/cinnamon-memory view",
-                 "/cinnamon-memory clear", "/cinnamon-memory enable", "/cinnamon-memory correct")
+                 "/cinnamon-memory edit", "/cinnamon-memory clear",
+                 "/cinnamon-memory enable", "/cinnamon-me privacy")
+    elif topic == "myday":
+        body = ("Your private daily view shows today's pending reminders in your own fixed "
+                "timezone and the number of preferences you explicitly saved. "
+                "It doesn't read your private messages or schedule anything by itself.")
+        paths = ("/cinnamon-me today", "/cinnamon-me privacy",
+                 "/cinnamon-reminder create", "/cinnamon-memory view")
     elif topic == "independence":
         body = ("When allowed by an Administrator, I can choose whether to launch eligible "
                 "Hangry Games, pose an optional no-ping question, or stay quiet. "
@@ -182,7 +191,7 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
     is_question = bool(_QUERY.match(query)) or simple_topic in {
         "quests", "quest", "fishing", "stories", "achievements", "economy", "catnip",
         "help", "reminder", "reminders", "memory", "memories", "independence", "brain",
-        "incident", "incidents",
+        "incident", "incidents", "today", "my day", "myday", "privacy",
     }
     if not is_question:
         return None
@@ -203,7 +212,9 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
                     + " · ".join("`" + path + "`" for path in children[:8]))[:1900]
         return "*checks her command ledger* `" + root[:80] + "` is not registered. Use `/help` for Cinnamon's current commands."
 
-    if re.search(r"\b(?:reminders?|remind\s+me)\b", lower):
+    if re.search(r"\b(?:my\s+day|my\s+schedule|today(?:'s)?\s+(?:plan|overview)|personal\s+dashboard|privacy)\b", lower):
+        topic = "myday"
+    elif re.search(r"\b(?:reminders?|remind\s+me)\b", lower):
         topic = "reminders"
     elif re.search(r"\b(?:memories|memory|remember\s+(?:things|people))\b", lower):
         topic = "memory"
