@@ -30,6 +30,21 @@ class OrdinaryChatBoundaryTests(unittest.TestCase):
         ):
             self.assertIn(phrase, prompt)
 
+    def test_public_prefix_chat_redirects_private_data_without_reading_it(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / "cinnamon_modules" / "core_events.py").read_text(encoding="utf8")
+        tree = ast.parse(source)
+        function = next(
+            node for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "_ch_private_data_redirect"
+        )
+        text = ast.get_source_segment(source, function)
+        self.assertIn("/cinnamon-me ask", text)
+        self.assertIn("classifier(clean_content)", text)
+        self.assertNotIn("_me_private_snapshot", text)
+        self.assertNotIn("gemini_client", text)
+
     def test_chat_must_not_reveal_another_members_private_data(self):
         self.assertIn(
             "never reveal another member's private data",
