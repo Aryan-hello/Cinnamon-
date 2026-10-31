@@ -50,3 +50,16 @@
 4. Deploy only after review. Run real slash-command sync; check `/help`, `?help`, `/ping`, `/botstatus`, `?botstatus`, `/setupstatus`, `/datastatus check` and important feature commands in a private Discord test server.
 5. Test navigation on mobile, Discord role permissions, command availability in the server, and actual snapshot health after restart.
 6. Do not declare live or production readiness from green unit tests alone.
+
+## Follow-up audit: remaining stale references found and corrected
+
+A second sweep of the command implementation and older setup notes found:
+
+- `/levelrewards add` was still linked from the empty level-rewards screen. The registered command is `/level-rewards add`; corrected and regression-tested.
+- `/cinnamon-events test-game` promised exactly two role alerts. Current code posts **at most two**, with no second role alert when nobody joins; corrected.
+- Personal reminder and memory save confirmations named only bare command groups that Discord cannot directly execute. They now link explicit `/cinnamon-reminder list`, `/cinnamon-reminder cancel`, `/cinnamon-memory view`, and `/cinnamon-memory forget` subcommands.
+- The live prefix help directory was showing a nested alias like `?todays` for a `?quest daily` alias, dropping the parent path. Nested aliases now retain their full invocation path and are covered by tests.
+- The old `CINNAMON_SOCIAL_EVENTS.md` described pre-Brain scheduling, exactly two pings, a public cancellation tantrum, a mood penalty and Manage Server permissions. It has been rewritten to reflect the **current** engagement-gated/permission-gated behavior.
+- Historic achievement/quest and deployment guides were relabeled or updated so their commands and release status do not masquerade as current authoritative instructions. `CINNAMON_CHAT_ACTIONS.md` no longer claims its already-merged implementation exists only on an unmerged feature branch.
+
+**Remaining limitations:** Most historical release-note files are intentionally preserved for change history, not current deployment guidance. Static scanning and offline tests cannot guarantee that every command callback works in live Discord. Before deploying, check current slash-command synchronization, mobile help pagination, permission behavior, rewards, and the actual configured Upstash snapshot. PR #19 remains stacked on PR #18; PR #17 overlaps these storage changes and should not be independently merged without reconciliation.
