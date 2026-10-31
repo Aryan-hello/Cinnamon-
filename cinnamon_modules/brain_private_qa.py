@@ -15,8 +15,9 @@ _MAX_CONTEXT = 8000
 _MAX_ANSWER = 1400
 
 _ACTION_REQUEST = re.compile(
-    r"^(?:add|give|remove|take|ban|kick|mute|timeout|purge|delete|"
-    r"assign|grant|transfer|change|set|turn)\b",
+    r"^(?:(?:please|can you|could you|would you|will you|help me|"
+    r"i want you to)\s+)*(?:add|give|remove|take|ban|kick|mute|timeout|"
+    r"purge|delete|assign|grant|transfer|change|set|turn)\b",
     re.IGNORECASE,
 )
 
