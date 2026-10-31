@@ -296,36 +296,118 @@ def next_case(guild_id: int) -> int:
 
 
 async def storage_status() -> dict:
-    """Live health check of the persistence backend. Does NOT touch real data —
-    just confirms the connection actually works right now. Returns
-    {"backend": "Upstash Redis" | "local JSON file", "connected": bool, "detail": str}."""
-    if BD_UPSTASH_URL and BD_UPSTASH_TOKEN:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    BD_UPSTASH_URL, json=["PING"],
-                    headers={"Authorization": f"Bearer {BD_UPSTASH_TOKEN}"},
-                    timeout=aiohttp.ClientTimeout(total=5),
-                ) as resp:
-                    data = await resp.json()
-            ok = data.get("result") == "PONG"
-            return {
-                "backend": "Upstash Redis", "connected": ok,
-                "detail": "Reachable — data survives restarts and redeploys." if ok
-                          else f"Configured but not responding as expected: {data}",
-            }
-        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as e:
-            return {"backend": "Upstash Redis", "connected": False, "detail": f"Configured but unreachable: {e}"}
-    file_writable = True
-    try:
-        with open(BD_DATA_FILE, "a"):
-            pass
-    except OSError:
-        file_writable = False
+    """Read-only diagnostics for the ACTUAL snapshot backend and action gate.
+
+    A successful Redis PING does not prove a saved snapshot was loaded, and a
+    writable local JSON file is not safe on Render's ephemeral free filesystem.
+    Never include environment values, response bodies, or exception URLs in
+    command output.
+    """
+    store = bd_store
+    using_upstash = isinstance(store.backend, _BDUpstashBackend)
+    has_url = bool(BD_UPSTASH_URL and str(BD_UPSTASH_URL).strip())
+    has_token = bool(BD_UPSTASH_TOKEN and str(BD_UPSTASH_TOKEN).strip())
+    if has_url and has_token:
+        configuration = "Both configured"
+    elif has_url:
+        configuration = "REST token missing"
+    elif has_token:
+        configuration = "REST URL missing"
+    else:
+        configuration = "Not configured"
+
+    backend_name = "Upstash Redis" if using_upstash else "Local JSON file"
+    connected = False
+    if using_upstash:
+        if has_url and has_token:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        BD_UPSTASH_URL, json=["PING"],
+                        headers={"Authorization": f"Bearer {BD_UPSTASH_TOKEN}"},
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as response:
+                        # Never display the raw response, which might contain
+                        # a provider message or unexpected private data.
+                        if response.status == 200:
+                            payload = await response.json()
+                            connected = (isinstance(payload, dict)
+                                         and payload.get("result") == "PONG")
+            except (aiohttp.ClientError, asyncio.TimeoutError,
+                    ValueError, TypeError, OSError):
+                connected = False
+    else:
+        # Read-only path check: do not create or modify a snapshot merely
+        # because an administrator requested health diagnostics.
+        path = os.path.abspath(BD_DATA_FILE)
+        check = path if os.path.exists(path) else (os.path.dirname(path) or ".")
+        connected = bool(os.access(check, os.W_OK))
+
+    snapshot_ready = bool(store.ready)
+    status = str(store.status or "unknown")[:40]
+    pending = bool(store.pending_receipt)
+    allow_local = (
+        os.environ.get("CINNAMON_ALLOW_LOCAL_ACTIONS", "").strip().lower()
+        == "true"
+    )
+    # Same storage requirements as the actual conversational Catnip guard,
+    # plus readiness of the currently configured backend and no pending write.
+    transactions_ready = bool(
+        connected and snapshot_ready and status == "ready" and not pending
+        and (store.durable or allow_local)
+    )
+
+    if using_upstash and not (has_url and has_token):
+        detail = (
+            "Upstash is selected, but one REST setting is missing. "
+            "Add both UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN "
+            "in the bot service environment, then redeploy."
+        )
+    elif not using_upstash:
+        detail = (
+            "Cinnamon is using a local JSON file. "
+            "It is not reliably persistent on Render Free, so confirmed "
+            "Catnip actions remain blocked. Configure both Upstash REST "
+            "variables and migrate existing data before switching stores."
+        ) if connected else (
+            "The local snapshot path is not writable. "
+            "Check the filesystem and configured BOT_DATA_FILE."
+        )
+    elif not connected:
+        detail = (
+            "Upstash REST PING failed. Verify the bot service's URL, standard "
+            "write-capable token, and network access; never share these values."
+        )
+    elif not snapshot_ready:
+        detail = (
+            "Upstash responds, but Cinnamon's saved snapshot is not ready "
+            "or failed validation. Check private startup logs; do not reset data."
+        )
+    elif pending or status == "uncertain":
+        detail = (
+            "A storage write needs reconciliation. Avoid repeating Catnip "
+            "transactions until the store is healthy."
+        )
+    elif status == "conflict":
+        detail = (
+            "A concurrent writer or stale snapshot blocked writes. "
+            "Check that only one bot process is saving Cinnamon data."
+        )
+    else:
+        detail = (
+            "Upstash is reachable and the snapshot is loaded. "
+            "Confirmed Catnip changes can be attempted safely."
+        )
+
     return {
-        "backend": "local JSON file", "connected": file_writable,
-        "detail": (
-            "No UPSTASH_REDIS_REST_URL/TOKEN set. Data survives plain restarts but is "
-            "LIKELY WIPED on a Render redeploy (no persistent disk on the free tier)."
-        ) if file_writable else "Local file isn't writable — data isn't being saved at all right now.",
+        "backend": backend_name,
+        "connected": connected,  # Local means path appears writable, NOT durable.
+        "detail": detail,
+        "upstash_configuration": configuration,
+        "durable": bool(store.durable),
+        "snapshot_ready": snapshot_ready,
+        "snapshot_status": status,
+        "pending_transaction": pending,
+        "transactions_ready": transactions_ready,
+        "local_override": allow_local,
     }
