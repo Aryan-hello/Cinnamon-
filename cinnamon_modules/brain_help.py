@@ -107,6 +107,30 @@ def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_la
         body = ("Achievements record milestones from Cinnamon's features. Open the achievement "
                 "list to see the normal achievements and your progress.")
         paths = ("/achievement list",)
+    elif topic == "reminders":
+        body = ("I can DM you about a task at a future time. Try 'Cinnamon, remind me to check "
+                "quests in 30 minutes' or choose a date like 'tomorrow at 6 PM'. "
+                "Times use the configured server offset (" + timezone_label + "). "
+                "I cannot remind another member without their request.")
+        paths = ("/cinnamon-reminder create", "/cinnamon-reminder list", "/cinnamon-reminder cancel")
+    elif topic == "memory":
+        body = ("I save only ordinary preferences you intentionally ask me to keep: "
+                "games, stories, hobbies, or how you like explanations. "
+                "Your private notes belong to you in this server. "
+                "You can inspect, delete, disable, or request correction anytime.")
+        paths = ("/cinnamon-memory status", "/cinnamon-memory save", "/cinnamon-memory view",
+                 "/cinnamon-memory clear", "/cinnamon-memory enable", "/cinnamon-memory correct")
+    elif topic == "independence":
+        body = ("When allowed by an Administrator, I can choose whether to launch eligible "
+                "Hangry Games, pose an optional no-ping question, or stay quiet. "
+                "Gemini activity advice is optional and never gives me moderator powers.")
+        paths = ("/cinnamon-mind status", "/cinnamon-mind independence",
+                 "/cinnamon-mind prompts", "/cinnamon-mind reasoning")
+    elif topic == "incidents":
+        body = ("I don't judge who's right or automatically punish people for arguing. "
+                "Moderators with access to a channel can request a private chronological "
+                "excerpt review, then make their own decisions.")
+        paths = ("/cinnamon-incident review", "/cinnamon-incident policy")
     elif topic == "recall":
         body = ("`/recall` is an Administrator-only recovery scan of configured logs and snapshots. "
                 "It reconstructs only data those sources support; it cannot recover deleted "
@@ -149,7 +173,9 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
     lower = query.lower()
     simple_topic = lower.rstrip(" ?.! ")
     is_question = bool(_QUERY.match(query)) or simple_topic in {
-        "quests", "quest", "fishing", "stories", "achievements", "economy", "catnip", "help"
+        "quests", "quest", "fishing", "stories", "achievements", "economy", "catnip",
+        "help", "reminder", "reminders", "memory", "memories", "independence", "brain",
+        "incident", "incidents",
     }
     if not is_question:
         return None
@@ -170,7 +196,15 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
                     + " · ".join("`" + path + "`" for path in children[:8]))[:1900]
         return "*checks her command ledger* `" + root[:80] + "` is not registered. Use `/help` for Cinnamon's current commands."
 
-    if re.search(r"\bquests?\b", lower):
+    if re.search(r"\b(?:reminders?|remind\s+me)\b", lower):
+        topic = "reminders"
+    elif re.search(r"\b(?:memories|memory|remember\s+(?:things|people))\b", lower):
+        topic = "memory"
+    elif re.search(r"\b(?:independence|autonomy|cinnamon\s+mind)\b", lower):
+        topic = "independence"
+    elif re.search(r"\b(?:incident|disagreement|arguing)\b", lower):
+        topic = "incidents"
+    elif re.search(r"\bquests?\b", lower):
         topic = "quests"
     elif re.search(r"\b(?:fish|fishing)\b", lower):
         topic = "fishing"
@@ -183,7 +217,7 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
     elif re.search(r"\b(?:catnip|economy|wallet|shop)\b", lower):
         topic = "economy"
     elif simple_topic == "help" or re.fullmatch(r"(?:what|how).*(?:commands|features).*", lower):
-        return "*unrolls her command ledger* Use `/help` for the registered command directory, or ask me how quests, fishing, achievements, Catnip, or stories work."
+        return "*unrolls her command ledger* Use `/help` for registered commands, or ask about quests, reminders, memory, fishing, Catnip, stories, or my independent activities."
     else:
         return None
     return _feature_answer(topic, catalog, str(timezone_label)[:60])[:1900]
