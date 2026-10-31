@@ -75,22 +75,6 @@ def _cb_game_decision(guild_id, *, now=None, cancelled_at=0,
     return True, "active_conversation"
 
 
-@bot.listen("on_message")
-async def _cb_observe_message(message):
-    """Passive observations only; never sends messages or starts activities."""
-    if not message.guild or message.author.bot:
-        return
-    text = (message.content or "").strip()
-    if len(text) < 3 or text.startswith(("?", "/")):
-        return
-    gid = message.guild.id
-    if message.channel.id in disabled_channels[gid]:
-        return
-    if message.channel.id in set(category_log_channels.get(gid, {}).values()):
-        return
-    _cb_observe(gid, message.author.id)
-
-
 _cb_group = app_commands.Group(
     name="cinnamon-mind",
     description="Cinnamon's independent activity controls and diagnostics",
