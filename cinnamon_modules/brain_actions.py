@@ -162,7 +162,11 @@ def _wake_text(text: str) -> str:
     text = re.sub(
         r"^(?:(?:hey|hi|hello|yo|please)[,! ]+)?cinnamon\b\s*[,!:.]?\s*",
         "", text, count=1, flags=_FLAGS)
-    return re.sub(r"^please\s+", "", text, count=1, flags=_FLAGS).strip()
+    text = re.sub(
+        r"^(?:(?:could|can|would|will)\s+you\s+(?:please\s+)?|"
+        r"would\s+you\s+mind\s+|please\s+)",
+        "", text, count=1, flags=_FLAGS)
+    return text.strip()
 
 
 def _number(text: str, *, limit: int, label: str) -> int:
@@ -213,7 +217,8 @@ def parse_action(text: str, *, requester_id: int, target_ids: Sequence[int],
     clean = _wake_text(text)
     if re.match(r"^(?:remind\s+me\b|set\s+(?:a\s+)?reminder\b)", clean, _FLAGS):
         raise ActionValidationError(
-            "Personal reminders aren't implemented yet. I haven't scheduled a reminder.",
+            "I haven't scheduled a reminder. Say 'remind me to check quests in 30 minutes' "
+            "or use /cinnamon-reminder create.",
             code="unsupported_action")
     if re.match(r"^start\s+(?:(?:a|the)\s+)?(?:hangry\s+games|game)\b", clean, _FLAGS):
         raise ActionValidationError(
