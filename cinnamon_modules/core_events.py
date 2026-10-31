@@ -399,7 +399,7 @@ async def prefix_ask(ctx,*,prompt:str):
     ai_success=False
     async with ctx.typing():
         try:
-            result=await asyncio.to_thread(ask_gemini,ctx.channel.id,ctx.author.display_name,prompt,ctx.guild)
+            result=await asyncio.to_thread(ask_gemini,ctx.channel.id,ctx.author.display_name,prompt,ctx.guild,ctx.author.id)
             reply=result.get("reply") or "*paws at the screen* Try again?"
             ai_success=bool(result.get("reply"))
         except Exception:
@@ -427,7 +427,11 @@ async def _ch_maybe_handle(message, clean_content):
 
 
 async def _cinnamon_try_assistance(message, clean_content):
-    """Help and trusted actions precede mood, pranks, and display-only Gemini."""
+    """Trusted, acknowledged personal requests and help precede Gemini."""
+    if message.guild and await _cr_maybe_handle(message, clean_content):
+        return True
+    if message.guild and await _cmem_maybe_handle(message, clean_content):
+        return True
     if await _ch_maybe_handle(message, clean_content):
         return True
     if message.guild and await _ca_maybe_handle(message, clean_content):
@@ -711,6 +715,8 @@ async def on_message(message: discord.Message):
             and not clean_content.startswith(("?", "/"))
             and channel_id not in set(category_log_channels.get(guild_id, {}).values())):
         _cb_observe(guild_id, message.author.id)
+        # Store only a short-lived boolean quiet signal for serious topics.
+        _cx_observe(guild_id, clean_content)
 
     was_mentioned = bot.user is not None and bot.user in message.mentions and not message.mention_everyone
 
@@ -770,7 +776,7 @@ async def on_message(message: discord.Message):
                 async with message.channel.typing():
                     try:
                         result = await asyncio.to_thread(
-                            ask_gemini, message.channel.id, speaker, clean_content, message.guild
+                            ask_gemini, message.channel.id, speaker, clean_content, message.guild, message.author.id
                         )
                         ai_reply_success = bool(result.get("reply"))
                     except Exception as e:
