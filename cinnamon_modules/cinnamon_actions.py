@@ -16,7 +16,10 @@ from cinnamon_modules.brain_actions import (
     MAX_CATNIP, CONFIRM_SECONDS, SOURCE_MAX_AGE_SECONDS,
     RECEIPT_RETENTION_SECONDS,
 )
-from cinnamon_modules.brain_storage import CommitResult as _CACommitResult
+from cinnamon_modules.brain_storage import (
+    CommitResult as _CACommitResult,
+    describe_action_storage_blocker as _ca_describe_storage_blocker,
+)
 
 _CA_LOCKS = {}  # existing consent-based prank locks
 _CA_PENDING = {}  # (guild, requester) -> confirmation; deliberately expires on restart
@@ -63,6 +66,16 @@ def _ca_storage_ready():
     store = globals().get("bd_store")
     return bool(store and store.ready and (
         store.durable or _ca_os.environ.get("CINNAMON_ALLOW_LOCAL_ACTIONS", "").lower() == "true"))
+
+
+def _ca_storage_issue():
+    return _ca_describe_storage_blocker(
+        globals().get("bd_store"),
+        allow_local=(
+            _ca_os.environ.get("CINNAMON_ALLOW_LOCAL_ACTIONS", "").lower()
+            == "true"
+        ),
+    )
 
 
 def _ca_transactions_pending():
@@ -123,7 +136,10 @@ async def _ca_adjust_catnip(gid, requester_id, target_id, amount, add, source_id
     async with bd_store.lock:
         await bd_store.ensure_ready_locked()
         if not _ca_storage_ready():
-            return _ca_adjustment_result("unavailable", "Durable storage is unavailable; no new adjustment was made.")
+            return _ca_adjustment_result(
+                "unavailable",
+                _ca_storage_issue() or "Durable storage unavailable. No action was taken.",
+            )
         if conversational and not _ca_settings(gid).get("enabled", False):
             return _ca_adjustment_result("disabled", "Conversational actions are switched off.")
         guild = bot.get_guild(gid)
@@ -509,7 +525,10 @@ async def _ca_maybe_handle(message, clean_content):
     async with bd_store.lock:
         await bd_store.ensure_ready_locked()
     if not _ca_storage_ready():
-        await refuse("Durable storage isn't ready for a confirmed action. No action was taken.")
+        await refuse(
+            _ca_storage_issue() or
+            "Durable storage isn't ready for a confirmed action. No action was taken."
+        )
         return True
     created_at = getattr(message, "created_at", None)
     if not created_at or abs((_ca_datetime.datetime.now(_ca_datetime.timezone.utc) - created_at).total_seconds()) > SOURCE_MAX_AGE_SECONDS:
