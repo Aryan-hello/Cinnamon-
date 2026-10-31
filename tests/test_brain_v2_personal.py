@@ -29,6 +29,9 @@ def runtime_functions(path, names, namespace):
                  if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
                  and n.name in names]
     assert len(functions) == len(names), (path, names)
+    # Extract pure runtime behavior without registering real Discord commands.
+    for fn in functions:
+        fn.decorator_list = []
     exec(compile(ast.Module(body=functions, type_ignores=[]),
                  str(root), "exec"), namespace)
     return namespace
