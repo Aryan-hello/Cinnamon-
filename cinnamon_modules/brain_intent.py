@@ -20,6 +20,7 @@ class IntentPlan:
 # Deliberately narrow patterns: uncertain text remains ordinary conversation.
 _REMINDER = re.compile(
     r"^(?:remind\s+me\b|set\s+(?:a\s+)?reminder\b|"
+    r"(?:my\s+)?reminders?\b|"
     r"(?:list|show|cancel|snooze)\s+(?:my\s+)?reminders?\b|"
     r"what\s+reminders?\s+(?:do\s+i\s+have|are\s+pending)\b)",
     re.IGNORECASE,
@@ -32,7 +33,8 @@ _MEMORY = re.compile(
     re.IGNORECASE,
 )
 _HELP = re.compile(
-    r"^(?:(?:what|how|why|explain|help|tell\s+me|show\s+me)\b|"
+    r"^(?:(?:what|how|why|explain|help|tell\s+me|show\s+(?:me|my))\b|"
+    r"my\s+(?:day|progress|privacy|level|xp)\b|"
     r"can\s+you\s+(?:explain|help|tell|show)\b|"
     r"i\s+(?:do\s+not|don['’]t)\s+understand\b)",
     re.IGNORECASE,
