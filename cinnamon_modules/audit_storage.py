@@ -191,3 +191,27 @@ async def auditlogs_cmd(interaction: discord.Interaction, category: str = None, 
 # Future AI modules should call audit_event(guild_id, "ai", "response_generated",
 # actor_id=member_id, metadata={"model": GEMINI_MODEL, "memory_used": True}).
 # Never pass prompts, replies, private memory, credentials, or full conversation text.
+
+
+@bot.tree.command(name="auditstatus", description="Check Cinnamon's separate external activity store")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+async def auditstatus_cmd(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    status = await audit_storage_status()
+    if status.get("connected"):
+        message = (
+            "✅ External activity storage is reachable.\\n"
+            f"**Backend:** Upstash Redis\\n"
+            f"**Per-server cap:** {status['max_events']:,} events\\n"
+            f"**Retention:** {status['retention_days']} days\\n"
+            "This store is separate from Cinnamon's bot snapshot."
+        )
+    else:
+        message = (
+            "⚠️ External activity storage is not reachable.\\n"
+            f"**Configured:** {status.get('configured')}\\n"
+            f"**Reason:** {status.get('error', 'Not configured')}\\n"
+            "Discord logs and the bot snapshot are not modified by this check."
+        )
+    await interaction.followup.send(message, ephemeral=True)
