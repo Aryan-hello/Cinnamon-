@@ -47,6 +47,9 @@ class PrivateQuestionScopeTests(unittest.TestCase):
             "What is the capital of India?",
             "Tell me a joke",
             "explain /quests progress",
+            "How much Catnip does Alex have?",
+            "What is their level?",
+            "How many quests does <@123456789012345678> have?",
             "",
             "x",
         ):
