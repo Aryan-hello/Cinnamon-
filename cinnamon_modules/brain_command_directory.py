@@ -56,7 +56,13 @@ def prefix_entries(commands: Iterable[object]) -> list[DirectoryEntry]:
         aliases = tuple(str(x).strip() for x in getattr(command, "aliases", ()) or ()
                         if str(x).strip())
         if aliases:
-            extras = ", ".join("?" + a for a in aliases[:3])
+            # Subcommand aliases must keep their parent path. An alias
+            # 'todays' for 'quest daily' is '?quest todays', not '?todays'.
+            parents, _, _ = name.rpartition(" ")
+            extras = ", ".join(
+                "?" + (parents + " " if parents else "") + alias
+                for alias in aliases[:3]
+            )
             description = (description + "; " if description else "") + "also " + extras
         entries[path.lower()] = DirectoryEntry(path, description)
     return sorted(entries.values(), key=lambda x: x.path.casefold())
