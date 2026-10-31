@@ -6,7 +6,8 @@ Do not run this file directly.
 """
 
 flask_app = Flask(__name__)
-flask_app.secret_key = os.environ.get("DASHBOARD_SESSION_SECRET") or os.urandom(32)
+flask_app.secret_key = (os.environ.get("DASHBOARD_SECRET_KEY")
+                        or os.environ.get("DASHBOARD_SESSION_SECRET") or os.urandom(32))
 
 
 @flask_app.route("/")
@@ -31,8 +32,14 @@ BD_DATA_FILE = os.environ.get("BOT_DATA_FILE", "cinnamon_data.json")
 BD_UPSTASH_URL = os.environ.get("UPSTASH_REDIS_REST_URL")
 BD_UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN")
 BD_REDIS_KEY = "cinnamon_bot_data"
-_BD_SAVE_LOCK = asyncio.Lock()
-import tempfile as _bd_tempfile
+from cinnamon_modules.brain_storage import (
+    SnapshotStore as _BDSnapshotStore, LocalSnapshotBackend as _BDLocalBackend,
+    UpstashSnapshotBackend as _BDUpstashBackend, validate_snapshot as _bd_validate_snapshot,
+)
+bd_store = _BDSnapshotStore(
+    _BDUpstashBackend(BD_UPSTASH_URL, BD_UPSTASH_TOKEN, BD_REDIS_KEY)
+    if BD_UPSTASH_URL or BD_UPSTASH_TOKEN else _BDLocalBackend(BD_DATA_FILE))
+_BD_SAVE_LOCK = bd_store.lock
 
 
 def _bd_encode() -> dict:
@@ -82,6 +89,7 @@ def _bd_encode() -> dict:
 
 
 def _bd_decode(raw: dict):
+    _bd_validate_snapshot(raw)
     global warnings_data, welcome_config, goodbye_config, automod_config
     global xp_data, xp_per_message, xp_channels, reaction_role_ids, temp_bans, antiraid_config, case_counters
     global level_roles, active_giveaways, active_polls, ai_channels, disabled_channels, log_channels, category_log_channels
@@ -162,82 +170,44 @@ def _bd_decode(raw: dict):
     for _af_key_name in ("mystery_boxes", "crafted_counts", "mystery_opened", "black_market_purchases"):
         advanced_features_data.setdefault(_af_key_name, {})
 async def bd_load_data():
-    """Load persisted settings (warnings, welcome/goodbye, auto-mod config, XP,
-    reaction roles, temp-bans, anti-raid config). Uses Upstash Redis if
-    configured (survives redeploys), otherwise a local JSON file (restarts
-    only). Never raises — a missing/corrupt/unreachable store just means we
-    start fresh."""
-    if BD_UPSTASH_URL and BD_UPSTASH_TOKEN:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    BD_UPSTASH_URL, json=["GET", BD_REDIS_KEY],
-                    headers={"Authorization": f"Bearer {BD_UPSTASH_TOKEN}"},
-                ) as resp:
-                    resp.raise_for_status()
-                    payload = await resp.json()
-                    if not isinstance(payload, dict) or "result" not in payload or payload.get("error"):
-                        raise ValueError("Upstash did not return a successful GET response")
-                    result = payload["result"]
-            if result:
-                _bd_decode(json.loads(result))
-            return
-        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, ValueError) as e:
-            log.error(f"Failed to load bot data from Upstash: {e}")
-            return
+    """Load only a validated snapshot; an unavailable store never means fresh data."""
+    result = await bd_store.load()
+    if not result:
+        log.error("Bot snapshot load unavailable; persistence writes disabled")
+        return result
     try:
-        with open(BD_DATA_FILE, "r") as f:
-            _bd_decode(json.load(f))
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+        _bd_decode(result.snapshot)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        bd_store.disable("Snapshot application failed")
+        log.error("Bot snapshot validation failed; persistence writes disabled")
+        from cinnamon_modules.brain_storage import CommitResult
+        return CommitResult("unavailable", "Snapshot application failed")
+    return result
 
 
 async def bd_save_data():
-    """Persist settings. See bd_load_data for storage choice. Never raises —
-    a failed save shouldn't break a command."""
-    # Take each snapshot after the preceding write finishes. Otherwise an
-    # older, slower SET can overwrite newer balances and server settings.
-    async with _BD_SAVE_LOCK:
-        encoded = _bd_encode()
-        if BD_UPSTASH_URL and BD_UPSTASH_TOKEN:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        BD_UPSTASH_URL, json=["SET", BD_REDIS_KEY, json.dumps(encoded)],
-                        headers={"Authorization": f"Bearer {BD_UPSTASH_TOKEN}"},
-                    ) as resp:
-                        resp.raise_for_status()
-                        payload = await resp.json()
-                        if not isinstance(payload, dict) or payload.get("error") or payload.get("result") != "OK":
-                            raise ValueError("Upstash did not confirm the bot data save")
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
-                log.error(f"Failed to save bot data to Upstash: {e}")
-            return
-        # Never truncate the last good snapshot before its replacement is
-        # fully written. Keep the temporary file on the same filesystem so
-        # os.replace is atomic, and remove it if serialization or I/O fails.
-        temporary_path = None
+    """Persist an ordered snapshot and return a truthful, non-raising result.
+
+    Legacy callers may ignore the result. Trusted actions must inspect it. No
+    writes occur after a failed startup load, conflicting writer, or unresolved
+    business transaction. Reconciliation publishes live deltas before encoding.
+    """
+    async with bd_store.lock:
+        available = await bd_store.ensure_ready_locked()
+        if not available:
+            log.error("Bot snapshot save blocked (%s)", available.status)
+            return available
         try:
-            destination = os.path.abspath(BD_DATA_FILE)
-            with _bd_tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-8", dir=os.path.dirname(destination),
-                prefix=".cinnamon-", suffix=".tmp", delete=False,
-            ) as f:
-                temporary_path = f.name
-                json.dump(encoded, f)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(temporary_path, destination)
-        except (OSError, TypeError, ValueError) as e:
-            log.error(f"Failed to save bot data: {e}")
-        finally:
-            if temporary_path is not None:
-                try:
-                    os.unlink(temporary_path)
-                except FileNotFoundError:
-                    pass
-                except OSError as e:
-                    log.warning(f"Failed to remove temporary bot data file: {e}")
+            prune_receipts = globals().get("_ca_prune_all_receipts")
+            if callable(prune_receipts):
+                prune_receipts()
+            result = await bd_store.commit_locked(_bd_encode())
+        except (ValueError, TypeError, KeyError, AttributeError):
+            from cinnamon_modules.brain_storage import CommitResult
+            result = CommitResult("failed", "Snapshot encoding failed")
+        if not result:
+            log.error("Bot snapshot save failed (%s)", result.status)
+        return result
 
 
 def dashboard_state_provider() -> dict:
@@ -277,6 +247,10 @@ def dashboard_state_provider() -> dict:
         "hg_cog": hg,
         # Guild-scoped Cinnamon Mind, Wildlands, Hangry and merchant state.
         "advanced_features_data": advanced_features_data,
+        "brain_storage": {"ready": bd_store.ready, "durable": bd_store.durable,
+                          "status": bd_store.status, "pending": bool(bd_store.pending_receipt)},
+        "cinnamon_brain": advanced_features_data.setdefault("cinnamon_brain_v1", {}),
+        "cinnamon_trusted_actions": advanced_features_data.setdefault("cinnamon_actions_v2", {}),
         "cinnamon_social": advanced_features_data.setdefault("cinnamon_social_v1", {}),
         "cinnamon_actions": advanced_features_data.setdefault("cinnamon_actions_v1", {}),
         "cinnamon_moods": advanced_features_data.setdefault("cinnamon_mood_v1", {}),

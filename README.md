@@ -68,6 +68,7 @@ Automated tests cover formatting, selected game logic, and code contracts. They 
 
 ## Documentation
 
+- [Cinnamon Brain implementation, release status, and private-server test guide](docs/CINNAMON_BRAIN.md)
 - [Discord UI & interaction guidelines](docs/DISCORD_UI.md)
 - [Deployment and safety checks](CINNAMON_FINAL_DEPLOYMENT.md) — historical release notes may describe older mechanics; use current code as the source of truth.
 - [Chat actions and consent rules](CINNAMON_CHAT_ACTIONS.md)

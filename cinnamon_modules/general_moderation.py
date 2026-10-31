@@ -35,14 +35,14 @@ async def zoomies(interaction: discord.Interaction):
 # AI channel configuration (mods only)
 # ---------------------------------------------------------------------------
 
-@bot.tree.command(name="aichannel", description="Make Cinnamon reply to every message in this channel, no mention needed")
+@bot.tree.command(name="aichannel", description="Set Cinnamon's conversation channel; mention, reply, or call her name to chat")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def aichannel(interaction: discord.Interaction):
     ai_channels[interaction.guild.id] = interaction.channel.id
     await bd_save_data()
     await cinnamon_send(interaction, 
-        f"*claims {interaction.channel.mention} as her own* I'll chat here without being mentioned now!"
+        f"*claims {interaction.channel.mention} as her own* My conversation corner! Mention me, reply to me, or call my name when you want to chat."
     )
     await send_log(
         interaction.guild.id, title="⚙️ AI channel set", interaction=interaction,
@@ -50,7 +50,7 @@ async def aichannel(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name="disableaichannel", description="Turn off Cinnamon's always-on AI channel for this server")
+@bot.tree.command(name="disableaichannel", description="Remove Cinnamon's designated conversation channel")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def disableaichannel(interaction: discord.Interaction):
@@ -58,7 +58,7 @@ async def disableaichannel(interaction: discord.Interaction):
     await bd_save_data()
     if removed:
         await cinnamon_send(interaction, 
-            "*stretches and wanders off* Back to needing a mention or reply now."
+            "*stretches and wanders off* Conversation corner cleared. You can still mention me, reply to me, or call my name in enabled channels."
         )
         await send_log(interaction.guild.id, title="⚙️ AI channel disabled", interaction=interaction)
     else:

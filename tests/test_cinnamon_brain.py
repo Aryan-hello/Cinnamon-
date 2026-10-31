@@ -117,7 +117,7 @@ class CinnamonBrainPolicyTests(unittest.TestCase):
         personality = (ROOT / "cinnamon_modules" / "cinnamon_personality.py").read_text(
             encoding="utf-8")
         self.assertIn('"cinnamon_brain.py"', main)
-        self.assertIn("_cb_game_decision(", personality)
+        self.assertIn("_cb_game_eligibility(", personality)
         self.assertIn("last_unanswered_game_at", personality)
         self.assertIn('bot.tree.add_command(_cb_group)', BRAIN_SOURCE)
         self.assertIn("_cb_observe(guild_id, message.author.id)", (ROOT / "cinnamon_modules" / "core_events.py").read_text(encoding="utf-8"))

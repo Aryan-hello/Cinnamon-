@@ -14,7 +14,11 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+
+from cinnamon_modules.brain_storage import (
+    SnapshotStore, LocalSnapshotBackend, StorageRejected, StorageUncertain, validate_snapshot,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +39,7 @@ def persistence_runtime():
           "ECONOMY_ITEMS": copy.deepcopy(defaults), "math": math,
           "time": SimpleNamespace(time=lambda: 1000),
           "asyncio": asyncio, "json": json, "os": os,
-          "_bd_tempfile": tempfile, "_BD_SAVE_LOCK": asyncio.Lock(),
+          "_bd_validate_snapshot": validate_snapshot,
           "BD_UPSTASH_URL": None, "BD_UPSTASH_TOKEN": None,
           "BD_REDIS_KEY": "test_bot_data", "log": Mock()}
     for filename, wanted in (
@@ -156,181 +160,135 @@ class PersistenceBehaviorTests(unittest.TestCase):
         self.assertEqual(ns["ECONOMY_ITEMS"]["legacy_custom"]["price"], 1000)
 
 
-class FakeClientError(Exception):
-    pass
+class MemoryBackend:
+    durable = True
 
+    def __init__(self, raw=None):
+        self.raw = raw
+        self.writes = []
+        self.failure = None
+        self.read_failure = False
+        self.enter = None
 
-class FakeResponse:
-    def __init__(self, payload=None, *, http_error=None, json_error=None, enter=None):
-        self.payload = payload
-        self.http_error = http_error
-        self.json_error = json_error
-        self.enter = enter
+    async def read(self):
+        if self.read_failure:
+            raise StorageRejected("unavailable")
+        return self.raw
 
-    def __await__(self):
-        # aiohttp's request context supports both `await session.post(...)`
-        # and `async with session.post(...)`, including the baseline helper.
-        return self.__aenter__().__await__()
-
-    async def __aenter__(self):
+    async def compare_and_set(self, expected, candidate):
+        self.writes.append(candidate)
         if self.enter is not None:
             await self.enter()
-        return self
-
-    async def __aexit__(self, *args):
-        pass
-
-    def raise_for_status(self):
-        if self.http_error is not None:
-            raise self.http_error
-
-    async def json(self):
-        if self.json_error is not None:
-            raise self.json_error
-        return self.payload
+        if self.failure:
+            raise self.failure
+        if self.raw != expected:
+            return False
+        self.raw = candidate
+        return True
 
 
-class FakeSession:
-    def __init__(self, post):
-        self.post = post
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *args):
-        pass
-
-
-def remote_runtime(post):
+def storage_runtime(backend):
     ns = persistence_runtime()
-    ns.update({"BD_UPSTASH_URL": "https://storage.invalid",
-               "BD_UPSTASH_TOKEN": "test-placeholder",
-               "aiohttp": SimpleNamespace(
-                   ClientError=FakeClientError,
-                   ClientSession=lambda: FakeSession(post))})
+    ns["bd_store"] = SnapshotStore(backend)
     return ns
 
 
 class PersistenceWriteTests(unittest.IsolatedAsyncioTestCase):
     async def test_saves_wait_for_prior_write_and_capture_latest_state(self):
-        first_started = asyncio.Event()
-        release_first = asyncio.Event()
-        requests = []
-        stored = []
-
-        def post(url, **kwargs):
-            snapshot = json.loads(kwargs["json"][2])
-            requests.append(snapshot)
-
-            async def enter():
-                if len(requests) == 1:
-                    first_started.set()
-                    await release_first.wait()
-                stored.append(snapshot)
-
-            return FakeResponse({"result": "OK"}, enter=enter)
-
-        ns = remote_runtime(post)
+        first_started, release_first = asyncio.Event(), asyncio.Event()
+        backend = MemoryBackend()
+        async def enter():
+            if len(backend.writes) == 1:
+                first_started.set()
+                await release_first.wait()
+        backend.enter = enter
+        ns = storage_runtime(backend)
+        await ns["bd_load_data"]()
         ns["economy_balances"][(11, 42)] = 100
         first = asyncio.create_task(ns["bd_save_data"]())
-        await asyncio.wait_for(first_started.wait(), timeout=1)
+        await asyncio.wait_for(first_started.wait(), 1)
         ns["economy_balances"][(11, 42)] = 200
         second = asyncio.create_task(ns["bd_save_data"]())
         await asyncio.sleep(0)
-        try:
-            self.assertEqual(len(requests), 1, "The second request must wait for the first write")
-            self.assertFalse(second.done())
-            # Waiting saves must encode after acquiring the lock, rather than
-            # submit the stale 200-Catnip snapshot when they eventually run.
-            ns["economy_balances"][(11, 42)] = 300
-        finally:
-            release_first.set()
-            await asyncio.wait_for(asyncio.gather(first, second), timeout=1)
-        self.assertEqual([item["economy_balances"]["11:42"] for item in stored], [100, 300])
-        ns["log"].error.assert_not_called()
+        self.assertEqual(len(backend.writes), 1)
+        self.assertFalse(second.done())
+        ns["economy_balances"][(11, 42)] = 300
+        release_first.set()
+        results = await asyncio.wait_for(asyncio.gather(first, second), 1)
+        self.assertTrue(all(results))
+        self.assertEqual([json.loads(raw)["economy_balances"]["11:42"]
+                          for raw in backend.writes], [100, 300])
 
-    async def test_http_redis_and_invalid_json_failures_are_logged_and_lock_released(self):
-        responses = (
-            FakeResponse(http_error=FakeClientError("HTTP 503")),
-            FakeResponse({"error": "storage unavailable"}),
-            FakeResponse(json_error=ValueError("invalid JSON")),
-            FakeResponse({"result": "unexpected"}),
-            FakeResponse(["unexpected response shape"]),
-        )
-        for response in responses:
-            with self.subTest(response=response):
-                pending = [response, FakeResponse({"result": "OK"})]
-                ns = remote_runtime(lambda *args, **kwargs: pending.pop(0))
-                await ns["bd_save_data"]()
-                ns["log"].error.assert_called_once()
-                self.assertFalse(ns["_BD_SAVE_LOCK"].locked())
-                await ns["bd_save_data"]()
-                self.assertEqual(pending, [])
-                ns["log"].error.assert_called_once()
+    async def test_startup_read_failure_blocks_all_later_saves(self):
+        backend = MemoryBackend('{"economy_balances":{"11:42":5000}}')
+        backend.read_failure = True
+        ns = storage_runtime(backend)
+        ns["economy_balances"][(11, 42)] = 900
+        self.assertFalse(await ns["bd_load_data"]())
+        backend.read_failure = False
+        self.assertFalse(await ns["bd_save_data"]())
+        self.assertEqual(backend.writes, [])
+        self.assertEqual(ns["economy_balances"][(11, 42)], 900)
 
-    async def test_local_save_replaces_complete_json_and_cleans_temporary_file(self):
+    async def test_invalid_snapshot_does_not_partially_replace_live_state(self):
         ns = persistence_runtime()
         ns["economy_balances"][(11, 42)] = 5000
+        ns["welcome_config"][11] = {"channel_id": 7}
+        with self.assertRaises(ValueError):
+            ns["_bd_decode"]({"welcome_config": {"22": {}},
+                               "economy_balances": {"bad:key": 100}})
+        self.assertEqual(ns["welcome_config"], {11: {"channel_id": 7}})
+        self.assertEqual(ns["economy_balances"][(11, 42)], 5000)
+
+    async def test_local_commit_is_atomic_and_survives_real_reload(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "bot.json"
-            destination.write_text('{"previous": true}', encoding="utf-8")
-            ns["BD_DATA_FILE"] = str(destination)
-
-            def replace(source, target):
-                self.assertEqual(json.loads(destination.read_text()), {"previous": True})
-                self.assertEqual(json.loads(Path(source).read_text())["economy_balances"]["11:42"], 5000)
-                self.assertEqual(Path(source).parent, destination.parent)
-                os.replace(source, target)
-
-            ns["os"] = SimpleNamespace(path=os.path, fsync=os.fsync,
-                                        unlink=os.unlink, replace=Mock(side_effect=replace))
-            await ns["bd_save_data"]()
-
-            ns["os"].replace.assert_called_once()
-            self.assertEqual(json.loads(destination.read_text())["economy_balances"]["11:42"], 5000)
+            ns = storage_runtime(LocalSnapshotBackend(str(destination)))
+            await ns["bd_load_data"]()
+            ns["economy_balances"][(11, 42)] = 5000
+            self.assertTrue(await ns["bd_save_data"]())
+            restored = storage_runtime(LocalSnapshotBackend(str(destination)))
+            self.assertTrue(await restored["bd_load_data"]())
+            self.assertEqual(restored["economy_balances"][(11, 42)], 5000)
             self.assertEqual(list(Path(directory).iterdir()), [destination])
-            ns["log"].error.assert_not_called()
 
-    async def test_failed_local_write_keeps_last_good_snapshot(self):
-        for failure in ("serialize", "replace"):
-            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
-                ns = persistence_runtime()
-                destination = Path(directory) / "bot.json"
-                previous = '{"economy_balances": {"11:42": 5000}}'
-                destination.write_text(previous, encoding="utf-8")
-                ns["BD_DATA_FILE"] = str(destination)
+    async def test_failed_local_replacement_preserves_last_good_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "bot.json"
+            previous = '{"economy_balances":{"11:42":5000}}'
+            destination.write_text(previous)
+            ns = storage_runtime(LocalSnapshotBackend(str(destination)))
+            await ns["bd_load_data"]()
+            ns["economy_balances"][(11, 42)] = 8000
+            with patch("cinnamon_modules.brain_storage.os.replace", side_effect=OSError("disk full")):
+                result = await ns["bd_save_data"]()
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(destination.read_text(), previous)
+            self.assertEqual(list(Path(directory).iterdir()), [destination])
 
-                if failure == "serialize":
-                    def fail_dump(value, stream):
-                        stream.write('{"incomplete":')
-                        raise OSError("disk full")
-                    ns["json"] = SimpleNamespace(dump=fail_dump)
-                else:
-                    ns["os"] = SimpleNamespace(
-                        path=os.path, fsync=os.fsync, unlink=os.unlink,
-                        replace=Mock(side_effect=OSError("replace failed")))
-
-                await ns["bd_save_data"]()
-
-                self.assertEqual(destination.read_text(encoding="utf-8"), previous)
-                self.assertEqual(list(Path(directory).iterdir()), [destination])
-                ns["log"].error.assert_called_once()
-                self.assertFalse(ns["_BD_SAVE_LOCK"].locked())
-
-    async def test_remote_load_errors_leave_current_state_intact_and_are_logged(self):
-        for response in (
-            FakeResponse(http_error=FakeClientError("HTTP 503")),
-            FakeResponse({"error": "storage unavailable"}),
-            FakeResponse(json_error=ValueError("invalid JSON")),
-        ):
-            with self.subTest(response=response):
-                ns = remote_runtime(lambda *args, **kwargs: response)
-                ns["economy_balances"][(11, 42)] = 5000
-
-                await ns["bd_load_data"]()
-
-                self.assertEqual(ns["economy_balances"][(11, 42)], 5000)
-                ns["log"].error.assert_called_once()
+    async def test_reconciled_credit_is_published_before_queued_save_encodes(self):
+        backend = MemoryBackend()
+        ns = storage_runtime(backend)
+        await ns["bd_load_data"]()
+        ns["economy_balances"][(11, 42)] = 100
+        candidate = ns["_bd_encode"]()
+        candidate["economy_balances"]["11:42"] = 200
+        # Simulate an acknowledged-lost action, then a legacy purchase.
+        async def uncertain(expected, raw):
+            backend.raw = raw
+            raise StorageUncertain("ack lost")
+        backend.compare_and_set = uncertain
+        async with ns["bd_store"].lock:
+            result = await ns["bd_store"].commit_locked(candidate, receipt_id="action")
+        self.assertEqual(result.status, "uncertain")
+        ns["economy_balances"][(11, 42)] -= 20
+        def publish(result):
+            self.assertEqual(result.receipt_id, "action")
+            ns["economy_balances"][(11, 42)] += 100
+        ns["bd_store"].on_reconcile = publish
+        backend.compare_and_set = MemoryBackend.compare_and_set.__get__(backend)
+        self.assertTrue(await ns["bd_save_data"]())
+        self.assertEqual(json.loads(backend.raw)["economy_balances"]["11:42"], 180)
 
 
 if __name__ == "__main__":
