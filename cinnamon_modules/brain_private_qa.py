@@ -31,7 +31,7 @@ _SCOPE_PATTERNS = {
         re.IGNORECASE,
     ),
     "memory": re.compile(
-        r"\b(?:memory|memories|notes|preferences)\b", re.IGNORECASE,
+        r"\b(?:memory|memories|notes|preferences|remember about me)\b", re.IGNORECASE,
     ),
 }
 _ALL_PATTERN = re.compile(
