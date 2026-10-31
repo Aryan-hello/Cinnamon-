@@ -258,6 +258,22 @@ async def _cmem_maybe_handle(message, clean_content):
                             allowed_mentions=discord.AllowedMentions.none())
         return True
     if _cmem_re.search(
+            r"^(?:clear|delete|erase)\s+my\s+(?:memory|notes|preferences)[.! ]*$",
+            text, _cmem_re.I):
+        success, detail = await _cmem_remove(message.guild.id, message.author.id)
+        await message.reply(
+            ("🔒 " + detail) if success else ("⚠️ " + detail),
+            mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
+            r"^(?:edit|change|correct)\s+my\s+(?:memory|notes|preferences)[.! ]*$",
+            text, _cmem_re.I):
+        await message.reply(
+            "🐾 Use /cinnamon-memory view to find your note ID, then "
+            "/cinnamon-memory edit to correct it privately.",
+            mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
             r"^(?:forget|delete|remove)\s+(?:my\s+)?(?:saved\s+)?(?:preference|note|memory|notes)[.! ]*$",
             text, _cmem_re.I):
         await message.reply(
