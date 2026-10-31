@@ -428,9 +428,11 @@ async def _ch_maybe_handle(message, clean_content):
 
 async def _cinnamon_try_assistance(message, clean_content):
     """Trusted, acknowledged personal requests and help precede Gemini."""
-    if message.guild and await _cr_maybe_handle(message, clean_content):
+    reminder_handler = globals().get("_cr_maybe_handle")
+    memory_handler = globals().get("_cmem_maybe_handle")
+    if message.guild and callable(reminder_handler) and await reminder_handler(message, clean_content):
         return True
-    if message.guild and await _cmem_maybe_handle(message, clean_content):
+    if message.guild and callable(memory_handler) and await memory_handler(message, clean_content):
         return True
     if await _ch_maybe_handle(message, clean_content):
         return True
@@ -716,7 +718,9 @@ async def on_message(message: discord.Message):
             and channel_id not in set(category_log_channels.get(guild_id, {}).values())):
         _cb_observe(guild_id, message.author.id)
         # Store only a short-lived boolean quiet signal for serious topics.
-        _cx_observe(guild_id, clean_content)
+        context_observer = globals().get("_cx_observe")
+        if callable(context_observer):
+            context_observer(guild_id, clean_content)
 
     was_mentioned = bot.user is not None and bot.user in message.mentions and not message.mention_everyone
 
