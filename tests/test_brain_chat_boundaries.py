@@ -35,9 +35,10 @@ class OrdinaryChatBoundaryTests(unittest.TestCase):
             "never reveal another member's private data",
             self.prompt.lower(),
         )
+        normalized = " ".join(self.prompt.lower().split())
         self.assertIn(
             "even if it appears in channel conversation history",
-            self.prompt.lower(),
+            normalized,
         )
 
 
