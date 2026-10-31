@@ -71,14 +71,24 @@ async def _cmem_remove(gid, uid, note_id=None):
     async with _CMEM_LOCK:
         member = _cmem_member(gid, uid)
         before = _cmem_copy.deepcopy(member.get("notes", []))
+        tickets = _cmem_root(gid).setdefault("tickets", {})
+        prior_tickets = _cmem_copy.deepcopy(tickets) if note_id is None else None
         if note_id is None:
             member["notes"] = []
+            for ticket in tickets.values():
+                if ticket.get("uid") == int(uid) and ticket.get("status") == "open":
+                    ticket["status"] = "withdrawn"
+                    ticket["original"] = ""
+                    ticket["detail"] = ""
         else:
             member["notes"] = [n for n in before if n.get("id") != str(note_id).strip().lower()]
             if len(before) == len(member["notes"]):
                 return False, "I couldn't find that memory ID in your notes."
         if not await bd_save_data():
             member["notes"] = before
+            if prior_tickets is not None:
+                tickets.clear()
+                tickets.update(prior_tickets)
             return False, "Memory storage didn't confirm the change. Try again later."
         return True, ("All your Cinnamon notes were cleared." if note_id is None
                       else "That note was removed from your memory.")
@@ -88,11 +98,12 @@ async def _cmem_set_enabled(gid, uid, enabled):
     async with _CMEM_LOCK:
         member = _cmem_member(gid, uid)
         before = _cmem_copy.deepcopy(member)
+        tickets = _cmem_root(gid).setdefault("tickets", {})
+        old_tickets = _cmem_copy.deepcopy(tickets) if not enabled else None
         member["enabled"] = bool(enabled)
         if not enabled:
             member["notes"] = []
             # Remove open correction tickets containing that user's preferences.
-            tickets = _cmem_root(gid).setdefault("tickets", {})
             for ticket_id, ticket in list(tickets.items()):
                 if (ticket.get("uid") == int(uid) and
                         ticket.get("status") == "open"):
@@ -101,6 +112,9 @@ async def _cmem_set_enabled(gid, uid, enabled):
         if not await bd_save_data():
             member.clear()
             member.update(before)
+            if old_tickets is not None:
+                tickets.clear()
+                tickets.update(old_tickets)
             return False
         return True
 
@@ -152,18 +166,19 @@ async def _cmem_resolve(gid, ticket_id, approve):
                 return False, "That correction no longer passes validation."
             note["detail"] = fixed.detail
             note["saved_at"] = int(_cmem_time.time())
+        old_ticket = _cmem_copy.deepcopy(ticket)
         ticket["status"] = "approved" if approve else "declined"
         ticket["resolved_at"] = int(_cmem_time.time())
+        # Do not retain superseded private preference text in ticket history.
+        ticket["original"] = ""
+        ticket["detail"] = ""
         if not await bd_save_data():
             if old_note is not None:
                 note.clear()
                 note.update(old_note)
-            ticket["status"] = "open"
-            ticket.pop("resolved_at", None)
+            ticket.clear()
+            ticket.update(old_ticket)
             return False, "Storage didn't confirm the decision."
-        # Avoid retaining old private preference text in resolved tickets.
-        ticket["original"] = ""
-        ticket["detail"] = ""
         return True, "Correction approved." if approve else "Correction declined."
 
 
