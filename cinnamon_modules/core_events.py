@@ -451,18 +451,50 @@ async def _ch_maybe_handle(message, clean_content):
 
 
 async def _ch_private_data_redirect(message, clean_content):
-    """Keep member-owned account data out of public prefix-chat replies."""
+    """Answer a member's own account question privately from a verified snapshot."""
     classifier = globals().get("_me_classify_private_question")
-    if not callable(classifier) or not classifier(clean_content):
+    snapshot_builder = globals().get("_me_private_snapshot")
+    answer_builder = globals().get("_me_generate_private_answer")
+    if not callable(classifier) or not callable(snapshot_builder) or not callable(answer_builder):
         return False
-    await message.reply(
-        "🐾 For your privacy, I won't post personal account details in this channel. "
-        "Use the private `/cinnamon-me ask` command instead. It can answer questions "
-        "about your own Catnip, inventory, progress, quests, achievements, reminders, "
-        "and memory settings.",
-        mention_author=False,
-        allowed_mentions=discord.AllowedMentions.none(),
-    )
+    scopes = classifier(clean_content)
+    if not scopes:
+        return False
+    if message.guild is None:
+        await message.channel.send(
+            "🐾 For account questions, mention me in the server where your Cinnamon data lives. "
+            "I'll send the verified answer privately.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return True
+
+    snapshot, ready = snapshot_builder(message.guild.id, message.author.id, scopes)
+    if not ready:
+        await message.channel.send(
+            "⚠️ I can't verify the saved data right now, so I won't guess. Please try again later.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return True
+    try:
+        answer = await asyncio.to_thread(answer_builder, clean_content, snapshot)
+        if not answer:
+            raise ValueError("empty private answer")
+        await message.author.send(
+            answer[:1400], allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        # Never disclose account values in the originating channel when DM fails.
+        await message.channel.send(
+            "🔒 I prepared a private account answer, but couldn't DM you. "
+            "Please enable DMs from server members and ask me again.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except Exception as exc:
+        log.warning("Private natural-language Q&A failed (%s)", type(exc).__name__)
+        await message.channel.send(
+            "🐾 I couldn't verify an answer just now. Your data wasn't changed; please try again.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
     return True
 
 async def _cinnamon_brain_intent_model_call(prompt: str) -> str:
