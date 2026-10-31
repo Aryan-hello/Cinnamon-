@@ -61,6 +61,7 @@ def plan_intent(text: str) -> IntentPlan:
     if type(text) is not str:
         return IntentPlan("chat", "non_text_input", ("chat",))
     clean = _WAKE.sub("", text.strip(), count=1)
+    clean = re.sub(r"^please[,! ]+", "", clean, count=1, flags=re.IGNORECASE)
     if not clean:
         return IntentPlan("chat", "empty_request", ("chat",))
     if _REMINDER.search(clean):
