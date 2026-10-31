@@ -67,10 +67,25 @@ async def check_runtime():
         assert len(paths) == len(set(paths)), "Duplicate slash command path"
         root_names = [command.name for command in main.bot.tree.get_commands()]
         assert len(root_names) == len(set(root_names)), "Duplicate slash root"
-        for path in ("/help", "/hangrygames new", "/fishing start", "/fishing cast",
-                     "/recall", "/cinnamon stories", "/cinnamon-mind status",
-                     "/cinnamon-mind actions"):
+        for path in ("/help", "/ping", "/botstatus", "/hangrygames new",
+                     "/fishing start", "/fishing cast", "/recall",
+                     "/cinnamon stories", "/cinnamon-mind status",
+                     "/cinnamon-mind actions", "/economy collect",
+                     "/cinnamon-memory view", "/cinnamon-reminder create",
+                     "/cinnamon-incident policy"):
             assert path in paths, "Missing command " + path
+        # Read actual discord.py command objects. A small set of hardcoded
+        # slash-help pages previously exceeded Discord's 1024 field cap.
+        slash_pages = main._help_command_pages(
+            main._help_slash_entries(leaves), max_chars=940, group_roots=True)
+        assert all(len(page) <= 1024 for page in slash_pages)
+        assert slash_pages and len(slash_pages) >= 2
+        assert main.bot.get_command("help") is not None
+        prefix_entries = main._help_prefix_entries(main.bot.walk_commands())
+        assert any(entry.path == "?quest daily" for entry in prefix_entries)
+        assert any(entry.path == "?work" for entry in prefix_entries)
+        assert all(len(page) <= 1024 for page in
+                   main._help_command_pages(prefix_entries, max_chars=940))
         assert main.bot.get_command("ask") is not None
         assert main.bot.get_command("ai") is main.bot.get_command("ask")
         assert main.bot.get_command("chat") is main.bot.get_command("ask")
