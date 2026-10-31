@@ -7,7 +7,7 @@ import unittest
 
 from cinnamon_modules.brain_storage import (
     SnapshotStore, StorageRejected, StorageUncertain, UpstashSnapshotBackend,
-    LocalSnapshotBackend, validate_snapshot,
+    LocalSnapshotBackend, validate_snapshot, describe_action_storage_blocker,
 )
 
 
@@ -34,6 +34,49 @@ class Backend:
         if self.mode == "lost-after":
             raise StorageUncertain("timeout")
         return True
+
+
+class ActionStorageDiagnosticTests(unittest.IsolatedAsyncioTestCase):
+    async def test_local_storage_blocker_explains_render_without_unsafe_bypass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SnapshotStore(LocalSnapshotBackend(str(Path(tmp) / "bot.json")))
+            self.assertTrue(await store.load())
+            text = describe_action_storage_blocker(store)
+            self.assertIn("local file", text)
+            self.assertIn("UPSTASH_REDIS_REST_URL", text)
+            self.assertIn("Back up", text)
+            self.assertIsNone(describe_action_storage_blocker(store, allow_local=True))
+
+    async def test_partial_upstash_config_is_reported_without_secrets(self):
+        store = SnapshotStore(UpstashSnapshotBackend(
+            "https://example.invalid", "", "cinnamon_bot_data"))
+        text = describe_action_storage_blocker(store)
+        self.assertIn("incomplete", text)
+        self.assertIn("UPSTASH_REDIS_REST_TOKEN", text)
+        self.assertNotIn("example.invalid", text)
+
+    async def test_ready_durable_store_has_no_blocker(self):
+        store = SnapshotStore(Backend())
+        self.assertTrue(await store.load())
+        self.assertIsNone(describe_action_storage_blocker(store))
+
+    async def test_failed_initial_load_cannot_be_mistaken_for_connected_actions(self):
+        backend = Backend()
+        backend.fail_read = True
+        store = SnapshotStore(backend)
+        self.assertFalse(await store.load())
+        diagnostic = describe_action_storage_blocker(store)
+        self.assertIn("/datastatus check", diagnostic)
+        self.assertIn("No action was taken", diagnostic)
+
+    async def test_conflict_and_uncertain_results_have_safe_remediation(self):
+        store = SnapshotStore(Backend())
+        self.assertTrue(await store.load())
+        store.ready = False
+        store.status = "conflict"
+        self.assertIn("second bot", describe_action_storage_blocker(store))
+        store.status = "uncertain"
+        self.assertIn("unresolved", describe_action_storage_blocker(store))
 
 
 class SnapshotStoreTests(unittest.IsolatedAsyncioTestCase):

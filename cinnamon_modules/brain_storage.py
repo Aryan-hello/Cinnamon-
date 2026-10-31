@@ -417,3 +417,43 @@ class SnapshotStore:
         self.ready = True
         self.status, self.reason = "ready", result.reason
         return result
+
+
+
+def describe_action_storage_blocker(store, *, allow_local=False):
+    """Explain why a confirmed action is blocked; do not expose secrets.
+
+    Diagnostic only. Actual execution must continue to use store.ready and
+    the existing durable/explicit-local gate inside its transaction lock.
+    """
+    if store is None:
+        return "Storage has not initialized. Check the bot startup logs; no action was taken."
+    backend = getattr(store, "backend", None)
+    if isinstance(backend, UpstashSnapshotBackend) and (
+            not backend.url or not backend.token):
+        return ("Upstash configuration is incomplete. Set both "
+                "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in your "
+                "Render service Environment, then deploy. No action was taken.")
+    if not store.durable and not allow_local:
+        return ("Cinnamon is using a local file, not verified durable storage. "
+                "On Render, configure UPSTASH_REDIS_REST_URL and "
+                "UPSTASH_REDIS_REST_TOKEN before using confirmed actions. "
+                "Back up any existing local data before switching storage. "
+                "Do not enable the local-action bypass on temporary storage. "
+                "No action was taken.")
+    if store.status == "uncertain" or store.pending_receipt:
+        return ("A previous storage write has an unresolved outcome. "
+                "Cinnamon is blocking new actions to prevent duplicate changes. "
+                "Check private logs and reconcile storage before retrying. "
+                "No new action was taken.")
+    if store.status == "conflict":
+        return ("Storage changed outside this bot process (possible second bot "
+                "instance). Stop conflicting writers and investigate the saved "
+                "data before restarting; no action was taken.")
+    if not store.ready:
+        return ("Stored data has not loaded safely (status: " +
+                str(getattr(store, "status", "unavailable"))[:40] + "). "
+                "Run /datastatus check as an Administrator and inspect Render "
+                "startup logs. A working connection alone does not mean "
+                "balances loaded successfully. No action was taken.")
+    return None

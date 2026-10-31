@@ -819,7 +819,8 @@ datastatus_group = app_commands.Group(name="datastatus", description="Check or r
 @app_commands.guild_only()
 async def datastatus_check(interaction: discord.Interaction):
     status = await storage_status()
-    icon = "✅" if status["connected"] else "⚠️"
+    actions_ready = _ca_storage_ready()
+    icon = "✅" if status["connected"] and actions_ready else "⚠️"
     guild_warnings = sum(1 for g, _ in warnings_data.keys() if g == interaction.guild.id)
     hg_cog = bot.get_cog("HangryGamesCog")
     hg_game_num = hg_cog.game_counts.get(interaction.guild.id, 0) if hg_cog else 0
@@ -827,6 +828,12 @@ async def datastatus_check(interaction: discord.Interaction):
     embed.add_field(name="Backend", value=status["backend"], inline=True)
     embed.add_field(name="Connected", value="Yes" if status["connected"] else "No", inline=True)
     embed.add_field(name="Detail", value=status["detail"], inline=False)
+    embed.add_field(name="Confirmed Catnip & moderation actions",
+                    value="✅ Ready" if actions_ready else "⛔ Paused for data safety", inline=False)
+    if not actions_ready:
+        embed.add_field(name="How to resolve",
+                        value=_ca_storage_issue() or "Check startup logs and storage configuration.",
+                        inline=False)
     embed.add_field(name="This server's warnings tracked", value=str(guild_warnings), inline=True)
     embed.add_field(name="This server's Hangry Games count", value=str(hg_game_num), inline=True)
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
