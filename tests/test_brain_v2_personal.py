@@ -251,6 +251,7 @@ class MyDayPrivacyTests(unittest.IsolatedAsyncioTestCase):
         storage_before = copy.deepcopy((member_reminders, balances, quests))
         utils = SimpleNamespace(escape_markdown=lambda value: value)
         discord = SimpleNamespace(
+            Interaction=object,
             AllowedMentions=SimpleNamespace(none=lambda: None),
             utils=utils)
         namespace = {
