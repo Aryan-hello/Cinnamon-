@@ -678,6 +678,13 @@ async def on_message(message: discord.Message):
     if guild_id is not None and channel_id in disabled_channels[guild_id]:
         return
 
+    # Cinnamon Brain sees only chat that survived moderation and disabled-
+    # channel checks. Store aggregate activity timestamps, never message text.
+    if (guild_id is not None and len(clean_content) >= 3
+            and not clean_content.startswith(("?", "/"))
+            and channel_id not in set(category_log_channels.get(guild_id, {}).values())):
+        _cb_observe(guild_id, message.author.id)
+
     was_mentioned = bot.user is not None and bot.user in message.mentions and not message.mention_everyone
 
     # Check if this message is a reply to one of Cinnamon's own messages.
