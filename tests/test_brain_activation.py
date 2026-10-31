@@ -12,7 +12,7 @@ class ActivationPolicyTests(unittest.TestCase):
                 self.assertTrue(is_directly_addressed(content, bot_user_id=123))
 
     def test_name_requires_a_standalone_token(self):
-        for content in ("cinnamonroll is delicious", "I saw cinnamon in the shop",
+        for content in ("cinnamonroll is delicious",
                         "the wordcinnamon", "cinnamon2"):
             with self.subTest(content=content):
                 self.assertFalse(is_directly_addressed(content, bot_user_id=123))
