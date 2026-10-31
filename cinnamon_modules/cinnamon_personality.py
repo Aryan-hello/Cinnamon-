@@ -590,7 +590,7 @@ async def cinnamon_events_test_game(interaction: discord.Interaction):
         return await interaction.response.send_message(
             "🐈 Test lobby stayed quiet: " + reason.replace("_", " ") + ".", ephemeral=True)
     asyncio.create_task(_cp_auto_start(interaction.guild, channel, cog, explicit=True))
-    await interaction.response.send_message("🎮 Test lobby starting now! Two minutes to join. Only two role alerts.", ephemeral=True)
+    await interaction.response.send_message("🎮 Test lobby starting now! Two minutes to join, with up to two opt-in role alerts.", ephemeral=True)
 
 
 @_cp_group.command(name="cameos", description="Admin: allow rare non-pinging Cinnamon jealousy jokes")
