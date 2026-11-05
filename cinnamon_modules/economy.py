@@ -1015,31 +1015,38 @@ async def collect_cmd(interaction: discord.Interaction):
     await economy_collect(interaction)
 
 
-@economy_group.command(name="item-add", description="Admin: add an item directly to a member's inventory")
+@economy_group.command(name="item-add", description="Admin: add an item or Mystery Box to a member")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(member="Member receiving the item", item="Search item by name", quantity="Number of items to add")
+@app_commands.describe(member="Member receiving the reward", item="Search item name OR select Mystery Box", quantity="Number of items/boxes to add", box_tier="Mystery Box rarity (only for Mystery Box)")
+@app_commands.choices(box_tier=[app_commands.Choice(name=cfg["label"],value=t) for t,cfg in BOX_TIERS.items()])
 @app_commands.autocomplete(item=cinnamon_item_autocomplete)
-async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_commands.Range[int, 1, 10000] = 1):
-    item_id = item.lower().strip()
+async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_commands.Range[int, 1, 10000] = 1, box_tier: app_commands.Choice[str] | None = None):
+    guild_id=interaction.guild.id
+    raw=item.lower().strip()
+    # Box mode accepts a clear label, or the explicit box_tier selector.
+    is_box=raw in {"mystery box","mystery boxes","box","boxes","mystery_box"} or box_tier is not None
+    if is_box:
+        tier_name=box_tier.value if box_tier else "common"
+        before=_box_count(guild_id,member.id,tier_name)
+        _set_box_count(guild_id,member.id,before+quantity,tier_name)
+        await bd_save_data()
+        await economy_log(guild_id,title="🛠️ Admin Mystery Boxes added",fields=[("Admin",f"{interaction.user} ({interaction.user.id})"),("Member",f"{member} ({member.id})"),("Tier",tier_name.title()),("Added",f"+{quantity}"),("Before",before),("After",before+quantity)])
+        return await cinnamon_send(interaction,f"✅ Added **{quantity}× {BOX_TIERS[tier_name]['emoji']} {BOX_TIERS[tier_name]['label']} Mystery Box** to {member.mention}.",ephemeral=True)
+    item_id=raw
     if item_id not in ECONOMY_ITEMS:
-        matches = [k for k, v in ECONOMY_ITEMS.items() if v["name"].lower() == item_id]
-        if len(matches) == 1:
-            item_id = matches[0]
-    data = ECONOMY_ITEMS.get(item_id)
+        matches=[k for k,v in ECONOMY_ITEMS.items() if str(v.get("name","")).lower()==raw]
+        if len(matches)==1:item_id=matches[0]
+    data=ECONOMY_ITEMS.get(item_id)
     if data is None:
-        await cinnamon_send(interaction, "❌ That item doesn't exist. Use `/economy shop` first.", ephemeral=True)
-        return
-    inv = economy_inventory_for(interaction.guild.id, member.id)
-    max_per_person = int(data.get("max_per_person", 0))
-    current = int(inv.get(item_id, 0))
-    if max_per_person and current + quantity > max_per_person:
-        await cinnamon_send(interaction, f"❌ {member.mention} cannot hold more than **{max_per_person}** of this item.", ephemeral=True)
-        return
-    inv[item_id] = current + quantity
+        return await cinnamon_send(interaction,"❌ That item doesn't exist. Search a catalogue item, or choose **Mystery Box** and its tier.",ephemeral=True)
+    inv=economy_inventory_for(guild_id,member.id); maximum=int(data.get("max_per_person",0)); current=int(inv.get(item_id,0))
+    if maximum and current+quantity>maximum:
+        return await cinnamon_send(interaction,f"❌ {member.mention} cannot hold more than **{maximum}** of this item.",ephemeral=True)
+    inv[item_id]=current+quantity
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="🛠️ Admin item added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Member", f"{member} ({member.id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity added", f"+{quantity}"), ("Quantity before", current), ("Quantity after", inv[item_id]), ("Catnip balance", economy_balance(interaction.guild.id, member.id))])
-    await cinnamon_send(interaction, f"✅ Added **{quantity}× {data['emoji']} {data['name']}** to {member.mention}.", ephemeral=True)
+    await economy_log(guild_id,title="🛠️ Admin item added",fields=[("Admin",f"{interaction.user} ({interaction.user.id})"),("Member",f"{member} ({member.id})"),("Item",f"{data['name']} (`{item_id}`)"),("Quantity added",f"+{quantity}"),("Quantity before",current),("Quantity after",inv[item_id]),("Catnip balance",economy_balance(guild_id,member.id))])
+    await cinnamon_send(interaction,f"✅ Added **{quantity}× {data['emoji']} {data['name']}** to {member.mention}.",ephemeral=True)
 
 
 @economy_group.command(name="item-remove", description="Admin: remove an item from a member's inventory")
