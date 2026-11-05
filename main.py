@@ -320,7 +320,6 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
     or "" if nothing fits.
     """
     history = channel_memories[channel_id]
-    convo = "\n".join(f"{name}: {text}" for name, text in history)
 
     custom_emoji_names = (
         curated_emoji_names(
