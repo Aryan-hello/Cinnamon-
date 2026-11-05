@@ -23,7 +23,7 @@ def retrieve_relevant_memories(query: str, notes: Iterable[Mapping], *, guild_id
   remaining=max_chars-used
   if remaining<=0:break
   clipped=text[:remaining]
-  if clipped:result.append({"note_id":nid,"text":clipped,"relevance":score});used+=len(clipped)
+  if clipped:result.append({"note_id":nid,"text":clipped,"detail":clipped,"relevance":score});used+=len(clipped)
  return result
 
 def retrieve_memories(notes, *, guild_id:int, member_id:int, query:str, opted_out:bool=False, max_items:int=5):
