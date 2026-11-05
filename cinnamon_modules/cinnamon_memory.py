@@ -232,10 +232,68 @@ async def _cmem_maybe_handle(message, clean_content):
     if not message.guild:
         return False
     text = str(clean_content or "").strip()
-    if _cmem_re.search(r"\b(?:what do you remember about me|show my memories|forget everything about me)\b", text, _cmem_re.I):
+    text = _cmem_re.sub(
+        r"^(?:(?:hey|hi|hello|yo|please)[,! ]+)?cinnamon\s*[,!:.]?\s*(?:please\s+)?",
+        "", text, count=1, flags=_cmem_re.I,
+    )
+
+    # Natural-language privacy controls are always scoped to the current member.
+    # Only unambiguous opt-in/opt-out requests change settings. A vague "forget
+    # this" never guesses which saved preference should be deleted.
+    if _cmem_re.search(
+            r"^(?:turn|switch)\s+(?:my\s+)?memory\s+off[.! ]*$|"
+            r"^forget\s+everything\s+about\s+me[.! ]*$",
+            text, _cmem_re.I):
+        saved = await _cmem_set_enabled(message.guild.id, message.author.id, False)
+        reply = ("🔒 Memory is off and your saved preferences were cleared."
+                 if saved else
+                 "⚠️ Storage didn't confirm that change. Your previous memory setting remains.")
+        await message.reply(reply, mention_author=False,
+                            allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
+            r"^(?:turn|switch)\s+(?:my\s+)?memory\s+on[.! ]*$",
+            text, _cmem_re.I):
+        saved = await _cmem_set_enabled(message.guild.id, message.author.id, True)
+        reply = ("🧠 Memory is enabled. I'll only save preferences you explicitly ask me to keep."
+                 if saved else
+                 "⚠️ Storage didn't confirm that change. Your previous memory setting remains.")
+        await message.reply(reply, mention_author=False,
+                            allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
+            r"^(?:clear|delete|erase)\s+my\s+(?:memory|notes|preferences)[.! ]*$",
+            text, _cmem_re.I):
+        success, detail = await _cmem_remove(message.guild.id, message.author.id)
         await message.reply(
-            "🐈 Your notes are private! Use `/cinnamon-memory view` to inspect, "
-            "`/cinnamon-memory edit` to correct, or `/cinnamon-memory clear` to erase them.",
+            ("🔒 " + detail) if success else ("⚠️ " + detail),
+            mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
+            r"^(?:edit|change|correct)\s+my\s+(?:memory|notes|preferences)[.! ]*$",
+            text, _cmem_re.I):
+        await message.reply(
+            "🐾 Use /cinnamon-memory view to find your note ID, then "
+            "/cinnamon-memory edit to correct it privately.",
+            mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
+            r"^(?:forget|delete|remove)\s+(?:my\s+)?(?:saved\s+)?(?:preference|note|memory|notes)[.! ]*$",
+            text, _cmem_re.I):
+        await message.reply(
+            "🐾 I won't guess which note you mean. Use /cinnamon-memory view "
+            "then /cinnamon-memory forget note_id:<ID>, or /cinnamon-memory clear "
+            "to erase all your saved preferences.",
+            mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
+            r"^(?:show|view)\s+my\s+(?:memories|memory|notes|preferences)[.! ]*$",
+            text, _cmem_re.I) or _cmem_re.search(
+            r"^what\s+do\s+you\s+remember\s+about\s+me[?!. ]*$",
+            text, _cmem_re.I):
+        await message.reply(
+            "🐈 Your notes are private! Use /cinnamon-memory view to inspect, "
+            "/cinnamon-memory edit to correct, or /cinnamon-memory forget to remove one.",
             mention_author=False, allowed_mentions=discord.AllowedMentions.none())
         return True
     try:
