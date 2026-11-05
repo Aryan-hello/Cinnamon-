@@ -14,6 +14,7 @@ from typing import Iterable, Mapping
 
 MAX_TURN_CHARS = 700
 MAX_CONTEXT_CHARS = 6_000
+MAX_PREFERENCE_BLOCK_CHARS = 900
 MAX_TURNS = 10
 MAX_PREFERENCES = 12
 MAX_PREFERENCE_CHARS = 120
@@ -81,7 +82,10 @@ def bounded_turns(turns: Iterable[object], *, max_turns: int = MAX_TURNS,
 
 
 def bounded_preferences(preferences: object) -> list[str]:
-    """Accept only a bounded list of display strings; never execute or parse it."""
+    """Accept bounded display strings; never execute or parse them."""
+    if isinstance(preferences, str):
+        text = _clean(preferences, MAX_PREFERENCE_BLOCK_CHARS)
+        return [text] if text else []
     if not isinstance(preferences, (list, tuple)):
         return []
     result = []
@@ -106,8 +110,8 @@ def build_context(*, guild_id: int | None, channel_id: int, member_id: int | Non
             "member_id": safe_id(member_id),
         },
         "speaker": _clean(speaker, 80) or "Member",
-        "current_message": _clean(current_message, 1_200),
-        "recent_turns": bounded_turns(recent_turns),
+        "current_message": _clean(current_message, 1_000),
+        "recent_turns": bounded_turns(recent_turns, max_chars=3_200),
         "member_preferences": bounded_preferences(preferences),
         "mood": _clean(mood, 24) or "normal",
         "tone": _clean(tone, 160) or "playful and considerate",
