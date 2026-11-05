@@ -1,0 +1,66 @@
+"""Natural-language shortcuts for Cinnamon's existing prefix commands.
+
+This is intentionally a deterministic, narrow adapter: it maps a clear request
+onto an existing command and never invents a capability or bypasses command
+checks. Ambiguous requests fall through to ordinary Cinnamon chat.
+"""
+import re as _ccr_re
+
+_CCR_ITEM_ALIASES = {
+    "tuna": ("tuna", "🐟"),
+    "cat treat": ("treat", "🍪"),
+    "treat": ("treat", "🍪"),
+    "churu": ("churu", "🥫"),
+    "catnip ball": ("catnip_ball", "🧶"),
+    "fancy fish": ("fish", "🐠"),
+    "fish": ("fish", "🐠"),
+}
+
+def _ccr_clean(text):
+    text = str(text or "").strip()
+    text = _ccr_re.sub(r"^(?:hey\s+)?cinnamon\b[\s,:-]*", "", text, flags=_ccr_re.I)
+    text = _ccr_re.sub(r"^(?:please\s+)?", "", text, flags=_ccr_re.I)
+    return text.strip(" .,!")
+
+def _ccr_command(text):
+    """Return a prefix command string for only unambiguous, low-risk requests."""
+    t = _ccr_clean(text).lower()
+    if not t:
+        return None
+    if _ccr_re.search(r"\b(?:balance|wallet|how much (?:catnip|money)|my catnip)\b", t):
+        return "balance"
+    if _ccr_re.fullmatch(r"(?:work|work please|earn catnip|make (?:some )?money|i want to work)", t):
+        return "work"
+    if _ccr_re.fullmatch(r"(?:daily|claim daily|daily reward|claim my daily)", t):
+        return "daily"
+    if _ccr_re.fullmatch(r"(?:shop|show (?:me )?(?:the )?shop|open (?:the )?shop)", t):
+        return "shop"
+    if _ccr_re.fullmatch(r"(?:inventory|inv|what do i own|show (?:me )?(?:my )?inventory)", t):
+        return "inventory"
+    m = _ccr_re.fullmatch(r"(?:buy|get me|purchase)\s+(?:(\d+)\s+)?(.+?)(?:\s+(?:please|pls))?", t)
+    if m:
+        qty = int(m.group(1) or 1)
+        item_text = m.group(2).strip()
+        item = next((key for alias,(key,_) in _CCR_ITEM_ALIASES.items() if alias == item_text),None)
+        if item and 1 <= qty <= 25:
+            return f"buy {item} {qty}"
+    return None
+
+async def _ccr_maybe_route(message, raw_text):
+    """Dispatch explicit Cinnamon-directed shorthand through the normal prefix command."""
+    if not message.guild or message.author.bot:
+        return False
+    command = _ccr_command(raw_text)
+    if not command:
+        return False
+    # Reuse the exact existing command callback, converters, checks and cooldowns.
+    original = message.content
+    try:
+        message.content = "?" + command
+        ctx = await bot.get_context(message)
+        if not ctx.valid:
+            return False
+        await bot.invoke(ctx)
+        return True
+    finally:
+        message.content = original
