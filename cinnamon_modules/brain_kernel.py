@@ -125,7 +125,35 @@ def build_context(*, guild_id: int | None, channel_id: int, member_id: int | Non
 
 
 def render_context(context: Mapping[str, object]) -> str:
-    """Serialize context deterministically for the model as a clearly labeled data block."""
+    """Serialize context deterministically within the final JSON character budget."""
     if not isinstance(context, Mapping):
         raise TypeError("context must be a mapping")
-    return json.dumps(context, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    payload = dict(context)
+
+    def encode():
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+    rendered = encode()
+    # JSON escaping can expand hostile quote/backslash-heavy content. Trim oldest
+    # context first, then current input/preferences; never silently exceed budget.
+    turns = payload.get("recent_turns")
+    while len(rendered) > MAX_CONTEXT_CHARS and isinstance(turns, list) and turns:
+        turns.pop(0)
+        rendered = encode()
+    if len(rendered) > MAX_CONTEXT_CHARS and isinstance(payload.get("current_message"), str):
+        payload["current_message"] = payload["current_message"][:max(
+            0, len(payload["current_message"]) - (len(rendered) - MAX_CONTEXT_CHARS) - 100
+        )]
+        rendered = encode()
+    prefs = payload.get("member_preferences")
+    if len(rendered) > MAX_CONTEXT_CHARS and isinstance(prefs, list):
+        payload["member_preferences"] = [str(prefs[0])[:max(
+            0, len(str(prefs[0])) - (len(rendered) - MAX_CONTEXT_CHARS) - 100
+        )]] if prefs else []
+        rendered = encode()
+    if len(rendered) > MAX_CONTEXT_CHARS:
+        payload["recent_turns"] = []
+        payload["current_message"] = ""
+        payload["member_preferences"] = []
+        rendered = encode()
+    return rendered
