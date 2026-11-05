@@ -471,6 +471,8 @@ _CINNAMON_MODULES = (
     "cinnamon_moods.py",
     "cinnamon_personality.py",
     "cinnamon_actions.py",
+    # Deterministic conversational shortcuts into existing prefix command adapters.
+    "conversational_router.py",
     # Independent activity policy and admin controls; no new AI execution rights.
     "cinnamon_brain.py",
     # Private member memory, persistent reminders, and contextual boundaries.
