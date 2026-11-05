@@ -75,7 +75,7 @@ async def brain_task_cancel(interaction:discord.Interaction,task_id:str):
   return await interaction.followup.send("⚠️ Storage didn't confirm cancellation. Check task status before retrying.",ephemeral=True)
  await interaction.followup.send("✅ Task "+changed.task_id+" cancelled.",ephemeral=True)
 
-@_CBT_GROUP.command(name="approve",description="Approve your reviewed task plan for 5 minutes")
+@_CBT_GROUP.command(name="approve",description="Approve or renew your reviewed task plan for 5 minutes")
 @app_commands.guild_only()
 async def brain_task_approve(interaction:discord.Interaction,task_id:str):
  await interaction.response.defer(ephemeral=True)
@@ -83,7 +83,8 @@ async def brain_task_approve(interaction:discord.Interaction,task_id:str):
  try:
   current=get_task(state,task_id.strip(),guild_id=interaction.guild.id,member_id=interaction.user.id)
   if not current:raise TaskStoreError("Task not found")
-  if current.status!=TaskStatus.AWAITING_APPROVAL:raise TaskStoreError("Review and save a plan first")
+  if current.status not in {TaskStatus.AWAITING_APPROVAL,TaskStatus.READY}:raise TaskStoreError("Review and save a plan first")
+  if any(s.status in {StepStatus.RUNNING,StepStatus.UNCERTAIN,StepStatus.FAILED} for s in current.steps):raise TaskStoreError("Resolve failed or uncertain steps before approval")
   if not current.steps:raise TaskStoreError("The plan has no steps")
   now=_cbt_time.time()
   changed=update_task(state,task_id=current.task_id,guild_id=interaction.guild.id,member_id=interaction.user.id,expected_version=current.plan_version,transform=lambda t:_cbt_replace(t,status=TaskStatus.READY,approval_expires_at=now+300),now=now)
@@ -91,7 +92,7 @@ async def brain_task_approve(interaction:discord.Interaction,task_id:str):
   return await interaction.followup.send("🐾 Approval refused: "+str(exc),ephemeral=True)
  if not await bd_save_data():
   return await interaction.followup.send("⚠️ Storage did not confirm approval. Do not run this task yet.",ephemeral=True)
- await interaction.followup.send("✅ Task **"+changed.task_id+"** approved for 5 minutes. Approval is limited to this plan; use /brain-task run for each step.",ephemeral=True)
+ await interaction.followup.send("✅ Task **"+changed.task_id+"** approved for 5 minutes. Approval is limited to this plan; use /brain-task run for each step. You can renew it while the task remains READY.",ephemeral=True)
 
 @_CBT_GROUP.command(name="run",description="Execute one approved, reviewed task step")
 @app_commands.guild_only()
