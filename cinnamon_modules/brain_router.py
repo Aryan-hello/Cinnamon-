@@ -73,7 +73,7 @@ def classify_intent(value: object) -> RouteDecision:
     if _MEMORY.search(text):
         return RouteDecision(Intent.MEMORY, "explicit_memory_request", 0.98,
                              matched_signal="memory_phrase")
-    if _HELP.search(text) and (_COMMAND_TOKEN.search(text) or re.search(r"\\b(?:command|commands|slash command|prefix command)\\b", text, re.I)):
+    if _HELP.search(text) and (_COMMAND_TOKEN.search(text) or re.search(r"\b(?:command|commands|slash command|prefix command)\b", text, re.I)):
         return RouteDecision(Intent.HELP, "help_question", 0.85,
                              matched_signal="help_language")
     # Action route is only a candidate. Actual parser and Discord checks decide.
