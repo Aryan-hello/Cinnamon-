@@ -84,6 +84,32 @@ BOX_TIERS = {
     "legendary": {"label":"Legendary", "emoji":"🌠", "weight":0.9, "catnip":(5000,10000), "items":["catnip_crown","dream_wings","moon_jelly"], "materials":["captured_star"]},
     "mythical": {"label":"Mythical", "emoji":"✨", "weight":0.1, "catnip":(10000,25000), "items":["captured_star","dream_wings"], "materials":["dream_petals","moonstone"]},
 }
+EXPANSION_ITEMS = {
+    "moonstone": ("Moonstone", "💎", "Epic", 7000, "A moonlit crafting gem.", 0),
+    "crystal_fishbone": ("Crystal Fishbone", "🦴", "Uncommon", 1800, "A shimmering crafting ingredient.", 0),
+    "golden_paw_charm": ("Golden Paw Charm", "🐾", "Rare", 4500, "Material for a golden collar.", 0),
+    "dream_petals": ("Dream Petals", "🌸", "Legendary", 9000, "Rare petals from Cinnamon dreams.", 0),
+    "tuna_stew": ("Tuna Stew", "🍲", "Uncommon", 2200, "A warm fishy meal.", 0),
+    "pawberry_cake": ("Pawberry Cake", "🍰", "Rare", 4500, "A sweet celebration cake.", 0),
+    "honey_fish_treat": ("Honey Fish Treat", "🍯", "Uncommon", 2000, "A sticky-sweet fish snack.", 0),
+    "moon_jelly": ("Moon Jelly", "🪼", "Legendary", 11000, "A luminous premium treat.", 0),
+    "paw_treasure": ("Paw Treasure", "🧰", "Rare", 5000, "A collectible treasure chest.", 1),
+    "cinnamon_snow_globe": ("Cinnamon Snow Globe", "❄️", "Legendary", 12000, "A seasonal Cinnamon keepsake.", 1),
+    "captured_star": ("Captured Star", "🌟", "Mythical", 25000, "An impossibly rare collectible.", 1),
+    "golden_bell_collar": ("Golden Bell Collar", "🔔", "Rare", 6500, "A profile accessory with a golden bell.", 1),
+    "starlight_hat": ("Starlight Hat", "🎩", "Epic", 9000, "A magical profile accessory.", 1),
+    "dream_wings": ("Dream Wings", "🪽", "Mythical", 30000, "A mythical profile accessory.", 1),
+    "purr_potion": ("Purr Potion", "🧪", "Rare", 5000, "Disabled: XP boost effect is not wired yet.", 0),
+    "lucky_paw_clock": ("Lucky Paw Clock", "⏰", "Epic", 8000, "Disabled: reward boost effect is not wired yet.", 0),
+    "treasure_map": ("Treasure Map", "🗺️", "Legendary", 15000, "Disabled: treasure hunt is not wired yet.", 0),
+    "starry_elixir": ("Starry Elixir", "✨", "Mythical", 25000, "Disabled: XP effect is not wired yet.", 0),
+}
+for _item_id, (_name, _emoji, _rarity, _price, _description, _unique) in EXPANSION_ITEMS.items():
+    ECONOMY_ITEMS.setdefault(_item_id, {"name": _name, "emoji": _emoji, "rarity": _rarity, "price": _price, "description": _description, "max_per_person": 1 if _unique else 0, "shop_enabled": False})
+# Ensure every configured reward is present in the shared catalogue.
+for _tier_cfg in BOX_TIERS.values():
+    for _reward_id in _tier_cfg["items"] + _tier_cfg["materials"]:
+        ECONOMY_ITEMS.setdefault(_reward_id, {"name": _reward_id.replace("_", " ").title(), "price": 1000, "emoji": "🐾", "description": "A Cinnamon Mystery Box reward.", "max_per_person": 0, "shop_enabled": False})
 def _box_count(guild_id, user_id, tier="common"):
     raw=ADVANCED_FEATURES["mystery_boxes"].get(_af_key(guild_id,user_id),0)
     if isinstance(raw,dict): return max(0,int(raw.get(tier,0)))
@@ -97,21 +123,26 @@ def _set_box_count(guild_id,user_id,count,tier="common"):
     else: ADVANCED_FEATURES["mystery_boxes"].pop(key,None)
 
 
-async def advanced_maybe_award_box(guild_id: int, user, source: str, chance: float = 0.08):
-    """Award an earned mystery box from selected normal activities.
+MYSTERY_DROP_TIER_WEIGHTS = {"common": 78, "rare": 17, "epic": 4, "legendary": 0.9, "mythical": 0.1}
+MYSTERY_SOURCE_CHANCES = {"work": 0.08, "daily": 0.12, "weekly": 0.18, "message": 0.002, "default": 0.04}
 
-    Daily/work rewards use this directly; message activity has a much smaller
-    separate chance below.  No real-money purchase or gambling is involved.
-    """
-    if random.random() > chance:
+def _roll_box_tier():
+    tiers = list(MYSTERY_DROP_TIER_WEIGHTS)
+    return random.choices(tiers, weights=[MYSTERY_DROP_TIER_WEIGHTS[t] for t in tiers], k=1)[0]
+
+async def advanced_maybe_award_box(guild_id: int, user, source: str, chance: float | None = None):
+    """Award one tiered box using source-specific chances and rarity weights."""
+    source_key = str(source).lower().split()[0]
+    chance = MYSTERY_SOURCE_CHANCES.get(source_key, MYSTERY_SOURCE_CHANCES["default"]) if chance is None else max(0.0, min(1.0, float(chance)))
+    if random.random() >= chance:
         return False
-    _set_box_count(guild_id, user.id, _box_count(guild_id, user.id) + 1)
+    tier = _roll_box_tier()
+    _set_box_count(guild_id, user.id, _box_count(guild_id, user.id, tier) + 1, tier)
     await bd_save_data()
-    await economy_log(guild_id, title="🎁 Mystery Box earned", fields=[
-        ("User", f"{user} ({user.id})"), ("Source", source), ("Boxes", str(_box_count(guild_id, user.id)))
+    await economy_log(guild_id, title=f"{BOX_TIERS[tier]['emoji']} {BOX_TIERS[tier]['label']} Mystery Box earned", fields=[
+        ("User", f"{user} ({user.id})"), ("Source", source), ("Tier", tier.title()), ("Owned", str(_box_count(guild_id, user.id, tier)))
     ])
-    return True
-
+    return tier
 
 def _recipe_line(recipe_id, recipe):
     ingredients = []
@@ -258,14 +289,18 @@ async def _open_one(guild_id, user, tier="common"):
 
 @bot.tree.command(name="mystery", description="Open your earned Cinnamon Mystery Boxes")
 @app_commands.guild_only()
-@app_commands.describe(action="open or check", quantity="How many boxes to open")
+@app_commands.describe(action="open or check", quantity="How many boxes to open", tier="Mystery Box tier")
 @app_commands.choices(action=[app_commands.Choice(name="Open boxes", value="open"), app_commands.Choice(name="Check boxes", value="check")])
-async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Choice[str] | None = None, quantity: app_commands.Range[int, 1, 5] = 1):
+@app_commands.choices(tier=[app_commands.Choice(name="Common",value="common"),app_commands.Choice(name="Rare",value="rare"),app_commands.Choice(name="Epic",value="epic"),app_commands.Choice(name="Legendary",value="legendary"),app_commands.Choice(name="Mythical",value="mythical")])
+async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Choice[str] | None = None, quantity: app_commands.Range[int, 1, 5] = 1, tier: app_commands.Choice[str] | None = None):
     action_value = action.value if action else "check"
-    count = _box_count(interaction.guild.id, interaction.user.id)
+    tier_value = tier.value if tier else "common"
+    count = _box_count(interaction.guild.id, interaction.user.id, tier_value)
     if action_value == "check":
-        e = cinnamon_embed("🎁 Mystery Boxes", f"You currently have **{count}** unopened Mystery Box(es).", color=CINNAMON_ORANGE, user=interaction.user, footer="Cinnamon Mystery Boxes")
-        e.add_field(name="How to earn them", value="Daily rewards, work shifts, and normal server activity can occasionally award boxes.")
+        lines = [f"{cfg['emoji']} {cfg['label']}: **{_box_count(interaction.guild.id, interaction.user.id, name)}**" for name,cfg in BOX_TIERS.items()]
+        e = cinnamon_embed("🎁 Mystery Boxes", "\n".join(lines), color=CINNAMON_ORANGE, user=interaction.user, footer="Cinnamon Mystery Boxes")
+        e.add_field(name="Reward odds", value="Common: weighted Catnip/items/materials. Rare–Mythical: 55% Catnip • 35% tier items • 10% tier materials.")
+        e.add_field(name="How to earn them", value="Daily rewards, work shifts, and normal server activity can occasionally award boxes. Drop chances vary by source; higher tiers are much rarer.")
         await interaction.response.send_message(embed=cinnamon_polish_embed(e), ephemeral=True)
         return
     if count <= 0:
@@ -274,32 +309,41 @@ async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Cho
     quantity = min(quantity, count)
     rewards = []
     for _ in range(quantity):
-        rewards.append(await _open_one(interaction.guild.id, interaction.user))
-    _set_box_count(interaction.guild.id, interaction.user.id, count - quantity)
+        rewards.append(await _open_one(interaction.guild.id, interaction.user, tier_value))
+    _set_box_count(interaction.guild.id, interaction.user.id, count - quantity, tier_value)
     key = _af_key(interaction.guild.id, interaction.user.id)
     ADVANCED_FEATURES["mystery_opened"][key] = int(ADVANCED_FEATURES["mystery_opened"].get(key, 0)) + quantity
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="🎁 Mystery Box opened", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Opened", str(quantity)), ("Remaining", str(_box_count(interaction.guild.id, interaction.user.id)))])
+    await economy_log(interaction.guild.id, title=f"{BOX_TIERS[tier_value]['emoji']} {BOX_TIERS[tier_value]['label']} Mystery Box opened", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Opened", str(quantity)), ("Remaining", str(_box_count(interaction.guild.id, interaction.user.id, tier_value)))])
     e = cinnamon_embed("🎁 Mystery Box Results", "Cinnamon shook the box very aggressively.\n\n" + "\n".join(f"• {r}" for r in rewards), color=CINNAMON_GOLD, user=interaction.user, footer="Cinnamon Mystery Boxes")
-    e.add_field(name="Boxes remaining", value=f"**{_box_count(interaction.guild.id, interaction.user.id)}**")
+    e.add_field(name="Boxes remaining", value=f"**{_box_count(interaction.guild.id, interaction.user.id, tier_value)}**")
     await interaction.response.send_message(embed=cinnamon_polish_embed(e), allowed_mentions=discord.AllowedMentions.none())
 
 
 @bot.command(name="mystery", aliases=["boxes", "box"])
 @commands.guild_only()
-async def prefix_mystery(ctx, action: str = "check", quantity: int = 1):
-    count = _box_count(ctx.guild.id, ctx.author.id)
+async def prefix_mystery(ctx, action: str = "check", quantity: int = 1, tier: str = "common"):
+    tier = tier.lower().strip()
+    if tier not in BOX_TIERS:
+        return await ctx.reply("❌ Tier must be common, rare, epic, legendary, or mythical.", mention_author=False)
+    cfg = BOX_TIERS[tier]
+    count = _box_count(ctx.guild.id, ctx.author.id, tier)
     if action.lower() != "open":
-        return await ctx.reply(f"🎁 You have **{count}** Mystery Box(es). Use `?mystery open [quantity]` to open them.", mention_author=False)
+        lines = [f"{c['emoji']} {c['label']}: **{_box_count(ctx.guild.id, ctx.author.id, t)}**" for t,c in BOX_TIERS.items()]
+        return await ctx.reply("🎁 **Mystery Boxes**\n" + "\n".join(lines) + f"\n\nSelected: **{cfg['label']}** ({count})\nOdds: tiered reward pools; duplicate-limited collectibles convert to Catnip.", mention_author=False)
     if count <= 0:
-        return await ctx.reply("🎁 You don't have any Mystery Boxes yet.", mention_author=False)
-    quantity = max(1, min(int(quantity), min(5, count)))
-    rewards = [await _open_one(ctx.guild.id, ctx.author) for _ in range(quantity)]
-    _set_box_count(ctx.guild.id, ctx.author.id, count - quantity)
+        return await ctx.reply(f"🎁 You have no {cfg['label']} boxes.", mention_author=False)
+    try:
+        quantity = max(1, min(int(quantity), 5, count))
+    except (TypeError, ValueError):
+        return await ctx.reply("❌ Quantity must be a number from 1 to 5.", mention_author=False)
+    rewards = [await _open_one(ctx.guild.id, ctx.author, tier) for _ in range(quantity)]
+    _set_box_count(ctx.guild.id, ctx.author.id, count - quantity, tier)
     key = _af_key(ctx.guild.id, ctx.author.id); ADVANCED_FEATURES["mystery_opened"][key] = int(ADVANCED_FEATURES["mystery_opened"].get(key, 0)) + quantity
     await bd_save_data()
-    await ctx.reply("🎁 **Mystery Box Results**\n" + "\n".join(f"• {r}" for r in rewards) + f"\n\nBoxes remaining: **{_box_count(ctx.guild.id, ctx.author.id)}**", mention_author=False)
-
+    remaining = _box_count(ctx.guild.id, ctx.author.id, tier)
+    await economy_log(ctx.guild.id, title=f"{cfg['emoji']} {cfg['label']} box opened", fields=[("User", f"{ctx.author} ({ctx.author.id})"), ("Tier", tier.title()), ("Opened", str(quantity)), ("Remaining", str(remaining)), ("Rewards", "; ".join(rewards)[:900])])
+    await ctx.reply(f"{cfg['emoji']} **{cfg['label']} Mystery Box Results**\n" + "\n".join(f"• {r}" for r in rewards) + f"\n\nBoxes remaining: **{remaining}**", mention_author=False)
 
 # ---------------------------------------------------------------------------
 # Black Market
@@ -441,7 +485,7 @@ async def economy_do_work(guild_id: int, user):
         await achievement_check_all(guild_id, user.id)
     except Exception:
         pass
-    box = await advanced_maybe_award_box(guild_id, user, "work", chance=0.06)
+    box = await advanced_maybe_award_box(guild_id, user, "work", chance=0.08)
     await bd_save_data()
     await economy_log(guild_id, title="💼 Work completed", fields=[("User", f"{user} ({user.id})"), ("Earned", f"+{amount:,} Catnip"), ("Balance", f"{before+amount:,}"), ("Mystery Box", "Yes" if box else "No")])
     message = random.choice(WORK_MESSAGES).format(amount=amount)
