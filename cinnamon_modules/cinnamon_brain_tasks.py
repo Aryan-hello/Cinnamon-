@@ -6,7 +6,7 @@ from dataclasses import replace as _cbt_replace
 import discord
 from discord import app_commands
 from cinnamon_modules.brain_tasks import Task,TaskStatus,transition_task
-from cinnamon_modules.brain_task_store import create_task,get_task,update_task,prepare_execution,record_execution_result,TaskStoreError
+from cinnamon_modules.brain_task_store import create_task,get_task,update_task,prepare_execution,record_execution_result,prune_tasks,recover_interrupted_tasks,TaskStoreError
 from cinnamon_modules.brain_execution import evaluate_step,ExecutionGate
 from cinnamon_modules.brain_planner import parse_plan_proposal,PlanValidationError
 
@@ -170,7 +170,7 @@ async def brain_task_plan(interaction:discord.Interaction,task_id:str,plan_json:
  if not await bd_save_data():
   return await interaction.followup.send("⚠️ Storage didn't confirm the plan. Check status before retrying.",ephemeral=True)
  lines=[f"{i}. **{s.capability_id}** · ID {s.step_id} · deps: {', '.join(s.dependencies) or 'none'}" for i,s in enumerate(changed.steps,1)]
- await interaction.followup.send("🧠 **Plan saved as a proposal (not executable).**\n"+discord.utils.escape_markdown(changed.goal)+"\n"+("\n".join(lines) if lines else "No steps.")+"\nUse /brain-task review to inspect it. No actions were run.",ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+ await interaction.followup.send("🧠 **Plan saved as a proposal (not executable).**\n"+discord.utils.escape_markdown(changed.goal)+"\n"+("\n".join(lines) if lines else "No steps.")+"\nUse /brain-task review, then /brain-task approve. No actions were run.",ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
 
 @_CBT_GROUP.command(name="review",description="Review your task plan before any future approval")
 @app_commands.guild_only()
@@ -184,5 +184,43 @@ async def brain_task_review(interaction:discord.Interaction,task_id:str):
   try:args=_cbt_json.loads(s.arguments_json)
   except Exception:args={}
   rows.append(f"**{s.step_id} · {s.capability_id}**\nDeps: {', '.join(s.dependencies) or 'none'}\nArgs: `{_cbt_json.dumps(args,ensure_ascii=False)[:500]}`")
- await interaction.response.send_message("🔎 **Plan review · "+t.task_id+"**\nGoal: "+discord.utils.escape_markdown(t.goal)+"\n"+("\n".join(rows) if rows else "No plan steps.")+"\n\n⚠️ Review only. Cinnamon currently cannot execute Brain task steps.",ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+ await interaction.response.send_message("🔎 **Plan review · "+t.task_id+"**\nGoal: "+discord.utils.escape_markdown(t.goal)+"\n"+("\n".join(rows) if rows else "No plan steps.")+"\n\n⚠️ Review only. No step runs until you explicitly approve and invoke /brain-task run.",ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
 
+# Lifecycle maintenance: recover ambiguous in-flight effects once after reconnect,
+# and prune expired records periodically. No task is auto-executed.
+@tasks.loop(minutes=30)
+async def _cbt_maintenance():
+ root=advanced_features_data.get("cinnamon_brain_tasks_v1",{})
+ changed=False;now=_cbt_time.time()
+ for gid,members in list(root.items()):
+  if not isinstance(members,dict):continue
+  for uid,owner in list(members.items()):
+   if not isinstance(owner,dict):continue
+   snap=owner.get("brain_tasks")
+   if not isinstance(snap,dict) or not isinstance(snap.get("tasks"),dict):continue
+   try:
+    if prune_tasks({"brain_tasks":snap},now=now):changed=True
+   except TaskStoreError:
+    log.warning("Brain task pruning skipped for corrupt scope %s/%s",gid,uid)
+ if changed:
+  if not await bd_save_data():log.error("Brain task expiry pruning was not durably saved")
+
+async def _cbt_recover_on_ready():
+ root=advanced_features_data.get("cinnamon_brain_tasks_v1",{})
+ recovered=[]
+ now=_cbt_time.time()
+ for gid,members in list(root.items()):
+  if not isinstance(members,dict):continue
+  for uid,owner in list(members.items()):
+   if not isinstance(owner,dict):continue
+   snap=owner.get("brain_tasks")
+   if not isinstance(snap,dict) or not isinstance(snap.get("tasks"),dict):continue
+   try:recovered.extend((str(gid),str(uid),tid) for tid in recover_interrupted_tasks({"brain_tasks":snap},now=now))
+   except TaskStoreError:log.exception("Brain task recovery failed for scope %s/%s",gid,uid)
+ if recovered:
+  if await bd_save_data():
+   log.warning("Recovered %s interrupted Brain task(s) as UNCERTAIN; none retried",len(recovered))
+  else:log.error("Brain recovery changes were not durably saved")
+ if not _cbt_maintenance.is_running():_cbt_maintenance.start()
+
+bot.add_listener(_cbt_recover_on_ready,"on_ready")
