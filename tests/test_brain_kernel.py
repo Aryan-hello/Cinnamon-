@@ -25,7 +25,7 @@ class BrainKernelTests(unittest.TestCase):
 
     def test_turns_drop_empty_and_control_characters(self):
         result = bounded_turns([
-            ("Member", "  hello" + chr(0) + "\\n world  "),
+            ("Member", "  hello" + chr(0) + "\n world  "),
             ("Other", "  "),
         ])
         self.assertEqual(result, [{"speaker": "Member", "text": "hello world"}])
