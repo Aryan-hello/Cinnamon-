@@ -1005,8 +1005,51 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
     return result
 
 
+def _recall_merge_missing(live, saved):
+    """Fill gaps recursively without replacing current values."""
+    restored = 0
+    if isinstance(live, dict) and isinstance(saved, dict):
+        for key, value in saved.items():
+            if key not in live:
+                live[key] = value
+                restored += 1
+            elif isinstance(live[key], dict) and isinstance(value, dict):
+                restored += _recall_merge_missing(live[key], value)
+            elif isinstance(live[key], list) and isinstance(value, list):
+                before = len(live[key])
+                for item in value:
+                    if item not in live[key]:
+                        live[key].append(item)
+                restored += len(live[key]) - before
+            elif live[key] is None and value is not None:
+                live[key] = value
+                restored += 1
+    return restored
+
+
+async def recall_upstash_snapshot():
+    """Read the latest persisted snapshot directly and fill missing live state."""
+    result = await bd_store.load()  # GET the configured Upstash snapshot key
+    if not result:
+        return {"status": getattr(bd_store, "status", "unavailable"),
+                "reason": getattr(bd_store, "reason", "snapshot read failed"),
+                "keys_restored": 0, "fields_restored": 0}
+    saved = result.snapshot or {}
+    _bd_validate_snapshot(saved)
+    live = _bd_encode()
+    merged = dict(live)
+    fields_restored = _recall_merge_missing(merged, saved)
+    keys_restored = sum(1 for key in saved if key not in live)
+    _bd_validate_snapshot(merged)
+    _bd_decode(merged)
+    return {"status": "read", "reason": "Latest snapshot read and merged",
+            "keys_restored": keys_restored, "fields_restored": fields_restored}
+
+
 async def recall_guild_data(guild: discord.Guild) -> dict:
     """Scan all configured log channels, then merge only safely recoverable state."""
+    # Read latest persisted snapshot first, then merge missing fields only.
+    snapshot_recovery = await recall_upstash_snapshot()
     # The new Cinnamon Stuff log is recoverable even when its saved channel mapping vanished.
     social_recovered = await _cp_recover(guild)
     scan = await _scan_recovery_log_channels(guild)
@@ -1032,6 +1075,10 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
         "economy_snapshot_detail": snapshot_detail,
         "persistent_store": getattr(bd_store, "status", "unknown"),
         "persistent_store_durable": bool(getattr(bd_store, "durable", False)),
+        "upstash_snapshot_status": snapshot_recovery["status"],
+        "upstash_snapshot_keys_restored": snapshot_recovery["keys_restored"],
+        "upstash_snapshot_fields_restored": snapshot_recovery["fields_restored"],
+        "upstash_snapshot_reason": snapshot_recovery["reason"],
     })
     return scan
 
@@ -1066,6 +1113,7 @@ async def recall_cmd(interaction: discord.Interaction):
         f"• XP users restored/updated from absolute XP logs: **{result['xp_users_restored']}**\n"
         f"• Economy accounts filled from events/snapshot: **{result['economy_accounts']}**\n"
         f"• Economy snapshot: {result['economy_snapshot_detail']}\n"
+        f"• Main persisted snapshot: {result['upstash_snapshot_status']} (top-level keys filled: {result['upstash_snapshot_keys_restored']}, nested fields filled: {result['upstash_snapshot_fields_restored']})\n"
         f"• Hangry game counter: **#{result['hangry_game_count']}**; wins found: **{result['hangry_wins_seen']}**\n"
         f"• Cinnamon Stuff: **{result['cinnamon_people_restored']}** people and **{result['cinnamon_mood_restored']}** mood snapshots restored from **{result['cinnamon_snapshots_scanned']}** records\n\n"
         f"**Most common log types found**\n{title_summary}\n\n"
