@@ -22,7 +22,7 @@ _ACTION_REQUEST = re.compile(
 )
 
 _SCOPE_PATTERNS = {
-    "wallet": re.compile(r"\b(?:catnip|wallet|balance|inventory|items|tuna|treats?|churu|fancy fish|qp)\b", re.IGNORECASE),
+    "wallet": re.compile(r"\b(?:catnip|wallet|balance|inventory|items|tuna|treats?|churu|fancy fish|qp|broke|rich|poor|my money|my cash|cash balance|how much money|money do i have|money have i got)\b", re.IGNORECASE),
     "progress": re.compile(
         r"\b(?:progress|level|xp|quest points|quests?|achievements?|rank)\b",
         re.IGNORECASE,
