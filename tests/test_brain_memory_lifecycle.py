@@ -26,7 +26,9 @@ class MemoryLifecycleTests(unittest.TestCase):
   self.assertEqual(list_notes(state,guild_id=1,member_id=2),[])
   set_opt_out(state,guild_id=1,member_id=2,enabled=False)
   self.assertEqual(save_note(state,guild_id=1,member_id=2,note_id="n",category="games",detail="likes puzzles")["note_id"],"n")
- def test_empty_snapshot_returns_no_saved_notes(self):\n  self.assertEqual(list_notes({},guild_id=1,member_id=2),[])\n def test_corrupt_storage_fails_closed(self):
+ def test_empty_snapshot_returns_no_saved_notes(self): 
+  self.assertEqual(list_notes({},guild_id=1,member_id=2),[])
+ def test_corrupt_storage_fails_closed(self):
   with self.assertRaises(MemoryLifecycleError):list_notes({"brain_memory":"bad"},guild_id=1,member_id=2)
 
 if __name__=="__main__":unittest.main()
