@@ -129,6 +129,11 @@ def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_la
                 "It doesn't read your private messages or schedule anything by itself.")
         paths = ("/cinnamon-me today", "/cinnamon-me privacy",
                  "/cinnamon-reminder create", "/cinnamon-memory view")
+    elif topic == "progress":
+        body = ("Your private progress view combines your current level and XP, completed "
+                "quests, Quest Points, today's active quest progress, and achievements "
+                "already unlocked. It is read-only and never grants XP or rewards.")
+        paths = ("/cinnamon-me progress", "/rank", "/quests progress", "/achievement list")
     elif topic == "independence":
         body = ("When allowed by an Administrator, I can choose whether to launch eligible "
                 "Hangry Games, pose an optional no-ping question, or stay quiet. "
@@ -191,7 +196,7 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
     is_question = bool(_QUERY.match(query)) or simple_topic in {
         "quests", "quest", "fishing", "stories", "achievements", "economy", "catnip",
         "help", "reminder", "reminders", "memory", "memories", "independence", "brain",
-        "incident", "incidents", "today", "my day", "myday", "privacy",
+        "incident", "incidents", "today", "my day", "myday", "privacy", "progress", "my progress",
     }
     if not is_question:
         return None
@@ -214,6 +219,8 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
 
     if re.search(r"\b(?:my\s+day|my\s+schedule|today(?:'s)?\s+(?:plan|overview)|personal\s+dashboard|privacy)\b", lower):
         topic = "myday"
+    elif re.search(r"\b(?:my\s+progress|progress|level|xp|quest points|achievements)\b", lower):
+        topic = "progress"
     elif re.search(r"\b(?:reminders?|remind\s+me)\b", lower):
         topic = "reminders"
     elif re.search(r"\b(?:memories|memory|remember\s+(?:things|people))\b", lower):

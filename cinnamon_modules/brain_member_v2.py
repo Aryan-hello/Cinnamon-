@@ -68,3 +68,23 @@ def due_today(reminders, *, now: datetime, offset_minutes: int, limit: int = 5):
         if due_day == today:
             selected.append((due_at, item))
     return [item for _, item in sorted(selected, key=lambda row: row[0])[:max(0, min(limit, 10))]]
+
+
+def level_progress(xp, *, level_from_xp, total_xp_for_level, max_level):
+    """Summarize a member's existing XP without changing any saved data."""
+    if type(xp) is not int or xp < 0:
+        raise ValueError('xp must be a non-negative integer')
+    if type(max_level) is not int or max_level < 1:
+        raise ValueError('max_level must be a positive integer')
+    level = max(0, min(max_level, int(level_from_xp(xp))))
+    floor = int(total_xp_for_level(level))
+    ceiling = int(total_xp_for_level(level + 1)) if level < max_level else floor
+    if floor < 0 or ceiling < floor:
+        raise ValueError('level thresholds are invalid')
+    earned = max(0, xp - floor)
+    required = max(0, ceiling - floor)
+    return {'level': level, 'total_xp': xp,
+            'xp_into_level': min(earned, required) if required else 0,
+            'xp_for_level': required,
+            'xp_remaining': max(0, required - earned),
+            'max_level': level >= max_level}
