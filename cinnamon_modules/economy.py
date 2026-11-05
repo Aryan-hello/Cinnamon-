@@ -1018,10 +1018,10 @@ async def collect_cmd(interaction: discord.Interaction):
 @economy_group.command(name="item-add", description="Admin: add an item or Mystery Box to a member")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(member="Member receiving the reward", item="Search item name OR select Mystery Box", quantity="Number of items/boxes to add", box_tier="Mystery Box rarity (only for Mystery Box)")
-@app_commands.choices(box_tier=[app_commands.Choice(name=cfg["label"],value=t) for t,cfg in BOX_TIERS.items()])
+@app_commands.describe(member="Member receiving the reward", item="Search item name OR select Mystery Box", quantity="Number of items/boxes to add", box_tier="Mystery Box rarity (only for Mystery Box)", reward_tier="Add item to this Mystery Box reward pool instead", reward_type="Reward category (item/material)")
+@app_commands.choices(box_tier=[app_commands.Choice(name=cfg["label"],value=t) for t,cfg in BOX_TIERS.items()])\n@app_commands.choices(reward_tier=[app_commands.Choice(name=cfg["label"],value=t) for t,cfg in BOX_TIERS.items()])\n@app_commands.choices(reward_type=[app_commands.Choice(name="Item",value="items"),app_commands.Choice(name="Material",value="materials")])
 @app_commands.autocomplete(item=cinnamon_item_autocomplete)
-async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_commands.Range[int, 1, 10000] = 1, box_tier: app_commands.Choice[str] | None = None):
+async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_commands.Range[int, 1, 10000] = 1, box_tier: app_commands.Choice[str] | None = None, reward_tier: app_commands.Choice[str] | None = None, reward_type: app_commands.Choice[str] | None = None):
     guild_id=interaction.guild.id
     raw=item.lower().strip()
     # Box mode accepts a clear label, or the explicit box_tier selector.
@@ -1040,6 +1040,17 @@ async def economy_item_add_cmd(interaction: discord.Interaction, member: discord
     data=ECONOMY_ITEMS.get(item_id)
     if data is None:
         return await cinnamon_send(interaction,"❌ That item doesn't exist. Search a catalogue item, or choose **Mystery Box** and its tier.",ephemeral=True)
+    if reward_tier is not None:
+        chosen_pool=reward_type.value if reward_type else "items"
+        pool_key=f"{guild_id}:{reward_tier.value}"
+        pools=ADVANCED_FEATURES.setdefault("custom_box_rewards",{}).setdefault(pool_key,{"items":[],"materials":[]})
+        pool=pools.setdefault(chosen_pool,[])
+        if item_id in pool or item_id in BOX_TIERS[reward_tier.value][chosen_pool]:
+            return await cinnamon_send(interaction,"ℹ️ That reward is already in this Mystery Box pool.",ephemeral=True)
+        pool.append(item_id)
+        await bd_save_data()
+        await economy_log(guild_id,title="🎁 Mystery Box reward pool updated",fields=[("Admin",f"{interaction.user} ({interaction.user.id})"),("Tier",reward_tier.value.title()),("Pool",chosen_pool),("Item",f"{data.get('name',item_id)} ({item_id})")])
+        return await cinnamon_send(interaction,f"✅ Added **{data.get('emoji','🐾')} {data.get('name',item_id)}** to the **{BOX_TIERS[reward_tier.value]['label']} Mystery Box** {chosen_pool} pool.",ephemeral=True)
     inv=economy_inventory_for(guild_id,member.id); maximum=int(data.get("max_per_person",0)); current=int(inv.get(item_id,0))
     if maximum and current+quantity>maximum:
         return await cinnamon_send(interaction,f"❌ {member.mention} cannot hold more than **{maximum}** of this item.",ephemeral=True)
