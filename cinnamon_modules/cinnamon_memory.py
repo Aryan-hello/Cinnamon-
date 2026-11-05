@@ -43,8 +43,10 @@ def _cmem_context(gid, uid, query=""):
     if not member.get("enabled", True):
         return ""
     from cinnamon_modules.brain_memory_retrieval import retrieve_memories
-    notes = retrieve_memories(member.get("notes", []), guild_id=int(gid),
-        member_id=int(uid), query=str(query or ""), opted_out=False, max_items=5)
+    notes = retrieve_memories([{"id":n.get("id"),"detail":n.get("detail"),
+        "guild_id":int(gid),"member_id":int(uid)} for n in member.get("notes",[])],
+        guild_id=int(gid), member_id=int(uid), query=str(query or ""),
+        opted_out=False, max_items=5)
     return _cmem_safe_context(notes)
 
 
