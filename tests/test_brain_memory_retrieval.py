@@ -6,7 +6,7 @@ class MemoryRetrievalTests(unittest.TestCase):
    {"guild_id":1,"member_id":2,"note_id":"a","text":"prefers concise answers","active":True},
    {"guild_id":1,"member_id":3,"note_id":"b","text":"prefers concise answers","active":True},
    {"guild_id":9,"member_id":2,"note_id":"c","text":"prefers concise answers","active":True},
-   {"guild_id":1,"member_id":2,"note_id":"d","text":"likes detailed maths","active":True},
+   {"guild_id":1,"member_id":2,"note_id":"d","text":"likes detailed math","active":True},
    {"guild_id":1,"member_id":2,"note_id":"e","text":"deleted note","active":False}]
  def test_scope_filter_precedes_scoring(self):
   out=retrieve_relevant_memories("concise",self.notes,guild_id=1,member_id=2)
