@@ -310,3 +310,25 @@ for _ev,_fn in (("on_message",_audit_msg_create),("on_message_edit",_audit_msg_e
 bot.add_listener(_audit_prefix_command, "on_command")
 bot.add_listener(_audit_prefix_error, "on_command_error")
 bot.add_listener(_audit_interaction, "on_interaction")
+# Additional server configuration/activity events exposed by Discord Gateway.
+async def _audit_thread_update(b, a):
+    changed = [k for k in ("name", "archived", "locked", "invitable", "slowmode_delay") if getattr(b, k, None) != getattr(a, k, None)]
+    if changed and a.guild: await _audit_listener_safe(a.guild.id, "threads", "updated", target_id=a.id, channel_id=a.parent_id, metadata={"changed": ",".join(changed), "name": a.name})
+async def _audit_scheduled_create(e):
+    if e.guild: await _audit_listener_safe(e.guild.id, "events", "scheduled_event_created", target_id=e.id, metadata={"name": e.name, "status": str(e.status)})
+async def _audit_scheduled_delete(e):
+    if e.guild: await _audit_listener_safe(e.guild.id, "events", "scheduled_event_deleted", target_id=e.id, metadata={"name": e.name})
+async def _audit_scheduled_update(b, a):
+    changed = [k for k in ("name", "description", "start_time", "end_time", "status", "entity_type", "location") if getattr(b, k, None) != getattr(a, k, None)]
+    if changed and a.guild: await _audit_listener_safe(a.guild.id, "events", "scheduled_event_updated", target_id=a.id, metadata={"changed": ",".join(changed), "name": a.name})
+async def _audit_automod_action(e):
+    if e.guild: await _audit_listener_safe(e.guild.id, "automod", "rule_triggered", actor_id=getattr(e.member, "id", None), channel_id=getattr(e.channel, "id", None), metadata={"rule_id": e.rule_id, "action": str(e.action.type), "message_id": getattr(e.message, "id", None)})
+async def _audit_automod_rule_create(r):
+    if r.guild: await _audit_listener_safe(r.guild.id, "automod", "rule_created", target_id=r.id, metadata={"name": r.name, "enabled": r.enabled})
+async def _audit_automod_rule_delete(r):
+    if r.guild: await _audit_listener_safe(r.guild.id, "automod", "rule_deleted", target_id=r.id, metadata={"name": r.name})
+async def _audit_automod_rule_update(b, a):
+    changed = [k for k in ("name", "enabled", "event_type", "trigger_type", "actions", "exempt_roles", "exempt_channels") if getattr(b, k, None) != getattr(a, k, None)]
+    if changed and a.guild: await _audit_listener_safe(a.guild.id, "automod", "rule_updated", target_id=a.id, metadata={"changed": ",".join(changed), "name": a.name})
+for _ev, _fn in (("on_thread_update", _audit_thread_update), ("on_scheduled_event_create", _audit_scheduled_create), ("on_scheduled_event_delete", _audit_scheduled_delete), ("on_scheduled_event_update", _audit_scheduled_update), ("on_automod_action", _audit_automod_action), ("on_automod_rule_create", _audit_automod_rule_create), ("on_automod_rule_delete", _audit_automod_rule_delete), ("on_automod_rule_update", _audit_automod_rule_update)):
+    bot.add_listener(_fn, _ev)
