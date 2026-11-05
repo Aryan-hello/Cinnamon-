@@ -148,6 +148,8 @@ def render_context(context: Mapping[str, object]) -> str:
         payload["recent_turns"] = list(payload["recent_turns"])
     if isinstance(payload.get("member_preferences"), list):
         payload["member_preferences"] = list(payload["member_preferences"])
+    if isinstance(payload.get("available_capabilities"), list):
+        payload["available_capabilities"] = list(payload["available_capabilities"])
 
     def encode():
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
@@ -170,9 +172,13 @@ def render_context(context: Mapping[str, object]) -> str:
             0, len(str(prefs[0])) - (len(rendered) - MAX_CONTEXT_CHARS) - 100
         )]] if prefs else []
         rendered = encode()
+    if len(rendered) > MAX_CONTEXT_CHARS and isinstance(payload.get("available_capabilities"), list):
+        payload["available_capabilities"] = payload["available_capabilities"][:8]
+        rendered = encode()
     if len(rendered) > MAX_CONTEXT_CHARS:
         payload["recent_turns"] = []
         payload["current_message"] = ""
         payload["member_preferences"] = []
+        payload["available_capabilities"] = []
         rendered = encode()
     return rendered
