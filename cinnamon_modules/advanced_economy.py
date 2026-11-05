@@ -313,7 +313,7 @@ async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Cho
     key = _af_key(interaction.guild.id, interaction.user.id)
     ADVANCED_FEATURES["mystery_opened"][key] = int(ADVANCED_FEATURES["mystery_opened"].get(key, 0)) + quantity
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="🎁 Mystery Box opened", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Opened", str(quantity)), ("Remaining", str(_box_count(interaction.guild.id, interaction.user.id, tier_value)))])
+    await economy_log(interaction.guild.id, title=f"{BOX_TIERS[tier_value]['emoji']} {BOX_TIERS[tier_value]['label']} Mystery Box opened", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Opened", str(quantity)), ("Remaining", str(_box_count(interaction.guild.id, interaction.user.id, tier_value)))])
     e = cinnamon_embed("🎁 Mystery Box Results", "Cinnamon shook the box very aggressively.\n\n" + "\n".join(f"• {r}" for r in rewards), color=CINNAMON_GOLD, user=interaction.user, footer="Cinnamon Mystery Boxes")
     e.add_field(name="Boxes remaining", value=f"**{_box_count(interaction.guild.id, interaction.user.id, tier_value)}**")
     await interaction.response.send_message(embed=cinnamon_polish_embed(e), allowed_mentions=discord.AllowedMentions.none())
@@ -329,7 +329,7 @@ async def prefix_mystery(ctx, action: str = "check", quantity: int = 1, tier: st
     count = _box_count(ctx.guild.id, ctx.author.id, tier)
     if action.lower() != "open":
         lines = [f"{c['emoji']} {c['label']}: **{_box_count(ctx.guild.id, ctx.author.id, t)}**" for t,c in BOX_TIERS.items()]
-        return await ctx.reply("🎁 **Mystery Boxes**\\n" + "\\n".join(lines) + f"\\n\\nSelected: **{cfg['label']}** ({count})\\nOdds: tiered reward pools; duplicate-limited collectibles convert to Catnip.", mention_author=False)
+        return await ctx.reply("🎁 **Mystery Boxes**\n" + "\n".join(lines) + f"\n\nSelected: **{cfg['label']}** ({count})\nOdds: tiered reward pools; duplicate-limited collectibles convert to Catnip.", mention_author=False)
     if count <= 0:
         return await ctx.reply(f"🎁 You have no {cfg['label']} boxes.", mention_author=False)
     try:
@@ -342,7 +342,7 @@ async def prefix_mystery(ctx, action: str = "check", quantity: int = 1, tier: st
     await bd_save_data()
     remaining = _box_count(ctx.guild.id, ctx.author.id, tier)
     await economy_log(ctx.guild.id, title=f"{cfg['emoji']} {cfg['label']} box opened", fields=[("User", f"{ctx.author} ({ctx.author.id})"), ("Tier", tier.title()), ("Opened", str(quantity)), ("Remaining", str(remaining)), ("Rewards", "; ".join(rewards)[:900])])
-    await ctx.reply(f"{cfg['emoji']} **{cfg['label']} Mystery Box Results**\\n" + "\\n".join(f"• {r}" for r in rewards) + f"\\n\\nBoxes remaining: **{remaining}**", mention_author=False)
+    await ctx.reply(f"{cfg['emoji']} **{cfg['label']} Mystery Box Results**\n" + "\n".join(f"• {r}" for r in rewards) + f"\n\nBoxes remaining: **{remaining}**", mention_author=False)
 
 # ---------------------------------------------------------------------------
 # Black Market
