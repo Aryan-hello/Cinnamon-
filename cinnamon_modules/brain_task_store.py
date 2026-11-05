@@ -139,3 +139,19 @@ def record_execution_result(snapshot:dict, *, task_id:str,step_id:str,guild_id:i
  updated=_replace(current,status=target,steps=steps,updated_at=float(now),plan_version=current.plan_version+1)
  validate_task(updated);_records(snapshot)[task_id]=_encode(updated)
  return updated
+
+def recover_interrupted_tasks(snapshot:dict, *, now:float)->list[str]:
+ """Fail closed after process restart: RUNNING external effects become UNCERTAIN."""
+ records=_records(snapshot); recovered=[]
+ if type(now) not in (int,float):raise TaskStoreError("Invalid recovery timestamp")
+ for task_id,raw in list(records.items()):
+  task=_decode(raw)
+  running=[s for s in task.steps if s.status==StepStatus.RUNNING]
+  if task.status!=TaskStatus.RUNNING or not running:continue
+  steps=tuple(_replace(s,status=StepStatus.UNCERTAIN,
+      outcome_summary="Execution outcome uncertain after process restart; verify externally before proceeding")
+      if s.status==StepStatus.RUNNING else s for s in task.steps)
+  changed=_replace(task,status=TaskStatus.UNCERTAIN,steps=steps,
+      updated_at=float(now),plan_version=task.plan_version+1)
+  validate_task(changed);records[task_id]=_encode(changed);recovered.append(task_id)
+ return recovered
