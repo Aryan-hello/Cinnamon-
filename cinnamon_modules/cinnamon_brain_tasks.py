@@ -9,6 +9,7 @@ from cinnamon_modules.brain_tasks import Task,TaskStatus,transition_task
 from cinnamon_modules.brain_task_store import create_task,get_task,update_task,prepare_execution,record_execution_result,prune_tasks,recover_interrupted_tasks,TaskStoreError
 from cinnamon_modules.brain_execution import evaluate_step,ExecutionGate
 from cinnamon_modules.brain_planner import parse_plan_proposal,PlanValidationError
+from cinnamon_modules.brain_diagnostics import BrainDiagnostics,record_result
 
 _CBT_GROUP=app_commands.Group(name="brain-task",description="Your private Cinnamon Brain task tracker")
 _CBT_TTL=7*86400
@@ -122,6 +123,7 @@ async def brain_task_run(interaction:discord.Interaction,task_id:str,step_id:str
   if not await bd_save_data():raise TaskStoreError("The execution claim was not durably saved; no message was sent")
  except (TaskStoreError,ValueError,KeyError,TypeError) as exc:
   return await interaction.followup.send("🐾 Step refused: "+str(exc),ephemeral=True)
+ started=_cbt_time.monotonic()
  try:
   await channel.send(args["content"],allowed_mentions=discord.AllowedMentions.none())
   success=True;summary="Message sent to channel "+str(channel.id)
@@ -131,6 +133,7 @@ async def brain_task_run(interaction:discord.Interaction,task_id:str,step_id:str
   success=None;summary="Send outcome uncertain; this step will not be retried automatically"
  try:
   result=record_execution_result(state,task_id=current.task_id,step_id=step.step_id,guild_id=interaction.guild.id,member_id=interaction.user.id,expected_version=running.plan_version,success=success,summary=summary,now=_cbt_time.time())
+  _cbt_record_diagnostic(interaction.guild.id,"success" if success is True else "failure" if success is False else "uncertain",int((_cbt_time.monotonic()-started)*1000))
   saved=await bd_save_data()
  except Exception:
   result=None;saved=False
@@ -143,6 +146,27 @@ async def brain_task_run(interaction:discord.Interaction,task_id:str,step_id:str
   msg="⚠️ "+summary+". Check Discord before taking any further action."
  await interaction.followup.send(msg,ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
 
+
+
+def _cbt_record_diagnostic(guild_id,outcome,latency_ms):
+ root=advanced_features_data.setdefault("cinnamon_brain_diagnostics_v1",{})
+ raw=root.setdefault(str(guild_id),{})
+ metrics=BrainDiagnostics(**{k:raw.get(k,0) for k in ("total","successes","failures","uncertain","latency_total_ms","latency_samples")})
+ root[str(guild_id)]=record_result(metrics,outcome,latency_ms=latency_ms)
+
+@_CBT_GROUP.command(name="diagnostics",description="View aggregate Brain execution health")
+@app_commands.guild_only()
+async def brain_task_diagnostics(interaction:discord.Interaction):
+ raw=advanced_features_data.get("cinnamon_brain_diagnostics_v1",{}).get(str(interaction.guild.id),{})
+ total=int(raw.get("total",0));samples=int(raw.get("latency_samples",0))
+ avg=(int(raw.get("latency_total_ms",0))//samples if samples else 0)
+ await interaction.response.send_message(
+  "📊 **Brain execution diagnostics (this server)**\\n"
+  f"Executions: **{total}** · Success: **{int(raw.get('successes',0))}** · "
+  f"Failures: **{int(raw.get('failures',0))}** · Uncertain: **{int(raw.get('uncertain',0))}**\\n"
+  f"Average adapter latency: **{avg} ms**\\n"
+  "Only aggregate counts and latency are stored; no message content is retained.",
+  ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
 
 bot.tree.add_command(_CBT_GROUP)
  
