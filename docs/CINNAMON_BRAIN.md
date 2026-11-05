@@ -2,25 +2,25 @@
 
 ## Release status
 
-This is the first implementation increment of [Project Cinnamon's roadmap](https://app.notion.com/p/40adf5931d2381f4ac00cff68d650eb9).
-It builds on [Brain v1, PR #14](https://github.com/Aryan-hello/Cinnamon-/pull/14)
-and reuses [the persistence/dashboard fixes in PR #13](https://github.com/Aryan-hello/Cinnamon-/pull/13).
-Neither prerequisite is silently merged into `main` by this work.
+The foundation is now merged into `main`: Brain v1 (#14), trusted actions (#15),
+and Brain Phase 2 (#16). This branch adds the Brain Kernel v3 structured-context
+layer and its regression tests. **Merged/offline-tested is not live-verified or
+release-ready.** See the Notion vision and the release gates below.
 
-| Capability | Planned | Implemented | Offline tested | Live tested | Ready for release |
-| --- | --- | --- | --- | --- | --- |
-| Typed Catnip/timeout actions and confirmations | Yes | Yes | Yes | No | No |
-| Registry-backed command and feature assistance | Yes | Yes | Yes | No | No |
-| Checked snapshots, action receipts, uncertain-write recovery | Yes | Yes | Yes | No | No |
-| Brain v1 scheduler boundary fixes and dashboard switches | Yes | Yes | Yes | No | No |
-| Persistent reminders | Next increment | No | No | No | No |
-| Persistent private member memory and correction tickets | Later phase | No | No | No | No |
-| Semantic serious-discussion/incident assistance | Later phase | No | No | No | No |
-| Expanded personality/emoji system and authored stories | Later phase | No | No | No | No |
+| Capability | In main | Offline tested | Live tested | Release-ready |
+| --- | --- | --- | --- | --- |
+| Engagement-aware independent activity + admin pause | Yes | Yes | No | No |
+| Typed Catnip/timeout actions + confirmations | Yes | Yes | No | No |
+| Registry-backed command/feature help | Yes | Yes | No | No |
+| Checked snapshots, action receipts, uncertain-write recovery | Yes | Yes | No | No |
+| Persistent self-reminders | Yes | Yes | No | No |
+| Explicit private preference memory + correction tickets | Yes | Yes | No | No |
+| Serious-context quiet boundary + human incident review | Yes | Yes | No | No |
+| Optional aggregate-only activity adviser (OFF by default) | Yes | Yes | No | No |
+| Structured context kernel (this branch) | PR pending | CI pending | No | No |
 
-The private Discord/Render/Upstash acceptance checks below are release gates.
-Source compilation, mocked Discord interactions, and temporary-file persistence
-do not establish production readiness.
+Private Discord/Render/Upstash acceptance checks remain release gates. Source
+compilation and mocked/offline tests do not establish production readiness.
 
 ## Audit and architecture
 
@@ -226,3 +226,28 @@ delivery. Persistent member memory follows separately, including disclosure,
 guild/member isolation, opt-out, access/deletion, private correction tickets, and
 retention. Semantic incident assistance, richer personality/emoji selection, and
 additional authored story content remain later work.
+
+## Brain Kernel v3 — unified conversational context
+
+The kernel in `cinnamon_modules/brain_kernel.py` builds a deterministic context
+object for each Gemini reply: guild/channel/member scope, current message,
+bounded recent turns, that member's explicitly saved preferences, current mood,
+conversation tone, and serious-context signal. It is pure Python and cannot
+access Discord, storage, Gemini, or action tools.
+
+The existing `ask_gemini` adapter now serializes this object into the model
+prompt. All member/history/preference fields are explicitly framed as untrusted
+DATA, not instructions or authorization. Limits are enforced before prompting:
+10 recent turns, 700 characters per turn, 3,200 characters for the turn block,
+1,000 characters for the current message, and 900 for the preference block.
+The current member's notes are still fetched only from their own guild-scoped
+memory. The original character system prompt and JSON reply contract remain.
+
+This is a context/coordination improvement, not a trained model or human-like
+consciousness. It makes the runtime's inputs more explicit and testable. The
+next architectural layers should be (in order): explicit intent routing, an
+explainable unified decision record, persistent relationship/memory controls
+with member transparency, and safe capability execution through the existing
+trusted dispatcher. No layer may bypass permissions or turn model prose into
+commands.
+
