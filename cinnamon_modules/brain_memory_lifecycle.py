@@ -13,7 +13,8 @@ def _scope(guild_id,member_id):
 def _container(snapshot,create=False):
  if not isinstance(snapshot,dict):raise MemoryLifecycleError("Snapshot unavailable")
  data=snapshot.get("brain_memory")
- if data is None and create:
+ if data is None:
+  if not create:return {"members":{},"opt_out":[]}
   data={"members":{},"opt_out":[]};snapshot["brain_memory"]=data
  if not isinstance(data,dict) or not isinstance(data.get("members"),dict) or not isinstance(data.get("opt_out"),list):
   raise MemoryLifecycleError("Memory storage unavailable or corrupt")
