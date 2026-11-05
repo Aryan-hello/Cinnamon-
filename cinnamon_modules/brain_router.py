@@ -52,9 +52,11 @@ _HELP = re.compile(
     r"explain|help\s+me\s+(?:with|use)|show\s+me\s+how)\b",
     re.I,
 )
+_COMMAND_TOKEN = re.compile(r"(?:^|\s)/[a-z][\w-]{1,30}\b", re.I)
 _ACTION = re.compile(
-    r"^\s*(?:please\s+)?(?:add|give|grant|remove|take|subtract|"
-    r"mute|timeout|unmute|untimeout)\b",
+    r"^\s*(?:please\s+)?(?:(?:add|give|grant|remove|take|subtract)\b"
+    r"(?=.*(?:catnip|<@|@\w))|(?:mute|timeout|unmute|untimeout)\b"
+    r"(?=.*(?:<@|@\w)))",
     re.I,
 )
 
