@@ -448,18 +448,43 @@ async def _ch_maybe_handle(message, clean_content):
     return True
 
 
+async def _ch_private_data_redirect(message, clean_content):
+    """Keep member-owned account data out of public prefix-chat replies."""
+    classifier = globals().get("_me_classify_private_question")
+    if not callable(classifier) or not classifier(clean_content):
+        return False
+    await message.reply(
+        "🐾 For your privacy, I won't post personal account details in this channel. "
+        "Use the private `/cinnamon-me ask` command instead. It can answer questions "
+        "about your own Catnip, inventory, progress, quests, achievements, reminders, "
+        "and memory settings.",
+        mention_author=False,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+    return True
+
 async def _cinnamon_try_assistance(message, clean_content):
-    """Trusted, acknowledged personal requests and help precede Gemini."""
-    reminder_handler = globals().get("_cr_maybe_handle")
-    memory_handler = globals().get("_cmem_maybe_handle")
-    if message.guild and callable(reminder_handler) and await reminder_handler(message, clean_content):
-        return True
-    if message.guild and callable(memory_handler) and await memory_handler(message, clean_content):
-        return True
-    if await _ch_maybe_handle(message, clean_content):
-        return True
-    if message.guild and await _ca_maybe_handle(message, clean_content):
-        return True
+    """Route current requests through a deterministic plan and trusted handlers."""
+    from cinnamon_modules.brain_intent import plan_intent
+
+    plan = plan_intent(clean_content)
+    handlers = {
+        "reminder": globals().get("_cr_maybe_handle"),
+        "memory": globals().get("_cmem_maybe_handle"),
+        "private_data": globals().get("_ch_private_data_redirect"),
+        "help": _ch_maybe_handle,
+        "action": _ca_maybe_handle,
+    }
+    for route in plan.route_order:
+        if route == "chat":
+            break
+        handler = handlers.get(route)
+        if not callable(handler):
+            continue
+        if route in {"reminder", "memory", "action"} and message.guild is None:
+            continue
+        if await handler(message, clean_content):
+            return True
     return False
 
 @bot.command(name="userinfo",aliases=["whois"])
