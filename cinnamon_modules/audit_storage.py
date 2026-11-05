@@ -218,24 +218,21 @@ async def auditstatus_cmd(interaction: discord.Interaction):
 
 
 # Command-wide audit hooks: record command names and outcomes, never message text.
-@bot.event
-async def on_command(ctx):
+async def _audit_prefix_command(ctx):
     if ctx.guild:
         await audit_event(ctx.guild.id, "commands", "prefix_command",
             actor_id=ctx.author.id, channel_id=ctx.channel.id,
             metadata={"command": ctx.command.qualified_name if ctx.command else "unknown",
                       "message_id": ctx.message.id})
 
-@bot.event
-async def on_command_error(ctx, error):
+async def _audit_prefix_error(ctx, error):
     if ctx.guild:
         await audit_event(ctx.guild.id, "errors", "prefix_command_error",
             actor_id=ctx.author.id, channel_id=ctx.channel.id,
             metadata={"command": ctx.command.qualified_name if ctx.command else "unknown",
                       "error_type": type(error).__name__})
 
-@bot.event
-async def on_interaction(interaction):
+async def _audit_interaction(interaction):
     if interaction.guild_id:
         data = getattr(interaction, "data", {}) or {}
         await audit_event(interaction.guild_id, "interactions", "discord_interaction",
@@ -306,3 +303,7 @@ async def _audit_command_done(ctx):
             metadata={"command":ctx.command.qualified_name if ctx.command else "unknown",
                      "message_id":ctx.message.id})
 bot.add_listener(_audit_command_done,"on_command_completion")
+
+bot.add_listener(_audit_prefix_command, "on_command")
+bot.add_listener(_audit_prefix_error, "on_command_error")
+bot.add_listener(_audit_interaction, "on_interaction")
