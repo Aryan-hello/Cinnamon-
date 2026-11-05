@@ -34,6 +34,19 @@ class BrainTaskStoreTests(unittest.TestCase):
         state={}; create_task(state,self.task(),now=100)
         self.assertEqual(prune_tasks(state,now=3700),["t1"])
         self.assertIsNone(get_task(state,"t1",guild_id=10,member_id=20))
+    def test_restart_recovery_marks_running_step_uncertain(self):
+        from cinnamon_modules.brain_task_store import recover_interrupted_tasks
+        from dataclasses import replace
+        state={}; task=self.task()
+        task=replace(task,status=TaskStatus.RUNNING,steps=(replace(task.steps[0],status=StepStatus.RUNNING,attempts=1),))
+        create_task(state,task,now=100)
+        recovered=recover_interrupted_tasks(state,now=200)
+        self.assertEqual(recovered,["t1"])
+        saved=get_task(state,"t1",guild_id=10,member_id=20)
+        self.assertEqual(saved.status,TaskStatus.UNCERTAIN)
+        self.assertEqual(saved.steps[0].status,StepStatus.UNCERTAIN)
+        self.assertIn("restart",saved.steps[0].outcome_summary.lower())
+
     def test_corrupt_container_rejected_not_reset(self):
         with self.assertRaises(TaskStoreError): get_task({"brain_tasks":"bad"},"t1",guild_id=10,member_id=20)
 
