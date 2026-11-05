@@ -344,7 +344,7 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
         speaker=speaker,
         current_message=trigger_text,
         recent_turns=list(history),
-        preferences=[personal_notes] if personal_notes else [],
+        preferences=personal_notes,
         mood=current_mood,
         tone=current_tone,
         serious=current_tone.startswith("gentle"),
