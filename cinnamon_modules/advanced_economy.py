@@ -84,6 +84,10 @@ BOX_TIERS = {
     "legendary": {"label":"Legendary", "emoji":"🌠", "weight":0.9, "catnip":(5000,10000), "items":["catnip_crown","dream_wings","moon_jelly"], "materials":["captured_star"]},
     "mythical": {"label":"Mythical", "emoji":"✨", "weight":0.1, "catnip":(10000,25000), "items":["captured_star","dream_wings"], "materials":["dream_petals","moonstone"]},
 }
+# Ensure every configured reward is present in the shared catalogue.
+for _tier_cfg in BOX_TIERS.values():
+    for _reward_id in _tier_cfg["items"] + _tier_cfg["materials"]:
+        ECONOMY_ITEMS.setdefault(_reward_id, {"name": _reward_id.replace("_", " ").title(), "price": 1000, "emoji": "🐾", "description": "A Cinnamon Mystery Box reward.", "max_per_person": 0, "shop_enabled": False})
 def _box_count(guild_id, user_id, tier="common"):
     raw=ADVANCED_FEATURES["mystery_boxes"].get(_af_key(guild_id,user_id),0)
     if isinstance(raw,dict): return max(0,int(raw.get(tier,0)))
@@ -97,21 +101,26 @@ def _set_box_count(guild_id,user_id,count,tier="common"):
     else: ADVANCED_FEATURES["mystery_boxes"].pop(key,None)
 
 
-async def advanced_maybe_award_box(guild_id: int, user, source: str, chance: float = 0.08):
-    """Award an earned mystery box from selected normal activities.
+MYSTERY_DROP_TIER_WEIGHTS = {"common": 78, "rare": 17, "epic": 4, "legendary": 0.9, "mythical": 0.1}
+MYSTERY_SOURCE_CHANCES = {"work": 0.08, "daily": 0.12, "weekly": 0.18, "message": 0.002, "default": 0.04}
 
-    Daily/work rewards use this directly; message activity has a much smaller
-    separate chance below.  No real-money purchase or gambling is involved.
-    """
-    if random.random() > chance:
+def _roll_box_tier():
+    tiers = list(MYSTERY_DROP_TIER_WEIGHTS)
+    return random.choices(tiers, weights=[MYSTERY_DROP_TIER_WEIGHTS[t] for t in tiers], k=1)[0]
+
+async def advanced_maybe_award_box(guild_id: int, user, source: str, chance: float | None = None):
+    """Award one tiered box using source-specific chances and rarity weights."""
+    source_key = str(source).lower().split()[0]
+    chance = MYSTERY_SOURCE_CHANCES.get(source_key, MYSTERY_SOURCE_CHANCES["default"]) if chance is None else max(0.0, min(1.0, float(chance)))
+    if random.random() >= chance:
         return False
-    _set_box_count(guild_id, user.id, _box_count(guild_id, user.id) + 1)
+    tier = _roll_box_tier()
+    _set_box_count(guild_id, user.id, _box_count(guild_id, user.id, tier) + 1, tier)
     await bd_save_data()
-    await economy_log(guild_id, title="🎁 Mystery Box earned", fields=[
-        ("User", f"{user} ({user.id})"), ("Source", source), ("Boxes", str(_box_count(guild_id, user.id)))
+    await economy_log(guild_id, title=f"{BOX_TIERS[tier]['emoji']} {BOX_TIERS[tier]['label']} Mystery Box earned", fields=[
+        ("User", f"{user} ({user.id})"), ("Source", source), ("Tier", tier.title()), ("Owned", str(_box_count(guild_id, user.id, tier)))
     ])
-    return True
-
+    return tier
 
 def _recipe_line(recipe_id, recipe):
     ingredients = []
