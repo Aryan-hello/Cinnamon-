@@ -132,6 +132,7 @@ _MENTION = r"<@!?[0-9]{15,22}>"
 _RELATIVE = r"(?:this|that)\s+(?:member|user|person)"
 _MOD_TARGET = rf"(?:{_MENTION}|{_RELATIVE})"
 _QUANTITY = r"[+-]?[0-9][0-9,]*(?:\.[0-9]+)?"
+_CATNIP_QUANTITY = r"[0-9][0-9,]*(?:k)?"
 _END = r"\s*[.!?]?\s*"
 _UNIT = r"(?:seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d)"
 _TIMEOUT = re.compile(
@@ -141,13 +142,13 @@ _UNTIMEOUT = re.compile(
     rf"(?:unmute|untimeout|remove\s+(?:the\s+)?timeout(?:\s+from)?)\s+"
     rf"(?P<target>{_MOD_TARGET}){_END}", _FLAGS)
 _ADD = re.compile(
-    rf"(?:add|give)\s+(?P<amount>{_QUANTITY})\s+catnip\s+to\s+"
+    rf"(?:add|give)\s+(?P<amount>{_CATNIP_QUANTITY})\s+catnip\s+to\s+"
     rf"(?P<target>{_MENTION}){_END}", _FLAGS)
 _GIVE = re.compile(
-    rf"give\s+(?P<target>{_MENTION}|me)\s+(?P<amount>{_QUANTITY})\s+catnip{_END}",
+    rf"give\s+(?P<target>{_MENTION}|me)\s+(?P<amount>{_CATNIP_QUANTITY})\s+catnip{_END}",
     _FLAGS)
 _REMOVE = re.compile(
-    rf"(?:remove|take)\s+(?P<amount>{_QUANTITY})\s+catnip\s+from\s+"
+    rf"(?:remove|take)\s+(?P<amount>{_CATNIP_QUANTITY})\s+catnip\s+from\s+"
     rf"(?P<target>{_MENTION}){_END}", _FLAGS)
 _ACTION_LIKE = re.compile(
     r"^(?:mute\b|timeout\b|time\s+out\b|unmute\b|untimeout\b|"
@@ -251,7 +252,10 @@ def parse_action(text: str, *, requester_id: int, target_ids: Sequence[int],
                          target_ids=target_ids, reply_target_id=reply_target_id)
         amount, seconds = 0, 0
         if action.startswith("economy."):
-            amount = _number(match["amount"], limit=MAX_CATNIP, label="Catnip amount")
+            raw_amount = match["amount"].lower()
+            multiplier = 1000 if raw_amount.endswith("k") else 1
+            amount = _number(raw_amount[:-1] if multiplier == 1000 else raw_amount,
+                             limit=MAX_CATNIP // multiplier, label="Catnip amount") * multiplier
         elif action == "moderation.timeout":
             quantity = _number(match["quantity"], limit=MAX_TIMEOUT_SECONDS,
                                label="timeout duration")
