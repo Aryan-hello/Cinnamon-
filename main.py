@@ -340,7 +340,7 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
     live_catalog = build_command_catalog(bot.tree.get_commands())
     capability_lines = [
         f"{guide.syntax}: {guide.description}"
-        for guide in live_catalog.values()
+        for guide in list(live_catalog.values())[:20]
     ]
     capability_lines.extend([
         "Personal reminders: create/list/cancel only for yourself",
