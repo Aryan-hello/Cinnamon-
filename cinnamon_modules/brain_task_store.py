@@ -139,7 +139,7 @@ def prepare_execution(snapshot:dict, *, task_id:str, step_id:str, guild_id:int, 
  if step is None or step.status!=StepStatus.PENDING:raise TaskStoreError("Step is not pending")
  if not all(next((x.status==StepStatus.COMPLETED for x in current.steps if x.step_id==d),False) for d in step.dependencies):raise TaskStoreError("Dependencies incomplete")
  steps=tuple(_replace(s,status=StepStatus.RUNNING,attempts=s.attempts+1) if s.step_id==step_id else s for s in current.steps)
- running=_replace(current,status=TaskStatus.RUNNING,steps=steps,updated_at=float(now))
+ running=_replace(current,status=TaskStatus.RUNNING,steps=steps,updated_at=float(now),plan_version=current.plan_version+1)
  records=_records(snapshot);records[task_id]=_encode(running)
  return running
 
