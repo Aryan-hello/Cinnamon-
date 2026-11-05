@@ -902,7 +902,8 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
         "messages_scanned": 0, "embeds_scanned": 0,
         "title_counts": defaultdict(int), "category_counts": defaultdict(int),
         "scan_errors": [], "xp_users_restored": 0,
-        "economy_users_from_events": 0,
+        "economy_users_from_events": 0, "inventory_items_restored": 0,
+        "inventory_users_restored": 0,
     }
     events = []
     for channel_id, labels in channel_map.items():
@@ -998,6 +999,8 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
                     current = economy_inventory.get(key)
                     if current is None or item_id not in current:
                         economy_inventory.setdefault(key, {})[item_id] = quantity
+                        result["inventory_items_restored"] += 1
+                        result["inventory_users_restored"] += int(not current)
 
     return result
 
@@ -1027,6 +1030,8 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
         "hangry_wins_seen": wins,
         "economy_accounts": economy_restored + scan.get("economy_users_from_events", 0),
         "economy_snapshot_detail": snapshot_detail,
+        "persistent_store": getattr(bd_store, "status", "unknown"),
+        "persistent_store_durable": bool(getattr(bd_store, "durable", False)),
     })
     return scan
 
@@ -1048,7 +1053,7 @@ async def recall_cmd(interaction: discord.Interaction):
                            ("XP users restored", str(result["xp_users_restored"])), ("Economy accounts restored", str(result["economy_accounts"])),
                            ("Hangry games found", str(result["hangry_game_count"])),
                            ("Cinnamon people restored", str(result["cinnamon_people_restored"])),
-                           ("Mood restored", str(result["cinnamon_mood_restored"]))])
+                           ("Mood restored", str(result["cinnamon_mood_restored"])), ("Inventory entries restored", str(result.get("inventory_items_restored", 0))), ("Persistent store", str(result.get("persistent_store", "unknown")))])
     titles = sorted(result["title_counts"].items(), key=lambda pair: pair[1], reverse=True)[:8]
     title_summary = "\n".join(f"• {name[:65]}: **{count}**" for name, count in titles) or "• No embeds found in scanned history."
     errors = "\n".join(f"• {e}" for e in result["scan_errors"][:4]) or "None"
@@ -1066,6 +1071,7 @@ async def recall_cmd(interaction: discord.Interaction):
         f"**Most common log types found**\n{title_summary}\n\n"
         f"**Channel scan issues**\n{errors}\n\n"
         "Recovery is idempotent for reconstructed counts and only uses absolute values or snapshots where possible. "
+        "The main Upstash snapshot is already loaded by Cinnamon at startup; /recall supplements it from retained Discord logs and economy snapshots. "
         "It cannot recreate deleted messages, AI chat memory, or state that was never logged. Review the counts above to see what was actually found.",
         ephemeral=True,
     )
