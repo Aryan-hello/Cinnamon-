@@ -20,7 +20,7 @@ def _ccr_clean(text):
     text = str(text or "").strip()
     text = _ccr_re.sub(r"^(?:hey\s+)?cinnamon\b[\s,:-]*", "", text, flags=_ccr_re.I)
     text = _ccr_re.sub(r"^(?:please\s+)?", "", text, flags=_ccr_re.I)
-    return text.strip(" .,!")
+    return text.strip(" .,!?:;")
 
 def _ccr_command(text):
     """Return a prefix command string for only unambiguous, low-risk requests."""
