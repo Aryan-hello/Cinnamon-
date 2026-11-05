@@ -61,13 +61,13 @@ BLACK_MARKET_POOL = [
 ]
 
 MYSTERY_REWARDS = [
-    (35, "catnip_small"),
-    (25, "item_common"),
-    (16, "xp"),
+    (29, "catnip_small"),
+    (28, "item_common"),
+    (14, "xp"),
     (12, "material"),
-    (7, "catnip_big"),
-    (4, "item_rare"),
-    (1, "rare_crown"),
+    (9, "catnip_big"),
+    (6, "item_rare"),
+    (2, "rare_crown"),
 ]
 
 _mystery_roll_cooldowns = {}
@@ -451,7 +451,7 @@ async def advanced_mystery_message_listener(message: discord.Message):
     if now - float(_mystery_roll_cooldowns.get(key, 0)) < 900:
         return
     _mystery_roll_cooldowns[key] = now
-    if random.random() <= 0.01:
+    if random.random() <= 0.03:
         _set_box_count(message.guild.id, message.author.id, _box_count(message.guild.id, message.author.id) + 1)
         await bd_save_data()
         try:
