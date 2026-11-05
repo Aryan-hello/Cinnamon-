@@ -588,7 +588,7 @@ async def economy_daily_cmd(interaction: discord.Interaction):
     economy_cooldowns[(guild_id, user_id, "daily")] = time.time() + 86400
     balance_before = economy_balance(guild_id, user_id)
     economy_balances[(guild_id, user_id)] = balance_before + ECONOMY_DAILY_REWARD
-    box_awarded = await advanced_maybe_award_box(guild_id, interaction.user, "daily", chance=0.12) if "advanced_maybe_award_box" in globals() else False
+    box_awarded = await advanced_maybe_award_box(guild_id, interaction.user, "daily", chance=0.20) if "advanced_maybe_award_box" in globals() else False
     await bd_save_data()
     await economy_log(guild_id, title="🌿 Daily Catnip", fields=[("User", f"{interaction.user} ({user_id})"), ("Amount", f"+{ECONOMY_DAILY_REWARD} Catnip"), ("Balance before", f"{balance_before:,}"), ("Balance after", f"{balance_before+ECONOMY_DAILY_REWARD:,}")])
     embed = cinnamon_embed("🌿 Daily Catnip Claimed", "Cinnamon has approved your daily snack budget.\n\n**Come back tomorrow for another reward!**", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Daily Reward")
