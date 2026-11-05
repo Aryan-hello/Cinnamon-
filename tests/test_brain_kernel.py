@@ -2,11 +2,21 @@
 import unittest
 
 from cinnamon_modules.brain_kernel import (
-    BrainTurn, bounded_preferences, bounded_turns, build_context, render_context,
+    BrainTurn, bounded_capabilities, bounded_preferences, bounded_turns, build_context, render_context,
 )
 
 
 class BrainKernelTests(unittest.TestCase):
+    def test_capabilities_are_public_bounded_context(self):
+        caps = bounded_capabilities(["/quest: view quests", "x" * 5000])
+        self.assertEqual(len(caps), 2)
+        self.assertLessEqual(len(caps[1]), 180)
+        context = build_context(
+            guild_id=1, channel_id=2, member_id=3, speaker="Member",
+            current_message="help", recent_turns=[], capabilities=caps,
+        )
+        self.assertEqual(context["available_capabilities"][0], "/quest: view quests")
+
     def test_context_keeps_guild_channel_member_scope_separate(self):
         result = build_context(
             guild_id=10, channel_id=20, member_id=30, speaker="Aryan",
