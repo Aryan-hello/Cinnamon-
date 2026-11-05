@@ -84,6 +84,28 @@ BOX_TIERS = {
     "legendary": {"label":"Legendary", "emoji":"🌠", "weight":0.9, "catnip":(5000,10000), "items":["catnip_crown","dream_wings","moon_jelly"], "materials":["captured_star"]},
     "mythical": {"label":"Mythical", "emoji":"✨", "weight":0.1, "catnip":(10000,25000), "items":["captured_star","dream_wings"], "materials":["dream_petals","moonstone"]},
 }
+EXPANSION_ITEMS = {
+    "moonstone": ("Moonstone", "💎", "Epic", 7000, "A moonlit crafting gem.", 0),
+    "crystal_fishbone": ("Crystal Fishbone", "🦴", "Uncommon", 1800, "A shimmering crafting ingredient.", 0),
+    "golden_paw_charm": ("Golden Paw Charm", "🐾", "Rare", 4500, "Material for a golden collar.", 0),
+    "dream_petals": ("Dream Petals", "🌸", "Legendary", 9000, "Rare petals from Cinnamon dreams.", 0),
+    "tuna_stew": ("Tuna Stew", "🍲", "Uncommon", 2200, "A warm fishy meal.", 0),
+    "pawberry_cake": ("Pawberry Cake", "🍰", "Rare", 4500, "A sweet celebration cake.", 0),
+    "honey_fish_treat": ("Honey Fish Treat", "🍯", "Uncommon", 2000, "A sticky-sweet fish snack.", 0),
+    "moon_jelly": ("Moon Jelly", "🪼", "Legendary", 11000, "A luminous premium treat.", 0),
+    "paw_treasure": ("Paw Treasure", "🧰", "Rare", 5000, "A collectible treasure chest.", 1),
+    "cinnamon_snow_globe": ("Cinnamon Snow Globe", "❄️", "Legendary", 12000, "A seasonal Cinnamon keepsake.", 1),
+    "captured_star": ("Captured Star", "🌟", "Mythical", 25000, "An impossibly rare collectible.", 1),
+    "golden_bell_collar": ("Golden Bell Collar", "🔔", "Rare", 6500, "A profile accessory with a golden bell.", 1),
+    "starlight_hat": ("Starlight Hat", "🎩", "Epic", 9000, "A magical profile accessory.", 1),
+    "dream_wings": ("Dream Wings", "🪽", "Mythical", 30000, "A mythical profile accessory.", 1),
+    "purr_potion": ("Purr Potion", "🧪", "Rare", 5000, "Disabled: XP boost effect is not wired yet.", 0),
+    "lucky_paw_clock": ("Lucky Paw Clock", "⏰", "Epic", 8000, "Disabled: reward boost effect is not wired yet.", 0),
+    "treasure_map": ("Treasure Map", "🗺️", "Legendary", 15000, "Disabled: treasure hunt is not wired yet.", 0),
+    "starry_elixir": ("Starry Elixir", "✨", "Mythical", 25000, "Disabled: XP effect is not wired yet.", 0),
+}
+for _item_id, (_name, _emoji, _rarity, _price, _description, _unique) in EXPANSION_ITEMS.items():
+    ECONOMY_ITEMS.setdefault(_item_id, {"name": _name, "emoji": _emoji, "rarity": _rarity, "price": _price, "description": _description, "max_per_person": 1 if _unique else 0, "shop_enabled": False})
 # Ensure every configured reward is present in the shared catalogue.
 for _tier_cfg in BOX_TIERS.values():
     for _reward_id in _tier_cfg["items"] + _tier_cfg["materials"]:
