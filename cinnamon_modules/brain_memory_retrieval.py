@@ -34,6 +34,10 @@ def retrieve_memories(notes, *, guild_id:int, member_id:int, query:str, opted_ou
   if not isinstance(note,Mapping):continue
   normalized.append({"guild_id":guild_id,"member_id":member_id,
    "note_id":str(note.get("id","")),"text":str(note.get("detail","")),
+   "category":str(note.get("category","")),"detail":str(note.get("detail","")),
    "active":True})
- return retrieve_relevant_memories(query,normalized,guild_id=guild_id,
+ ranked=retrieve_relevant_memories(query,normalized,guild_id=guild_id,
   member_id=member_id,limit=max(1,min(5,int(max_items))),max_chars=900)
+ by_id={str(n.get("id","")):n for n in notes or [] if isinstance(n,Mapping)}
+ return [{"id":item["note_id"],"category":by_id.get(item["note_id"],{}).get("category",""),
+          "detail":item["detail"],"relevance":item["relevance"]} for item in ranked]
