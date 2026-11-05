@@ -337,6 +337,17 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
                       if guild and member_id is not None else "")
     current_tone = (_cx_tone("I need help") if guild and _cx_serious(guild.id)
                     else _cx_tone(trigger_text))
+    live_catalog = build_command_catalog(bot.tree.get_commands())
+    capability_lines = [
+        f"{guide.syntax}: {guide.description}"
+        for guide in live_catalog.values()
+    ]
+    capability_lines.extend([
+        "Personal reminders: create/list/cancel only for yourself",
+        "Personal preference memory: explicit save/view/delete/disable/correction",
+        "Admin-confirmed Catnip and timeout actions through trusted chat workflow",
+        "Cinnamon activity: enabled Hangry Games or optional question, otherwise silence",
+    ])
     brain_context = build_brain_context(
         guild_id=guild.id if guild else None,
         channel_id=channel_id,
@@ -345,6 +356,7 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
         current_message=trigger_text,
         recent_turns=list(history),
         preferences=personal_notes,
+        capabilities=capability_lines,
         mood=current_mood,
         tone=current_tone,
         serious=current_tone.startswith("gentle"),
