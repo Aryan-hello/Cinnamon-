@@ -107,12 +107,12 @@ async def brain_task_draft(interaction:discord.Interaction,task_id:str):
   changed=update_task(state,task_id=current.task_id,guild_id=interaction.guild.id,member_id=interaction.user.id,
    expected_version=current.plan_version,transform=lambda t:_cbt_replace(t,goal=proposal.goal,steps=steps,status=TaskStatus.AWAITING_APPROVAL,approval_expires_at=0),now=now)
   if not await bd_save_data():raise TaskStoreError("Storage did not confirm the proposal")
- except (TaskStoreError,PlanValidationError,ValueError,TypeError,AttributeError,RuntimeError) as exc:
+ except Exception as exc:
   return await interaction.followup.send("🐾 I couldn't safely draft that plan: "+str(exc),ephemeral=True)
  lines=[f"{i}. **{s.capability_id}** · {s.step_id} · deps: {', '.join(s.dependencies) or 'none'}" for i,s in enumerate(changed.steps,1)]
- await interaction.followup.send("🧠 **AI proposal saved for review — nothing executed.**\\n"
-  +discord.utils.escape_markdown(changed.goal)+"\\n"+("\\n".join(lines))+
-  "\\nUse /brain-task review, then /brain-task approve before manually running a step.",
+ await interaction.followup.send("🧠 **AI proposal saved for review — nothing executed.**\n"
+  +discord.utils.escape_markdown(changed.goal)+"\n"+("\n".join(lines))+
+  "\nUse /brain-task review, then /brain-task approve before manually running a step.",
   ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
 
 @_CBT_GROUP.command(name="approve",description="Approve or renew your reviewed task plan for 5 minutes")
@@ -202,10 +202,10 @@ async def brain_task_diagnostics(interaction:discord.Interaction):
  total=int(raw.get("total",0));samples=int(raw.get("latency_samples",0))
  avg=(int(raw.get("latency_total_ms",0))//samples if samples else 0)
  await interaction.response.send_message(
-  "📊 **Brain execution diagnostics (this server)**\\n"
+  "📊 **Brain execution diagnostics (this server)**\n"
   f"Executions: **{total}** · Success: **{int(raw.get('successes',0))}** · "
-  f"Failures: **{int(raw.get('failures',0))}** · Uncertain: **{int(raw.get('uncertain',0))}**\\n"
-  f"Average adapter latency: **{avg} ms**\\n"
+  f"Failures: **{int(raw.get('failures',0))}** · Uncertain: **{int(raw.get('uncertain',0))}**\n"
+  f"Average adapter latency: **{avg} ms**\n"
   "Only aggregate counts and latency are stored; no message content is retained.",
   ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
 
