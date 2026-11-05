@@ -5,6 +5,16 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
+# Defined in this module because command decorators execute before advanced_economy.py loads.
+BOX_TIERS = {
+    "common": {"label":"Common", "emoji":"📦", "weight":70, "catnip":(250,900), "items":["treat","tuna","churu","catnip_ball","fish_biscuits"], "materials":["golden_thread","crystal_fishbone"]},
+    "rare": {"label":"Rare", "emoji":"🎁", "weight":22, "catnip":(900,2400), "items":["golden_fish","royal_tuna","paw_treasure","golden_bell_collar"], "materials":["moon_fish_scale","star_dust","golden_paw_charm"]},
+    "epic": {"label":"Epic", "emoji":"💜", "weight":7, "catnip":(2200,5500), "items":["starlight_hat","pawberry_cake","cinnamon_snow_globe"], "materials":["moonstone","dream_petals"]},
+    "legendary": {"label":"Legendary", "emoji":"🌠", "weight":0.9, "catnip":(5000,10000), "items":["catnip_crown","dream_wings","moon_jelly"], "materials":["captured_star"]},
+    "mythical": {"label":"Mythical", "emoji":"✨", "weight":0.1, "catnip":(10000,25000), "items":["captured_star","dream_wings"], "materials":["dream_petals","moonstone"]},
+}
+
+
 
 
 # ---------------------------------------------------------------------------
