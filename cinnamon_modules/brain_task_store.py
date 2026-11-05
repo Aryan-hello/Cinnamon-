@@ -115,6 +115,28 @@ def prepare_execution(snapshot:dict, *, task_id:str, step_id:str, guild_id:int, 
  step=next((s for s in current.steps if s.step_id==step_id),None)
  if step is None or step.status!=StepStatus.PENDING:raise TaskStoreError("Step is not pending")
  if not all(next((x.status==StepStatus.COMPLETED for x in current.steps if x.step_id==d),False) for d in step.dependencies):raise TaskStoreError("Dependencies incomplete")
+ steps=tuple(_replace(s,status=StepStatus.RUNNING,attempts=s.attempts+1) if s.step_id==step_id else s for s in current.steps)
+ running=_replace(current,status=TaskStatus.RUNNING,steps=steps,updated_at=float(now))
+ records=_records(snapshot);records[task_id]=_encode(running)
+ return running
+
+def prune_tasks(snapshot:dict, *, now:float) -> list[str]:
+    records=_records(snapshot);removed=[]
+    for task_id,raw in list(records.items()):
+        task=_decode(raw)
+        if task.expires_at<=now:
+            del records[task_id];removed.append(task_id)
+    return removed
+
+def prepare_execution(snapshot:dict, *, task_id:str, step_id:str, guild_id:int, member_id:int, now:float)->Task:
+ """Persist RUNNING claim before any external call; duplicate claims fail closed."""
+ current=get_task(snapshot,task_id,guild_id=guild_id,member_id=member_id)
+ if current is None:raise TaskStoreError("Task not found")
+ if current.status!=TaskStatus.READY:raise TaskStoreError("Task is not ready")
+ if current.expires_at<=now or (current.approval_expires_at and current.approval_expires_at<=now):raise TaskStoreError("Task or approval expired")
+ step=next((s for s in current.steps if s.step_id==step_id),None)
+ if step is None or step.status!=StepStatus.PENDING:raise TaskStoreError("Step is not pending")
+ if not all(next((x.status==StepStatus.COMPLETED for x in current.steps if x.step_id==d),False) for d in step.dependencies):raise TaskStoreError("Dependencies incomplete")
  from dataclasses import replace as _replace
  from cinnamon_modules.brain_tasks import StepStatus
  steps=tuple(_replace(s,status=StepStatus.RUNNING,attempts=s.attempts+1) if s.step_id==step_id else s for s in current.steps)
