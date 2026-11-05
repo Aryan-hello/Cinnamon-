@@ -289,6 +289,15 @@ ECONOMY_ITEMS = {
     "churu": {"name": "Churu", "price": 1500, "emoji": "🥫", "description": "Premium lickable cat snack.", "max_per_person": 0},
     "catnip_ball": {"name": "Catnip Ball", "price": 2000, "emoji": "🧶", "description": "Instant zoomies fuel.", "max_per_person": 0},
     "fish": {"name": "Fancy Fish", "price": 2500, "emoji": "🐠", "description": "A fancy fish for a very fancy cat.", "max_per_person": 0},
+    # Grow a Garden services (separate shop section)
+    "ga_venom": {"name": "Venom Service", "price": 5000, "emoji": "🦂", "description": "Grow a Garden pet Venom service.", "max_per_person": 0, "category": "grow_a_garden"},
+    "ga_nightmare": {"name": "Nightmare Service", "price": 5000, "emoji": "🌙", "description": "Grow a Garden pet Nightmare service (RNG-based).", "max_per_person": 0, "category": "grow_a_garden"},
+    "ga_enchanted": {"name": "Enchanted Service", "price": 5000, "emoji": "✨", "description": "Grow a Garden Enchanted service.", "max_per_person": 0, "category": "grow_a_garden"},
+    "ga_haunted": {"name": "Haunted Service", "price": 6000, "emoji": "👻", "description": "Grow a Garden pet Haunted service.", "max_per_person": 0, "category": "grow_a_garden"},
+    "ga_ember": {"name": "Ember Service", "price": 6000, "emoji": "🔥", "description": "Grow a Garden pet Ember service (RNG-based).", "max_per_person": 0, "category": "grow_a_garden"},
+    "ga_kg_boost": {"name": "KG Boost", "price": 10000, "emoji": "🐘", "description": "Grow a Garden pet weight boost service.", "max_per_person": 0, "category": "grow_a_garden"},
+    "ga_mutation": {"name": "Mutation Service", "price": 10000, "emoji": "🧬", "description": "Grow a Garden pet mutation service.", "max_per_person": 0, "category": "grow_a_garden"},
+    "ga_age_boost": {"name": "Age Boost", "price": 5000, "emoji": "⏳", "description": "Grow a Garden pet age boost service.", "max_per_person": 0, "category": "grow_a_garden"},
 }
 
 
@@ -339,7 +348,7 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
         "normal": "You are in a NORMAL mood: clever, silly and lightly mischievous.",
         "grumpy": "You are GRUMPY: theatrically annoyed, but playful and never cruel.",
     }[current_mood]
-    personal_notes = (_cmem_context(guild.id, member_id)
+    personal_notes = (_cmem_context(guild.id, member_id, trigger_text)
                       if guild and member_id is not None else "")
     current_tone = (_cx_tone("I need help") if guild and _cx_serious(guild.id)
                     else _cx_tone(trigger_text))
@@ -471,11 +480,14 @@ _CINNAMON_MODULES = (
     "cinnamon_moods.py",
     "cinnamon_personality.py",
     "cinnamon_actions.py",
+    # Deterministic conversational shortcuts into existing prefix command adapters.
+    "conversational_router.py",
     # Independent activity policy and admin controls; no new AI execution rights.
     "cinnamon_brain.py",
     # Private member memory, persistent reminders, and contextual boundaries.
     "cinnamon_memory.py",
     "cinnamon_reminders.py",
+    "cinnamon_brain_tasks.py",
     "cinnamon_incidents.py",
 )
 

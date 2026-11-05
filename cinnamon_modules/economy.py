@@ -153,7 +153,15 @@ def economy_shop_embed(guild_id: int, user: discord.abc.User, page: int = 0) -> 
     if not visible:
         e.description = "The shop is empty right now. Ask an administrator to add some items."
         return cinnamon_polish_embed(e)
+    last_category = None
     for number, (item_id, item) in enumerate(visible, start=page*per_page+1):
+        category = item.get("category")
+        if category != last_category:
+            if category == "grow_a_garden":
+                e.add_field(name="🌱 Grow a Garden Services", value="Pet boosts, mutations and progression services", inline=False)
+            elif last_category == "grow_a_garden":
+                e.add_field(name="🐾 Other Shop Items", value="Cinnamon items and collectibles", inline=False)
+            last_category = category
         limit=int(item.get("max_per_person",0)); owned=int(economy_inventory_for(guild_id,user.id).get(item_id,0))
         limit_text=f" • limit {limit}" if limit else " • no limit"
         e.add_field(
@@ -195,7 +203,15 @@ class CinnamonShopView(discord.ui.LayoutView):
         if not visible:
             container.add_item(discord.ui.TextDisplay("The shop is empty right now. Ask an administrator to add some items."))
         else:
+            last_category = None
             for item_id, item in visible:
+                category = item.get("category")
+                if category != last_category:
+                    if category == "grow_a_garden":
+                        container.add_item(discord.ui.TextDisplay("## 🌱 Grow a Garden Services"))
+                    elif last_category == "grow_a_garden":
+                        container.add_item(discord.ui.TextDisplay("## 🐾 Other Shop Items"))
+                    last_category = category
                 limit = int(item.get("max_per_person", 0))
                 owned = int(economy_inventory_for(self.guild_id, self.user_id).get(item_id, 0))
                 limit_text = f"Limit: {limit}" if limit else "No limit"

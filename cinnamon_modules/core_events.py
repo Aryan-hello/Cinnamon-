@@ -762,6 +762,18 @@ async def on_message(message: discord.Message):
     is_ai_channel = guild_id is not None and ai_channels.get(guild_id) == channel_id
     called_by_name = _cp_direct_name(clean_content)
     invited = bool(was_mentioned or was_reply_to_bot or called_by_name)
+    # Conversational shortcuts are explicit-address only. They dispatch through
+    # existing ? command callbacks, preserving the same checks and cooldowns.
+    conversational_router = globals().get("_ccr_maybe_route")
+    if invited and callable(conversational_router):
+        try:
+            if await conversational_router(message, clean_content):
+                return
+        except Exception:
+            log.exception("Cinnamon conversational command routing failed")
+            await message.reply("🐾 I couldn't complete that request. Try the matching ? command.", mention_author=False,
+                               allowed_mentions=discord.AllowedMentions.none())
+            return
     if not invited:
         if message.guild:
             try:
