@@ -8,6 +8,7 @@ ADVANCED_FEATURES = globals().setdefault("advanced_features_data", {})
 ADVANCED_FEATURES.setdefault("mystery_boxes", {})
 ADVANCED_FEATURES.setdefault("crafted_counts", {})
 ADVANCED_FEATURES.setdefault("mystery_opened", {})
+ADVANCED_FEATURES.setdefault("custom_box_rewards", {})
 ADVANCED_FEATURES.setdefault("black_market_purchases", {})
 
 CRAFTING_ITEMS = {
@@ -253,6 +254,9 @@ def _weighted_reward():
 
 async def _open_one(guild_id, user, tier="common"):
     inv=economy_inventory_for(guild_id,user.id)
+    custom = ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:{tier}", {})
+    tier_items = list(BOX_TIERS[tier]["items"]) + list(custom.get("items", []))
+    tier_materials = list(BOX_TIERS[tier]["materials"]) + list(custom.get("materials", []))
     if tier != "common":
         cfg=BOX_TIERS[tier]
         roll=random.random()
@@ -260,14 +264,14 @@ async def _open_one(guild_id, user, tier="common"):
             amount=random.randint(*cfg["catnip"]); economy_balances[(guild_id,user.id)]=economy_balance(guild_id,user.id)+amount
             return f"🌿 **+{amount:,} Catnip**"
         if roll < .90:
-            item_id=random.choice(cfg["items"]); item=ECONOMY_ITEMS[item_id]
+            item_id=random.choice(tier_items); item=ECONOMY_ITEMS[item_id]
             limit=int(item.get("max_per_person",0))
             if limit and int(inv.get(item_id,0))>=limit:
                 amount=random.randint(500,1800); economy_balances[(guild_id,user.id)]=economy_balance(guild_id,user.id)+amount
                 return f"🪙 Duplicate protection: **+{amount:,} Catnip** (already own {item['name']})"
             inv[item_id]=int(inv.get(item_id,0))+1
             return f"{item['emoji']} **1× {item['name']}**"
-        item_id=random.choice(cfg["materials"]); inv[item_id]=int(inv.get(item_id,0))+1; item=ECONOMY_ITEMS[item_id]
+        item_id=random.choice(tier_materials); inv[item_id]=int(inv.get(item_id,0))+1; item=ECONOMY_ITEMS[item_id]
         return f"🧪 **1× {item['name']}**"
     kind=_weighted_reward(); 
     if kind=="catnip_small":
@@ -277,17 +281,57 @@ async def _open_one(guild_id, user, tier="common"):
     if kind=="xp":
         amount=random.randint(100,500); xp_data[(guild_id,user.id)]=int(xp_data.get((guild_id,user.id),0))+amount; return f"⭐ **+{amount:,} XP**"
     if kind=="item_common":
-        item_id=random.choice(["treat","tuna","churu","catnip_ball","fish_biscuits"]); qty=random.randint(1,3); inv[item_id]=int(inv.get(item_id,0))+qty; item=ECONOMY_ITEMS[item_id]; return f"{item['emoji']} **{qty}× {item['name']}**"
+        item_id=random.choice(list(BOX_TIERS["common"]["items"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("items", []))); qty=random.randint(1,3); inv[item_id]=int(inv.get(item_id,0))+qty; item=ECONOMY_ITEMS[item_id]; return f"{item['emoji']} **{qty}× {item['name']}**"
     if kind=="item_rare":
         item_id=random.choice(["fish","golden_fish","moon_fish_scale"]); qty=random.randint(1,2); inv[item_id]=int(inv.get(item_id,0))+qty; item=ECONOMY_ITEMS[item_id]; return f"{item['emoji']} **{qty}× {item['name']}**"
     if kind=="material":
-        item_id=random.choice(["moon_fish_scale","golden_thread","star_dust"]); qty=random.randint(1,2); inv[item_id]=int(inv.get(item_id,0))+qty; item=ECONOMY_ITEMS[item_id]; return f"{item['emoji']} **{qty}× {item['name']}**"
+        item_id=random.choice(list(BOX_TIERS["common"]["materials"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("materials", []))); qty=random.randint(1,2); inv[item_id]=int(inv.get(item_id,0))+qty; item=ECONOMY_ITEMS[item_id]; return f"{item['emoji']} **{qty}× {item['name']}**"
     if int(inv.get("catnip_crown",0))>=1:
         inv["golden_fish"]=int(inv.get("golden_fish",0))+1; return "🐠 **1× Golden Fish** — duplicate legendary converted."
     inv["catnip_crown"]=1; return "👑 **1× Catnip Crown** — legendary!"
 
 
-@bot.tree.command(name="mystery", description="Open your earned Cinnamon Mystery Boxes")
+
+# Admin controls for granting Mystery Boxes and extending tier reward pools.
+@economy_group.command(name="box-add", description="Admin: give Mystery Boxes directly to a member")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.choices(tier=[app_commands.Choice(name=cfg["label"], value=t) for t,cfg in BOX_TIERS.items()])
+@app_commands.describe(member="Member receiving boxes", tier="Mystery Box rarity", quantity="Number of boxes to add")
+async def economy_box_add_cmd(interaction: discord.Interaction, member: discord.Member, tier: app_commands.Choice[str], quantity: app_commands.Range[int,1,10000]=1):
+    guild_id=interaction.guild.id; tier_name=tier.value
+    before=_box_count(guild_id,member.id,tier_name)
+    _set_box_count(guild_id,member.id,before+quantity,tier_name)
+    await bd_save_data()
+    await economy_log(guild_id,title="🎁 Admin Mystery Boxes added",fields=[("Admin",f"{interaction.user} ({interaction.user.id})"),("Member",f"{member} ({member.id})"),("Tier",tier_name.title()),("Added",f"+{quantity}"),("Before",before),("After",before+quantity)])
+    await cinnamon_send(interaction,f"✅ Added **{quantity}× {BOX_TIERS[tier_name]['emoji']} {BOX_TIERS[tier_name]['label']} Mystery Box** to {member.mention}.",ephemeral=True)
+
+@economy_group.command(name="box-reward-add", description="Admin: add an item/material to a Mystery Box reward pool")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.choices(tier=[app_commands.Choice(name=cfg["label"],value=t) for t,cfg in BOX_TIERS.items()])
+@app_commands.choices(reward_type=[app_commands.Choice(name="Item",value="items"),app_commands.Choice(name="Material",value="materials")])
+@app_commands.autocomplete(item=cinnamon_item_autocomplete)
+@app_commands.describe(tier="Box rarity whose pool to extend", reward_type="Item or material reward pool", item="Existing catalogue item to add")
+async def economy_box_reward_add_cmd(interaction: discord.Interaction,tier: app_commands.Choice[str],reward_type: app_commands.Choice[str],item: str):
+    item_id=item.lower().strip()
+    if item_id not in ECONOMY_ITEMS:
+        matches=[k for k,v in ECONOMY_ITEMS.items() if str(v.get("name","")).lower()==item_id]
+        if len(matches)==1: item_id=matches[0]
+    data=ECONOMY_ITEMS.get(item_id)
+    if data is None:
+        return await cinnamon_send(interaction,"❌ Item not found in Cinnamon's catalogue. Add/register it first.",ephemeral=True)
+    pool_key=f"{interaction.guild.id}:{tier.value}"
+    pools=ADVANCED_FEATURES.setdefault("custom_box_rewards",{}).setdefault(pool_key,{"items":[],"materials":[]})
+    pool=pools.setdefault(reward_type.value,[])
+    if item_id in pool or item_id in BOX_TIERS[tier.value][reward_type.value]:
+        return await cinnamon_send(interaction,"ℹ️ That reward is already in this tier's pool.",ephemeral=True)
+    pool.append(item_id)
+    await bd_save_data()
+    await economy_log(interaction.guild.id,title="🎁 Mystery Box reward pool updated",fields=[("Admin",f"{interaction.user} ({interaction.user.id})"),("Tier",tier.value.title()),("Reward type",reward_type.value),("Item",f"{data.get('name',item_id)} ({item_id})")])
+    await cinnamon_send(interaction,f"✅ Added **{data.get('emoji','🐾')} {data.get('name',item_id)}** to the **{BOX_TIERS[tier.value]['label']} Mystery Box {reward_type.name.lower()} pool.",ephemeral=True)
+
+\n@bot.tree.command(name="mystery", description="Open your earned Cinnamon Mystery Boxes")
 @app_commands.guild_only()
 @app_commands.describe(action="open or check", quantity="How many boxes to open", tier="Mystery Box tier")
 @app_commands.choices(action=[app_commands.Choice(name="Open boxes", value="open"), app_commands.Choice(name="Check boxes", value="check")])
