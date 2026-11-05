@@ -20,10 +20,11 @@ class MysteryTierSourceTests(unittest.TestCase):
         self.assertIn("MYSTERY_DROP_TIER_WEIGHTS", self.source)
         self.assertIn("MYSTERY_SOURCE_CHANCES", self.source)
         self.assertIn("def _roll_box_tier", self.source)
-        self.assertIn('"rare": 25', self.source)
-        self.assertIn('"epic": 10', self.source)
-        self.assertIn('"legendary": 4', self.source)
-        self.assertIn('"mythical": 1', self.source)
+        self.assertIn('"common": 78', self.source)
+        self.assertIn('"rare": 17', self.source)
+        self.assertIn('"epic": 4', self.source)
+        self.assertIn('"legendary": 0.9', self.source)
+        self.assertIn('"mythical": 0.1', self.source)
 
     def test_prefix_and_slash_commands_accept_tier(self):
         self.assertIn("tier: app_commands.Choice[str] | None", self.source)
@@ -36,7 +37,8 @@ class MysteryTierSourceTests(unittest.TestCase):
         self.assertIn("Disabled: XP boost effect is not wired yet.", self.source)
         # Box-exclusive items are registered but intentionally not purchasable.
         self.assertIn('"shop_enabled": False', self.source)
-        self.assertIn("50% tier items", self.source)
+        self.assertIn("MYSTERY_REWARDS = [", self.source)
+        self.assertIn("MYSTERY_DROP_TIER_WEIGHTS", self.source)
 
     def test_reward_openings_are_saved_and_logged(self):
         self.assertIn("await bd_save_data()", self.source)
