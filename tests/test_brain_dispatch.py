@@ -35,6 +35,21 @@ class AssistanceDispatchTests(unittest.IsolatedAsyncioTestCase):
         help_handler.assert_awaited_once_with(message, 'how do I fish?')
         action_handler.assert_not_awaited()
 
+    async def test_private_data_questions_redirect_before_public_chat(self):
+        private_handler = AsyncMock(return_value=True)
+        help_handler = AsyncMock(return_value=False)
+        ns = load_functions({'_cinnamon_try_assistance'}, {
+            '_ch_maybe_handle': help_handler,
+            '_ch_private_data_redirect': private_handler,
+            '_ca_maybe_handle': AsyncMock(return_value=False),
+        })
+        message = SimpleNamespace(guild=object())
+        self.assertTrue(await ns['_cinnamon_try_assistance'](
+            message, 'How much Catnip do I have?'
+        ))
+        private_handler.assert_awaited_once_with(message, 'How much Catnip do I have?')
+        help_handler.assert_not_awaited()
+
     async def test_actions_keep_the_original_discord_message(self):
         handler = AsyncMock(return_value=True)
         ns = load_functions({'_cinnamon_try_assistance'}, {

@@ -448,6 +448,21 @@ async def _ch_maybe_handle(message, clean_content):
     return True
 
 
+async def _ch_private_data_redirect(message, clean_content):
+    """Keep member-owned account data out of public prefix-chat replies."""
+    classifier = globals().get("_me_classify_private_question")
+    if not callable(classifier) or not classifier(clean_content):
+        return False
+    await message.reply(
+        "🐾 For your privacy, I won't post personal account details in this channel. "
+        "Use the private `/cinnamon-me ask` command instead. It can answer questions "
+        "about your own Catnip, inventory, progress, quests, achievements, reminders, "
+        "and memory settings.",
+        mention_author=False,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+    return True
+
 async def _cinnamon_try_assistance(message, clean_content):
     """Route current requests through a deterministic plan and trusted handlers."""
     from cinnamon_modules.brain_intent import plan_intent
@@ -456,6 +471,7 @@ async def _cinnamon_try_assistance(message, clean_content):
     handlers = {
         "reminder": globals().get("_cr_maybe_handle"),
         "memory": globals().get("_cmem_maybe_handle"),
+        "private_data": globals().get("_ch_private_data_redirect"),
         "help": _ch_maybe_handle,
         "action": _ca_maybe_handle,
     }

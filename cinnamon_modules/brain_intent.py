@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from cinnamon_modules.brain_private_qa import classify_private_question
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,11 @@ _MEMORY = re.compile(
     r"(?:show|view)\s+(?:my\s+)?(?:preferences|memory|notes)\b|"
     r"(?:what|show|view)\s+(?:do\s+you\s+)?remember\s+about\s+me\b|"
     r"(?:turn|switch)\s+(?:my\s+)?memory\s+(?:on|off)\b)",
+    re.IGNORECASE,
+)
+_SELF_SERVICE_HELP = re.compile(
+    r"^(?:show\s+my\s+(?:progress|privacy|level|xp)|"
+    r"my\s+(?:day|progress|privacy|level|xp))\b",
     re.IGNORECASE,
 )
 _HELP = re.compile(
@@ -70,6 +76,10 @@ def plan_intent(text: str) -> IntentPlan:
         intent, reason = "action", "action_like_language"
     elif _MEMORY.search(clean):
         intent, reason = "memory", "explicit_memory_language"
+    elif _SELF_SERVICE_HELP.search(clean):
+        intent, reason = "help", "existing_private_command_help"
+    elif classify_private_question(clean):
+        intent, reason = "private_data", "private_member_data_question"
     elif _HELP.search(clean) or re.search(r"/[a-z][a-z0-9_-]*", clean, re.IGNORECASE):
         intent, reason = "help", "question_or_command_explanation"
     else:
@@ -78,10 +88,11 @@ def plan_intent(text: str) -> IntentPlan:
     # Preserve the existing safe handler order after trying the strongest
     # deterministic match. The fallback is intentionally never an executor.
     preferred = {
-        "reminder": ("reminder", "memory", "help", "action", "chat"),
-        "memory": ("memory", "reminder", "help", "action", "chat"),
-        "help": ("help", "reminder", "memory", "action", "chat"),
-        "action": ("action", "reminder", "memory", "help", "chat"),
-        "chat": ("reminder", "memory", "help", "action", "chat"),
+        "reminder": ("reminder", "private_data", "memory", "help", "action", "chat"),
+        "memory": ("memory", "private_data", "reminder", "help", "action", "chat"),
+        "private_data": ("private_data", "reminder", "memory", "help", "action", "chat"),
+        "help": ("help", "private_data", "reminder", "memory", "action", "chat"),
+        "action": ("action", "private_data", "reminder", "memory", "help", "chat"),
+        "chat": ("private_data", "reminder", "memory", "help", "action", "chat"),
     }[intent]
     return IntentPlan(intent, reason, preferred)

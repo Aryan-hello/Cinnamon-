@@ -122,18 +122,18 @@ def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_la
                 "You can privately edit, delete or disable notes anytime without waiting for staff.")
         paths = ("/cinnamon-memory status", "/cinnamon-memory save", "/cinnamon-memory view",
                  "/cinnamon-memory edit", "/cinnamon-memory clear",
-                 "/cinnamon-memory enable", "/cinnamon-me privacy")
+                 "/cinnamon-memory enable", "/cinnamon-me ask", "/cinnamon-me privacy")
     elif topic == "myday":
         body = ("Your private daily view shows today's pending reminders in your own fixed "
                 "timezone and the number of preferences you explicitly saved. "
                 "It doesn't read your private messages or schedule anything by itself.")
-        paths = ("/cinnamon-me today", "/cinnamon-me privacy",
-                 "/cinnamon-reminder create", "/cinnamon-memory view")
+        paths = ("/cinnamon-me today", "/cinnamon-me progress", "/cinnamon-me ask",
+                 "/cinnamon-me privacy", "/cinnamon-reminder create", "/cinnamon-memory view")
     elif topic == "progress":
         body = ("Your private progress view combines your current level and XP, completed "
                 "quests, Quest Points, today's active quest progress, and achievements "
                 "already unlocked. It is read-only and never grants XP or rewards.")
-        paths = ("/cinnamon-me progress", "/rank", "/quests progress", "/achievement list")
+        paths = ("/cinnamon-me progress", "/cinnamon-me ask", "/rank", "/quests progress", "/achievement list")
     elif topic == "independence":
         body = ("When allowed by an Administrator, I can choose whether to launch eligible "
                 "Hangry Games, pose an optional no-ping question, or stay quiet. "
