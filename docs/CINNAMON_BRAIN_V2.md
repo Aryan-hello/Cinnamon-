@@ -75,11 +75,37 @@ Cinnamon's **registry-backed help** now recognizes the new commands for timezone
 - No inference of real-world location or sensitive personal details.
 - No new database migrations needed: per-member timezone overrides are optional fields under the existing reminder state.
 
+## Brain v2 Increment B — deterministic intent routing (implementation in progress)
+
+A pure planner in `cinnamon_modules/brain_intent.py` classifies the current request as reminder, memory, help, action-like, or ordinary chat. The shared assistance dispatcher tries the corresponding existing Python handler first, then preserves the existing safe fallback order.
+
+- Classification uses only the current member-authored request; it does not inspect channel history or send additional content to Gemini.
+- A route is not permission, consent, or execution authority. Existing reminder/memory validators, action parsing, Discord permission checks, durable receipts and confirmation controls remain responsible for their own operations.
+- Uncertain text stays ordinary chat. Action-like requests are routed to the existing action validator instead of being treated as harmless chat.
+- Tests cover intent classification and shared dispatcher integration. GitHub Actions is still running for the latest commit; failures from earlier intermediate commits are being corrected and are not release evidence.
+
 ## Proposed next increments
+
+### B1 — Private progress view (implemented on the stacked development branch)
+
+- `/cinnamon-me progress` privately combines the member's existing level/XP, XP-to-next-level, quest history and Quest Points, current daily/weekly completion counts, and unlocked achievement totals.
+- Reuses the bot's own level-threshold functions; no duplicated XP formula.
+- Read-only and ephemeral; it never awards XP, rotates quests, unlocks achievements, changes Catnip, or writes state.
+- Missing saved quest data is reported as unavailable rather than guessed.
+
+### B2 — Deterministic intent planner (implemented on the next development branch)
+
+- Routes only the **current member-authored request** into reminder, memory, help, trusted-action, or ordinary-chat handler order.
+- Explicit reminder and memory language is recognized before generic help/chat. Personal phrases such as "show my progress" and "my day" reach the existing registered help.
+- The planner is a routing hint only: it has no Discord, Gemini, storage, permissions, or execution dependencies.
+- Existing trusted Python handlers remain the only place that can save a reminder, change memory, or propose an admin action. Their original requester, guild, permission, confirmation and durable-write checks are unchanged.
+- Uncertain text falls back to the normal conversation path. Quoted/history text is never fed back into the planner as an executable request.
+- Natural memory controls now understand direct "turn my memory off/on", "forget everything about me", "clear my notes", "show my notes", and "edit my preferences" requests. Clear/delete operations use the existing member-scoped, storage-acknowledged memory functions; ambiguous single-note requests ask for the note ID rather than deleting everything. Failed storage writes never receive a success reply.
+- Regression tests cover memory save/view/forget, opt-in/out, clearing, editing guidance, reminder requests, progress questions, action-like requests and casual chat. CI caught and corrected both a double-escaped memory-intent regex and an unnormalized polite wake phrase.
 
 ### B — Better answers and safe action planning
 
-- Route user requests through a **deterministic intent planner** (help, personal lookup, explicit preference save, reminder create, trusted admin proposal, casual chat).
+- Expand explainable read-only help: current quest progress, feature status and known cooldowns, with permission-aware views.
 - Show the member exactly what Cinnamon understood before executing any consequential action.
 - Expand explainable read-only help: current quest progress, feature status and known cooldowns, with permission-aware views.
 - Add “I don’t know” responses rather than hallucinated commands, balances or settings.
@@ -104,6 +130,19 @@ Cinnamon's **registry-backed help** now recognizes the new commands for timezone
 - Offer additional opt-in server activities without farming Catnip rewards or sending repeat pings.
 - Add observable “why I did/didn't speak” reasons for administrators and avoid interfering with conflict, grief, exams or sensitive questions.
 - Move toward curated application-owned emojis in a staged, validated registry.
+
+### B3 — Private grounded Q&A (implemented on the next development branch)
+
+- Adds `/cinnamon-me ask question:<text>`, an ephemeral private question interface for the caller's own Catnip/inventory, level/XP, quest and achievement progress, reminders, and memory settings.
+- Uses Gemini only to explain a small, deterministic snapshot built from the current member and current guild. The question selects which data sections are included; unrelated sections are omitted.
+- Memory answers include only enabled/disabled state, note count, and benign category names. Preference text is not sent to this Q&A path.
+- Reminder text is included only when the member asks about reminders; it is treated as untrusted data, not instructions.
+- Does not call quest rotation helpers, create reminders, change preferences, award rewards, or invoke action handlers. Snapshot assembly uses read-only dictionary lookups and a storage-readiness check.
+- If the snapshot is unavailable, Cinnamon refuses to guess. Gemini output is bounded and Discord mentions are neutralized before sending.
+- The command is not a general-purpose chat replacement; ordinary conversation remains in the existing AI chat flow.
+- Prefix `?ask` requests that clearly ask for member-owned account data are redirected to the private slash command before Gemini receives them; no account details are posted in the channel.
+- Ordinary Gemini chat is explicitly instructed not to invent balances/progress or reveal another member's private data from channel history.
+- Questions asking about a different member are refused by the private Q&A prompt rather than answered using the requester's snapshot.
 
 ## Acceptance tests to complete before merge
 
