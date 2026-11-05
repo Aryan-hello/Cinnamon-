@@ -290,14 +290,14 @@ ECONOMY_ITEMS = {
     "catnip_ball": {"name": "Catnip Ball", "price": 2000, "emoji": "🧶", "description": "Instant zoomies fuel.", "max_per_person": 0},
     "fish": {"name": "Fancy Fish", "price": 2500, "emoji": "🐠", "description": "A fancy fish for a very fancy cat.", "max_per_person": 0},
     # Grow a Garden services (separate shop section)
-    "ga_venom": {"name": "Venom Service", "price": 5000, "emoji": "🦂", "description": "Grow a Garden pet Venom service.", "max_per_person": 0, "category": "grow_a_garden"},
-    "ga_nightmare": {"name": "Nightmare Service", "price": 5000, "emoji": "🌙", "description": "Grow a Garden pet Nightmare service (RNG-based).", "max_per_person": 0, "category": "grow_a_garden"},
-    "ga_enchanted": {"name": "Enchanted Service", "price": 5000, "emoji": "✨", "description": "Grow a Garden Enchanted service.", "max_per_person": 0, "category": "grow_a_garden"},
-    "ga_haunted": {"name": "Haunted Service", "price": 6000, "emoji": "👻", "description": "Grow a Garden pet Haunted service.", "max_per_person": 0, "category": "grow_a_garden"},
-    "ga_ember": {"name": "Ember Service", "price": 6000, "emoji": "🔥", "description": "Grow a Garden pet Ember service (RNG-based).", "max_per_person": 0, "category": "grow_a_garden"},
-    "ga_kg_boost": {"name": "KG Boost", "price": 10000, "emoji": "🐘", "description": "Grow a Garden pet weight boost service.", "max_per_person": 0, "category": "grow_a_garden"},
-    "ga_mutation": {"name": "Mutation Service", "price": 10000, "emoji": "🧬", "description": "Grow a Garden pet mutation service.", "max_per_person": 0, "category": "grow_a_garden"},
-    "ga_age_boost": {"name": "Age Boost", "price": 5000, "emoji": "⏳", "description": "Grow a Garden pet age boost service.", "max_per_person": 0, "category": "grow_a_garden"},
+    "ga_venom": {"name": "Venom Service", "price": 5000, "emoji": "🦂", "description": "Grow a Garden pet Venom service.", "max_per_person": 0, "shop_enabled": True, "category": "grow_a_garden"},
+    "ga_nightmare": {"name": "Nightmare Service", "price": 5000, "emoji": "🌙", "description": "Grow a Garden pet Nightmare service (RNG-based).", "max_per_person": 0, "shop_enabled": True, "category": "grow_a_garden"},
+    "ga_enchanted": {"name": "Enchanted Service", "price": 5000, "emoji": "✨", "description": "Grow a Garden Enchanted service.", "max_per_person": 0, "shop_enabled": True, "category": "grow_a_garden"},
+    "ga_haunted": {"name": "Haunted Service", "price": 6000, "emoji": "👻", "description": "Grow a Garden pet Haunted service.", "max_per_person": 0, "shop_enabled": True, "category": "grow_a_garden"},
+    "ga_ember": {"name": "Ember Service", "price": 6000, "emoji": "🔥", "description": "Grow a Garden pet Ember service (RNG-based).", "max_per_person": 0, "shop_enabled": True, "category": "grow_a_garden"},
+    "ga_kg_boost": {"name": "KG Boost", "price": 10000, "emoji": "🐘", "description": "Grow a Garden pet weight boost service.", "max_per_person": 0, "shop_enabled": True, "category": "grow_a_garden"},
+    "ga_mutation": {"name": "Mutation Service", "price": 10000, "emoji": "🧬", "description": "Grow a Garden pet mutation service.", "max_per_person": 0, "shop_enabled": True, "category": "grow_a_garden"},
+    "ga_age_boost": {"name": "Age Boost", "price": 5000, "emoji": "⏳", "description": "Grow a Garden pet age boost service.", "max_per_person": 0, "shop_enabled": True, "category": "grow_a_garden"},
 }
 
 
