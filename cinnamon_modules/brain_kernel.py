@@ -129,6 +129,10 @@ def render_context(context: Mapping[str, object]) -> str:
     if not isinstance(context, Mapping):
         raise TypeError("context must be a mapping")
     payload = dict(context)
+    if isinstance(payload.get("recent_turns"), list):
+        payload["recent_turns"] = list(payload["recent_turns"])
+    if isinstance(payload.get("member_preferences"), list):
+        payload["member_preferences"] = list(payload["member_preferences"])
 
     def encode():
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
