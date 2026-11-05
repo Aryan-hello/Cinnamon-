@@ -26,14 +26,24 @@ async def _redis(command):
     if not url or not token:
         raise RuntimeError("Upstash audit credentials are not configured")
     import aiohttp
-    timeout = aiohttp.ClientTimeout(total=4)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, json=command, headers={"Authorization": f"Bearer {token}"}) as response:
-            response.raise_for_status()
-            payload = await response.json()
-            if not isinstance(payload, dict) or payload.get("error") or "result" not in payload:
-                raise RuntimeError("Invalid Upstash response")
-            return payload["result"]
+    timeout = aiohttp.ClientTimeout(total=5)
+    last_error = None
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=command, headers={"Authorization": "Bearer " + token}) as response:
+                    if response.status == 429 or response.status >= 500:
+                        raise RuntimeError("Upstash transient HTTP " + str(response.status))
+                    response.raise_for_status()
+                    payload = await response.json()
+                    if not isinstance(payload, dict) or payload.get("error") or "result" not in payload:
+                        raise RuntimeError("Invalid Upstash response")
+                    return payload["result"]
+        except Exception as exc:
+            last_error = exc
+            if attempt < 2:
+                await asyncio.sleep(0.25 * (2 ** attempt))
+    raise last_error
 
 
 def _safe_metadata(metadata):
