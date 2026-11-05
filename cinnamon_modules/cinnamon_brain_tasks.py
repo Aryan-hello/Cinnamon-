@@ -1,10 +1,13 @@
 """Member-owned Brain task tracking commands; no task step auto-execution."""
 import time as _cbt_time
 import uuid as _cbt_uuid
+import json as _cbt_json
+from dataclasses import replace as _cbt_replace
 import discord
 from discord import app_commands
 from cinnamon_modules.brain_tasks import Task,TaskStatus,transition_task
 from cinnamon_modules.brain_task_store import create_task,get_task,update_task,TaskStoreError
+from cinnamon_modules.brain_planner import parse_plan_proposal,PlanValidationError
 
 _CBT_GROUP=app_commands.Group(name="brain-task",description="Your private Cinnamon Brain task tracker")
 _CBT_TTL=7*86400
@@ -70,3 +73,44 @@ async def brain_task_cancel(interaction:discord.Interaction,task_id:str):
   return await interaction.followup.send("⚠️ Storage didn't confirm cancellation. Check task status before retrying.",ephemeral=True)
  await interaction.followup.send("✅ Task "+changed.task_id+" cancelled.",ephemeral=True)
 bot.tree.add_command(_CBT_GROUP)
+ 
+# Proposal-only capability allowlist. These IDs can be drafted/reviewed, never executed.
+_CBT_CAPABILITIES={"discord.send_message":{"arguments":{"channel_id":None,"content":None}}}
+
+@_CBT_GROUP.command(name="plan",description="Attach a validated, non-executable plan to your task")
+@app_commands.guild_only()
+@app_commands.describe(task_id="Your task ID",plan_json="JSON with goal and steps (proposal only)")
+async def brain_task_plan(interaction:discord.Interaction,task_id:str,plan_json:str):
+ await interaction.response.defer(ephemeral=True)
+ try:proposal=parse_plan_proposal(plan_json,_CBT_CAPABILITIES)
+ except PlanValidationError as exc:
+  return await interaction.followup.send("🐾 Plan rejected: "+str(exc),ephemeral=True)
+ state=_cbt_owner_snapshot(interaction.guild.id,interaction.user.id)
+ try:
+  current=get_task(state,task_id.strip(),guild_id=interaction.guild.id,member_id=interaction.user.id)
+  if not current:raise TaskStoreError("Task not found")
+  if current.status!=TaskStatus.DRAFT:raise TaskStoreError("Only draft tasks can be edited")
+  steps=tuple(_cbt_replace(step,idempotency_key=_cbt_uuid.uuid4().hex) for step in proposal.steps)
+  now=_cbt_time.time()
+  changed=update_task(state,task_id=current.task_id,guild_id=interaction.guild.id,member_id=interaction.user.id,expected_version=current.plan_version,transform=lambda t:_cbt_replace(t,goal=proposal.goal,steps=steps),now=now)
+ except (TaskStoreError,ValueError) as exc:
+  return await interaction.followup.send("🐾 Couldn't attach plan: "+str(exc),ephemeral=True)
+ if not await bd_save_data():
+  return await interaction.followup.send("⚠️ Storage didn't confirm the plan. Check status before retrying.",ephemeral=True)
+ lines=[f"{i}. **{s.capability_id}** · ID {s.step_id} · deps: {', '.join(s.dependencies) or 'none'}" for i,s in enumerate(changed.steps,1)]
+ await interaction.followup.send("🧠 **Plan saved as a proposal (not executable).**\n"+discord.utils.escape_markdown(changed.goal)+"\n"+("\n".join(lines) if lines else "No steps.")+"\nUse /brain-task review to inspect it. No actions were run.",ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+
+@_CBT_GROUP.command(name="review",description="Review your task plan before any future approval")
+@app_commands.guild_only()
+async def brain_task_review(interaction:discord.Interaction,task_id:str):
+ state=_cbt_owner_snapshot(interaction.guild.id,interaction.user.id)
+ try:t=get_task(state,task_id.strip(),guild_id=interaction.guild.id,member_id=interaction.user.id)
+ except TaskStoreError:t=None
+ if not t:return await interaction.response.send_message("🐾 Task not found.",ephemeral=True)
+ rows=[]
+ for s in t.steps:
+  try:args=_cbt_json.loads(s.arguments_json)
+  except Exception:args={}
+  rows.append(f"**{s.step_id} · {s.capability_id}**\nDeps: {', '.join(s.dependencies) or 'none'}\nArgs: `{_cbt_json.dumps(args,ensure_ascii=False)[:500]}`")
+ await interaction.response.send_message("🔎 **Plan review · "+t.task_id+"**\nGoal: "+discord.utils.escape_markdown(t.goal)+"\n"+("\n".join(rows) if rows else "No plan steps.")+"\n\n⚠️ Review only. Cinnamon currently cannot execute Brain task steps.",ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+
