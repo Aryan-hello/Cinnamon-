@@ -299,7 +299,7 @@ async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Cho
     if action_value == "check":
         lines = [f"{cfg['emoji']} {cfg['label']}: **{_box_count(interaction.guild.id, interaction.user.id, name)}**" for name,cfg in BOX_TIERS.items()]
         e = cinnamon_embed("🎁 Mystery Boxes", "\n".join(lines), color=CINNAMON_ORANGE, user=interaction.user, footer="Cinnamon Mystery Boxes")
-        e.add_field(name="How to earn them", value="Daily rewards, work shifts, and normal server activity can occasionally award boxes.")
+        e.add_field(name="Reward odds", value="Common: weighted Catnip/items/materials. Rare–Mythical: 55% Catnip • 35% tier items • 10% tier materials.")\n        e.add_field(name="How to earn them", value="Daily rewards, work shifts, and normal server activity can occasionally award boxes. Drop chances vary by source; higher tiers are much rarer.")
         await interaction.response.send_message(embed=cinnamon_polish_embed(e), ephemeral=True)
         return
     if count <= 0:
