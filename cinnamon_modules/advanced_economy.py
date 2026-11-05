@@ -258,7 +258,7 @@ async def _open_one(guild_id, user, tier="common"):
 
 @bot.tree.command(name="mystery", description="Open your earned Cinnamon Mystery Boxes")
 @app_commands.guild_only()
-@app_commands.describe(action="open or check", quantity="How many boxes to open")
+@app_commands.describe(action="open or check", quantity="How many boxes to open", tier="Mystery Box tier")
 @app_commands.choices(action=[app_commands.Choice(name="Open boxes", value="open"), app_commands.Choice(name="Check boxes", value="check")])
 async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Choice[str] | None = None, quantity: app_commands.Range[int, 1, 5] = 1):
     action_value = action.value if action else "check"
