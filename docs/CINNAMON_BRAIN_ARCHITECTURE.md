@@ -13,7 +13,7 @@ A language model is the language/reasoning component—not the authority, databa
 
 ## Target architecture
 
-\`\`\`
+```
 Discord events / slash commands / scheduled opportunities
                      |
              Event + identity adapter
@@ -43,7 +43,7 @@ Discord events / slash commands / scheduled opportunities
          Discord response / game / result
                      |
           audit + health + metrics
-\`\`\`
+```
 
 ## Components and responsibilities
 
