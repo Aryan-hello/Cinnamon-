@@ -112,7 +112,7 @@ def bounded_capabilities(capabilities: object) -> list[str]:
 
 def build_context(*, guild_id: int | None, channel_id: int, member_id: int | None,
                   speaker: str, current_message: str, recent_turns: Iterable[object],
-                  preferences: object = (), mood: str = "normal",
+                  preferences: object = (), capabilities: object = (), mood: str = "normal",
                   tone: str = "playful and considerate", serious: bool = False) -> dict:
     """Build a stable context object scoped to exactly one active member/turn."""
     def safe_id(value):
@@ -127,6 +127,7 @@ def build_context(*, guild_id: int | None, channel_id: int, member_id: int | Non
         "current_message": _clean(current_message, 1_000),
         "recent_turns": bounded_turns(recent_turns, max_chars=3_200),
         "member_preferences": bounded_preferences(preferences),
+        "available_capabilities": bounded_capabilities(capabilities),
         "mood": _clean(mood, 24) or "normal",
         "tone": _clean(tone, 160) or "playful and considerate",
         "serious_context": bool(serious),
