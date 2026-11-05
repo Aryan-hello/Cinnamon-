@@ -142,7 +142,8 @@ async def brain_task_run(interaction:discord.Interaction,task_id:str,step_id:str
   msg="⚠️ "+summary+". Check Discord before taking any further action."
  await interaction.followup.send(msg,ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
 
-\nbot.tree.add_command(_CBT_GROUP)
+
+bot.tree.add_command(_CBT_GROUP)
  
 # Proposal-only capability allowlist. These IDs can be drafted/reviewed, never executed.
 _CBT_CAPABILITIES={"discord.send_message":{"arguments":{"channel_id":None,"content":None}}}
