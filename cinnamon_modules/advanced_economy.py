@@ -77,16 +77,24 @@ def _af_key(guild_id, user_id):
     return f"{int(guild_id)}:{int(user_id)}"
 
 
-def _box_count(guild_id, user_id):
-    return int(ADVANCED_FEATURES["mystery_boxes"].get(_af_key(guild_id, user_id), 0))
+BOX_TIERS = {
+    "common": {"label":"Common", "emoji":"📦", "weight":70, "catnip":(250,900), "items":["treat","tuna","churu","catnip_ball","fish_biscuits"], "materials":["golden_thread","crystal_fishbone"]},
+    "rare": {"label":"Rare", "emoji":"🎁", "weight":22, "catnip":(900,2400), "items":["golden_fish","royal_tuna","paw_treasure","golden_bell_collar"], "materials":["moon_fish_scale","star_dust","golden_paw_charm"]},
+    "epic": {"label":"Epic", "emoji":"💜", "weight":7, "catnip":(2200,5500), "items":["starlight_hat","pawberry_cake","cinnamon_snow_globe"], "materials":["moonstone","dream_petals"]},
+    "legendary": {"label":"Legendary", "emoji":"🌠", "weight":0.9, "catnip":(5000,10000), "items":["catnip_crown","dream_wings","moon_jelly"], "materials":["captured_star"]},
+    "mythical": {"label":"Mythical", "emoji":"✨", "weight":0.1, "catnip":(10000,25000), "items":["captured_star","dream_wings"], "materials":["dream_petals","moonstone"]},
+}
+def _box_count(guild_id, user_id, tier="common"):
+    raw=ADVANCED_FEATURES["mystery_boxes"].get(_af_key(guild_id,user_id),0)
+    if isinstance(raw,dict): return max(0,int(raw.get(tier,0)))
+    return max(0,int(raw)) if tier=="common" else 0
 
-
-def _set_box_count(guild_id, user_id, count):
-    key = _af_key(guild_id, user_id)
-    if count <= 0:
-        ADVANCED_FEATURES["mystery_boxes"].pop(key, None)
-    else:
-        ADVANCED_FEATURES["mystery_boxes"][key] = int(count)
+def _set_box_count(guild_id,user_id,count,tier="common"):
+    key=_af_key(guild_id,user_id); raw=ADVANCED_FEATURES["mystery_boxes"].get(key,0)
+    if not isinstance(raw,dict): raw={"common":max(0,int(raw))}
+    raw=dict(raw); raw[tier]=max(0,int(count)); raw={k:v for k,v in raw.items() if v>0}
+    if raw: ADVANCED_FEATURES["mystery_boxes"][key]=raw
+    else: ADVANCED_FEATURES["mystery_boxes"].pop(key,None)
 
 
 async def advanced_maybe_award_box(guild_id: int, user, source: str, chance: float = 0.08):
