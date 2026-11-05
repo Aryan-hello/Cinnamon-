@@ -166,3 +166,12 @@ No passive full-chat archive, sensitive profile, cross-guild memory leakage, or 
 - GitHub: merged Brain v1 (#14), trusted actions (#15), Brain Phase 2 (#16); current main source and tests.
 - Google Gemini API: function calling is a proposal/result loop, with application-side execution; keep tools narrowly declared and validate before execution.
 - OWASP LLM Prompt Injection guidance: enforce least privilege at tool boundaries and treat model output/retrieved text as untrusted. Prompt text alone is not a security boundary.
+
+
+## Brain v4 — deterministic intent and shared decision records
+
+- \`brain_router.py\` classifies only the current member-authored message into reminder, memory, help, trusted-action candidate, or ordinary chat. It is bounded, deterministic, and side-effect free.
+- \`core_events.py\` uses the route to select the corresponding existing handler. Existing reminder/memory/help/action parsers, permissions, confirmation and persistence remain authoritative. The router itself cannot execute actions.
+- \`brain_route_decision.py\` adds typed, reason-coded decisions for chat/help/reminders/memory/action/activity. It defaults to WAIT for unknown inputs, disabled/quiet/serious/storage-blocked activity, refuses action requests without permission, and requests confirmation before a candidate action.
+- The earlier \`brain_decision.py\` activity adviser remains separate and continues to choose only wait/game/prompt; its independent eligibility gate remains in place. This avoids introducing a second scheduler or weakening the existing hard guards.
+
