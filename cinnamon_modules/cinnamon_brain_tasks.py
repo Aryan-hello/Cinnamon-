@@ -57,7 +57,7 @@ async def brain_task_status(interaction:discord.Interaction,task_id:str):
  try:t=get_task(state,task_id.strip(),guild_id=interaction.guild.id,member_id=interaction.user.id)
  except TaskStoreError:t=None
  if not t:return await interaction.response.send_message("🐾 Task not found in your private task list.",ephemeral=True)
- await interaction.response.send_message("🧠 **Task "+t.task_id+"**\n**Goal:** "+discord.utils.escape_markdown(t.goal)+"\n**Status:** "+t.status.value+"\n**Revision:** "+str(t.plan_version)+"\n**Expiry:** <t:"+str(int(t.expires_at))+":R>\n**Steps:** "+str(len(t.steps))+"\n*Task tracking only; no step execution is enabled yet.*",ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+ await interaction.response.send_message("🧠 **Task "+t.task_id+"**\n**Goal:** "+discord.utils.escape_markdown(t.goal)+"\n**Status:** "+t.status.value+"\n**Revision:** "+str(t.plan_version)+"\n**Expiry:** <t:"+str(int(t.expires_at))+":R>\n**Steps:** "+str(len(t.steps))+"\n*Reviewed plan only. Each run command executes at most one approved step.*",ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
 
 @_CBT_GROUP.command(name="cancel",description="Cancel one of your Brain tasks")
 @app_commands.guild_only()
@@ -115,7 +115,8 @@ async def brain_task_run(interaction:discord.Interaction,task_id:str,step_id:str
   if not user_perms.view_channel or not user_perms.send_messages:raise TaskStoreError("You need View Channel and Send Messages there")
   if not bot_perms.view_channel or not bot_perms.send_messages:raise TaskStoreError("Cinnamon lacks permission to send there")
   now=_cbt_time.time()
-  gate=evaluate_step(current,step.step_id,now=now,requester_id=interaction.user.id,guild_id=interaction.guild.id,storage_ready=True,feature_enabled=True,permission_ok=True,serious=False)
+  serious_context=bool(_cx_serious(interaction.guild.id)) if callable(globals().get("_cx_serious")) else False
+  gate=evaluate_step(current,step.step_id,now=now,requester_id=interaction.user.id,guild_id=interaction.guild.id,storage_ready=True,feature_enabled=True,permission_ok=True,serious=serious_context)
   if gate!=ExecutionGate.ALLOW:raise TaskStoreError("Execution gate refused: "+gate.value)
   running=prepare_execution(state,task_id=current.task_id,step_id=step.step_id,guild_id=interaction.guild.id,member_id=interaction.user.id,now=now)
   if not await bd_save_data():raise TaskStoreError("The execution claim was not durably saved; no message was sent")
