@@ -36,9 +36,12 @@ Never commit `.env`, tokens, session secrets, or exported member data.
 
 ## Brain v2 (development)
 
-The first Brain v2 increment adds `/cinnamon-me today`, `/cinnamon-me privacy`,
-`/cinnamon-reminder timezone`, `/cinnamon-reminder snooze`, and
-`/cinnamon-memory edit`. It is not on production `main` until the
+Brain v2 development adds `/cinnamon-me today`, `/cinnamon-me progress`,
+`/cinnamon-me ask` (private, read-only Gemini answers grounded in the caller's
+own selected data), `/cinnamon-me privacy`, `/cinnamon-reminder timezone`,
+`/cinnamon-reminder snooze`, and `/cinnamon-memory edit`, plus a
+deterministic intent router for reminders, memory, help, trusted-action
+proposals and ordinary chat. It is not on production `main` until the
 stacked command-audit and storage PRs are reconciled and this increment
 passes private Discord testing. No additional AI execution permissions
 or automated moderator actions are introduced.
