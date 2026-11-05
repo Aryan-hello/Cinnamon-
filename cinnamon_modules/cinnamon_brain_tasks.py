@@ -1,4 +1,5 @@
 """Member-owned Brain task tracking commands; no task step auto-execution."""
+import asyncio as _cbt_asyncio
 import time as _cbt_time
 import uuid as _cbt_uuid
 import json as _cbt_json
@@ -74,6 +75,45 @@ async def brain_task_cancel(interaction:discord.Interaction,task_id:str):
  if not await bd_save_data():
   return await interaction.followup.send("⚠️ Storage didn't confirm cancellation. Check task status before retrying.",ephemeral=True)
  await interaction.followup.send("✅ Task "+changed.task_id+" cancelled.",ephemeral=True)
+
+
+@_CBT_GROUP.command(name="draft",description="Ask Cinnamon AI to propose a task plan for review")
+@app_commands.guild_only()
+async def brain_task_draft(interaction:discord.Interaction,task_id:str):
+ await interaction.response.defer(ephemeral=True,thinking=True)
+ state=_cbt_owner_snapshot(interaction.guild.id,interaction.user.id)
+ try:
+  current=get_task(state,task_id.strip(),guild_id=interaction.guild.id,member_id=interaction.user.id)
+  if not current:raise TaskStoreError("Task not found")
+  if current.status!=TaskStatus.DRAFT:raise TaskStoreError("Only a draft task can receive a new plan")
+  channels=[{"name":ch.name,"id":ch.id} for ch in interaction.guild.text_channels
+           if ch.permissions_for(interaction.user).view_channel and ch.permissions_for(interaction.user).send_messages
+           and ch.permissions_for(interaction.guild.me).view_channel and ch.permissions_for(interaction.guild.me).send_messages]
+  prompt=("You are Cinnamon's task-plan proposer. Return ONLY strict JSON with exactly keys goal and steps. "
+   "Never claim an action was executed. Allowed capability is discord.send_message with arguments channel_id (integer) and content (string). "
+   "Use only these channel IDs: "+_cbt_json.dumps(channels[:100])+". "
+   "Only create a send-message step if the user's goal explicitly requests posting/sending a message and clearly identifies destination/content. "
+   "Otherwise return steps: []. At most 8 steps; step objects exactly step_id, capability_id, arguments, dependencies. "
+   "Use unique short step IDs and [] dependencies unless needed. Do not invent IDs or mention @everyone/@here. "
+   "Task goal: "+current.goal)
+  def _generate():
+   return gemini_client.models.generate_content(model=GEMINI_MODEL,contents=prompt,
+    config=types.GenerateContentConfig(response_mime_type="application/json",temperature=0.1,max_output_tokens=1800))
+  response=await _cbt_asyncio.to_thread(_generate)
+  proposal=parse_plan_proposal(str(response.text or ""),_CBT_CAPABILITIES)
+  if not proposal.steps:raise PlanValidationError("AI could not safely turn that goal into an actionable message plan. Use /brain-task plan with a precise JSON plan.")
+  now=_cbt_time.time()
+  steps=tuple(_cbt_replace(step,idempotency_key=_cbt_uuid.uuid4().hex) for step in proposal.steps)
+  changed=update_task(state,task_id=current.task_id,guild_id=interaction.guild.id,member_id=interaction.user.id,
+   expected_version=current.plan_version,transform=lambda t:_cbt_replace(t,goal=proposal.goal,steps=steps,status=TaskStatus.AWAITING_APPROVAL,approval_expires_at=0),now=now)
+  if not await bd_save_data():raise TaskStoreError("Storage did not confirm the proposal")
+ except (TaskStoreError,PlanValidationError,ValueError,TypeError,AttributeError,RuntimeError) as exc:
+  return await interaction.followup.send("🐾 I couldn't safely draft that plan: "+str(exc),ephemeral=True)
+ lines=[f"{i}. **{s.capability_id}** · {s.step_id} · deps: {', '.join(s.dependencies) or 'none'}" for i,s in enumerate(changed.steps,1)]
+ await interaction.followup.send("🧠 **AI proposal saved for review — nothing executed.**\\n"
+  +discord.utils.escape_markdown(changed.goal)+"\\n"+("\\n".join(lines))+
+  "\\nUse /brain-task review, then /brain-task approve before manually running a step.",
+  ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
 
 @_CBT_GROUP.command(name="approve",description="Approve or renew your reviewed task plan for 5 minutes")
 @app_commands.guild_only()
