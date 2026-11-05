@@ -17,7 +17,7 @@ MAX_CONTEXT_CHARS = 6_000
 MAX_TURNS = 10
 MAX_PREFERENCES = 12
 MAX_PREFERENCE_CHARS = 120
-_CONTROL = re.compile(r"[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ class BrainTurn:
 def _clean(value: object, limit: int) -> str:
     """Normalize untrusted text without treating it as instructions."""
     text = _CONTROL.sub("", str(value or ""))
-    text = re.sub(r"\\s+", " ", text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
     return text[:limit]
 
 
@@ -66,7 +66,6 @@ def bounded_turns(turns: Iterable[object], *, max_turns: int = MAX_TURNS,
     parsed = [item for item in parsed if item is not None][-max_turns:]
     output: list[dict[str, str]] = []
     used = 0
-    # Newest first so a tight budget never drops the current conversational context.
     for item in reversed(parsed):
         line_cost = len(item.speaker) + len(item.text) + 16
         if used + line_cost > max_chars:
