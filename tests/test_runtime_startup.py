@@ -71,8 +71,10 @@ async def check_runtime():
                      "/fishing start", "/fishing cast", "/recall",
                      "/cinnamon stories", "/cinnamon-mind status",
                      "/cinnamon-mind actions", "/economy collect",
-                     "/cinnamon-memory view", "/cinnamon-reminder create",
-                     "/cinnamon-incident policy"):
+                     "/cinnamon-memory view", "/cinnamon-memory edit",
+                     "/cinnamon-reminder create", "/cinnamon-reminder timezone",
+                     "/cinnamon-reminder snooze", "/cinnamon-me today",
+                     "/cinnamon-me privacy", "/cinnamon-incident policy"):
             assert path in paths, "Missing command " + path
         # Read actual discord.py command objects. A small set of hardcoded
         # slash-help pages previously exceeded Discord's 1024 field cap.

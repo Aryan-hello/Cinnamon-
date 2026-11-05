@@ -34,6 +34,15 @@ Cinnamon uses both traditional Discord embeds and **Components V2**. The shop, i
 
 Never commit `.env`, tokens, session secrets, or exported member data.
 
+## Brain v2 (development)
+
+The first Brain v2 increment adds `/cinnamon-me today`, `/cinnamon-me privacy`,
+`/cinnamon-reminder timezone`, `/cinnamon-reminder snooze`, and
+`/cinnamon-memory edit`. It is not on production `main` until the
+stacked command-audit and storage PRs are reconciled and this increment
+passes private Discord testing. No additional AI execution permissions
+or automated moderator actions are introduced.
+
 ## Commands and health
 Run `/help` for the live paginated slash-command directory, or `?help` for current prefix commands and aliases. Both are generated from the registered commands, not copied historical lists. For storage health, administrators can run `/datastatus check`; `/botstatus` and `?botstatus` provide shorter public summaries.
 
@@ -74,6 +83,7 @@ Automated tests cover formatting, selected game logic, and code contracts. They 
 
 - [Cinnamon Brain implementation, release status, and private-server test guide](docs/CINNAMON_BRAIN.md)
 - [Brain Phase 2: reminders, memory, autonomy, privacy and live-test checklist](docs/CINNAMON_BRAIN_PHASE2.md) (implemented in source; live verification pending)
+- [Brain v2: personalized reminders, My Day, self-editable memory and future design](docs/CINNAMON_BRAIN_V2.md) (development branch; not merged or deployed)
 - [Current command-directory and status-audit notes](docs/COMMAND_AUDIT.md) — help menus are generated from the running bot's registered commands.
 - [Discord UI & interaction guidelines](docs/DISCORD_UI.md)
 - [Deployment and safety checks](CINNAMON_FINAL_DEPLOYMENT.md) — historical release notes may describe older mechanics; use current code as the source of truth.

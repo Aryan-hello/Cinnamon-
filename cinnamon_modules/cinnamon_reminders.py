@@ -12,6 +12,11 @@ from cinnamon_modules.brain_reminders import (
     parse_reminder_request as _cr_parse,
     ReminderRequestError as _cr_parse_error,
 )
+from cinnamon_modules.brain_member_v2 import (
+    parse_timezone_setting as _cr_parse_timezone,
+    format_timezone_offset as _cr_format_timezone,
+    PersonalSettingError as _cr_setting_error,
+)
 
 _CR_LOCK = _cr_asyncio.Lock()
 _CR_MAX_ACTIVE = 10
@@ -27,6 +32,34 @@ def _cr_server(gid):
 
 def _cr_member(gid, uid):
     return _cr_server(gid).setdefault("members", {}).setdefault(str(uid), {})
+
+
+def _cr_offset(gid, uid):
+    """The user's explicitly chosen offset, otherwise the server default."""
+    saved = _cr_server(gid).setdefault("timezones", {}).get(str(uid))
+    try:
+        minutes = int(saved) if saved is not None else CINNAMON_TIMEZONE_OFFSET_MINUTES
+        return minutes if -720 <= minutes <= 840 else CINNAMON_TIMEZONE_OFFSET_MINUTES
+    except (TypeError, ValueError):
+        return CINNAMON_TIMEZONE_OFFSET_MINUTES
+
+
+async def _cr_set_offset(gid, uid, offset):
+    async with _CR_LOCK:
+        settings = _cr_server(gid).setdefault("timezones", {})
+        key = str(uid)
+        prior = settings.get(key)
+        if offset is None:
+            settings.pop(key, None)
+        else:
+            settings[key] = int(offset)
+        if not await bd_save_data():
+            if prior is None:
+                settings.pop(key, None)
+            else:
+                settings[key] = prior
+            return False
+        return True
 
 
 def _cr_active(gid, uid):
@@ -78,6 +111,32 @@ async def _cr_cancel(gid, uid, rid):
             item["status"] = "scheduled"
             return False, "Storage didn't confirm the cancellation. Try again later."
         return True, "Reminder cancelled. No surprise alarm-cat from me. 🐾"
+
+
+async def _cr_snooze(gid, uid, rid, minutes):
+    """Postpone only a member's scheduled reminder; never replay a sent DM."""
+    if type(minutes) is not int or not 1 <= minutes <= 1440:
+        return False, "Snooze by 1–1,440 minutes (up to 24 hours)."
+    async with _CR_LOCK:
+        item = _cr_member(gid, uid).get(str(rid).strip().lower())
+        if not item:
+            return False, "That reminder ID isn't in your personal list."
+        if item.get("status") != "scheduled":
+            return False, "This reminder was already delivered, cancelled, or is being sent."
+        now = int(_cr_time.time())
+        old_due = int(item.get("due_at", 0))
+        due_at = max(now, old_due) + minutes * 60
+        if due_at > now + 30 * 86400:
+            return False, "The new reminder must be within 30 days."
+        previous = dict(item)
+        item["due_at"] = due_at
+        item["snoozed_at"] = now
+        item["snoozes"] = min(1000, int(item.get("snoozes", 0)) + 1)
+        if not await bd_save_data():
+            item.clear()
+            item.update(previous)
+            return False, "Storage didn't confirm the snooze. The original time is unchanged."
+        return True, f"🐱 Snoozed! Your new reminder time is <t:{due_at}:F>."
 
 
 async def _cr_deliver(gid, uid, rid):
@@ -184,7 +243,7 @@ async def _cr_maybe_handle(message, clean_content):
     try:
         spec = _cr_parse(
             clean_content, now=_cr_datetime.datetime.now(_cr_datetime.timezone.utc),
-            offset_minutes=CINNAMON_TIMEZONE_OFFSET_MINUTES)
+            offset_minutes=_cr_offset(message.guild.id, message.author.id))
     except _cr_parse_error as exc:
         await message.reply("🐾 " + str(exc), mention_author=False,
                             allowed_mentions=discord.AllowedMentions.none())
@@ -207,7 +266,7 @@ async def _cr_maybe_handle(message, clean_content):
 
 _cr_group = app_commands.Group(
     name="cinnamon-reminder",
-    description="Create, view, and cancel your personal Cinnamon reminders",
+    description="Create, snooze, and manage your private Cinnamon reminders",
 )
 
 
@@ -219,7 +278,7 @@ async def cinnamon_reminder_create(interaction: discord.Interaction, text: str, 
         spec = _cr_parse(
             f"remind me to {text} {when}",
             now=_cr_datetime.datetime.now(_cr_datetime.timezone.utc),
-            offset_minutes=CINNAMON_TIMEZONE_OFFSET_MINUTES)
+            offset_minutes=_cr_offset(interaction.guild.id, interaction.user.id))
     except _cr_parse_error as exc:
         return await interaction.followup.send(
             "🐾 " + str(exc), ephemeral=True,
@@ -254,6 +313,54 @@ async def cinnamon_reminder_cancel(interaction: discord.Interaction, reminder_id
     success, text = await _cr_cancel(interaction.guild.id, interaction.user.id, reminder_id)
     await interaction.response.send_message(
         ("✅ " if success else "🐾 ") + text,
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@_cr_group.command(name="timezone", description="View or set your personal fixed UTC reminder timezone")
+@app_commands.guild_only()
+@app_commands.describe(offset="UTC+05:30, UTC-04:00, UTC, or 'server' to reset; omit to view")
+async def cinnamon_reminder_timezone(interaction: discord.Interaction,
+                                     offset: str | None = None):
+    gid, uid = interaction.guild.id, interaction.user.id
+    if offset is None:
+        label = _cr_format_timezone(_cr_offset(gid, uid))
+        custom = str(uid) in _cr_server(gid).get("timezones", {})
+        return await interaction.response.send_message(
+            f"🕒 Your reminder timezone is **{label}** "
+            + ("(your personal setting)." if custom else "(this server's default).")
+            + " This is a fixed UTC offset; it doesn't automatically adjust for daylight saving.",
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+    try:
+        minutes = _cr_parse_timezone(offset)
+    except _cr_setting_error as exc:
+        return await interaction.response.send_message(
+            "🐾 " + str(exc), ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+    await interaction.response.defer(ephemeral=True)
+    if not await _cr_set_offset(gid, uid, minutes):
+        return await interaction.followup.send(
+            "⚠️ Storage didn't confirm the timezone change. Your previous setting remains.",
+            ephemeral=True)
+    new_value = _cr_format_timezone(_cr_offset(gid, uid))
+    await interaction.followup.send(
+        f"🕒 Your future reminder times now use **{new_value}**. "
+        "Previously scheduled reminders keep their UTC delivery times. "
+        "Fixed offsets don't automatically adjust for daylight saving.",
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@_cr_group.command(name="snooze", description="Postpone one of your pending reminders")
+@app_commands.guild_only()
+@app_commands.describe(reminder_id="Your reminder ID from /cinnamon-reminder list",
+                       minutes="How many minutes to delay it (1–1440)")
+async def cinnamon_reminder_snooze(interaction: discord.Interaction,
+                                  reminder_id: str,
+                                  minutes: app_commands.Range[int, 1, 1440]):
+    await interaction.response.defer(ephemeral=True)
+    ok, result = await _cr_snooze(interaction.guild.id, interaction.user.id,
+                                  reminder_id, int(minutes))
+    await interaction.followup.send(
+        result if ok else "🐾 " + result,
         ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 

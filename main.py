@@ -437,6 +437,8 @@ _CINNAMON_MODULES = (
     # Private member memory, persistent reminders, and contextual boundaries.
     "cinnamon_memory.py",
     "cinnamon_reminders.py",
+    # Brain v2 private self-service utilities, after memory and reminders.
+    "cinnamon_member_v2.py",
     "cinnamon_incidents.py",
 )
 
