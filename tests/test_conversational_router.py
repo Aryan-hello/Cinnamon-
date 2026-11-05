@@ -20,7 +20,7 @@ class ConversationalRouterTests(unittest.TestCase):
 
     def test_ambiguous_chat_does_not_route(self):
         self.assertIsNone(_ccr_command("Cinnamon, I had a long day"))
-        self.assertIsNone(_ccr_command("I had a long day and spent my Catnip"))
+        self.assertIsNone(_ccr_command("I had a long day and spent some coins"))
 
 if __name__ == "__main__":
     unittest.main()
