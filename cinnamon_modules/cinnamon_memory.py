@@ -37,11 +37,17 @@ def _cmem_public_note(note):
             f"{discord.utils.escape_markdown(str(note.get('detail', ''))[:120])}")
 
 
-def _cmem_context(gid, uid):
-    """Private data for this single member in this guild only."""
+def _cmem_context(gid, uid, query=""):
+    """Private, relevance-ranked preference excerpt for the current member."""
     member = _cmem_member(gid, uid)
-    return (_cmem_safe_context(member.get("notes", []))
-            if member.get("enabled", True) else "")
+    if not member.get("enabled", True):
+        return ""
+    from cinnamon_modules.brain_memory_retrieval import retrieve_memories
+    notes = retrieve_memories([{"id":n.get("id"),"category":n.get("category"),"detail":n.get("detail"),
+        "guild_id":int(gid),"member_id":int(uid)} for n in member.get("notes",[])],
+        guild_id=int(gid), member_id=int(uid), query=str(query or ""),
+        opted_out=False, max_items=5)
+    return _cmem_safe_context(notes)
 
 
 async def _cmem_save(gid, uid, category, detail):
