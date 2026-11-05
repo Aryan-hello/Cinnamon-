@@ -5,6 +5,7 @@ onto an existing command and never invents a capability or bypasses command
 checks. Ambiguous requests fall through to ordinary Cinnamon chat.
 """
 import re as _ccr_re
+import json as _ccr_json
 
 _CCR_ITEM_ALIASES = {
     "tuna": ("tuna", "🐟"),
@@ -47,6 +48,16 @@ def _ccr_command(text):
     return None
 
 
+
+async def _ccr_invoke(message, command_line):
+    original=message.content
+    try:
+        message.content='?'+command_line.strip()
+        ctx=await bot.get_context(message)
+        if not ctx.valid:return False
+        await bot.invoke(ctx)
+        return True
+    finally:message.content=original
 
 async def _ccr_ai_route(message, text):
     """Map a clear request to one existing prefix command via Gemini."""
