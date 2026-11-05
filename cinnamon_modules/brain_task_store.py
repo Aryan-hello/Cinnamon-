@@ -4,7 +4,7 @@ This is deliberately a pure adapter: persistence/locking belong to SnapshotStore
 and Discord authorization belongs to the trusted command/executor layer.
 """
 from __future__ import annotations
-from dataclasses import replace
+from dataclasses import replace as _replace
 import json
 from typing import Callable
 from cinnamon_modules.brain_tasks import Task, TaskStep, TaskStatus, StepStatus, validate_task, transition_task
