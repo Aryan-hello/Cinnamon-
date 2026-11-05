@@ -299,19 +299,28 @@ async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Cho
 
 @bot.command(name="mystery", aliases=["boxes", "box"])
 @commands.guild_only()
-async def prefix_mystery(ctx, action: str = "check", quantity: int = 1):
-    count = _box_count(ctx.guild.id, ctx.author.id)
+async def prefix_mystery(ctx, action: str = "check", quantity: int = 1, tier: str = "common"):
+    tier = tier.lower().strip()
+    if tier not in BOX_TIERS:
+        return await ctx.reply("❌ Tier must be common, rare, epic, legendary, or mythical.", mention_author=False)
+    cfg = BOX_TIERS[tier]
+    count = _box_count(ctx.guild.id, ctx.author.id, tier)
     if action.lower() != "open":
-        return await ctx.reply(f"🎁 You have **{count}** Mystery Box(es). Use `?mystery open [quantity]` to open them.", mention_author=False)
+        lines = [f"{c['emoji']} {c['label']}: **{_box_count(ctx.guild.id, ctx.author.id, t)}**" for t,c in BOX_TIERS.items()]
+        return await ctx.reply("🎁 **Mystery Boxes**\\n" + "\\n".join(lines) + f"\\n\\nSelected: **{cfg['label']}** ({count})\\nOdds: tiered reward pools; duplicate-limited collectibles convert to Catnip.", mention_author=False)
     if count <= 0:
-        return await ctx.reply("🎁 You don't have any Mystery Boxes yet.", mention_author=False)
-    quantity = max(1, min(int(quantity), min(5, count)))
-    rewards = [await _open_one(ctx.guild.id, ctx.author) for _ in range(quantity)]
-    _set_box_count(ctx.guild.id, ctx.author.id, count - quantity)
+        return await ctx.reply(f"🎁 You have no {cfg['label']} boxes.", mention_author=False)
+    try:
+        quantity = max(1, min(int(quantity), 5, count))
+    except (TypeError, ValueError):
+        return await ctx.reply("❌ Quantity must be a number from 1 to 5.", mention_author=False)
+    rewards = [await _open_one(ctx.guild.id, ctx.author, tier) for _ in range(quantity)]
+    _set_box_count(ctx.guild.id, ctx.author.id, count - quantity, tier)
     key = _af_key(ctx.guild.id, ctx.author.id); ADVANCED_FEATURES["mystery_opened"][key] = int(ADVANCED_FEATURES["mystery_opened"].get(key, 0)) + quantity
     await bd_save_data()
-    await ctx.reply("🎁 **Mystery Box Results**\n" + "\n".join(f"• {r}" for r in rewards) + f"\n\nBoxes remaining: **{_box_count(ctx.guild.id, ctx.author.id)}**", mention_author=False)
-
+    remaining = _box_count(ctx.guild.id, ctx.author.id, tier)
+    await economy_log(ctx.guild.id, title=f"{cfg['emoji']} {cfg['label']} box opened", fields=[("User", f"{ctx.author} ({ctx.author.id})"), ("Tier", tier.title()), ("Opened", str(quantity)), ("Remaining", str(remaining)), ("Rewards", "; ".join(rewards)[:900])])
+    await ctx.reply(f"{cfg['emoji']} **{cfg['label']} Mystery Box Results**\\n" + "\\n".join(f"• {r}" for r in rewards) + f"\\n\\nBoxes remaining: **{remaining}**", mention_author=False)
 
 # ---------------------------------------------------------------------------
 # Black Market
