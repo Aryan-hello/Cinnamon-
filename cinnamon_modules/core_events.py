@@ -5,6 +5,8 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
+from cinnamon_modules.brain_activation import is_directly_addressed, strip_bot_addressing
+
 async def _send_admin_error_dm(user, *, command_name: str, error: BaseException, context: str = ""):
     """Privately send useful diagnostics to a server Administrator after a command fails.
 
@@ -449,25 +451,79 @@ async def _ch_maybe_handle(message, clean_content):
 
 
 async def _ch_private_data_redirect(message, clean_content):
-    """Keep member-owned account data out of public prefix-chat replies."""
+    """Answer a member's own account question privately from a verified snapshot."""
     classifier = globals().get("_me_classify_private_question")
-    if not callable(classifier) or not classifier(clean_content):
+    snapshot_builder = globals().get("_me_private_snapshot")
+    answer_builder = globals().get("_me_generate_private_answer")
+    if not callable(classifier) or not callable(snapshot_builder) or not callable(answer_builder):
         return False
-    await message.reply(
-        "🐾 For your privacy, I won't post personal account details in this channel. "
-        "Use the private `/cinnamon-me ask` command instead. It can answer questions "
-        "about your own Catnip, inventory, progress, quests, achievements, reminders, "
-        "and memory settings.",
-        mention_author=False,
-        allowed_mentions=discord.AllowedMentions.none(),
-    )
+    scopes = classifier(clean_content)
+    if not scopes:
+        return False
+    if message.guild is None:
+        await message.channel.send(
+            "🐾 For account questions, mention me in the server where your Cinnamon data lives. "
+            "I'll send the verified answer privately.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return True
+
+    snapshot, ready = snapshot_builder(message.guild.id, message.author.id, scopes)
+    if not ready:
+        await message.channel.send(
+            "⚠️ I can't verify the saved data right now, so I won't guess. Please try again later.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return True
+    try:
+        answer = await asyncio.to_thread(answer_builder, clean_content, snapshot)
+        if not answer:
+            raise ValueError("empty private answer")
+        await message.author.send(
+            answer[:1400], allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        # Never disclose account values in the originating channel when DM fails.
+        await message.channel.send(
+            "🔒 I prepared a private account answer, but couldn't DM you. "
+            "Please enable DMs from server members and ask me again.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except Exception as exc:
+        log.warning("Private natural-language Q&A failed (%s)", type(exc).__name__)
+        await message.channel.send(
+            "🐾 I couldn't verify an answer just now. Your data wasn't changed; please try again.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
     return True
 
-async def _cinnamon_try_assistance(message, clean_content):
-    """Route current requests through a deterministic plan and trusted handlers."""
-    from cinnamon_modules.brain_intent import plan_intent
+async def _cinnamon_brain_intent_model_call(prompt: str) -> str:
+    """Return a constrained Gemini intent suggestion; this function cannot execute actions."""
+    def _call():
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                max_output_tokens=120,
+                temperature=0.1,
+                response_mime_type="application/json",
+            ),
+        )
+        return response.text or ""
+    return await asyncio.wait_for(asyncio.to_thread(_call), timeout=9.0)
 
-    plan = plan_intent(clean_content)
+
+async def _cinnamon_try_assistance(message, clean_content):
+    """Route current requests through deterministic rules and a bounded AI fallback."""
+    from cinnamon_modules.brain_intent import plan_intent
+    from cinnamon_modules.brain_intent_ai import classify_intent_with_fallback
+
+    deterministic = plan_intent(clean_content)
+    plan = await classify_intent_with_fallback(
+        clean_content,
+        deterministic_plan=deterministic,
+        model_call=_cinnamon_brain_intent_model_call,
+    )
     handlers = {
         "reminder": globals().get("_cr_maybe_handle"),
         "memory": globals().get("_cmem_maybe_handle"),
@@ -707,7 +763,8 @@ async def prefix_botstatus(ctx):
 
 @bot.event
 async def on_message(message: discord.Message):
-    if message.author.bot:
+    # Ignore bot accounts and webhook posts before any XP, memory, or Brain processing.
+    if message.author.bot or message.webhook_id is not None:
         return
     # Dispatch ? commands before the regular AI/XP chat pipeline.
     # Be forgiving about whitespace after the prefix so both `?work` and
@@ -752,11 +809,10 @@ async def on_message(message: discord.Message):
     speaker = message.author.display_name
     content = message.content.strip()
 
-    # Strip the bot's own mention text out of the message before we store/send it.
-    clean_content = content
-    if bot.user:
-        clean_content = clean_content.replace(f"<@{bot.user.id}>", "").strip()
-        clean_content = clean_content.replace(f"<@!{bot.user.id}>", "").strip()
+    # Strip direct addressing syntax before intent parsing and chat generation.
+    clean_content = strip_bot_addressing(
+        content, bot_user_id=bot.user.id if bot.user else None,
+    )
 
     # --- XP: award for genuine chat messages, at most once per user per 60s ---
     if message.guild and clean_content:
@@ -783,10 +839,8 @@ async def on_message(message: discord.Message):
         if callable(context_observer):
             context_observer(guild_id, clean_content)
 
-    was_mentioned = bot.user is not None and bot.user in message.mentions and not message.mention_everyone
-
-    # Check if this message is a reply to one of Cinnamon's own messages.
-    was_reply_to_bot = False
+    # A reply is valid only when its resolved target is Cinnamon's own message.
+    reply_author_id = None
     if message.reference and bot.user:
         ref = message.reference.resolved
         if ref is None:
@@ -794,30 +848,25 @@ async def on_message(message: discord.Message):
                 ref = await message.channel.fetch_message(message.reference.message_id)
             except (discord.NotFound, discord.HTTPException):
                 ref = None
-        if isinstance(ref, discord.Message) and ref.author.id == bot.user.id:
-            was_reply_to_bot = True
+        if isinstance(ref, discord.Message):
+            reply_author_id = ref.author.id
 
-    # The AI channel is a place to FIND Cinnamon, not an invitation to
-    # interrupt everyone. Respond only to explicit ping, reply, or direct name.
-    is_ai_channel = guild_id is not None and ai_channels.get(guild_id) == channel_id
-    called_by_name = _cp_direct_name(clean_content)
-    invited = bool(was_mentioned or was_reply_to_bot or called_by_name)
+    was_mentioned = bot.user is not None and bot.user in message.mentions and not message.mention_everyone
+    was_reply_to_bot = bot.user is not None and reply_author_id == bot.user.id
+    invited = is_directly_addressed(
+        content, bot_user_id=bot.user.id if bot.user else None,
+        reply_author_id=reply_author_id,
+    )
     if not invited:
-        if message.guild:
-            try:
-                await _cp_maybe_cameo(message)  # One-line aside, not a conversation.
-            except Exception:
-                log.exception("Cinnamon's voluntary aside was suppressed")
+        # Always-on channels and voluntary cameos never activate Brain V2.
         return
 
-    if (clean_content or was_mentioned or was_reply_to_bot) and invited:
-        # Keep an always-on AI channel from turning chat bursts into Gemini bursts.
+    if invited and (clean_content or was_mentioned or was_reply_to_bot):
         now = time.monotonic()
-        if called_by_name and not (was_mentioned or was_reply_to_bot):
-            last_ai = ai_cooldowns.get(channel_id, 0.0)
-            if now - last_ai < AI_CHANNEL_COOLDOWN_SECONDS:
-                return
-            ai_cooldowns[channel_id] = now
+        last_ai = ai_cooldowns.get(channel_id, 0.0)
+        if now - last_ai < AI_CHANNEL_COOLDOWN_SECONDS:
+            return
+        ai_cooldowns[channel_id] = now
 
         if await _cinnamon_try_assistance(message, clean_content):
             return
