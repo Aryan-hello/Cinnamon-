@@ -10,6 +10,7 @@ class ExecutionStoreTests(unittest.TestCase):
  def test_prepare_claims_one_step_and_persists_running_before_call(self):
   t=prepare_execution(self.state,task_id="t1",step_id="s1",guild_id=1,member_id=2,now=20)
   self.assertEqual(t.status,TaskStatus.RUNNING)
+  self.assertEqual(t.plan_version,2)
   self.assertEqual(t.steps[0].status,StepStatus.RUNNING)
   self.assertEqual(t.steps[0].attempts,1)
  def test_same_idempotency_key_cannot_claim_twice(self):
