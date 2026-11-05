@@ -53,6 +53,19 @@ class BrainKernelTests(unittest.TestCase):
         self.assertIn('"safety_note"', rendered)
         self.assertEqual(render_context(context), rendered)
 
+
+    def test_serialized_context_respects_budget_without_mutating_input(self):
+        context = build_context(
+            guild_id=1, channel_id=2, member_id=3, speaker="Member",
+            current_message='"' * 1000,
+            recent_turns=[("Member", '"' * 700) for _ in range(10)],
+            preferences='"' * 900,
+        )
+        original_turn_count = len(context["recent_turns"])
+        rendered = render_context(context)
+        self.assertLessEqual(len(rendered), 6000)
+        self.assertEqual(len(context["recent_turns"]), original_turn_count)
+
     def test_preference_block_and_invalid_preferences(self):
         self.assertEqual(bounded_preferences("saved preference block"), ["saved preference block"])
         self.assertEqual(bounded_preferences(42), [])
