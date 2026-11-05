@@ -427,9 +427,30 @@ async def _ch_maybe_handle(message, clean_content):
 
 
 async def _cinnamon_try_assistance(message, clean_content):
-    """Trusted, acknowledged personal requests and help precede Gemini."""
+    """Route current human input to one existing trusted handler before Gemini.
+
+    The router is a selector only. Each selected adapter still performs its
+    exact parser, Discord permission, confirmation, and persistence checks.
+    """
+    from cinnamon_modules.brain_router import classify_intent, Intent
+
+    route = classify_intent(clean_content)
     reminder_handler = globals().get("_cr_maybe_handle")
     memory_handler = globals().get("_cmem_maybe_handle")
+
+    if route.intent is Intent.REMINDER:
+        return bool(message.guild and callable(reminder_handler)
+                    and await reminder_handler(message, clean_content))
+    if route.intent is Intent.MEMORY:
+        return bool(message.guild and callable(memory_handler)
+                    and await memory_handler(message, clean_content))
+    if route.intent is Intent.HELP:
+        return await _ch_maybe_handle(message, clean_content)
+    if route.intent is Intent.ACTION:
+        return bool(message.guild and await _ca_maybe_handle(message, clean_content))
+
+    # CHAT has no side effects. Preserve deterministic fallback matching for
+    # unusual wording; each helper still owns its validation and permissions.
     if message.guild and callable(reminder_handler) and await reminder_handler(message, clean_content):
         return True
     if message.guild and callable(memory_handler) and await memory_handler(message, clean_content):
