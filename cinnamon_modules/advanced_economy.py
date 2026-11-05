@@ -276,7 +276,7 @@ async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Cho
     count = _box_count(interaction.guild.id, interaction.user.id, tier_value)
     if action_value == "check":
         lines = [f"{cfg['emoji']} {cfg['label']}: **{_box_count(interaction.guild.id, interaction.user.id, name)}**" for name,cfg in BOX_TIERS.items()]
-        e = cinnamon_embed("🎁 Mystery Boxes", "\\n".join(lines), color=CINNAMON_ORANGE, user=interaction.user, footer="Cinnamon Mystery Boxes")
+        e = cinnamon_embed("🎁 Mystery Boxes", "\n".join(lines), color=CINNAMON_ORANGE, user=interaction.user, footer="Cinnamon Mystery Boxes")
         e.add_field(name="How to earn them", value="Daily rewards, work shifts, and normal server activity can occasionally award boxes.")
         await interaction.response.send_message(embed=cinnamon_polish_embed(e), ephemeral=True)
         return
@@ -291,9 +291,9 @@ async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Cho
     key = _af_key(interaction.guild.id, interaction.user.id)
     ADVANCED_FEATURES["mystery_opened"][key] = int(ADVANCED_FEATURES["mystery_opened"].get(key, 0)) + quantity
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="🎁 Mystery Box opened", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Opened", str(quantity)), ("Remaining", str(_box_count(interaction.guild.id, interaction.user.id)))])
+    await economy_log(interaction.guild.id, title="🎁 Mystery Box opened", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Opened", str(quantity)), ("Remaining", str(_box_count(interaction.guild.id, interaction.user.id, tier_value)))])
     e = cinnamon_embed("🎁 Mystery Box Results", "Cinnamon shook the box very aggressively.\n\n" + "\n".join(f"• {r}" for r in rewards), color=CINNAMON_GOLD, user=interaction.user, footer="Cinnamon Mystery Boxes")
-    e.add_field(name="Boxes remaining", value=f"**{_box_count(interaction.guild.id, interaction.user.id)}**")
+    e.add_field(name="Boxes remaining", value=f"**{_box_count(interaction.guild.id, interaction.user.id, tier_value)}**")
     await interaction.response.send_message(embed=cinnamon_polish_embed(e), allowed_mentions=discord.AllowedMentions.none())
 
 
