@@ -137,8 +137,6 @@ def prepare_execution(snapshot:dict, *, task_id:str, step_id:str, guild_id:int, 
  step=next((s for s in current.steps if s.step_id==step_id),None)
  if step is None or step.status!=StepStatus.PENDING:raise TaskStoreError("Step is not pending")
  if not all(next((x.status==StepStatus.COMPLETED for x in current.steps if x.step_id==d),False) for d in step.dependencies):raise TaskStoreError("Dependencies incomplete")
- from dataclasses import replace as _replace
- from cinnamon_modules.brain_tasks import StepStatus
  steps=tuple(_replace(s,status=StepStatus.RUNNING,attempts=s.attempts+1) if s.step_id==step_id else s for s in current.steps)
  running=_replace(current,status=TaskStatus.RUNNING,steps=steps,updated_at=float(now))
  records=_records(snapshot);records[task_id]=_encode(running)
@@ -146,8 +144,6 @@ def prepare_execution(snapshot:dict, *, task_id:str, step_id:str, guild_id:int, 
 
 def record_execution_result(snapshot:dict, *, task_id:str,step_id:str,guild_id:int,member_id:int,expected_version:int,success:bool|None,summary:str,now:float)->Task:
  """Persist success/failure/uncertainty. Unknown external outcomes never retry."""
- from dataclasses import replace as _replace
- from cinnamon_modules.brain_tasks import StepStatus
  current=get_task(snapshot,task_id,guild_id=guild_id,member_id=member_id)
  if current is None:raise TaskStoreError("Task not found")
  if current.plan_version!=expected_version:raise TaskStoreError("Stale task revision")
