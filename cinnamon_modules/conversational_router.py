@@ -37,7 +37,7 @@ def _ccr_command(text):
         return "shop"
     if _ccr_re.fullmatch(r"(?:inventory|inv|what do i own|show (?:me )?(?:my )?inventory)", t):
         return "inventory"
-    m = _ccr_re.fullmatch(r"(?:buy|get me|purchase)\s+(?:(\d+)\s+)?(.+?)(?:\s+(?:please|pls))?", t)
+    m = _ccr_re.fullmatch(r"(?:buy\s+(?:me\s+)?|get me\s+|purchase\s+)(?:(\d+)\s+)?(.+?)(?:\s+(?:please|pls))?", t)
     if m:
         qty = int(m.group(1) or 1)
         item_text = m.group(2).strip()
