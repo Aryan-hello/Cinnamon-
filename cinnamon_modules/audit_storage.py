@@ -296,13 +296,6 @@ async def _audit_unban(g,u): await _audit_listener_safe(g.id,"moderation","membe
 for _ev,_fn in (("on_message",_audit_msg_create),("on_message_edit",_audit_msg_edit),("on_message_delete",_audit_msg_delete),("on_bulk_message_delete",_audit_bulk_delete),("on_member_join",_audit_join),("on_member_remove",_audit_leave),("on_member_update",_audit_member_update),("on_guild_channel_create",_audit_ch_create),("on_guild_channel_delete",_audit_ch_delete),("on_guild_channel_update",_audit_ch_update),("on_guild_role_create",_audit_role_create),("on_guild_role_delete",_audit_role_delete),("on_guild_role_update",_audit_role_update),("on_voice_state_update",_audit_voice),("on_guild_update",_audit_guild_update),("on_reaction_add",_audit_react_add),("on_reaction_remove",_audit_react_remove),("on_thread_create",_audit_thread_create),("on_thread_delete",_audit_thread_delete),("on_invite_create",_audit_invite_create),("on_invite_delete",_audit_invite_delete),("on_guild_emojis_update",_audit_emojis),("on_member_ban",_audit_ban),("on_member_unban",_audit_unban)):
     bot.add_listener(_fn,_ev)
 
-async def _audit_command_done(ctx):
-    if ctx.guild:
-        await _audit_listener_safe(ctx.guild.id,"commands","prefix_command_completed",
-            actor_id=ctx.author.id,channel_id=ctx.channel.id,
-            metadata={"command":ctx.command.qualified_name if ctx.command else "unknown",
-                     "message_id":ctx.message.id})
-bot.add_listener(_audit_command_done,"on_command_completion")
 
 bot.add_listener(_audit_prefix_command, "on_command")
 bot.add_listener(_audit_prefix_error, "on_command_error")
