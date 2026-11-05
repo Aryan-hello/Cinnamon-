@@ -94,6 +94,13 @@ def economy_user_snapshot(guild_id: int, user_id: int) -> dict:
 
 
 async def economy_log(guild_id: int, *, title: str, description: str = "", fields=None):
+    # Persist transaction/event metadata even if no Discord log channel is configured.
+    try:
+        audit_meta = {str(k)[:48]: str(v)[:200] for k, v in (fields or [])[:20]
+                      if str(k).lower() not in {"content", "message", "prompt", "response", "token", "secret"}}
+        await audit_event(guild_id, "economy", title, metadata=audit_meta)
+    except Exception:
+        log.exception("Failed to write economy event to Upstash audit history")
     channel_id = economy_log_channels.get(guild_id) or category_log_channels.get(guild_id, {}).get("economy")
     if not channel_id:
         channel_id = log_channels.get(guild_id)
