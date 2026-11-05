@@ -26,14 +26,24 @@ async def _redis(command):
     if not url or not token:
         raise RuntimeError("Upstash audit credentials are not configured")
     import aiohttp
-    timeout = aiohttp.ClientTimeout(total=4)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, json=command, headers={"Authorization": f"Bearer {token}"}) as response:
-            response.raise_for_status()
-            payload = await response.json()
-            if not isinstance(payload, dict) or payload.get("error") or "result" not in payload:
-                raise RuntimeError("Invalid Upstash response")
-            return payload["result"]
+    timeout = aiohttp.ClientTimeout(total=5)
+    last_error = None
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=command, headers={"Authorization": "Bearer " + token}) as response:
+                    if response.status == 429 or response.status >= 500:
+                        raise RuntimeError("Upstash transient HTTP " + str(response.status))
+                    response.raise_for_status()
+                    payload = await response.json()
+                    if not isinstance(payload, dict) or payload.get("error") or "result" not in payload:
+                        raise RuntimeError("Invalid Upstash response")
+                    return payload["result"]
+        except Exception as exc:
+            last_error = exc
+            if attempt < 2:
+                await asyncio.sleep(0.25 * (2 ** attempt))
+    raise last_error
 
 
 def _safe_metadata(metadata):
@@ -215,3 +225,110 @@ async def auditstatus_cmd(interaction: discord.Interaction):
             "Discord logs and the bot snapshot are not modified by this check."
         )
     await interaction.followup.send(message, ephemeral=True)
+
+
+# Command-wide audit hooks: record command names and outcomes, never message text.
+async def _audit_prefix_command(ctx):
+    if ctx.guild:
+        await audit_event(ctx.guild.id, "commands", "prefix_command",
+            actor_id=ctx.author.id, channel_id=ctx.channel.id,
+            metadata={"command": ctx.command.qualified_name if ctx.command else "unknown",
+                      "message_id": ctx.message.id})
+
+async def _audit_prefix_error(ctx, error):
+    if ctx.guild:
+        await audit_event(ctx.guild.id, "errors", "prefix_command_error",
+            actor_id=ctx.author.id, channel_id=ctx.channel.id,
+            metadata={"command": ctx.command.qualified_name if ctx.command else "unknown",
+                      "error_type": type(error).__name__})
+
+async def _audit_interaction(interaction):
+    if interaction.guild_id:
+        data = getattr(interaction, "data", {}) or {}
+        await audit_event(interaction.guild_id, "interactions", "discord_interaction",
+            actor_id=interaction.user.id, channel_id=interaction.channel_id,
+            metadata={"name": str(data.get("name") or data.get("custom_id") or interaction.type)[:120],
+                      "interaction_id": interaction.id})
+
+# Broad Discord audit listeners; metadata only, never message body/attachments.
+async def _audit_listener_safe(gid, category, action, **kw):
+    try:
+        if gid: await audit_event(gid,category,action,**kw)
+    except Exception: _audit_log.exception("Audit listener failed: %s",action)
+async def _audit_msg_create(m):
+    if m.guild and not m.author.bot: await _audit_listener_safe(m.guild.id,"messages","message_created",actor_id=m.author.id,channel_id=m.channel.id,metadata={"message_id":m.id,"attachment_count":len(m.attachments),"embed_count":len(m.embeds)})
+async def _audit_msg_edit(b,a):
+    if a.guild and not a.author.bot: await _audit_listener_safe(a.guild.id,"messages","message_edited",actor_id=a.author.id,channel_id=a.channel.id,metadata={"message_id":a.id})
+async def _audit_msg_delete(m):
+    if m.guild: await _audit_listener_safe(m.guild.id,"messages","message_deleted",actor_id=getattr(m.author,"id",None),channel_id=m.channel.id,metadata={"message_id":m.id})
+async def _audit_bulk_delete(ms):
+    groups={}
+    for m in ms:
+        if m.guild: groups[(m.guild.id,m.channel.id)]=groups.get((m.guild.id,m.channel.id),0)+1
+    for (g,c),n in groups.items(): await _audit_listener_safe(g,"messages","bulk_delete",channel_id=c,metadata={"count":n})
+async def _audit_join(m): await _audit_listener_safe(m.guild.id,"members","member_joined",target_id=m.id,metadata={"bot":m.bot})
+async def _audit_leave(m): await _audit_listener_safe(m.guild.id,"members","member_left_or_removed",target_id=m.id,metadata={"bot":m.bot})
+async def _audit_member_update(b,a):
+    ch=[k for k in ("nick","roles","pending","timed_out_until") if getattr(b,k,None)!=getattr(a,k,None)]
+    if ch: await _audit_listener_safe(a.guild.id,"members","member_updated",target_id=a.id,metadata={"changed":",".join(ch)})
+async def _audit_ch_create(c):
+    if c.guild: await _audit_listener_safe(c.guild.id,"channels","created",target_id=c.id,metadata={"name":c.name,"type":str(c.type)})
+async def _audit_ch_delete(c):
+    if c.guild: await _audit_listener_safe(c.guild.id,"channels","deleted",target_id=c.id,metadata={"name":c.name,"type":str(c.type)})
+async def _audit_ch_update(b,a):
+    ch=[k for k in ("name","topic","category_id","position","slowmode_delay","nsfw") if getattr(b,k,None)!=getattr(a,k,None)]
+    if ch: await _audit_listener_safe(a.guild.id,"channels","updated",target_id=a.id,metadata={"changed":",".join(ch),"name":a.name})
+async def _audit_role_create(r): await _audit_listener_safe(r.guild.id,"roles","created",target_id=r.id,metadata={"name":r.name})
+async def _audit_role_delete(r): await _audit_listener_safe(r.guild.id,"roles","deleted",target_id=r.id,metadata={"name":r.name})
+async def _audit_role_update(b,a):
+    ch=[k for k in ("name","permissions","color","hoist","mentionable","position") if getattr(b,k,None)!=getattr(a,k,None)]
+    if ch: await _audit_listener_safe(a.guild.id,"roles","updated",target_id=a.id,metadata={"changed":",".join(ch),"name":a.name})
+async def _audit_voice(m,b,a):
+    if b.channel!=a.channel or b.mute!=a.mute or b.deaf!=a.deaf: await _audit_listener_safe(m.guild.id,"voice","state_changed",actor_id=m.id,channel_id=getattr(a.channel or b.channel,"id",None),metadata={"from":getattr(b.channel,"id",None),"to":getattr(a.channel,"id",None),"mute":a.mute,"deaf":a.deaf})
+async def _audit_guild_update(b,a):
+    ch=[k for k in ("name","description","verification_level","explicit_content_filter","default_notifications") if getattr(b,k,None)!=getattr(a,k,None)]
+    if ch: await _audit_listener_safe(a.id,"server","settings_updated",metadata={"changed":",".join(ch),"name":a.name})
+async def _audit_react_add(r,u):
+    if r.message.guild and not u.bot: await _audit_listener_safe(r.message.guild.id,"reactions","added",actor_id=u.id,channel_id=r.message.channel.id,metadata={"message_id":r.message.id,"emoji":str(r.emoji)[:80]})
+async def _audit_react_remove(r,u):
+    if r.message.guild and not u.bot: await _audit_listener_safe(r.message.guild.id,"reactions","removed",actor_id=u.id,channel_id=r.message.channel.id,metadata={"message_id":r.message.id,"emoji":str(r.emoji)[:80]})
+async def _audit_thread_create(t):
+    if t.guild: await _audit_listener_safe(t.guild.id,"threads","created",target_id=t.id,channel_id=t.parent_id,metadata={"name":t.name})
+async def _audit_thread_delete(t):
+    if t.guild: await _audit_listener_safe(t.guild.id,"threads","deleted",target_id=t.id,channel_id=t.parent_id,metadata={"name":t.name})
+async def _audit_invite_create(i):
+    if i.guild: await _audit_listener_safe(i.guild.id,"invites","created",actor_id=getattr(i.inviter,"id",None),channel_id=getattr(i.channel,"id",None),metadata={"code":i.code,"max_uses":i.max_uses})
+async def _audit_invite_delete(i):
+    if i.guild: await _audit_listener_safe(i.guild.id,"invites","deleted",channel_id=getattr(i.channel,"id",None),metadata={"code":i.code})
+async def _audit_emojis(b,a): await _audit_listener_safe(a.id,"server","emoji_sticker_assets_updated",metadata={"emojis_before":len(b.emojis),"emojis_after":len(a.emojis),"stickers_before":len(b.stickers),"stickers_after":len(a.stickers)})
+async def _audit_ban(g,u): await _audit_listener_safe(g.id,"moderation","member_banned",target_id=u.id,metadata={"user":str(u)[:100]})
+async def _audit_unban(g,u): await _audit_listener_safe(g.id,"moderation","member_unbanned",target_id=u.id,metadata={"user":str(u)[:100]})
+for _ev,_fn in (("on_message",_audit_msg_create),("on_message_edit",_audit_msg_edit),("on_message_delete",_audit_msg_delete),("on_bulk_message_delete",_audit_bulk_delete),("on_member_join",_audit_join),("on_member_remove",_audit_leave),("on_member_update",_audit_member_update),("on_guild_channel_create",_audit_ch_create),("on_guild_channel_delete",_audit_ch_delete),("on_guild_channel_update",_audit_ch_update),("on_guild_role_create",_audit_role_create),("on_guild_role_delete",_audit_role_delete),("on_guild_role_update",_audit_role_update),("on_voice_state_update",_audit_voice),("on_guild_update",_audit_guild_update),("on_reaction_add",_audit_react_add),("on_reaction_remove",_audit_react_remove),("on_thread_create",_audit_thread_create),("on_thread_delete",_audit_thread_delete),("on_invite_create",_audit_invite_create),("on_invite_delete",_audit_invite_delete),("on_guild_emojis_update",_audit_emojis),("on_member_ban",_audit_ban),("on_member_unban",_audit_unban)):
+    bot.add_listener(_fn,_ev)
+
+
+bot.add_listener(_audit_prefix_command, "on_command")
+bot.add_listener(_audit_prefix_error, "on_command_error")
+bot.add_listener(_audit_interaction, "on_interaction")
+# Additional server configuration/activity events exposed by Discord Gateway.
+async def _audit_thread_update(b, a):
+    changed = [k for k in ("name", "archived", "locked", "invitable", "slowmode_delay") if getattr(b, k, None) != getattr(a, k, None)]
+    if changed and a.guild: await _audit_listener_safe(a.guild.id, "threads", "updated", target_id=a.id, channel_id=a.parent_id, metadata={"changed": ",".join(changed), "name": a.name})
+async def _audit_scheduled_create(e):
+    if e.guild: await _audit_listener_safe(e.guild.id, "events", "scheduled_event_created", target_id=e.id, metadata={"name": e.name, "status": str(e.status)})
+async def _audit_scheduled_delete(e):
+    if e.guild: await _audit_listener_safe(e.guild.id, "events", "scheduled_event_deleted", target_id=e.id, metadata={"name": e.name})
+async def _audit_scheduled_update(b, a):
+    changed = [k for k in ("name", "description", "start_time", "end_time", "status", "entity_type", "location") if getattr(b, k, None) != getattr(a, k, None)]
+    if changed and a.guild: await _audit_listener_safe(a.guild.id, "events", "scheduled_event_updated", target_id=a.id, metadata={"changed": ",".join(changed), "name": a.name})
+async def _audit_automod_action(e):
+    if e.guild: await _audit_listener_safe(e.guild.id, "automod", "rule_triggered", actor_id=getattr(e.member, "id", None), channel_id=getattr(e.channel, "id", None), metadata={"rule_id": e.rule_id, "action": str(e.action.type), "message_id": getattr(e.message, "id", None)})
+async def _audit_automod_rule_create(r):
+    if r.guild: await _audit_listener_safe(r.guild.id, "automod", "rule_created", target_id=r.id, metadata={"name": r.name, "enabled": r.enabled})
+async def _audit_automod_rule_delete(r):
+    if r.guild: await _audit_listener_safe(r.guild.id, "automod", "rule_deleted", target_id=r.id, metadata={"name": r.name})
+async def _audit_automod_rule_update(b, a):
+    changed = [k for k in ("name", "enabled", "event_type", "trigger_type", "actions", "exempt_roles", "exempt_channels") if getattr(b, k, None) != getattr(a, k, None)]
+    if changed and a.guild: await _audit_listener_safe(a.guild.id, "automod", "rule_updated", target_id=a.id, metadata={"changed": ",".join(changed), "name": a.name})
+for _ev, _fn in (("on_thread_update", _audit_thread_update), ("on_scheduled_event_create", _audit_scheduled_create), ("on_scheduled_event_delete", _audit_scheduled_delete), ("on_scheduled_event_update", _audit_scheduled_update), ("on_automod_action", _audit_automod_action), ("on_automod_rule_create", _audit_automod_rule_create), ("on_automod_rule_delete", _audit_automod_rule_delete), ("on_automod_rule_update", _audit_automod_rule_update)):
+    bot.add_listener(_fn, _ev)
