@@ -175,3 +175,5 @@ No passive full-chat archive, sensitive profile, cross-guild memory leakage, or 
 - \`brain_route_decision.py\` adds typed, reason-coded decisions for chat/help/reminders/memory/action/activity. It defaults to WAIT for unknown inputs, disabled/quiet/serious/storage-blocked activity, refuses action requests without permission, and requests confirmation before a candidate action.
 - The earlier \`brain_decision.py\` activity adviser remains separate and continues to choose only wait/game/prompt; its independent eligibility gate remains in place. This avoids introducing a second scheduler or weakening the existing hard guards.
 
+
+- **Live capability grounding (Kernel v3 extension):** the Gemini context now includes a bounded catalog derived from the current Discord command tree (up to 20 command signatures/descriptions) plus four concise summaries of reminders, member memory, confirmed staff actions, and independent activity. This is read-only metadata, not executable tools; descriptions are clipped and treated as data. It reduces invented command names and makes feature explanations more grounded.
