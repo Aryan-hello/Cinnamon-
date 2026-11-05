@@ -1019,7 +1019,9 @@ async def collect_cmd(interaction: discord.Interaction):
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(member="Member receiving the reward", item="Search item name OR select Mystery Box", quantity="Number of items/boxes to add", box_tier="Mystery Box rarity (only for Mystery Box)", reward_tier="Add item to this Mystery Box reward pool instead", reward_type="Reward category (item/material)")
-@app_commands.choices(box_tier=[app_commands.Choice(name=cfg["label"],value=t) for t,cfg in BOX_TIERS.items()])\n@app_commands.choices(reward_tier=[app_commands.Choice(name=cfg["label"],value=t) for t,cfg in BOX_TIERS.items()])\n@app_commands.choices(reward_type=[app_commands.Choice(name="Item",value="items"),app_commands.Choice(name="Material",value="materials")])
+@app_commands.choices(box_tier=[app_commands.Choice(name=cfg["label"],value=t) for t,cfg in BOX_TIERS.items()])
+@app_commands.choices(reward_tier=[app_commands.Choice(name=cfg["label"],value=t) for t,cfg in BOX_TIERS.items()])
+@app_commands.choices(reward_type=[app_commands.Choice(name="Item",value="items"),app_commands.Choice(name="Material",value="materials")])
 @app_commands.autocomplete(item=cinnamon_item_autocomplete)
 async def economy_item_add_cmd(interaction: discord.Interaction, member: discord.Member, item: str, quantity: app_commands.Range[int, 1, 10000] = 1, box_tier: app_commands.Choice[str] | None = None, reward_tier: app_commands.Choice[str] | None = None, reward_type: app_commands.Choice[str] | None = None):
     guild_id=interaction.guild.id
