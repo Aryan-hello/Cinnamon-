@@ -27,11 +27,11 @@ def _ccr_command(text):
     t = _ccr_clean(text).lower()
     if not t:
         return None
-    if _ccr_re.search(r"\b(?:balance|wallet|how much (?:catnip|money)|my catnip)\b", t):
+    if _ccr_re.search(r"\b(?:balance|wallet|how much (?:catnip|money)|my catnip|how much do i have)\b", t):
         return "balance"
-    if _ccr_re.fullmatch(r"(?:work|work please|earn catnip|make (?:some )?money|i want to work)", t):
+    if _ccr_re.fullmatch(r"(?:work|work please|can i work|let me work|earn catnip|earn some catnip|make (?:some )?money|i want to work)", t):
         return "work"
-    if _ccr_re.fullmatch(r"(?:daily|claim daily|daily reward|claim my daily)", t):
+    if _ccr_re.fullmatch(r"(?:daily|claim daily|daily reward|claim my daily|claim my reward|collect daily reward)", t):
         return "daily"
     if _ccr_re.fullmatch(r"(?:shop|show (?:me )?(?:the )?shop|open (?:the )?shop)", t):
         return "shop"
