@@ -215,3 +215,30 @@ async def auditstatus_cmd(interaction: discord.Interaction):
             "Discord logs and the bot snapshot are not modified by this check."
         )
     await interaction.followup.send(message, ephemeral=True)
+
+
+# Command-wide audit hooks: record command names and outcomes, never message text.
+@bot.event
+async def on_command(ctx):
+    if ctx.guild:
+        await audit_event(ctx.guild.id, "commands", "prefix_command",
+            actor_id=ctx.author.id, channel_id=ctx.channel.id,
+            metadata={"command": ctx.command.qualified_name if ctx.command else "unknown",
+                      "message_id": ctx.message.id})
+
+@bot.event
+async def on_command_error(ctx, error):
+    if ctx.guild:
+        await audit_event(ctx.guild.id, "errors", "prefix_command_error",
+            actor_id=ctx.author.id, channel_id=ctx.channel.id,
+            metadata={"command": ctx.command.qualified_name if ctx.command else "unknown",
+                      "error_type": type(error).__name__})
+
+@bot.event
+async def on_interaction(interaction):
+    if interaction.guild_id:
+        data = getattr(interaction, "data", {}) or {}
+        await audit_event(interaction.guild_id, "interactions", "discord_interaction",
+            actor_id=interaction.user.id, channel_id=interaction.channel_id,
+            metadata={"name": str(data.get("name") or data.get("custom_id") or interaction.type)[:120],
+                      "interaction_id": interaction.id})
