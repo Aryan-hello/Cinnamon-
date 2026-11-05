@@ -25,3 +25,15 @@ def retrieve_relevant_memories(query: str, notes: Iterable[Mapping], *, guild_id
   clipped=text[:remaining]
   if clipped:result.append({"note_id":nid,"text":clipped,"relevance":score});used+=len(clipped)
  return result
+
+def retrieve_memories(notes, *, guild_id:int, member_id:int, query:str, opted_out:bool=False, max_items:int=5):
+ """Adapter for Cinnamon preference records; scope is verified before ranking."""
+ if opted_out or type(guild_id) is not int or type(member_id) is not int:return []
+ normalized=[]
+ for note in notes or []:
+  if not isinstance(note,Mapping):continue
+  normalized.append({"guild_id":guild_id,"member_id":member_id,
+   "note_id":str(note.get("id","")),"text":str(note.get("detail","")),
+   "active":True})
+ return retrieve_relevant_memories(query,normalized,guild_id=guild_id,
+  member_id=member_id,limit=max(1,min(5,int(max_items))),max_chars=900)
