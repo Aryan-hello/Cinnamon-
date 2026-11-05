@@ -105,3 +105,39 @@ def prune_tasks(snapshot:dict, *, now:float) -> list[str]:
         if task.expires_at<=now:
             del records[task_id];removed.append(task_id)
     return removed
+
+def prepare_execution(snapshot:dict, *, task_id:str, step_id:str, guild_id:int, member_id:int, now:float)->Task:
+ """Persist RUNNING claim before any external call; duplicate claims fail closed."""
+ current=get_task(snapshot,task_id,guild_id=guild_id,member_id=member_id)
+ if current is None:raise TaskStoreError("Task not found")
+ if current.status!=TaskStatus.READY:raise TaskStoreError("Task is not ready")
+ step=next((s for s in current.steps if s.step_id==step_id),None)
+ if step is None or step.status!=StepStatus.PENDING:raise TaskStoreError("Step is not pending")
+ if not all(next((x.status==StepStatus.COMPLETED for x in current.steps if x.step_id==d),False) for d in step.dependencies):raise TaskStoreError("Dependencies incomplete")
+ from dataclasses import replace as _replace
+ from cinnamon_modules.brain_tasks import StepStatus
+ steps=tuple(_replace(s,status=StepStatus.RUNNING,attempts=s.attempts+1) if s.step_id==step_id else s for s in current.steps)
+ running=_replace(current,status=TaskStatus.RUNNING,steps=steps,updated_at=float(now))
+ records=_records(snapshot);records[task_id]=_encode(running)
+ return running
+
+def record_execution_result(snapshot:dict, *, task_id:str,step_id:str,guild_id:int,member_id:int,expected_version:int,success:bool|None,summary:str,now:float)->Task:
+ """Persist success/failure/uncertainty. Unknown external outcomes never retry."""
+ from dataclasses import replace as _replace
+ from cinnamon_modules.brain_tasks import StepStatus
+ current=get_task(snapshot,task_id,guild_id=guild_id,member_id=member_id)
+ if current is None:raise TaskStoreError("Task not found")
+ if current.plan_version!=expected_version:raise TaskStoreError("Stale task revision")
+ if current.status!=TaskStatus.RUNNING:raise TaskStoreError("Task is not running")
+ step=next((s for s in current.steps if s.step_id==step_id),None)
+ if step is None or step.status!=StepStatus.RUNNING:raise TaskStoreError("Step is not running")
+ if success not in (True,False,None):raise TaskStoreError("Invalid outcome")
+ status=StepStatus.COMPLETED if success is True else StepStatus.FAILED if success is False else StepStatus.UNCERTAIN
+ steps=tuple(_replace(s,status=status,outcome_summary=str(summary)[:300]) if s.step_id==step_id else s for s in current.steps)
+ if success is True and all(s.status==StepStatus.COMPLETED for s in steps):target=TaskStatus.COMPLETED
+ elif success is True:target=TaskStatus.READY
+ elif success is False:target=TaskStatus.FAILED
+ else:target=TaskStatus.UNCERTAIN
+ updated=_replace(current,status=target,steps=steps,updated_at=float(now),plan_version=current.plan_version+1)
+ validate_task(updated);_records(snapshot)[task_id]=_encode(updated)
+ return updated
