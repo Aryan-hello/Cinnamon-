@@ -17,7 +17,8 @@ release-ready.** See the Notion vision and the release gates below.
 | Explicit private preference memory + correction tickets | Yes | Yes | No | No |
 | Serious-context quiet boundary + human incident review | Yes | Yes | No | No |
 | Optional aggregate-only activity adviser (OFF by default) | Yes | Yes | No | No |
-| Structured context kernel (this branch) | PR pending | CI pending | No | No |
+| Structured context kernel (PR #32) | PR pending | Yes (238 tests, 3.11/3.12) | No | No |
+| Deterministic intent router + shared policy (v4) | PR pending | CI pending | No | No |
 
 Private Discord/Render/Upstash acceptance checks remain release gates. Source
 compilation and mocked/offline tests do not establish production readiness.
@@ -250,4 +251,14 @@ explainable unified decision record, persistent relationship/memory controls
 with member transparency, and safe capability execution through the existing
 trusted dispatcher. No layer may bypass permissions or turn model prose into
 commands.
+
+
+
+## Brain v4 — intent routing + shared policy (PR #32 extension)
+
+- Pure \`brain_router.py\`: classifies current human input into reminder, memory, help, trusted-action candidate or chat.
+- The \`core_events.py\` dispatcher selects the matching existing adapter; no router route can authorize or execute an action.
+- Pure \`brain_route_decision.py\`: typed decision kinds and reason codes, fail-closed defaults, permission/confirmation checks, and conservative activity gates.
+- Added focused tests for route precedence, ordinary-chat/injection boundaries, advisory-only routes, action confirmation, and activity silence conditions.
+- The existing activity policy, scheduler, action dispatcher, memory store and reminder scheduler remain authoritative; no parallel scheduler or AI executor is introduced.
 
