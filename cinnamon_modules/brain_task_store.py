@@ -110,7 +110,8 @@ def prepare_execution(snapshot:dict, *, task_id:str, step_id:str, guild_id:int, 
  """Persist RUNNING claim before any external call; duplicate claims fail closed."""
  current=get_task(snapshot,task_id,guild_id=guild_id,member_id=member_id)
  if current is None:raise TaskStoreError("Task not found")
- if current.status!=TaskStatus.READY:raise TaskStoreError("Task is not ready")\n if current.expires_at<=now or (current.approval_expires_at and current.approval_expires_at<=now):raise TaskStoreError("Task or approval expired")
+ if current.status!=TaskStatus.READY:raise TaskStoreError("Task is not ready")
+ if current.expires_at<=now or (current.approval_expires_at and current.approval_expires_at<=now):raise TaskStoreError("Task or approval expired")
  step=next((s for s in current.steps if s.step_id==step_id),None)
  if step is None or step.status!=StepStatus.PENDING:raise TaskStoreError("Step is not pending")
  if not all(next((x.status==StepStatus.COMPLETED for x in current.steps if x.step_id==d),False) for d in step.dependencies):raise TaskStoreError("Dependencies incomplete")
