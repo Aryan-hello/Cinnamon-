@@ -4,7 +4,8 @@ This is deliberately a pure adapter: persistence/locking belong to SnapshotStore
 and Discord authorization belongs to the trusted command/executor layer.
 """
 from __future__ import annotations
-from dataclasses import replace as _replace
+from dataclasses import replace
+_replace = replace
 import json
 from typing import Callable
 from cinnamon_modules.brain_tasks import Task, TaskStep, TaskStatus, StepStatus, validate_task, transition_task
@@ -116,7 +117,7 @@ def prepare_execution(snapshot:dict, *, task_id:str, step_id:str, guild_id:int, 
  if step is None or step.status!=StepStatus.PENDING:raise TaskStoreError("Step is not pending")
  if not all(next((x.status==StepStatus.COMPLETED for x in current.steps if x.step_id==d),False) for d in step.dependencies):raise TaskStoreError("Dependencies incomplete")
  steps=tuple(_replace(s,status=StepStatus.RUNNING,attempts=s.attempts+1) if s.step_id==step_id else s for s in current.steps)
- running=_replace(current,status=TaskStatus.RUNNING,steps=steps,updated_at=float(now))
+ running=_replace(current,status=TaskStatus.RUNNING,steps=steps,updated_at=float(now),plan_version=current.plan_version+1)
  records=_records(snapshot);records[task_id]=_encode(running)
  return running
 
