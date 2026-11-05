@@ -18,6 +18,8 @@ MAX_PREFERENCE_BLOCK_CHARS = 900
 MAX_TURNS = 10
 MAX_PREFERENCES = 12
 MAX_PREFERENCE_CHARS = 120
+MAX_CAPABILITIES = 24
+MAX_CAPABILITY_CHARS = 180
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -91,6 +93,18 @@ def bounded_preferences(preferences: object) -> list[str]:
     result = []
     for value in preferences[:MAX_PREFERENCES]:
         text = _clean(value, MAX_PREFERENCE_CHARS)
+        if text:
+            result.append(text)
+    return result
+
+
+def bounded_capabilities(capabilities: object) -> list[str]:
+    """Bound a public, current command/feature catalog for model grounding."""
+    if not isinstance(capabilities, (list, tuple)):
+        return []
+    result = []
+    for value in capabilities[:MAX_CAPABILITIES]:
+        text = _clean(value, MAX_CAPABILITY_CHARS)
         if text:
             result.append(text)
     return result
