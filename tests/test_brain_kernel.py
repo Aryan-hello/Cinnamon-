@@ -53,8 +53,9 @@ class BrainKernelTests(unittest.TestCase):
         self.assertIn('"safety_note"', rendered)
         self.assertEqual(render_context(context), rendered)
 
-    def test_invalid_preferences_are_empty(self):
-        self.assertEqual(bounded_preferences("not a list"), [])
+    def test_preference_block_and_invalid_preferences(self):
+        self.assertEqual(bounded_preferences("saved preference block"), ["saved preference block"])
+        self.assertEqual(bounded_preferences(42), [])
         self.assertEqual(bounded_preferences([None, "", "ok"]), ["ok"])
 
 
