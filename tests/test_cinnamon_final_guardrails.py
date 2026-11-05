@@ -63,10 +63,11 @@ class FinalPreDeploymentTests(unittest.TestCase):
 
     def test_human_chat_needs_invitation_and_cameos_are_extremely_limited(self):
         core = source("core_events.py")
-        self.assertIn("called_by_name = _cp_direct_name(clean_content)", core)
+        self.assertIn("is_directly_addressed(", core)
         self.assertIn("if not invited:", core)
-        self.assertIn("await _cp_maybe_cameo(message)", core)
-        self.assertNotIn("or is_ai_channel):", core)
+        self.assertNotIn("_cp_maybe_cameo(message)", core)
+        self.assertNotIn("is_ai_channel", core)
+        self.assertIn("message.author.bot or message.webhook_id is not None", core)
         mind = source("cinnamon_personality.py")
         self.assertIn('_cp_random.random() >= 0.02', mind)
         self.assertIn("21600", mind)

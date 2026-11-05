@@ -16,6 +16,12 @@ class PrivateQuestionScopeTests(unittest.TestCase):
                          ("wallet",))
         self.assertEqual(classify_private_question("Show my inventory"),
                          ("wallet",))
+        self.assertEqual(classify_private_question("how much money do i have"),
+                         ("wallet",))
+        self.assertEqual(classify_private_question("am i broke or what"),
+                         ("wallet",))
+        self.assertEqual(classify_private_question("check my cash"),
+                         ("wallet",))
 
     def test_progress_questions_select_progress_only(self):
         self.assertEqual(classify_private_question("How close am I to the next level?"),

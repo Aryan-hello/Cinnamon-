@@ -26,7 +26,7 @@ class OrdinaryChatBoundaryTests(unittest.TestCase):
             "catnip balance",
             "quests",
             "reminders",
-            "/cinnamon-me ask",
+            "address you in the server",
         ):
             self.assertIn(phrase, prompt)
 
@@ -40,9 +40,11 @@ class OrdinaryChatBoundaryTests(unittest.TestCase):
             and node.name == "_ch_private_data_redirect"
         )
         text = ast.get_source_segment(source, function)
-        self.assertIn("/cinnamon-me ask", text)
+        self.assertIn("snapshot_builder(message.guild.id, message.author.id, scopes)", text)
+        self.assertIn("message.author.send", text)
+        self.assertIn("Never disclose account values", text)
         self.assertIn("classifier(clean_content)", text)
-        self.assertNotIn("_me_private_snapshot", text)
+        self.assertNotIn("_ca_maybe_handle", text)
         self.assertNotIn("gemini_client", text)
 
     def test_chat_must_not_reveal_another_members_private_data(self):
