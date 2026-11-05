@@ -260,11 +260,14 @@ async def _open_one(guild_id, user, tier="common"):
 @app_commands.guild_only()
 @app_commands.describe(action="open or check", quantity="How many boxes to open", tier="Mystery Box tier")
 @app_commands.choices(action=[app_commands.Choice(name="Open boxes", value="open"), app_commands.Choice(name="Check boxes", value="check")])
-async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Choice[str] | None = None, quantity: app_commands.Range[int, 1, 5] = 1):
+@app_commands.choices(tier=[app_commands.Choice(name="Common",value="common"),app_commands.Choice(name="Rare",value="rare"),app_commands.Choice(name="Epic",value="epic"),app_commands.Choice(name="Legendary",value="legendary"),app_commands.Choice(name="Mythical",value="mythical")])
+async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Choice[str] | None = None, quantity: app_commands.Range[int, 1, 5] = 1, tier: app_commands.Choice[str] | None = None):
     action_value = action.value if action else "check"
-    count = _box_count(interaction.guild.id, interaction.user.id)
+    tier_value = tier.value if tier else "common"
+    count = _box_count(interaction.guild.id, interaction.user.id, tier_value)
     if action_value == "check":
-        e = cinnamon_embed("🎁 Mystery Boxes", f"You currently have **{count}** unopened Mystery Box(es).", color=CINNAMON_ORANGE, user=interaction.user, footer="Cinnamon Mystery Boxes")
+        lines = [f"{cfg['emoji']} {cfg['label']}: **{_box_count(interaction.guild.id, interaction.user.id, name)}**" for name,cfg in BOX_TIERS.items()]
+        e = cinnamon_embed("🎁 Mystery Boxes", "\\n".join(lines), color=CINNAMON_ORANGE, user=interaction.user, footer="Cinnamon Mystery Boxes")
         e.add_field(name="How to earn them", value="Daily rewards, work shifts, and normal server activity can occasionally award boxes.")
         await interaction.response.send_message(embed=cinnamon_polish_embed(e), ephemeral=True)
         return
@@ -274,8 +277,8 @@ async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Cho
     quantity = min(quantity, count)
     rewards = []
     for _ in range(quantity):
-        rewards.append(await _open_one(interaction.guild.id, interaction.user))
-    _set_box_count(interaction.guild.id, interaction.user.id, count - quantity)
+        rewards.append(await _open_one(interaction.guild.id, interaction.user, tier_value))
+    _set_box_count(interaction.guild.id, interaction.user.id, count - quantity, tier_value)
     key = _af_key(interaction.guild.id, interaction.user.id)
     ADVANCED_FEATURES["mystery_opened"][key] = int(ADVANCED_FEATURES["mystery_opened"].get(key, 0)) + quantity
     await bd_save_data()
