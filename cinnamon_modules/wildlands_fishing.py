@@ -171,8 +171,8 @@ async def _wlf_award_story_access(interaction, kind='bait'):
         await channel.set_permissions(member, view_channel=True, send_messages=True,
                                      reason=f'Completed story unlocking {kind} merchant')
     except (discord.HTTPException, PermissionError, AttributeError) as exc:
-        return '\\n⚠️ Story completion was saved, but Cinnamon could not grant permanent shop access. Ask an admin to check Manage Channels: ' + str(exc)[:300]
-    return f'\\n🏅 You now have **permanent access to the Fishing {kind.title()} Merchant**!'
+        return '\n⚠️ Story completion was saved, but Cinnamon could not grant permanent shop access. Ask an admin to check Manage Channels: ' + str(exc)[:300]
+    return f'\n🏅 You now have **permanent access to the Fishing {kind.title()} Merchant**!'
 
 
 class _WLFShopPanel(discord.ui.View):
