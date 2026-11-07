@@ -103,8 +103,11 @@ def _wlf_embed(title, description='', *, interaction=None):
     return e
 
 
-def _wlf_story_complete(guild_id, user_id):
-    return bool(advanced_features_data.get('wildlands_story_v2', {}).get(str(guild_id), {}).get(str(user_id), {}).get('complete'))
+def _wlf_story_complete(guild_id, user_id, kind):
+    if kind == 'bait':
+        return bool(advanced_features_data.get('wildlands_story_v2', {}).get(str(guild_id), {}).get(str(user_id), {}).get('complete'))
+    # School Incident will write this completion record when that story is implemented.
+    return bool(advanced_features_data.get('school_incident_story_v1', {}).get(str(guild_id), {}).get(str(user_id), {}).get('complete'))
 
 
 def _wlf_window(guild_id, kind):
@@ -118,7 +121,7 @@ def _wlf_active(guild_id, kind):
 
 
 def _wlf_merchant_open(guild_id, kind, user_id=None):
-    return _wlf_active(guild_id, kind) or (user_id is not None and _wlf_story_complete(guild_id, user_id))
+    return _wlf_active(guild_id, kind) or (user_id is not None and _wlf_story_complete(guild_id, user_id, kind))
 
 
 def _wlf_channel(guild, kind):
@@ -144,50 +147,32 @@ async def _wlf_refresh_channel(guild, kind):
     """
     if not (guild.me and guild.me.guild_permissions.manage_channels):
         raise PermissionError('Cinnamon needs Manage Channels to open merchant shops.')
-    treasure = await _wlf_ensure_role(guild, _WLF_TREASURE_ROLE)
     channel = _wlf_channel(guild, kind)
     if channel is None:
         channel = await guild.create_text_channel(
             _WLF_SHOP_NAMES[kind],
             topic='Cinnamon Wildlands: temporary server-wide merchant, permanent for story finishers.',
-            overwrites={guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                        treasure: discord.PermissionOverwrite(view_channel=True, send_messages=True)},
+            overwrites={guild.default_role: discord.PermissionOverwrite(view_channel=False)},
             reason='Cinnamon merchant discovered')
     live = _wlf_active(guild.id, kind)
     everyone = channel.overwrites_for(guild.default_role)
     if everyone.view_channel is not live:
         everyone.view_channel = live
         await channel.set_permissions(guild.default_role, overwrite=everyone, reason='Wildlands merchant timed access')
-    always = channel.overwrites_for(treasure)
-    if always.view_channel is not True:
-        always.view_channel = True
-        always.send_messages = True
-        await channel.set_permissions(treasure, overwrite=always, reason='Permanent access for treasure hunters')
     _wlf_window(guild.id, kind)['channel_id'] = channel.id
     return channel
 
 
-async def _wlf_award_story_access(interaction):
+async def _wlf_award_story_access(interaction, kind='bait'):
+    """Grant permanent access only to the merchant unlocked by this story."""
     guild, member = interaction.guild, interaction.user
-    problem = []
     try:
-        role = await _wlf_ensure_role(guild, _WLF_TREASURE_ROLE)
-        if role not in member.roles:
-            if role >= guild.me.top_role:
-                raise PermissionError('Place Cinnamon’s role above Wildlands • Treasure Hunter.')
-            await member.add_roles(role, reason='Completed Cinnamon Wildlands treasure story')
+        channel = await _wlf_refresh_channel(guild, kind)
+        await channel.set_permissions(member, view_channel=True, send_messages=True,
+                                     reason=f'Completed story unlocking {kind} merchant')
     except (discord.HTTPException, PermissionError, AttributeError) as exc:
-        problem.append(str(exc))
-    for kind in _WLF_MERCHANTS:
-        try:
-            channel = await _wlf_refresh_channel(guild, kind)
-            if not (discord.utils.get(member.roles, name=_WLF_TREASURE_ROLE)):
-                await channel.set_permissions(member, view_channel=True, reason='Wildlands story completion fallback access')
-        except (discord.HTTPException, PermissionError, AttributeError) as exc:
-            problem.append(f'{kind}: {exc}')
-    if problem:
-        return '\n⚠️ Your story completion was saved, but Cinnamon could not set all Discord shop permissions. Ask an admin to check Manage Roles / Manage Channels: ' + '; '.join(problem)[:450]
-    return '\n🏅 You now have **permanent access** to both merchant channels!'
+        return '\\n⚠️ Story completion was saved, but Cinnamon could not grant permanent shop access. Ask an admin to check Manage Channels: ' + str(exc)[:300]
+    return f'\\n🏅 You now have **permanent access to the Fishing {kind.title()} Merchant**!'
 
 
 class _WLFShopPanel(discord.ui.View):
@@ -225,10 +210,10 @@ async def _wlf_purchase(interaction, kind, item, quantity=1):
                 await bd_save_data()
                 return f'🎣 Equipped **{item["name"]}** (already owned).'
             if not _wlf_merchant_open(g, kind, u):
-                return '🔒 Find the Rod Merchant, or complete the Wildlands story for permanent shop access.'
+                return '🔒 Find the Rod Merchant, or complete the School Incident story for permanent access.'
             quantity = 1
         elif item['id'] != 'normal' and not _wlf_merchant_open(g, kind, u):
-            return '🔒 Find the Bait Merchant, or finish the story for permanent shop access.'
+            return '🔒 Find the Bait Merchant, or complete The Treasure Worth Billions for permanent access.'
         cost = _cm_price(g, u, item['id'], item['price']) * quantity
         balance = economy_balance(g, u)
         if balance < cost:
@@ -387,36 +372,6 @@ async def _wlf_expire_shops():
             await asyncio.sleep(60)
     finally:
         bot._wlf_shop_reaper_running = False
-
-
-@wildlands_art_group.command(name='gather', description='Search Wildlands for supplies, fishing spots, and merchants')
-@app_commands.guild_only()
-async def wildlands_gather(interaction: discord.Interaction):
-    g, u = interaction.guild.id, interaction.user.id
-    p = _wlf_player(g, u)
-    remaining = max(0, int(p['next_gather'] - _wlf_time.time()))
-    if remaining:
-        return await interaction.response.send_message(f'🌿 Cinnamon is still gathering! Try again in **{remaining}s**.', ephemeral=True)
-    # Complete encounter, then roll once for a permanent new area (12%)
-    p['next_gather'] = _wlf_time.time() + 60
-    supplies = _wlf_random.randint(2, 5)
-    p['bait']['normal'] = int(p['bait'].get('normal', 0)) + supplies
-    desc = f'🐾 Collected **{supplies} Normal Bait** while exploring.'
-    undiscovered = [a for a in _WLF_AREAS if a[0] not in p['areas']]
-    if undiscovered and _wlf_random.random() < .12:
-        area = _wlf_random.choice(undiscovered)
-        p['areas'].append(area[0])
-        desc += f'\n🗺️ **New fishing area permanently discovered:** **{area[1]}**! Use `/fishing travel` to visit.'
-    desc += await _wlf_attempt_merchant(interaction.guild, finder=interaction.user, announce_channel=interaction.channel)
-    await bd_save_data()
-    await interaction.response.send_message(embed=_wlf_embed('🍃 Wildlands Gathering', desc, interaction=interaction))
-
-
-@wildlands_art_group.command(name='fish', description='Browse all Wildlands fish by rarity and location')
-@app_commands.guild_only()
-async def wildlands_fish_catalog(interaction: discord.Interaction):
-    view = _WLFCatalog(interaction.user.id, 'fish', interaction.guild.id)
-    await interaction.response.send_message(embed=view.render(), view=view)
 
 
 @wildlands_art_group.command(name='rods', description='Browse fishing rods and their stats')
