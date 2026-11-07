@@ -57,7 +57,7 @@ for _wlf_idx, _wlf_area in enumerate(_WLF_AREAS):
 
 def _wlf_required_roles():
     """All role names /setup should create, no duplicates on re-runs."""
-    return list(_WLF_MERCHANTS.values()) + [_WLF_TREASURE_ROLE] + [f['role_name'] for f in _WLF_FISH.values() if f['role_name']]
+    return list(_WLF_MERCHANTS.values()) + [f['role_name'] for f in _WLF_FISH.values() if f['role_name']]
 
 
 def _wlf_root():
@@ -154,6 +154,14 @@ async def _wlf_refresh_channel(guild, kind):
             topic='Cinnamon Wildlands: temporary server-wide merchant, permanent for story finishers.',
             overwrites={guild.default_role: discord.PermissionOverwrite(view_channel=False)},
             reason='Cinnamon merchant discovered')
+    # Retire the old shared Treasure Hunter role's blanket access; story unlocks are merchant-specific now.
+    legacy_role = discord.utils.get(guild.roles, name=_WLF_TREASURE_ROLE)
+    if legacy_role:
+        legacy = channel.overwrites_for(legacy_role)
+        if legacy.view_channel is not False or legacy.send_messages is not False:
+            legacy.view_channel = False
+            legacy.send_messages = False
+            await channel.set_permissions(legacy_role, overwrite=legacy, reason='Retire shared merchant access role')
     live = _wlf_active(guild.id, kind)
     everyone = channel.overwrites_for(guild.default_role)
     if everyone.view_channel is not live:
