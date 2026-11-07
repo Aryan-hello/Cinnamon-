@@ -397,7 +397,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True  # needed for /role add-all and for finding the owner by username
 
-bot = commands.Bot(command_prefix="?", intents=intents, case_insensitive=True, help_command=None,
+bot = commands.Bot(command_prefix="!", intents=intents, case_insensitive=True, help_command=None,
                    allowed_mentions=discord.AllowedMentions.none())
 
 
