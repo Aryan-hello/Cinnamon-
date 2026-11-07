@@ -309,7 +309,7 @@ async def fishing_cast_game(interaction: discord.Interaction):
         p['area'] = 'whispering_woods'
     if not any(int(p['bait'].get(b['id'], 0)) > 0 for b in _WLF_BAIT):
         return await interaction.response.send_message(
-            '🐟 You need bait first. Try the Bait Merchant or /wildlands gather.',
+            '🐟 You need bait first. Visit the Fishing Bait Merchant or use `/fishing buy-bait`.',
             ephemeral=True)
     view = _FGView(gid, uid)
     await interaction.response.send_message(embed=view.render(), view=view, ephemeral=True)
