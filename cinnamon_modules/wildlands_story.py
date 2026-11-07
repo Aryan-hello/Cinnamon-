@@ -551,13 +551,13 @@ class _WLSChoiceView(discord.ui.View):
                     log.exception('Wildlands story reward saved; achievement log failed')
             else:
                 rec['complete']=True
-            access=await _wlf_award_story_access(interaction)
+            access=await _wlf_award_story_access(interaction, kind='bait')
             return await interaction.edit_original_response(embed=_wls_embed(interaction,'🏆 THE TREASURE WORTH BILLIONS',
                 '🎉 **ADVENTURE COMPLETE!**\n\n'+notes+'\n\n'
                 '**The treasure:** Cinnamon’s favourite chew toy from Aryan.\n'
                 '**Your reward:** **100,000 Catnip** (once per player).\n'
                 '**Cinnamon’s happiness:** INFINITE.\n**Your financial expectations:** DESTROYED.\n'
-                +access+'\n\n🎣 The Rod and Bait Merchants are available to you forever.'),view=None)
+                +access+'\n\n🎣 The Fishing Bait Merchant is now permanently available to you. Finish School Incident for permanent Rod Merchant access.'),view=None)
         await bd_save_data()
         if not self.branch and not rec.get('replay') and scene['chance']:
             notes += await _wlf_attempt_merchant(interaction.guild,finder=interaction.user,
@@ -634,7 +634,7 @@ async def wildlands_story(interaction:discord.Interaction):
         access=await _wlf_award_story_access(interaction)
         return await interaction.followup.send(embed=_wls_embed(interaction,'🏆 Adventure Already Complete',
             'Cinnamon found her chew toy from Aryan. You claimed your one-time **100,000 Catnip** reward. '\
-            'You have permanent access to both merchant shops!\n\n'
+            'You have permanent access to the Fishing Bait Merchant!\n\n'
             '“I SAID THE *TREASURE* WAS WORTH A BILLION,” Cinnamon reminds you.'+access),ephemeral=True)
     idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
     await interaction.response.send_message(
@@ -695,8 +695,8 @@ async def wildlands_story_help(interaction:discord.Interaction):
         '**Play:** `/cinnamon stories` to begin or resume; select dialogue and puzzle choices with buttons.\n'
         '**Replay:** `/wildlands story-restart confirm:True` resets only the story route, not the one-time payout or fishing gear.\n'
         '**Track:** `/wildlands story-journal`. Branches, relationships and negotiated deals influence later scenes. Bad puzzle guesses do not lose progress.\n'
-        '**Merchants:** Story decisions and `/wildlands gather` can discover a merchant. The shop opens to everyone for **2 hours** in its own channel.\n'
+        '**Merchants:** Staff can open each merchant publicly for **2 hours** using `/fishing merchant-access`. Completing The Treasure Worth Billions permanently unlocks the Bait Merchant; School Incident will unlock the Rod Merchant.\n'
         '**Finder bonus:** 10% of other players’ purchases made inside the open shop channel. The bonus is extra Catnip, not a surcharge.\n'
-        '**Forever access:** Finish this adventure and both shop channels stay open **for you** even between public discoveries.\n'
+        '**Forever access:** Finish The Treasure Worth Billions for permanent Bait Merchant access. School Incident will grant permanent Rod Merchant access.\n'
         '**Grand prize:** Complete the whole story for **100,000 Catnip once**.\n'
         '**Cinnamon’s legal statement:** “ALL TREASURE VALUATIONS ARE PERSONAL OPINIONS AND NONE OF YOUR BUSINESS.”'),ephemeral=True)
