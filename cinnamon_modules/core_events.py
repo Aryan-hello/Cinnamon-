@@ -382,7 +382,7 @@ async def prefix_help(ctx):
     e.add_field(name="Moderation",value="`?kick`, `?ban`, `?unban`, `?mute`, `?unmute`, `?warn`, `?warnings`, `?clearwarnings`, `?purge`, `?slowmode`",inline=False)
     e.add_field(name="AI",value="`?ask <message>` (`?ai`, `?chat`)",inline=False)
     e.add_field(name="Normal",value="`?ping`, `?botstatus`, `?userinfo [member]`, `?serverinfo`, `?afk [reason]`, `?rank [member]`, `/help`, `/dashboard`, `/leaderboard`, `/achievement`, `/quest`, `/craft`, `/mystery`, `/black-market`",inline=False)
-    e.add_field(name="Economy",value="`?balance` (`?bal`, `?wallet`), `?inventory` (`?inv`), `?shop`, `?buy <item> [qty]`, `?daily`, `?work`, `?give <member> <amount>` (`?pay`), `?econlb`, `?craft`, `?mystery`, `?blackmarket`",inline=False)
+    e.add_field(name="Economy",value="`?balance` (`?bal`, `?wallet`), `?inventory` (`?inv`), `?shop`, `?buy <item> [qty]`, `?daily`, `!work`, `?give <member> <amount>` (`?pay`), `?econlb`, `?craft`, `?mystery`, `?blackmarket`",inline=False)
     await ctx.reply(embed=e,mention_author=False)
     if ctx.guild:
         await send_log(ctx.guild.id, title="📖 Prefix help opened", description=f"{ctx.author} ({ctx.author.id}) opened the prefix-command guide.", category="dashboard")
@@ -619,7 +619,7 @@ async def prefix_give(ctx,member:discord.Member,amount:int):
 async def prefix_econlb(ctx):
     rows=sorted(((uid,b) for (gid,uid),b in economy_balances.items() if gid==ctx.guild.id),key=lambda x:x[1],reverse=True)[:10]; lines=[f"**{i}.** {ctx.guild.get_member(uid) or f'User {uid}'} — 🌿 **{bal:,}**" for i,(uid,bal) in enumerate(rows,1)]
     embed=cinnamon_embed("🏆 Catnip Leaderboard","The richest humans in this server, according to Cinnamon. 🐱\n",color=CINNAMON_GOLD,user=ctx.author,footer="Cinnamon Economy • Top 10")
-    embed.description += "\n".join(lines) if lines else "No economy balances yet. Start with `?daily` or `?work`."
+    embed.description += "\n".join(lines) if lines else "No economy balances yet. Start with `?daily` or `!work`."
     await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.command(name="rank")
@@ -649,11 +649,11 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
     # Dispatch ? commands before the regular AI/XP chat pipeline.
-    # Be forgiving about whitespace after the prefix so both `?work` and
-    # `? work` (including multiple spaces) invoke the same prefix command.
+    # Be forgiving about whitespace after the prefix so both `!work` and
+    # `! work` (including multiple spaces) invoke the same prefix command.
     # This only normalizes messages that actually begin with the configured
     # Cinnamon prefix, leaving ordinary chat untouched.
-    if message.content.startswith("?") and len(message.content) > 1 and message.content[1].isspace():
+    if message.content.startswith("!") and len(message.content) > 1 and message.content[1].isspace():
         message.content = "?" + message.content[1:].lstrip()
     ctx = await bot.get_context(message)
     if ctx.valid:
@@ -714,7 +714,7 @@ async def on_message(message: discord.Message):
     # Cinnamon Brain sees only chat that survived moderation and disabled-
     # channel checks. Store aggregate activity timestamps, never message text.
     if (guild_id is not None and len(clean_content) >= 3
-            and not clean_content.startswith(("?", "/"))
+            and not clean_content.startswith(("!", "/"))
             and channel_id not in set(category_log_channels.get(guild_id, {}).values())):
         _cb_observe(guild_id, message.author.id)
         # Store only a short-lived boolean quiet signal for serious topics.
