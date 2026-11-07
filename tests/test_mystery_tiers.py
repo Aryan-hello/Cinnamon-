@@ -36,7 +36,7 @@ class MysteryTierSourceTests(unittest.TestCase):
         self.assertIn("Disabled: XP boost effect is not wired yet.", self.source)
         # Box-exclusive items are registered but intentionally not purchasable.
         self.assertIn('"shop_enabled": False', self.source)
-        self.assertIn("50% tier items", self.source)
+        self.assertIn("35% tier items", self.source)
 
     def test_reward_openings_are_saved_and_logged(self):
         self.assertIn("await bd_save_data()", self.source)
