@@ -80,10 +80,10 @@ def _af_key(guild_id, user_id):
 
 BOX_TIERS = {
     "common": {"label":"Common", "emoji":"📦", "weight":70, "catnip":(250,900), "items":["treat","tuna","churu","catnip_ball","fish_biscuits"], "materials":["golden_thread","crystal_fishbone"]},
-    "rare": {"label":"Rare", "emoji":"🎁", "weight":22, "catnip":(900,2400), "items":["golden_fish","royal_tuna","paw_treasure","golden_bell_collar"], "materials":["moon_fish_scale","star_dust","golden_paw_charm"]},
+    "rare": {"label":"Rare", "emoji":"🎁", "weight":20, "catnip":(900,2400), "items":["golden_fish","royal_tuna","paw_treasure","golden_bell_collar"], "materials":["moon_fish_scale","star_dust","golden_paw_charm"]},
     "epic": {"label":"Epic", "emoji":"💜", "weight":7, "catnip":(2200,5500), "items":["starlight_hat","pawberry_cake","cinnamon_snow_globe"], "materials":["moonstone","dream_petals"]},
-    "legendary": {"label":"Legendary", "emoji":"🌠", "weight":0.9, "catnip":(5000,10000), "items":["catnip_crown","dream_wings","moon_jelly"], "materials":["captured_star"]},
-    "mythical": {"label":"Mythical", "emoji":"✨", "weight":0.1, "catnip":(10000,25000), "items":["captured_star","dream_wings"], "materials":["dream_petals","moonstone"]},
+    "legendary": {"label":"Legendary", "emoji":"🌠", "weight":2, "catnip":(5000,10000), "items":["catnip_crown","dream_wings","moon_jelly"], "materials":["captured_star"]},
+    "mythical": {"label":"Mythical", "emoji":"✨", "weight":1, "catnip":(10000,25000), "items":["captured_star","dream_wings"], "materials":["dream_petals","moonstone"]},
 }
 EXPANSION_ITEMS = {
     "moonstone": ("Moonstone", "💎", "Epic", 7000, "A moonlit crafting gem.", 0),
@@ -124,7 +124,7 @@ def _set_box_count(guild_id,user_id,count,tier="common"):
     else: ADVANCED_FEATURES["mystery_boxes"].pop(key,None)
 
 
-MYSTERY_DROP_TIER_WEIGHTS = {"common": 78, "rare": 17, "epic": 4, "legendary": 0.9, "mythical": 0.1}
+MYSTERY_DROP_TIER_WEIGHTS = {"common": 70, "rare": 20, "epic": 7, "legendary": 2, "mythical": 1}
 MYSTERY_SOURCE_CHANCES = {"work": 0.08, "daily": 0.12, "weekly": 0.18, "message": 0.002, "default": 0.04}
 
 def _roll_box_tier():
