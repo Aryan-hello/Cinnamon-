@@ -190,42 +190,6 @@ class WildlandsArtView(discord.ui.View):
 wildlands_art_group = app_commands.Group(name='wildlands', description='Cinnamon Wildlands art and fishing locations')
 
 
-@wildlands_art_group.command(name='places', description='Browse the four illustrated Wildlands fishing places')
-@app_commands.guild_only()
-async def wildlands_places(interaction: discord.Interaction):
-    view = WildlandsArtView(interaction.user.id, 'fishing_place')
-    embed, file = view.make_message()
-    # discord.py expects the `file` parameter to be omitted when it is absent.
-    # Passing file=None caused NoneType.to_dict on some deployed versions.
-    kwargs = {'embed': embed, 'view': view, 'ephemeral': False}
-    if file is not None:
-        kwargs['file'] = file
-    await interaction.response.send_message(**kwargs)
-
-
-@wildlands_art_group.command(name='art-vault', description='Admin: review saved background-free Wildlands artwork')
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def wildlands_art_vault(interaction: discord.Interaction, number: app_commands.Range[int, 1, 46] = 1):
-    view = WildlandsArtView(interaction.user.id, 'unmapped_cutout', number-1)
-    embed, file = view.make_message()
-    kwargs = {'embed': embed, 'view': view, 'ephemeral': True}
-    if file is not None:
-        kwargs['file'] = file
-    await interaction.response.send_message(**kwargs)
-
-
-@wildlands_art_group.command(name='art-status', description='See whether the saved Runway artwork is installed')
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
-async def wildlands_art_status(interaction: discord.Interaction):
-    records = wildlands_art_items()
-    found = sum(wildlands_local_asset(i.get('key')) is not None for i in records)
-    complete = f'**{found} / {len(records)}** image files available' if records else 'Manifest not found'
-    embed = discord.Embed(title='🖼️ Wildlands Art Status', description=complete + ('\n\n⏳ Missing artwork is currently downloading in the background.' if _wl_import_running else '') + '\n\nFour fishing places plus 46 background-free cutouts are included in the artwork importer. Individual cutout identities must be mapped to game data before using them as named fish, rods, or bait. Save downloaded art permanently with the bundled GitHub Action.', color=_WL_COLOR)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
 # Register precisely once; do not create any duplicated slash-command aliases.
 bot.tree.add_command(wildlands_art_group)
 
