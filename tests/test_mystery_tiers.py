@@ -20,9 +20,9 @@ class MysteryTierSourceTests(unittest.TestCase):
         self.assertIn("MYSTERY_DROP_TIER_WEIGHTS", self.source)
         self.assertIn("MYSTERY_SOURCE_CHANCES", self.source)
         self.assertIn("def _roll_box_tier", self.source)
-        self.assertIn('"rare": 25', self.source)
-        self.assertIn('"epic": 10', self.source)
-        self.assertIn('"legendary": 4', self.source)
+        self.assertIn('"rare": 20', self.source)
+        self.assertIn('"epic": 7', self.source)
+        self.assertIn('"legendary": 2', self.source)
         self.assertIn('"mythical": 1', self.source)
 
     def test_prefix_and_slash_commands_accept_tier(self):
