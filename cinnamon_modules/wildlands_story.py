@@ -8,7 +8,7 @@ with a fresh session available through /cinnamon stories after view expiration.
 
 _WLS_CHAPTERS = (
     # Previous resume signature: _WLSChoiceView(interaction.user.id, idx, rec.get('branch'))
-# Historical card helper reference: cinnamon_ui_card( (story text now uses DM message content instead).
+# Historical card helper reference: cinnamon_ui_card( (story narration now uses ephemeral normal-message content).
 
     'Prologue • An Extremely Important Catastrophe',
     '1 • The Disappearance',
@@ -20,7 +20,7 @@ _WLS_CHAPTERS = (
 )
 _WLS_COLOR = 0xE9A344
 _WLS_REWARD = 100_000
-_WLS_MOOD_STOPS = set()  # Story narration and all controls are delivered through private DMs.
+_WLS_MOOD_STOPS = set()  # Story narration and controls are ephemeral, visible only to the interacting player in-server.
 
 
 def _wls_scene(chapter, area, title, text, choices, *, chance=.08):
