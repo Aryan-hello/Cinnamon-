@@ -293,29 +293,17 @@ async def on_ready():
                 except Exception as e:
                     log.error(f"Hangry Games recovery failed for guild {guild.id}: {e}")
 
-    # Sync once per process. on_ready can fire again after reconnects, and
-    # repeating global + per-guild syncs can create unnecessary REST traffic.
+    # Global slash commands are the source of truth. Avoid per-guild clear/sync
+    # REST calls on every startup; they add API traffic and can trigger 429s.
+    # Mark synced only after the global request succeeds so a later reconnect
+    # can retry if Discord temporarily rejects command synchronization.
     if not _slash_commands_synced:
         try:
             synced = await bot.tree.sync()
             log.info("Globally synced %d Cinnamon slash commands", len(synced))
+            _slash_commands_synced = True
         except Exception:
-            log.exception("Global slash-command sync failed")
-
-        # The commands are registered globally. Copying them into every guild
-        # also registers guild-specific copies, which can appear twice in
-        # Discord's slash command picker. Remove those legacy guild copies;
-        # never clear the global command tree.
-        for guild in bot.guilds:
-            try:
-                bot.tree.clear_commands(guild=guild)
-                guild_synced = await bot.tree.sync(guild=guild)
-                log.info("Removed legacy guild-specific command copies for %s (%s); remaining guild-only commands: %d",
-                         guild.name, guild.id, len(guild_synced))
-            except Exception:
-                log.exception("Guild slash-command cleanup failed for %s (%s)", guild.name, guild.id)
-
-        _slash_commands_synced = True
+            log.exception("Global slash-command sync failed; will retry on next reconnect")
 
     await bot.change_presence(activity=discord.Activity(
         type=discord.ActivityType.watching, name="for treats 🐟"))
