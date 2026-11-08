@@ -123,6 +123,18 @@ class FeatureHelpTests(unittest.TestCase):
     def setUpClass(cls):
         cls.catalog = actual_command_catalog()
 
+    def test_dashboard_link_is_public_but_the_site_is_admin_only(self):
+        reply = answer_help("what does /dashboard do?", self.catalog)
+        self.assertIn("Anyone can request the dashboard link", reply)
+        self.assertIn("Administrator", reply)
+        self.assertNotIn("This command requires server owner", reply)
+
+    def test_privileged_storage_diagnostics_and_admin_catnip_mention_real_rules(self):
+        diagnostic = answer_help("explain /datastatus check", self.catalog)
+        catnip = answer_help("explain /economy admin addcatnip", self.catalog)
+        self.assertIn("Administrator permissions", diagnostic)
+        self.assertIn("verified durable storage", catnip)
+
     def test_quests_explain_real_rewards_and_configurable_reset_timezone(self):
         reply = answer_help("Cinnamon, I don't understand quests", self.catalog, timezone_label="UTC-04:00")
         self.assertIn("Five daily and five weekly", reply)
@@ -167,6 +179,14 @@ class FeatureHelpTests(unittest.TestCase):
         self.assertIn("intentionally", memory)
         self.assertIn("/cinnamon-memory view", memory)
         self.assertIn("/cinnamon-memory clear", memory)
+
+    def test_personal_progress_guide_uses_real_read_only_shortcuts(self):
+        reply = answer_help("Cinnamon, show me my progress", self.catalog)
+        self.assertIn("/cinnamon-me progress", reply)
+        self.assertIn("/rank", reply)
+        self.assertIn("/quests progress", reply)
+        self.assertIn("/achievement list", reply)
+        self.assertIn("read-only", reply)
 
     def test_incident_and_independence_guides_never_offer_unrestricted_ai(self):
         incident = answer_help("how do incident reviews work?", self.catalog)

@@ -15,14 +15,14 @@ A Discord bot built around a Catnip economy, interactive games, community tools,
 | Hangry Games | Join hosted games and compete for server rewards. |
 | Community | Levels, role income, giveaways, moderation, and server setup. |
 | Dashboard | Discord OAuth login for authorized server-management features. |
-| Cinnamon Brain Phase 2 (development only) | Self-reminders, explicit private preference notes, serious-context restraint, optional activity adviser and curated reactions. Not yet live-tested. |
+| Cinnamon Brain Phase 2 (implemented, live testing pending) | Self-reminders, explicit private preference notes, serious-context restraint, optional activity adviser and curated reactions. Live Discord/Render checks are still required. |
 
 Cinnamon uses both traditional Discord embeds and **Components V2**. The shop, inventory, quest board, and achievement collection use structured interactive panels. See [Discord UI guidelines](docs/DISCORD_UI.md) for the component conventions and release checklist.
 
 ## Run locally
 
 1. Create an application and bot in the Discord Developer Portal. Enable the **Message Content** and **Server Members** privileged gateway intents required by the existing features.
-2. Copy `.env.example` to `.env`. Set `DISCORD_TOKEN` and `GEMINI_API_KEY`. For the dashboard, also set the Discord OAuth client ID/secret, `DASHBOARD_SESSION_SECRET`, and the exact `DASHBOARD_REDIRECT_URI` registered in Discord.
+2. Copy `.env.example` to `.env`. Set `DISCORD_TOKEN` and `GEMINI_API_KEY`. For the dashboard, also set the Discord OAuth client ID/secret, `DASHBOARD_SECRET_KEY` (legacy `DASHBOARD_SESSION_SECRET` is still accepted), and the exact `DASHBOARD_REDIRECT_URI` registered in Discord.
 3. Install requirements and start the combined bot/dashboard process:
 
    ```bash
@@ -34,11 +34,26 @@ Cinnamon uses both traditional Discord embeds and **Components V2**. The shop, i
 
 Never commit `.env`, tokens, session secrets, or exported member data.
 
+## Brain v2 (development)
+
+Brain v2 development adds `/cinnamon-me today`, `/cinnamon-me progress`,
+`/cinnamon-me ask` (private, read-only Gemini answers grounded in the caller's
+own selected data), `/cinnamon-me privacy`, `/cinnamon-reminder timezone`,
+`/cinnamon-reminder snooze`, and `/cinnamon-memory edit`, plus a
+deterministic intent router for reminders, memory, help, trusted-action
+proposals and ordinary chat. It is not on production `main` until the
+stacked command-audit and storage PRs are reconciled and this increment
+passes private Discord testing. No additional AI execution permissions
+or automated moderator actions are introduced.
+
+## Commands and health
+Run `/help` for the live paginated slash-command directory, or `?help` for current prefix commands and aliases. Both are generated from the registered commands, not copied historical lists. For storage health, administrators can run `/datastatus check`; `/botstatus` and `?botstatus` provide shorter public summaries.
+
 ## Deployment and data
 
 The included `render.yaml` describes one Render **web** service running `python main.py`. Free web instances can sleep; **the deployment configuration does not guarantee an always-online Discord connection**.
 
-For ephemeral hosting, configure `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` so balances, story progress, and settings survive redeploys. Without remote storage, the bot uses local JSON files, which can be lost when an ephemeral filesystem resets.
+For ephemeral hosting, configure both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (standard write-capable token) so balances, story progress, and settings survive redeploys. Without remote storage, the bot uses local JSON files, which can be lost when an ephemeral filesystem resets. **Confirmed Catnip adjustments are deliberately blocked without verified durable storage**; never bypass this on Render Free. Back up and migrate existing local balances before changing databases.
 
 Render's HTTP endpoint and the Discord gateway connection are separate concerns. A healthy web endpoint **does not prove the bot successfully logged in**. Check deployment logs and Discord connectivity after every release.
 
@@ -70,7 +85,9 @@ Automated tests cover formatting, selected game logic, and code contracts. They 
 ## Documentation
 
 - [Cinnamon Brain implementation, release status, and private-server test guide](docs/CINNAMON_BRAIN.md)
-- [Brain Phase 2: reminders, memory, autonomy, privacy and live-test checklist](docs/CINNAMON_BRAIN_PHASE2.md) (draft branch, not production-ready)
+- [Brain Phase 2: reminders, memory, autonomy, privacy and live-test checklist](docs/CINNAMON_BRAIN_PHASE2.md) (implemented in source; live verification pending)
+- [Brain v2: personalized reminders, My Day, self-editable memory and future design](docs/CINNAMON_BRAIN_V2.md) (development branch; not merged or deployed)
+- [Current command-directory and status-audit notes](docs/COMMAND_AUDIT.md) — help menus are generated from the running bot's registered commands.
 - [Discord UI & interaction guidelines](docs/DISCORD_UI.md)
 - [Deployment and safety checks](CINNAMON_FINAL_DEPLOYMENT.md) — historical release notes may describe older mechanics; use current code as the source of truth.
 - [Chat actions and consent rules](CINNAMON_CHAT_ACTIONS.md)

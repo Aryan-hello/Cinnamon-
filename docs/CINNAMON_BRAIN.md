@@ -1,5 +1,14 @@
 # Cinnamon Brain: trusted actions, help, and bounded independence
 
+> **Historical Phase 1 implementation notes (31 October 2026).** The release
+> status and prerequisite PR text below describe the project at the time Phase 1
+> was authored. PRs #13–#16 have since been merged into `main`; the Phase 2
+> reminder, explicit preference-memory, and optional adviser code is present.
+> **No full live Discord/Render/Upstash acceptance test is recorded yet.**
+> For the latest implementation, see [Phase 2](CINNAMON_BRAIN_PHASE2.md),
+> [current command audit](COMMAND_AUDIT.md), and the running bot's `/help`.
+
+
 ## Release status
 
 This is the first implementation increment of [Project Cinnamon's roadmap](https://app.notion.com/p/40adf5931d2381f4ac00cff68d650eb9).

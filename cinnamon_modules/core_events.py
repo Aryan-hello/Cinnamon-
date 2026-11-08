@@ -5,6 +5,8 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
+from cinnamon_modules.brain_activation import is_directly_addressed, strip_bot_addressing
+
 async def _send_admin_error_dm(user, *, command_name: str, error: BaseException, context: str = ""):
     """Privately send useful diagnostics to a server Administrator after a command fails.
 
@@ -378,14 +380,36 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
 # Main prefix commands. Hangry Games and the real quest/achievement systems stay slash-only.
 @bot.command(name="help", aliases=["commands"])
 async def prefix_help(ctx):
-    e=discord.Embed(title="🐾 Cinnamon — Help",description="Use ? before a command. Mention or ID works for member arguments.",color=discord.Color.blurple())
-    e.add_field(name="Moderation",value="`?kick`, `?ban`, `?unban`, `?mute`, `?unmute`, `?warn`, `?warnings`, `?clearwarnings`, `?purge`, `?slowmode`",inline=False)
-    e.add_field(name="AI",value="`?ask <message>` (`?ai`, `?chat`)",inline=False)
-    e.add_field(name="Normal",value="`?ping`, `?botstatus`, `?userinfo [member]`, `?serverinfo`, `?afk [reason]`, `?rank [member]`, `/help`, `/dashboard`, `/leaderboard`, `/achievement`, `/quest`, `/craft`, `/mystery`, `/black-market`",inline=False)
-    e.add_field(name="Economy",value="`?balance` (`?bal`, `?wallet`), `?inventory` (`?inv`), `?shop`, `?buy <item> [qty]`, `?daily`, `!work`, `?give <member> <amount>` (`?pay`), `?econlb`, `?craft`, `?mystery`, `?blackmarket`",inline=False)
-    await ctx.reply(embed=e,mention_author=False)
+    """Live prefix command directory, including nested commands and aliases."""
+    entries = _help_prefix_entries(bot.walk_commands())
+    pages = _help_command_pages(entries, max_chars=940)
+    total = len(pages)
+    embeds = []
+    for index, body in enumerate(pages, start=1):
+        embed = cinnamon_embed(
+            "🐾 Cinnamon · Prefix commands",
+            "These commands are registered right now. Use `?command`, "
+            "or `/help` for slash commands and more details.",
+            color=CINNAMON_ORANGE, user=ctx.author,
+            footer=cinnamon_page_footer("Prefix Help", index, total, 
+                                         f"{len(entries)} commands"),
+        )
+        embed.add_field(name="Available commands", value=body, inline=False)
+        embeds.append(embed)
+    await ctx.reply(
+        embed=embeds[0],
+        view=HelpPagesView(ctx.author.id, embeds),
+        mention_author=False, allowed_mentions=discord.AllowedMentions.none(),
+    )
     if ctx.guild:
-        await send_log(ctx.guild.id, title="📖 Prefix help opened", description=f"{ctx.author} ({ctx.author.id}) opened the prefix-command guide.", category="dashboard")
+        try:
+            await send_log(
+                ctx.guild.id, title="📖 Prefix help opened",
+                description=f"{ctx.author} ({ctx.author.id}) opened the live prefix guide.",
+                category="dashboard",
+            )
+        except Exception:
+            log.exception("Failed to log prefix help view")
 
 @bot.command(name="ping")
 async def prefix_ping(ctx): await ctx.reply(f"🐾 Pong! {round(bot.latency*1000)} ms",mention_author=False)
@@ -426,18 +450,97 @@ async def _ch_maybe_handle(message, clean_content):
     return True
 
 
+async def _ch_private_data_redirect(message, clean_content):
+    """Answer a member's own account question privately from a verified snapshot."""
+    classifier = globals().get("_me_classify_private_question")
+    snapshot_builder = globals().get("_me_private_snapshot")
+    answer_builder = globals().get("_me_generate_private_answer")
+    if not callable(classifier) or not callable(snapshot_builder) or not callable(answer_builder):
+        return False
+    scopes = classifier(clean_content)
+    if not scopes:
+        return False
+    if message.guild is None:
+        await message.channel.send(
+            "🐾 For account questions, mention me in the server where your Cinnamon data lives. "
+            "I'll send the verified answer privately.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return True
+
+    snapshot, ready = snapshot_builder(message.guild.id, message.author.id, scopes)
+    if not ready:
+        await message.channel.send(
+            "⚠️ I can't verify the saved data right now, so I won't guess. Please try again later.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return True
+    try:
+        answer = await asyncio.to_thread(answer_builder, clean_content, snapshot)
+        if not answer:
+            raise ValueError("empty private answer")
+        await message.author.send(
+            answer[:1400], allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        # Never disclose account values in the originating channel when DM fails.
+        await message.channel.send(
+            "🔒 I prepared a private account answer, but couldn't DM you. "
+            "Please enable DMs from server members and ask me again.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except Exception as exc:
+        log.warning("Private natural-language Q&A failed (%s)", type(exc).__name__)
+        await message.channel.send(
+            "🐾 I couldn't verify an answer just now. Your data wasn't changed; please try again.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    return True
+
+async def _cinnamon_brain_intent_model_call(prompt: str) -> str:
+    """Return a constrained Gemini intent suggestion; this function cannot execute actions."""
+    def _call():
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                max_output_tokens=120,
+                temperature=0.1,
+                response_mime_type="application/json",
+            ),
+        )
+        return response.text or ""
+    return await asyncio.wait_for(asyncio.to_thread(_call), timeout=9.0)
+
+
 async def _cinnamon_try_assistance(message, clean_content):
-    """Trusted, acknowledged personal requests and help precede Gemini."""
-    reminder_handler = globals().get("_cr_maybe_handle")
-    memory_handler = globals().get("_cmem_maybe_handle")
-    if message.guild and callable(reminder_handler) and await reminder_handler(message, clean_content):
-        return True
-    if message.guild and callable(memory_handler) and await memory_handler(message, clean_content):
-        return True
-    if await _ch_maybe_handle(message, clean_content):
-        return True
-    if message.guild and await _ca_maybe_handle(message, clean_content):
-        return True
+    """Route current requests through deterministic rules and a bounded AI fallback."""
+    from cinnamon_modules.brain_intent import plan_intent
+    from cinnamon_modules.brain_intent_ai import classify_intent_with_fallback
+
+    deterministic = plan_intent(clean_content)
+    plan = await classify_intent_with_fallback(
+        clean_content,
+        deterministic_plan=deterministic,
+        model_call=_cinnamon_brain_intent_model_call,
+    )
+    handlers = {
+        "reminder": globals().get("_cr_maybe_handle"),
+        "memory": globals().get("_cmem_maybe_handle"),
+        "private_data": globals().get("_ch_private_data_redirect"),
+        "help": _ch_maybe_handle,
+        "action": _ca_maybe_handle,
+    }
+    for route in plan.route_order:
+        if route == "chat":
+            break
+        handler = handlers.get(route)
+        if not callable(handler):
+            continue
+        if route in {"reminder", "memory", "action"} and message.guild is None:
+            continue
+        if await handler(message, clean_content):
+            return True
     return False
 
 @bot.command(name="userinfo",aliases=["whois"])
@@ -619,13 +722,13 @@ async def prefix_give(ctx,member:discord.Member,amount:int):
 async def prefix_econlb(ctx):
     rows=sorted(((uid,b) for (gid,uid),b in economy_balances.items() if gid==ctx.guild.id),key=lambda x:x[1],reverse=True)[:10]; lines=[f"**{i}.** {ctx.guild.get_member(uid) or f'User {uid}'} — 🌿 **{bal:,}**" for i,(uid,bal) in enumerate(rows,1)]
     embed=cinnamon_embed("🏆 Catnip Leaderboard","The richest humans in this server, according to Cinnamon. 🐱\n",color=CINNAMON_GOLD,user=ctx.author,footer="Cinnamon Economy • Top 10")
-    embed.description += "\n".join(lines) if lines else "No economy balances yet. Start with `?daily` or `!work`."
+    embed.description += "\n".join(lines) if lines else "No economy balances yet. Start with `?daily` or `?work`."
     await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.command(name="rank")
 @commands.guild_only()
 async def prefix_rank(ctx,member:discord.Member=None):
-    m=member or ctx.author; xp=int(xp_data.get((ctx.guild.id,m.id),0)); level=level_from_xp(xp); embed=cinnamon_embed("🏅 Rank & XP",f"**{m.mention}**\n\nYour current level progress is below.",color=CINNAMON_ORANGE,user=m,footer="Cinnamon Levels • Use ?level for the image rank card")
+    m=member or ctx.author; xp=int(xp_data.get((ctx.guild.id,m.id),0)); level=level_from_xp(xp); embed=cinnamon_embed("🏅 Rank & XP",f"**{m.mention}**\n\nYour current level progress is below.",color=CINNAMON_ORANGE,user=m,footer="Cinnamon Levels • Use /rank for your level card")
     cinnamon_field(embed,"🏅 Level",f"**{level}**",True); cinnamon_field(embed,"✨ Total XP",f"**{xp:,} XP**",True)
     await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
@@ -639,21 +742,36 @@ async def prefix_leaderboard(ctx):
 
 @bot.command(name="botstatus",aliases=["status"])
 async def prefix_botstatus(ctx):
-    embed=cinnamon_embed("🐾 Cinnamon Status", "Cinnamon is online and ready.\n\nEverything looks good from the bot's side.", color=CINNAMON_GREEN, user=ctx.author, footer="Cinnamon • System Status")
-    cinnamon_field(embed,"📡 Latency",f"**{round(bot.latency*1000)} ms**",True)
-    cinnamon_field(embed,"🟢 Status","**Online**",True)
+    storage = await storage_status()
+    ready = storage["transactions_ready"]
+    embed = cinnamon_embed(
+        "🐾 Cinnamon Status",
+        "My Discord connection is working, but that doesn't mean every "
+        "database feature is healthy.",
+        color=CINNAMON_GREEN if ready else CINNAMON_MUTED,
+        user=ctx.author, footer="Cinnamon • Live System Status",
+    )
+    cinnamon_field(embed,"📡 Discord latency",f"**{round(bot.latency*1000)} ms**",True)
+    cinnamon_field(embed,"💾 Storage backend",storage["backend"],True)
+    cinnamon_field(embed,"🗃️ Snapshot","Loaded" if storage["snapshot_ready"] else "Unavailable",True)
+    cinnamon_field(embed,"🌿 Confirmed Catnip actions",
+                   "Ready" if ready else "Blocked for data safety",True)
+    if not ready:
+        cinnamon_field(embed,"🛡️ Admin diagnosis",
+                       "Run `/datastatus check` for the reason.",False)
     await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.event
 async def on_message(message: discord.Message):
-    if message.author.bot:
+    # Ignore bot accounts and webhook posts before any XP, memory, or Brain processing.
+    if message.author.bot or message.webhook_id is not None:
         return
     # Dispatch ? commands before the regular AI/XP chat pipeline.
-    # Be forgiving about whitespace after the prefix so both `!work` and
-    # `! work` (including multiple spaces) invoke the same prefix command.
+    # Be forgiving about whitespace after the prefix so both `?work` and
+    # `? work` (including multiple spaces) invoke the same prefix command.
     # This only normalizes messages that actually begin with the configured
     # Cinnamon prefix, leaving ordinary chat untouched.
-    if message.content.startswith("!") and len(message.content) > 1 and message.content[1].isspace():
+    if message.content.startswith("?") and len(message.content) > 1 and message.content[1].isspace():
         message.content = "?" + message.content[1:].lstrip()
     ctx = await bot.get_context(message)
     if ctx.valid:
@@ -691,11 +809,10 @@ async def on_message(message: discord.Message):
     speaker = message.author.display_name
     content = message.content.strip()
 
-    # Strip the bot's own mention text out of the message before we store/send it.
-    clean_content = content
-    if bot.user:
-        clean_content = clean_content.replace(f"<@{bot.user.id}>", "").strip()
-        clean_content = clean_content.replace(f"<@!{bot.user.id}>", "").strip()
+    # Strip direct addressing syntax before intent parsing and chat generation.
+    clean_content = strip_bot_addressing(
+        content, bot_user_id=bot.user.id if bot.user else None,
+    )
 
     # --- XP: award for genuine chat messages, at most once per user per 60s ---
     if message.guild and clean_content:
@@ -714,7 +831,7 @@ async def on_message(message: discord.Message):
     # Cinnamon Brain sees only chat that survived moderation and disabled-
     # channel checks. Store aggregate activity timestamps, never message text.
     if (guild_id is not None and len(clean_content) >= 3
-            and not clean_content.startswith(("!", "/"))
+            and not clean_content.startswith(("?", "/"))
             and channel_id not in set(category_log_channels.get(guild_id, {}).values())):
         _cb_observe(guild_id, message.author.id)
         # Store only a short-lived boolean quiet signal for serious topics.
@@ -722,10 +839,8 @@ async def on_message(message: discord.Message):
         if callable(context_observer):
             context_observer(guild_id, clean_content)
 
-    was_mentioned = bot.user is not None and bot.user in message.mentions and not message.mention_everyone
-
-    # Check if this message is a reply to one of Cinnamon's own messages.
-    was_reply_to_bot = False
+    # A reply is valid only when its resolved target is Cinnamon's own message.
+    reply_author_id = None
     if message.reference and bot.user:
         ref = message.reference.resolved
         if ref is None:
@@ -733,30 +848,25 @@ async def on_message(message: discord.Message):
                 ref = await message.channel.fetch_message(message.reference.message_id)
             except (discord.NotFound, discord.HTTPException):
                 ref = None
-        if isinstance(ref, discord.Message) and ref.author.id == bot.user.id:
-            was_reply_to_bot = True
+        if isinstance(ref, discord.Message):
+            reply_author_id = ref.author.id
 
-    # The AI channel is a place to FIND Cinnamon, not an invitation to
-    # interrupt everyone. Respond only to explicit ping, reply, or direct name.
-    is_ai_channel = guild_id is not None and ai_channels.get(guild_id) == channel_id
-    called_by_name = _cp_direct_name(clean_content)
-    invited = bool(was_mentioned or was_reply_to_bot or called_by_name)
+    was_mentioned = bot.user is not None and bot.user in message.mentions and not message.mention_everyone
+    was_reply_to_bot = bot.user is not None and reply_author_id == bot.user.id
+    invited = is_directly_addressed(
+        content, bot_user_id=bot.user.id if bot.user else None,
+        reply_author_id=reply_author_id,
+    )
     if not invited:
-        if message.guild:
-            try:
-                await _cp_maybe_cameo(message)  # One-line aside, not a conversation.
-            except Exception:
-                log.exception("Cinnamon's voluntary aside was suppressed")
+        # Always-on channels and voluntary cameos never activate Brain V2.
         return
 
-    if (clean_content or was_mentioned or was_reply_to_bot) and invited:
-        # Keep an always-on AI channel from turning chat bursts into Gemini bursts.
+    if invited and (clean_content or was_mentioned or was_reply_to_bot):
         now = time.monotonic()
-        if called_by_name and not (was_mentioned or was_reply_to_bot):
-            last_ai = ai_cooldowns.get(channel_id, 0.0)
-            if now - last_ai < AI_CHANNEL_COOLDOWN_SECONDS:
-                return
-            ai_cooldowns[channel_id] = now
+        last_ai = ai_cooldowns.get(channel_id, 0.0)
+        if now - last_ai < AI_CHANNEL_COOLDOWN_SECONDS:
+            return
+        ai_cooldowns[channel_id] = now
 
         if await _cinnamon_try_assistance(message, clean_content):
             return

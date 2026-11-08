@@ -11,6 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_functions(names, namespace):
+    import asyncio
+    from cinnamon_modules.brain_intent import plan_intent
+    from cinnamon_modules.brain_activation import is_directly_addressed, strip_bot_addressing
+    namespace.setdefault('plan_intent', plan_intent)
+    namespace.setdefault('asyncio', asyncio)
+    namespace.setdefault('is_directly_addressed', is_directly_addressed)
+    namespace.setdefault('strip_bot_addressing', strip_bot_addressing)
+    namespace.setdefault('_cinnamon_brain_intent_model_call', AsyncMock(return_value='{"intent":"chat","confidence":0.99,"phrase":"ordinary chat"}'))
     tree = ast.parse((ROOT / 'cinnamon_modules/core_events.py').read_text())
     body = []
     for node in tree.body:
@@ -22,6 +30,58 @@ def load_functions(names, namespace):
 
 
 class AssistanceDispatchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_private_answer_is_sent_only_by_dm(self):
+        class Forbidden(Exception):
+            pass
+        class HTTPException(Exception):
+            pass
+        discord_stub = SimpleNamespace(
+            Forbidden=Forbidden, HTTPException=HTTPException,
+            AllowedMentions=SimpleNamespace(none=lambda: None),
+        )
+        channel = SimpleNamespace(send=AsyncMock())
+        author = SimpleNamespace(id=12, send=AsyncMock())
+        message = SimpleNamespace(
+            guild=SimpleNamespace(id=7), author=author, channel=channel,
+        )
+        ns = load_functions({'_ch_private_data_redirect'}, {
+            'discord': discord_stub,
+            'log': SimpleNamespace(warning=Mock()),
+            '_me_classify_private_question': lambda text: ('wallet',),
+            '_me_private_snapshot': lambda gid, uid, scopes: ({'wallet': {'catnip': 4321}}, True),
+            '_me_generate_private_answer': lambda text, snapshot: 'Your balance is 4321 Catnip.',
+        })
+        self.assertTrue(await ns['_ch_private_data_redirect'](message, 'my balance'))
+        author.send.assert_awaited_once()
+        self.assertIn('4321', author.send.await_args.args[0])
+        channel.send.assert_not_awaited()
+
+    async def test_private_dm_failure_never_leaks_values_to_channel(self):
+        class Forbidden(Exception):
+            pass
+        class HTTPException(Exception):
+            pass
+        discord_stub = SimpleNamespace(
+            Forbidden=Forbidden, HTTPException=HTTPException,
+            AllowedMentions=SimpleNamespace(none=lambda: None),
+        )
+        channel = SimpleNamespace(send=AsyncMock())
+        author = SimpleNamespace(id=12, send=AsyncMock(side_effect=Forbidden()))
+        message = SimpleNamespace(
+            guild=SimpleNamespace(id=7), author=author, channel=channel,
+        )
+        ns = load_functions({'_ch_private_data_redirect'}, {
+            'discord': discord_stub,
+            'asyncio': __import__('asyncio'),
+            'log': SimpleNamespace(warning=Mock()),
+            '_me_classify_private_question': lambda text: ('wallet',),
+            '_me_private_snapshot': lambda gid, uid, scopes: ({'wallet': {'catnip': 4321}}, True),
+            '_me_generate_private_answer': lambda text, snapshot: 'Your balance is 4321 Catnip.',
+        })
+        self.assertTrue(await ns['_ch_private_data_redirect'](message, 'my balance'))
+        channel.send.assert_awaited_once()
+        self.assertNotIn('4321', channel.send.await_args.args[0])
+
     async def test_help_is_handled_without_an_action(self):
         help_handler = AsyncMock(return_value=True)
         action_handler = AsyncMock()
@@ -32,6 +92,21 @@ class AssistanceDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await ns['_cinnamon_try_assistance'](message, 'how do I fish?'))
         help_handler.assert_awaited_once_with(message, 'how do I fish?')
         action_handler.assert_not_awaited()
+
+    async def test_private_data_questions_redirect_before_public_chat(self):
+        private_handler = AsyncMock(return_value=True)
+        help_handler = AsyncMock(return_value=False)
+        ns = load_functions({'_cinnamon_try_assistance'}, {
+            '_ch_maybe_handle': help_handler,
+            '_ch_private_data_redirect': private_handler,
+            '_ca_maybe_handle': AsyncMock(return_value=False),
+        })
+        message = SimpleNamespace(guild=object())
+        self.assertTrue(await ns['_cinnamon_try_assistance'](
+            message, 'How much Catnip do I have?'
+        ))
+        private_handler.assert_awaited_once_with(message, 'How much Catnip do I have?')
+        help_handler.assert_not_awaited()
 
     async def test_actions_keep_the_original_discord_message(self):
         handler = AsyncMock(return_value=True)
@@ -69,7 +144,7 @@ class AssistanceDispatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_invited_help_bypasses_grumpy_mood_and_pranks(self):
         user = SimpleNamespace(id=99)
         author = SimpleNamespace(id=11, bot=False, display_name='Member')
-        message = SimpleNamespace(author=author, content='<@99> how do I fish?',
+        message = SimpleNamespace(author=author, webhook_id=None, content='<@99> how do I fish?',
                                   guild=SimpleNamespace(id=3), channel=SimpleNamespace(id=4),
                                   mentions=[user], mention_everyone=False, reference=None)
         assistance = AsyncMock(return_value=True)
@@ -79,6 +154,7 @@ class AssistanceDispatchTests(unittest.IsolatedAsyncioTestCase):
             'discord': SimpleNamespace(Message=object),
             'bot': SimpleNamespace(user=user, get_context=AsyncMock(return_value=SimpleNamespace(valid=False))),
             'afk_users': {}, 'run_automod': AsyncMock(return_value=False),
+            'ai_cooldowns': {}, 'AI_CHANNEL_COOLDOWN_SECONDS': 2,
             'award_xp': AsyncMock(), 'channel_memories': memory,
             'disabled_channels': defaultdict(set), 'category_log_channels': {},
             '_cb_observe': Mock(), 'ai_channels': {}, '_cp_direct_name': lambda text: False,
@@ -95,7 +171,7 @@ class AssistanceDispatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_disabled_channel_does_not_enter_conversation_memory(self):
         user = SimpleNamespace(id=99)
         message = SimpleNamespace(author=SimpleNamespace(id=11, bot=False, display_name='Member'),
-                                  content='private conversation', guild=SimpleNamespace(id=3),
+                                  webhook_id=None, content='private conversation', guild=SimpleNamespace(id=3),
                                   channel=SimpleNamespace(id=4), mentions=[])
         memory = defaultdict(lambda: deque(maxlen=10))
         ns = load_functions({'on_message'}, {

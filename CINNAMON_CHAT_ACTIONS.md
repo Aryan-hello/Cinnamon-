@@ -1,7 +1,8 @@
 # Cinnamon Chat Actions & Safe Playtime
 
-This branch implements the first trusted Brain action increment. It is not a
-production release. See [the implementation and verification record](docs/CINNAMON_BRAIN.md).
+The trusted-action increment is implemented in Cinnamon's source code.
+**Live Discord/Render verification is still required** before treating it
+as production-ready. See [the implementation and verification record](docs/CINNAMON_BRAIN.md).
 
 ## The rule: personality is not an admin key
 
