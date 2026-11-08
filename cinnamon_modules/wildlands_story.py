@@ -532,13 +532,17 @@ class _WLSChoiceView(discord.ui.View):
         if rec['complete'] or int(rec['index']) != self.index or rec.get('branch') != self.branch:
             return await interaction.response.send_message('Your adventure moved on! Use `/cinnamon stories` to resume.',ephemeral=True)
         await interaction.response.defer(ephemeral=True)  # Private story response; acknowledge before processing.
-        try:\n            await interaction.message.edit(view=None)\n        except Exception:\n            pass\n        if rec.get('complete') or int(rec.get('index',0)) != self.index or rec.get('branch') != self.branch:\n            return await interaction.followup.send(
+        try:
+            await interaction.message.edit(view=None)\n        except Exception:
+            pass
+        if rec.get('complete') or int(rec.get('index',0)) != self.index or rec.get('branch') != self.branch:\n            return await interaction.followup.send(
                 embed=_wls_embed(interaction,'🐾 Cinnamon Is One Step Ahead',
                     'This choice was already recorded. Use `/cinnamon stories` to resume.'),view=None)
         scene=_WLS_BRANCHES[self.branch] if self.branch else _WLS_SCENES[self.index]
         opt=scene['choices'][option_idx]
         if not opt[3]:
-            await interaction.followup.send(content=opt[1]+'\\n\\n*Try another option; Cinnamon says we have a BILLION reasons to keep going.*',ephemeral=True,allowed_mentions=discord.AllowedMentions.none())\n            return await interaction.followup.send(embed=cinnamon_story_controls_embed('🐾 That Was... A Choice','Try another choice below.',color=_WLS_COLOR),view=_WLSChoiceView(u,self.index,self.branch,g),ephemeral=True)
+            await interaction.followup.send(content=opt[1]+'\\n\\n*Try another option; Cinnamon says we have a BILLION reasons to keep going.*',ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+            return await interaction.followup.send(embed=cinnamon_story_controls_embed('🐾 That Was... A Choice','Try another choice below.',color=_WLS_COLOR),view=_WLSChoiceView(u,self.index,self.branch,g),ephemeral=True)
         _wls_apply_choice(rec, self.index, option_idx, self.branch)
         if rec['index']<len(_WLS_SCENES):
             next_area=_WLS_SCENES[rec['index']]['area']
@@ -602,7 +606,10 @@ class _WLSContinue(discord.ui.View):
             return await interaction.response.edit_message(embed=_wls_embed(interaction,'🏆 Adventure Complete',
                 'Cinnamon recovered her most precious chew toy. Your reward was 100,000 Catnip. She still insists it is worth ONE BILLION.'),view=None)
         idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
-        await interaction.response.defer(ephemeral=True)\n        try:\n            await interaction.message.edit(view=None)\n        except Exception:\n            pass\n        await _wls_private_scene(interaction,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),self.guild_id))
+        await interaction.response.defer(ephemeral=True)
+        try:\n            await interaction.message.edit(view=None)\n        except Exception:
+            pass
+        await _wls_private_scene(interaction,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),self.guild_id))
 
 
 class _WLSMoodView(discord.ui.View):
