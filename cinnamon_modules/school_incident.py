@@ -62,9 +62,13 @@ def _si_controls(title, description="Choose an option below."):
     return e
 
 
-async def _si_dm_scene(user, stage, view):
+async def _si_private_scene(interaction, stage, view, *, replace_original=False):
     scene = _SI_SCENES[stage]
-    await cinnamon_story_send_dm(user,scene[1],_si_controls(scene[0],"Narration is in the normal message above.\n\n**Choose your next move below.**"),view)
+    if replace_original:
+        await interaction.edit_original_response(content=scene[1], embed=None, view=None)
+    else:
+        await interaction.followup.send(content=scene[1], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+    await interaction.followup.send(embed=_si_controls(scene[0], "**Choose your next move below.**"), view=view, ephemeral=True)
 
 
 class _SIChoiceButton(discord.ui.Button):
@@ -95,7 +99,11 @@ class _SIView(discord.ui.View):
         rec = _si_record(self.guild_id, interaction.user.id)
         if rec.get("complete") or rec.get("stage") != self.stage:
             return await interaction.response.send_message("Your story has moved on. Use /cinnamon school-incident to resume.", ephemeral=True)
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.message.edit(view=None)
+        except Exception:
+            pass
         flags = rec["flags"]
         history = rec["history"]
         if self.stage == "intro":
@@ -115,8 +123,8 @@ class _SIView(discord.ui.View):
                 rec["stage"] = "route_d"
             await bd_save_data()
             scene = _SI_SCENES[rec["stage"]]
-            await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
-            return await interaction.edit_original_response(embed=_si_controls(scene[0],"Your route is saved. Continue when ready."),view=_SIView(self.owner_id,rec["stage"],["Continue to the investigation ▶"],self.guild_id))
+            await _si_private_scene(interaction,rec["stage"],_SIView(self.owner_id,rec["stage"],["Continue to the investigation ▶"],self.guild_id))
+            return
         if self.stage in ("route_a","route_b","route_c","route_d"):
             history.append({"stage":self.stage,"choice":"continue"})
             if self.stage == "route_a": flags["escaped_office"] = True
@@ -124,22 +132,22 @@ class _SIView(discord.ui.View):
             rec["stage"] = "investigation"
             await bd_save_data()
             scene = _SI_SCENES["investigation"]
-            await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
-            return await interaction.edit_original_response(embed=_si_controls(scene[0],"Your route is saved. Continue when ready."),view=_SIView(self.owner_id,"investigation",["Call Aryan ▶"],self.guild_id))
+            await _si_private_scene(interaction,"investigation",_SIView(self.owner_id,"investigation",["Call Aryan ▶"],self.guild_id))
+            return
         if self.stage == "investigation":
             history.append({"stage":"investigation","choice":"call Aryan"})
             rec["stage"] = "revelation"
             await bd_save_data()
             scene = _SI_SCENES["revelation"]
-            await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
-            return await interaction.edit_original_response(embed=_si_controls(scene[0],"Continue when ready."),view=_SIView(self.owner_id,"revelation",["Return to the school ▶"],self.guild_id))
+            await _si_private_scene(interaction,"revelation",_SIView(self.owner_id,"revelation",["Return to the school ▶"],self.guild_id))
+            return
         if self.stage == "revelation":
             history.append({"stage":"revelation","choice":"return"})
             rec["stage"] = "final"
             await bd_save_data()
             scene = _SI_SCENES["final"]
-            await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
-            return await interaction.edit_original_response(embed=_si_controls(scene[0],"Choose how to handle the aftermath."),view=_SIView(self.owner_id,"final",["A — Blame Aryan","B — Planned reconnaissance","C — Apologize","D — Immediate departure"],self.guild_id))
+            await _si_private_scene(interaction,"final",_SIView(self.owner_id,"final",["A — Blame Aryan","B — Planned reconnaissance","C — Apologize","D — Immediate departure"],self.guild_id))
+            return
         if self.stage == "final":
             history.append({"stage":"final","choice":["blame","recon","apologize","leave"][index]})
             if index == 0: rec["danger"] += 1
@@ -160,8 +168,8 @@ class _SIView(discord.ui.View):
                 except Exception:
                     log.exception("School Incident completed; Rod Merchant access failed")
                     access = "\n⚠️ Story saved, but Cinnamon could not grant Rod Merchant channel access. Staff can repair permissions."
-            await interaction.user.send(content=text+"\n\n"+access+"\n\n🎣 **Fishing Rod Merchant unlocked!**",allowed_mentions=discord.AllowedMentions.none())
-            return await interaction.edit_original_response(embed=_si_controls("🏁 SCHOOL INCIDENT • "+ending.upper(),"Ending details were sent as a normal message."),view=None)
+            await interaction.followup.send(content=text+"\n\n"+access+"\n\n🎣 **Fishing Rod Merchant unlocked!**",ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+            return
         return await interaction.edit_original_response(embed=_si_embed(interaction,"🐾 Story error","Use /cinnamon school-incident to resume."),view=None)
 
 
@@ -184,11 +192,9 @@ async def school_incident(interaction: discord.Interaction):
         "final":["A — Blame Aryan","B — Planned reconnaissance","C — Apologize","D — Immediate departure"]
     }.get(stage,["Continue ▶"])
     await interaction.response.defer(ephemeral=True)
-    try:
-        await _si_dm_scene(interaction.user,stage,_SIView(interaction.user.id,stage,choices,interaction.guild.id))
-        await interaction.followup.send("🐾 **School Incident** was sent to your DMs. Check your private messages to play!",ephemeral=True)
-    except discord.Forbidden:
-        await interaction.followup.send("I couldn't DM you. Please enable server-member DMs, then run /cinnamon school-incident again.",ephemeral=True)
+    await _si_private_scene(interaction,stage,_SIView(interaction.user.id,stage,choices,interaction.guild.id),replace_original=True)
+
+
 
 
 @_cinnamon_stories_group.command(name="school-incident-restart", description="Restart your School Incident decisions")
@@ -203,11 +209,9 @@ async def school_incident_restart(interaction: discord.Interaction, confirm: boo
     await bd_save_data()
     scene=_SI_SCENES["intro"]
     await interaction.response.defer(ephemeral=True)
-    try:
-        await _si_dm_scene(interaction.user,"intro",_SIView(interaction.user.id,"intro",["A — Principal’s son (+1 Danger)","B — Call Aryan","C — Sneak inside (+2 Danger)","D — Cat inspector"],interaction.guild.id))
-        await interaction.followup.send("🐾 Restarted School Incident in your DMs.",ephemeral=True)
-    except discord.Forbidden:
-        await interaction.followup.send("I couldn't DM you. Enable server-member DMs and try again.",ephemeral=True)
+    await _si_private_scene(interaction,"intro",_SIView(interaction.user.id,"intro",["A — Principal’s son (+1 Danger)","B — Call Aryan","C — Sneak inside (+2 Danger)","D — Cat inspector"],interaction.guild.id),replace_original=True)
+
+
 
 
 class _StoryPicker(discord.ui.Select):
