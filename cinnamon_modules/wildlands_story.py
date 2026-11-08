@@ -32,7 +32,7 @@ def _wls_scene(chapter, area, title, text, choices, *, chance=.08):
 
 _WLS_SCENES = [
     _wls_scene(0,'whispering_woods','A VERY IMPORTANT ANNOUNCEMENT',
-        'You hear an enormous crash from Cinnamon’s house. She stands on a table surrounded by fallen cups.\n\n'
+        'The morning begins with a crash loud enough to startle every bird in the neighbourhood. Inside Cinnamon’s house, cups lie scattered across the floor; Cinnamon stands on the table like a general surveying a battlefield. A fish-shaped map is pinned upside down to the wall.\n\n'
         '**Cinnamon:** “EVERYONE! I HAVE LOST SOMETHING MORE IMPORTANT THAN FOOD!”\n'
         '**You:** “Your dignity?”\n**Cinnamon:** “THAT LEFT YEARS AGO. PAY ATTENTION.”\n\n'
         'She claims a hidden treasure is worth **ONE BILLION CATNIP**. The only map is a drawing of a fish.',[
@@ -40,7 +40,7 @@ _WLS_SCENES = [
             ('Ask for a contract','Cinnamon hands you a napkin reading: “I, THE CAT, PROMISE SOMETHING.” It is signed in gravy.','napkin_contract',True),
             ('Demand half the treasure','“Half of a billion?” Cinnamon gasps. “Have you even SEEN how many zeros that is?!”','half_billion',True)],chance=0),
     _wls_scene(0,'whispering_woods','The Fish-Shaped Map',
-        'The map has three landmarks: a crooked tree, a tiny crown, and a large X that might actually be a squashed mosquito.\n\n'
+        'The map is made from three sheets of paper glued together with jam. Its landmarks are a crooked tree, a tiny crown, and a large X that might actually be a squashed mosquito. The ink is old—but a fresh scratch crosses the crown, as if someone recently copied it.\n\n'
         '**Cinnamon:** “I designed it myself. Graphic design is my passion.”\n'
         'A black cat wearing expensive sunglasses darts past the window.',[
             ('Chase the sunglasses cat','You chase a suspicious cat for six streets. It turns out to be an elderly accountant. He escapes with your lunch.','sunglasses',True),
@@ -54,7 +54,7 @@ _WLS_SCENES = [
             ('Request proper directions','Cinnamon points at the fish-shaped map. “North is whichever way smells like tuna.”','directions',True)],chance=.04),
 
     _wls_scene(1,'whispering_woods','The Tree That Looks Guilty',
-        'A crooked oak leans over a forest path. Beneath it lies a brass tag stamped with the letter **A**.\n'
+        'By late afternoon, the woods have swallowed the road behind you. A crooked oak leans over a narrow path; its bark is marked with tiny cuts. Beneath the roots lies a brass tag stamped with the letter **A**, still cold despite the warm air.\n'
         '**Cinnamon:** “That symbol! I remember... something.”\n'
         '**You:** “What?”\n**Cinnamon:** “My breakfast. Delicious.”',[
             ('Examine the tag','The back is scratched with three small claw marks. A trail of black fur leads east.','brass_a',True),
@@ -80,7 +80,7 @@ _WLS_SCENES = [
             ('Flip a coin','Cinnamon eats the coin. Rowan leads you toward the coast before the decision gets worse.','coin_incident',True)]),
 
     _wls_scene(2,'quiet_shore','The Market of Extremely Expensive Lies',
-        'The Quiet Shore hosts an auction where everything has a “historical” price tag. One man sells a rock for 10,000 Catnip.\n'
+        'The Quiet Shore is crowded with gulls, auction bells, and merchants who call absolutely everything “historical.” A cracked teacup is displayed beneath glass. One man sells a rock for 10,000 Catnip—and has a queue.\n'
         '**Cinnamon:** “Ridiculous. I own eleven free rocks.”',[
             ('Inspect the auction records','A sealed chest was sold to an agent using the initials **B.C.**.','auction_records',True),
             ('Ask the rock salesman','He offers a family discount: 9,999 Catnip. Cinnamon is offended on your behalf.','rock_scam',True),
@@ -104,7 +104,7 @@ _WLS_SCENES = [
             ('Choose the one with a handle','That is a kettle. “How have you survived this long?” Beans asks from behind a barrel.',None,False)],chance=.15),
 
     _wls_scene(3,'stoneback_highlands','The Vault of Nine Locks',
-        'Stoneback Highlands shelters a vault covered in complicated warning signs. Nine keyholes surround a plain wooden door.\n'
+        'The Stoneback Highlands rise into cold blue cliffs. At their summit, a vault is covered in warning signs so elaborate they require their own warning sign. Nine keyholes surround a plain wooden door; the hinges are polished from use, not age.\n'
         '**Cinnamon:** “Nobody can stop us.”\n**You:** “Do you have a key?”\n**Cinnamon:** “I have confidence.”',[
             ('Read the inscription','It says “Eight locks are decorative. The ninth is a doorbell.”','vault_inscription',True),
             ('Poke the obvious button','The vault plays embarrassing elevator music. The door slowly opens.','vault_button',True),
@@ -129,7 +129,7 @@ _WLS_SCENES = [
             ('Ask Cinnamon what is inside','“A TREASURE,” she says. “A very treasured treasure. Stop asking suspicious questions.”','cinnamon_evasion',True)]),
 
     _wls_scene(4,'moonlit_marsh','The Owl Who Knows Almost Everything',
-        'The Moonlit Marsh is home to an ancient owl who remembers every item that passed through, but forgets every name.\n'
+        'Moonlight turns the Moonlit Marsh into a mirror broken by reeds. An ancient owl sits on a crooked post, surrounded by labelled jars—none of the labels match their contents. The owl remembers every item that passed through, but forgets every name.\n'
         '**Owl:** “Welcome, Gregory and Cucumber.”\n**Cinnamon:** “MY NAME IS CINNAMON.”\n**Owl:** “Of course, Cucumber.”',[
             ('Ask about the brass A','“Ah, that mark was connected to a gift from someone very important to Cucumber.”','owl_gift',True),
             ('Offer the owl a riddle','The owl answers before you finish. Cinnamon accuses it of cheating.','owl_riddle',True),
@@ -154,7 +154,7 @@ _WLS_SCENES = [
             ('Let Cinnamon direct rescue','She orders everyone to form a tuna-shaped bucket brigade. Somehow, it works.','tuna_brigade',True)],chance=.18),
 
     _wls_scene(5,'frostfall_pass','The World’s Worst Heist Briefing',
-        'In Frostfall Pass, Cinnamon unrolls a 14-page heist plan. It contains exactly three words: **“WE GET BOX.”**\n'
+        'Frostfall Pass is so cold that the ink freezes halfway through your notes. In a sheltered cave, Cinnamon unrolls a fourteen-page heist plan. Every page is blank except the first, which contains exactly three words: **“WE GET BOX.”**\n'
         '“We will steal the chest key,” she explains, “using my brilliance and your questionable expendability.”',[
             ('Suggest disguises','Cinnamon draws a moustache on your face and calls you Agent Whiskers.','disguise_plan',True),
             ('Demand better planning','Cinnamon adds an arrow and the word “SUCCESS” to her diagram.','improved_plan',True),
@@ -179,7 +179,7 @@ _WLS_SCENES = [
             ('Challenge the Baron to a staring contest','Cinnamon wins in three seconds. Clawdius demands a rematch. You escape.','staring_victory',True)]),
 
     _wls_scene(6,'forgotten_ruins','The Grandest Grand Reveal',
-        'An enormous audience gathers in the Forgotten Ruins. Clawdius stands before the chest under a shower of paper confetti.\n'
+        'The Forgotten Ruins have been transformed into a ridiculous royal stage: banners, spotlights, a velvet rope around a wooden chest, and enough confetti to bury a small village. An enormous audience gathers as Clawdius steps forward, rehearsing his victory pose.\n'
         '**Clawdius:** “BEHOLD! SOON I SHALL OWN THE GREATEST TREASURE EVER FOUND!”\n'
         '**Beans:** “Sir, please stop setting confetti on fire.”',[
             ('Enter dramatically','Cinnamon leaps onto the stage and knocks over his crown. “OBJECTION! THAT IS MY BOX!”','dramatic_entrance',True),
@@ -193,7 +193,7 @@ _WLS_SCENES = [
             ('Offer Beans a job','Beans switches off the vacuum and says, “Best negotiation I have seen in years.”','beans_new_job',True),
             ('Let Cinnamon intimidate it','Cinnamon gives the vacuum a stern look. You quietly unplug it while she takes all the credit.','intimidation',True)]),
     _wls_scene(6,'forgotten_ruins','The Billion-Catnip Treasure',
-        'The chest stands open before you. A golden beam illuminates its mysterious contents.\n'
+        'The final lock clicks. For one breath, the Forgotten Ruins fall silent. Dust floats through a golden beam spilling from the chest; even Clawdius stops posing. Cinnamon’s paws tremble—not with greed, but with recognition.\n'
         'Inside is... **a small, well-loved CHEW TOY**.\n\n'
         '**You:** “...A TOY?!”\n**Cinnamon:** “MY BABYYYY!”\n'
         '**Clawdius:** “I SOLD MY FORTUNE FOR A CHEW TOY?”\n'
@@ -426,6 +426,16 @@ def _wls_echo(rec, index):
         notes.append('You still have evidence the Baron used fake coins. The crowd begins to doubt his fortune.')
     if index == 25 and flags.get('baron_exposed'):
         notes.append('Clawdius remembers you proved he never knew what he bought. He has no defence.')
+    if index == 3 and flags.get('crown_mark'):
+        notes.append('The crown scratch on the map matches a mark on the vault door. Someone copied Cinnamon’s route before you arrived.')
+    if index == 10 and flags.get('auction_confession'):
+        notes.append('The dockworker slips you a second shipping number: Clawdius bought the chest in a panic, not as a planned investment.')
+    if index == 14 and flags.get('beans_recruited'):
+        notes.append('Beans has quietly arranged a safe crossing. He is no longer merely helping—you have earned his trust.')
+    if index == 21 and flags.get('plan_exit'):
+        notes.append('Your mapped exit keeps the crew together when the snow bridge begins to crack.')
+    if index == 24 and flags.get('robot_manager'):
+        notes.append('The vacuum pauses at Cinnamon’s “manager” badge. She insists this is a legitimate promotion.')
     if index == 25:
         if deal == 'half':
             notes.append('**Cinnamon:** "Technically you own HALF A CHEW TOY. Never touch your half."')
