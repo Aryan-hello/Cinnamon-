@@ -664,8 +664,7 @@ async def wildlands_story(interaction:discord.Interaction):
             '“I SAID THE *TREASURE* WAS WORTH A BILLION,” Cinnamon reminds you.'+access),ephemeral=True)
     idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
     await interaction.response.defer(ephemeral=True)
-    try:
-        await _wls_private_scene(interaction,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),interaction.guild.id),replace_original=True)
+    await _wls_private_scene(interaction,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),interaction.guild.id),replace_original=True)
 
 
 
@@ -687,8 +686,7 @@ async def wildlands_story_restart(interaction: discord.Interaction, confirm: boo
     # No second one-time payout and no repeat merchant-opening rolls on replays.
     await bd_save_data()
     await interaction.response.defer(ephemeral=True)
-    try:
-        await _wls_private_scene(interaction,old,_WLSChoiceView(interaction.user.id,0,None,interaction.guild.id),replace_original=True)
+    await _wls_private_scene(interaction,old,_WLSChoiceView(interaction.user.id,0,None,interaction.guild.id),replace_original=True)
 
 
 @wildlands_art_group.command(name='story-journal',description='Review your story progress and important discoveries')
