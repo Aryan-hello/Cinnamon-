@@ -17,7 +17,7 @@ _WLS_CHAPTERS = (
 )
 _WLS_COLOR = 0xE9A344
 _WLS_REWARD = 100_000
-_WLS_MOOD_STOPS = {5, 10, 15, 20, 25}
+_WLS_MOOD_STOPS = set()  # Story narration and all controls are delivered through private DMs.
 
 
 def _wls_scene(chapter, area, title, text, choices, *, chance=.08):
@@ -567,7 +567,7 @@ class _WLSChoiceView(discord.ui.View):
             await interaction.user.send(content=ending_text[:2000],allowed_mentions=discord.AllowedMentions.none())
             return await interaction.edit_original_response(embed=cinnamon_story_controls_embed('🏆 THE TREASURE WORTH BILLIONS','Adventure complete! Ending details were sent as a normal message.',color=_WLS_COLOR),view=None)
         await bd_save_data()
-        if not self.branch and not rec.get('replay') and scene['chance']:
+        if interaction.guild and not self.branch and not rec.get('replay') and scene['chance']:
             notes += await _wlf_attempt_merchant(interaction.guild,finder=interaction.user,
                                                   announce_channel=interaction.channel,
                                                   chance=scene['chance'])
@@ -648,10 +648,12 @@ async def wildlands_story(interaction:discord.Interaction):
             'You have permanent access to the Fishing Bait Merchant!\n\n'
             '“I SAID THE *TREASURE* WAS WORTH A BILLION,” Cinnamon reminds you.'+access),ephemeral=True)
     idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
-    await interaction.response.send_message(
-        embed=_wls_scene_embed(interaction, rec),
-        view=_WLSChoiceView(interaction.user.id, idx, rec.get('branch')),
-        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await _wls_dm_scene(interaction.user,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),interaction.guild.id))
+        await interaction.followup.send("🐾 **The Treasure Worth Billions** is waiting in your DMs. Narration is a normal message; use the separate control embed to choose.",ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("I couldn't DM you. Enable server-member DMs, then run /cinnamon stories again.",ephemeral=True)
 
 
 
@@ -672,9 +674,12 @@ async def wildlands_story_restart(interaction: discord.Interaction, confirm: boo
                 'complete': False, 'reward_paid': was_paid, 'replay': True})
     # No second one-time payout and no repeat merchant-opening rolls on replays.
     await bd_save_data()
-    await interaction.response.send_message(
-        embed=_wls_scene_embed(interaction, old),
-        view=_WLSChoiceView(interaction.user.id, 0), ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await _wls_dm_scene(interaction.user,old,_WLSChoiceView(interaction.user.id,0,None,interaction.guild.id))
+        await interaction.followup.send("🐾 Restarted The Treasure Worth Billions in your DMs.",ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("I couldn't DM you. Enable server-member DMs and try again.",ephemeral=True)
 
 
 @wildlands_art_group.command(name='story-journal',description='Review your story progress and important discoveries')
