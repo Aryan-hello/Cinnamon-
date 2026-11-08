@@ -450,6 +450,7 @@ _CINNAMON_MODULES = (
     "story_delivery.py",
     "wildlands_story.py",
     "school_incident.py",
+    "last_treasure_map.py",
     "cinnamon_moods.py",
     "cinnamon_personality.py",
     "cinnamon_actions.py",
