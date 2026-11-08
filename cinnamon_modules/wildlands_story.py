@@ -558,7 +558,7 @@ class _WLSChoiceView(discord.ui.View):
                     log.exception('Wildlands story reward saved; achievement log failed')
             else:
                 rec['complete']=True
-            access=await _wlf_award_story_access(interaction, kind='bait')
+            access=await _wlf_award_story_access(interaction, kind='bait', guild_id=g)
             ending_text=('🎉 **ADVENTURE COMPLETE!**\\n\\n'+notes+'\\n\\n'
                 '**The treasure:** Cinnamon’s favourite chew toy from Aryan.\\n'
                 '**Your reward:** **100,000 Catnip** (once per player).\\n'
