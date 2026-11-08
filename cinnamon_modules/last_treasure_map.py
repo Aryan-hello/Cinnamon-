@@ -385,10 +385,3 @@ async def last_treasure_map_restart(interaction:discord.Interaction,confirm:bool
     await interaction.response.defer(ephemeral=True)
     await _ltm_private_scene(interaction,interaction.guild.id,rec,"intro",replace_original=True)
 
-
-    await interaction.response.defer(ephemeral=True)
-    try:
-        await _ltm_send_scene(interaction.user,interaction.guild.id,rec,"intro")
-        await interaction.followup.send("🐾 Restarted The Last Treasure Map in your DMs.",ephemeral=True)
-    except discord.Forbidden:
-        await interaction.followup.send("I couldn't DM you. Enable server-member DMs and try again.",ephemeral=True)
