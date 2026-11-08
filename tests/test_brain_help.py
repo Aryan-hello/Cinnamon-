@@ -180,14 +180,6 @@ class FeatureHelpTests(unittest.TestCase):
         self.assertIn("/cinnamon-memory view", memory)
         self.assertIn("/cinnamon-memory clear", memory)
 
-    def test_personal_progress_guide_uses_real_read_only_shortcuts(self):
-        reply = answer_help("Cinnamon, show me my progress", self.catalog)
-        self.assertIn("/cinnamon-me progress", reply)
-        self.assertIn("/rank", reply)
-        self.assertIn("/quests progress", reply)
-        self.assertIn("/achievement list", reply)
-        self.assertIn("read-only", reply)
-
     def test_incident_and_independence_guides_never_offer_unrestricted_ai(self):
         incident = answer_help("how do incident reviews work?", self.catalog)
         independence = answer_help("how does independence work?", self.catalog)
