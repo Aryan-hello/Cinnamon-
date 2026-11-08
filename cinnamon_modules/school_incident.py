@@ -218,6 +218,8 @@ class _StoryPicker(discord.ui.Select):
                     description="A mystery, a fish-shaped map, and a billion-Catnip claim", emoji="💰"),
                 discord.SelectOption(label="School Incident", value="school",
                     description="Cinnamon visits the wrong school looking for Aryan", emoji="🏫"),
+                discord.SelectOption(label="The Last Treasure Map", value="last_map",
+                    description="Seven forgotten treasures, secrets, and a final wish", emoji="🗺️"),
             ])
 
     async def callback(self, interaction):
@@ -232,7 +234,7 @@ class _StoryPicker(discord.ui.Select):
                 idx = min(len(_WLS_SCENES)-1,max(0,int(rec["index"])))
                 await _wls_dm_scene(interaction.user,rec,_WLSChoiceView(interaction.user.id,idx,rec.get("branch"),guild_id))
                 message = "🐾 **The Treasure Worth Billions** has been sent to your DMs. Read the normal message, then use its separate control embed."
-            else:
+            elif choice == "school":
                 rec = _si_record(guild_id, interaction.user.id)
                 if rec.get("complete"):
                     return await interaction.edit_original_response(content=f"🏁 School Incident is complete ({str(rec.get('ending','normal')).title()}). Restart with /cinnamon school-incident-restart.",embed=None,view=None)
@@ -247,6 +249,12 @@ class _StoryPicker(discord.ui.Select):
                 }.get(stage,["Continue ▶"])
                 await _si_dm_scene(interaction.user,stage,_SIView(interaction.user.id,stage,choices,guild_id))
                 message = "🐾 **School Incident** has been sent to your DMs. Read the normal message, then use its separate control embed."
+            else:
+                rec = _ltm_record(guild_id,interaction.user.id)
+                if rec.get("complete"):
+                    return await interaction.edit_original_response(content="🏆 The Last Treasure Map is complete. Restart with /cinnamon last-treasure-map-restart confirm:True.",embed=None,view=None)
+                await _ltm_send_scene(interaction.user,guild_id,rec,rec.get("stage","intro"))
+                message = "🗺️ **The Last Treasure Map** has been sent to your DMs. Narration is a normal message; choices are in its control embed."
             await interaction.edit_original_response(content=message,embed=None,view=None)
         except discord.Forbidden:
             await interaction.edit_original_response(content="I couldn't DM you. Enable server-member DMs and choose the story again.",embed=None,view=None)
@@ -274,4 +282,5 @@ async def cinnamon_story_picker(interaction: discord.Interaction):
         color=_SI_COLOR)
     embed.add_field(name="💰 The Treasure Worth Billions", value="Cinnamon's missing chew toy • 100,000 Catnip reward", inline=False)
     embed.add_field(name="🏫 School Incident", value="A wrong-school visit • multiple routes and endings • Fishing Rod Merchant unlock", inline=False)
+    embed.add_field(name="🗺️ The Last Treasure Map", value="Seven forgotten treasures • branching routes • multiple endings", inline=False)
     await interaction.response.send_message(embed=embed, view=_StoryPickerView(interaction.user.id), ephemeral=True)
