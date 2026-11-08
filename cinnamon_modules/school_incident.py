@@ -115,7 +115,7 @@ class _SIView(discord.ui.View):
                 rec["stage"] = "route_d"
             await bd_save_data()
             scene = _SI_SCENES[rec["stage"]]
-            return await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
+            await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
             await interaction.edit_original_response(embed=_si_controls(scene[0],"Your route is saved. Continue when ready."),view=_SIView(self.owner_id,rec["stage"],["Continue to the investigation ▶"],self.guild_id))
         if self.stage in ("route_a","route_b","route_c","route_d"):
             history.append({"stage":self.stage,"choice":"continue"})
