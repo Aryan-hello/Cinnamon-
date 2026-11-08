@@ -35,6 +35,7 @@ class StoryTests(unittest.TestCase):
         main=MAIN.read_text()
         self.assertLess(main.index('"wildlands_fishing.py"'),main.index('"wildlands_story.py"'))
         self.assertNotIn('    "wildlands.py",',main)
+        self.assertIn('    "school_incident.py",',main)
 
     def test_merchant_window_and_finder_commission(self):
         state={}
@@ -50,7 +51,7 @@ class StoryTests(unittest.TestCase):
                 _wlf_player=player,_wlf_server=server,_WLF_SHOP_NAMES={'bait':'fishing-bait-merchant'},
                 _wlf_time=time,bd_save_data=save,economy_log=log,
                 economy_balance=lambda g,u:balances[(g,u)],
-                _wlf_story_complete=lambda g,u:False,
+                _wlf_story_complete=lambda g,u,kind=None:False,
                 _wlf_channel=lambda guild,kind:SimpleNamespace(id=123),
                 _cm_price=lambda g,u,item,price: price,  # Normal mood preserves historical purchase totals.
                 _cp_react=lambda *a,**kw: save(),  # Side-effect stub; does not affect commission.
