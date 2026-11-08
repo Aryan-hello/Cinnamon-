@@ -612,7 +612,9 @@ class _WLSContinue(discord.ui.View):
                 'Cinnamon recovered her most precious chew toy. Your reward was 100,000 Catnip. She still insists it is worth ONE BILLION.'),view=None)
         idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
         await interaction.response.defer(ephemeral=True)
-        try:\n            await interaction.message.edit(view=None)\n        except Exception:
+        try:
+            await interaction.message.edit(view=None)
+        except Exception:
             pass
         await _wls_private_scene(interaction,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),self.guild_id))
 
