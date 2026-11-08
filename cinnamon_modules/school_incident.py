@@ -33,7 +33,7 @@ _SI_SCENES = {
     "route_a": ("Route A — The Principal’s Son",
         "The guard calls the principal. Five minutes later, Cinnamon is in his office, members lined up behind her.\n\n"
         "**Principal:** “I don’t have a son named Aryan.”\n**Cinnamon:** “That’s exactly what someone hiding their son would say.”\n**Principal:** “WHAT?”\n**Cinnamon:** “Nothing.”\n\n"
-        "A teacher steps away to answer a call. Cinnamon looks at the door.\n**Cinnamon:** “Members.”\n**Member:** “No.”\n**Cinnamon:** “I haven’t said anything.”\n**Member:** “Your face has.”\\n\\nCinnamon gets up. A member knocks over a stack of papers. The teacher returns.\\n**Teacher:** “HEY!”\\nCinnamon runs into the corridor.\\n**Member:** “WHY ARE WE RUNNING?!”\\n**Cinnamon:** “BECAUSE WE’RE FREE!”\\n\\nThey reach the courtyard.\\n**Member:** “We escaped the principal’s office.”\\n**Cinnamon:** “I was never detained.”"),
+        "A teacher steps away to answer a call. Cinnamon looks at the door.\n**Cinnamon:** “Members.”\n**Member:** “No.”\n**Cinnamon:** “I haven’t said anything.”\n**Member:** “Your face has.”\n\nCinnamon gets up. A member knocks over a stack of papers. The teacher returns.\n**Teacher:** “HEY!”\nCinnamon runs into the corridor.\n**Member:** “WHY ARE WE RUNNING?!”\n**Cinnamon:** “BECAUSE WE’RE FREE!”\n\nThey reach the courtyard.\n**Member:** “We escaped the principal’s office.”\n**Cinnamon:** “I was never detained.”"),
     "route_c": ("Route C — Sneak Inside",
         "Cinnamon whispers, **“Operation Aryan.”** A member replies, “This is a terrible idea.”\n\n"
         "They attempt to enter without permission. A teacher notices almost immediately.\n"
@@ -64,7 +64,7 @@ def _si_controls(title, description="Choose an option below."):
 
 async def _si_dm_scene(user, stage, view):
     scene = _SI_SCENES[stage]
-    await cinnamon_story_send_dm(user,scene[1],_si_controls(scene[0],"Narration is in the normal message above.\\n\\n**Choose your next move below.**"),view)
+    await cinnamon_story_send_dm(user,scene[1],_si_controls(scene[0],"Narration is in the normal message above.\n\n**Choose your next move below.**"),view)
 
 
 class _SIChoiceButton(discord.ui.Button):
@@ -124,21 +124,21 @@ class _SIView(discord.ui.View):
             rec["stage"] = "investigation"
             await bd_save_data()
             scene = _SI_SCENES["investigation"]
-            return await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
+            await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
             await interaction.edit_original_response(embed=_si_controls(scene[0],"Your route is saved. Continue when ready."),view=_SIView(self.owner_id,"investigation",["Call Aryan ▶"],self.guild_id))
         if self.stage == "investigation":
             history.append({"stage":"investigation","choice":"call Aryan"})
             rec["stage"] = "revelation"
             await bd_save_data()
             scene = _SI_SCENES["revelation"]
-            return await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
+            await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
             await interaction.edit_original_response(embed=_si_controls(scene[0],"Continue when ready."),view=_SIView(self.owner_id,"revelation",["Return to the school ▶"],self.guild_id))
         if self.stage == "revelation":
             history.append({"stage":"revelation","choice":"return"})
             rec["stage"] = "final"
             await bd_save_data()
             scene = _SI_SCENES["final"]
-            return await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
+            await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
             await interaction.edit_original_response(embed=_si_controls(scene[0],"Choose how to handle the aftermath."),view=_SIView(self.owner_id,"final",["A — Blame Aryan","B — Planned reconnaissance","C — Apologize","D — Immediate departure"],self.guild_id))
         if self.stage == "final":
             history.append({"stage":"final","choice":["blame","recon","apologize","leave"][index]})
@@ -160,7 +160,7 @@ class _SIView(discord.ui.View):
                 except Exception:
                     log.exception("School Incident completed; Rod Merchant access failed")
                     access = "\n⚠️ Story saved, but Cinnamon could not grant Rod Merchant channel access. Staff can repair permissions."
-            await interaction.user.send(content=text+"\\n\\n"+access+"\\n\\n🎣 **Fishing Rod Merchant unlocked!**",allowed_mentions=discord.AllowedMentions.none())
+            await interaction.user.send(content=text+"\n\n"+access+"\n\n🎣 **Fishing Rod Merchant unlocked!**",allowed_mentions=discord.AllowedMentions.none())
             return await interaction.edit_original_response(embed=_si_controls("🏁 SCHOOL INCIDENT • "+ending.upper(),"Ending details were sent as a normal message."),view=None)
         return await interaction.edit_original_response(embed=_si_embed(interaction,"🐾 Story error","Use /cinnamon school-incident to resume."),view=None)
 
