@@ -302,7 +302,7 @@ def _ltm_embed(stage,rec):
     total=len(_LTM_SCENES)
     current=list(_LTM_SCENES).index(stage)+1
     e=cinnamon_story_controls_embed(title,
-        "The narration is in the normal message above.\\n\\n**Choose what happens next using these buttons.**",
+        "The narration is in the normal message above.\n\n**Choose what happens next using these buttons.**",
         color=_LTM_COLOR,footer=f"The Last Treasure Map • Scene {current}/{total} • Progress saves automatically")
     e.add_field(name="Expedition",value=f"{current}/{total} scenes",inline=True)
     e.add_field(name="Decisions",value=str(len(rec.get("history",[]))),inline=True)
