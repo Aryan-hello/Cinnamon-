@@ -171,9 +171,10 @@ async def _wlf_refresh_channel(guild, kind):
     return channel
 
 
-async def _wlf_award_story_access(interaction, kind='bait'):
-    """Grant permanent access only to the merchant unlocked by this story."""
-    guild, member = interaction.guild, interaction.user
+async def _wlf_award_story_access(interaction, kind='bait', guild_id=None):
+    """Grant permanent access only to the merchant unlocked by this story (server or DM interaction)."""
+    guild = interaction.guild or (bot.get_guild(int(guild_id)) if guild_id else None)
+    member = interaction.user
     try:
         channel = await _wlf_refresh_channel(guild, kind)
         await channel.set_permissions(member, view_channel=True, send_messages=True,
