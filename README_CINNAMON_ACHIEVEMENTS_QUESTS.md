@@ -1,5 +1,7 @@
 # Cinnamon — Achievement / Quest / Shop Update
 
+**Historical feature summary:** use `/help` for the current registered slash commands and `docs/COMMAND_AUDIT.md` for the latest command audit. The notes below describe the achievement/quest milestone, not an up-to-date production certification.
+
 This build uses the user's text master list as the source of truth for the achievement and quest definitions.
 
 ## Included
@@ -7,7 +9,7 @@ This build uses the user's text master list as the source of truth for the achie
 - Admin-only `Cinnamon's Favourite Human`.
 - 11 secret achievements, including S11 Midnight Snack.
 - `/achievement` command group with member views and admin controls.
-- Rotating `/quest` daily and weekly pools; 5 daily + 5 weekly selections persist across restart/redeploy.
+- Rotating daily and weekly quest pools; use `/quests daily` and `/quests weekly` for the canonical slash subcommands, or `/quest` for the paginated board. Five daily and five weekly selections persist when the underlying snapshot store is durable and healthy.
 - Quest Points (QP) and `/questshop` redemptions from the supplied list.
 - Achievement/quest persistence through the existing Cinnamon persistence layer.
 - Tracking hooks for messages, Cinnamon pings/interactions, economy purchases/feeding/work/give/collect, polls, giveaways, levels, and Hangry Games.

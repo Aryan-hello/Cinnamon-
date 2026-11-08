@@ -1,6 +1,6 @@
 # Cinnamon Final Safety & UX Release — October 26, 2026
 
-Status: Built on feature branch. GitHub Actions static tests pass; live Discord, Render, Upstash, OAuth and dashboard workflows still require real testing. Do not equate a syntax pass with live safety.
+**Historical release notes (26 October 2026):** these describe an earlier Cinnamon revision and are **not the current deployment guide**. The current source has subsequently added a trusted allowlisted natural-language action system, memory, reminders, contextual independence and newer storage safeguards. Use [the current README](README.md), [Cinnamon Brain](docs/CINNAMON_BRAIN_PHASE2.md), and [Command Audit](docs/COMMAND_AUDIT.md) for current behavior. GitHub tests alone do not verify live Discord, Render, Upstash, OAuth or the dashboard.
 
 ## Critical fix
 

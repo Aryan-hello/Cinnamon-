@@ -196,7 +196,7 @@ _cb_group = app_commands.Group(
 )
 
 
-@_cb_group.command(name="status", description="Admin: see whether Cinnamon feels a game is appropriate")
+@_cb_group.command(name="status", description="Admin: inspect AI actions, activity readiness and safety settings")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def cinnamon_mind_status(interaction: discord.Interaction):
@@ -231,6 +231,8 @@ async def cinnamon_mind_status(interaction: discord.Interaction):
         f"Community prompts: **{'ON' if _cb_settings(gid).get('prompts_enabled') else 'OFF'}**\n"
         f"AI activity advice: **{'ON' if _cb_settings(gid).get('ai_judgment_enabled') else 'OFF'}**\n"
         f"Storage: **{getattr(globals().get('bd_store'), 'status', 'unavailable')}**\n"
+        f"Confirmed Catnip actions: **{'READY' if _ca_storage_ready() else 'BLOCKED'}** "
+        "(details: /datastatus check)\n"
         f"Decision: **{'READY' if allowed else 'WAIT'}** — {reason_labels[reason]}\n"
         "This is only a readiness check, not a promise to start a game immediately.",
         ephemeral=True, allowed_mentions=discord.AllowedMentions.none())

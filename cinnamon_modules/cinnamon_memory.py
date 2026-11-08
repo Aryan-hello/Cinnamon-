@@ -67,6 +67,45 @@ async def _cmem_save(gid, uid, category, detail):
         return note, ""
 
 
+async def _cmem_edit(gid, uid, note_id, updated):
+    """Member-only self-correction; no owner review or cross-guild access."""
+    async with _CMEM_LOCK:
+        member = _cmem_member(gid, uid)
+        if not member.get("enabled", True):
+            return False, "Your memory is disabled."
+        note = next((item for item in member.get("notes", [])
+                     if item.get("id") == str(note_id).strip().lower()), None)
+        if note is None:
+            return False, "That preference ID isn't in your private memory."
+        preference = _cmem_validate(note.get("category"), updated)
+        if any(other is not note and other.get("category") == preference.category
+               and str(other.get("detail", "")).lower() == preference.detail.lower()
+               for other in member.get("notes", [])):
+            return False, "You already saved an identical preference."
+        if note.get("detail") == preference.detail:
+            return True, "That preference already says exactly that."
+        old_note = _cmem_copy.deepcopy(note)
+        tickets = _cmem_root(gid).setdefault("tickets", {})
+        old_tickets = _cmem_copy.deepcopy(tickets)
+        note["detail"] = preference.detail
+        note["saved_at"] = int(_cmem_time.time())
+        # The member's own correction supersedes any pending owner's review.
+        for ticket in tickets.values():
+            if (ticket.get("uid") == int(uid)
+                    and ticket.get("note_id") == note.get("id")
+                    and ticket.get("status") == "open"):
+                ticket["status"] = "withdrawn"
+                ticket["original"] = ""
+                ticket["detail"] = ""
+        if not await bd_save_data():
+            note.clear()
+            note.update(old_note)
+            tickets.clear()
+            tickets.update(old_tickets)
+            return False, "Storage didn't confirm your edit. The old preference is unchanged."
+        return True, "Preference updated. You're in control of what I remember. 🐾"
+
+
 async def _cmem_remove(gid, uid, note_id=None):
     async with _CMEM_LOCK:
         member = _cmem_member(gid, uid)
@@ -114,6 +153,7 @@ async def _cmem_set_enabled(gid, uid, enabled):
                 if (ticket.get("uid") == int(uid) and
                         ticket.get("status") == "open"):
                     ticket["status"] = "withdrawn"
+                    ticket["original"] = ""
                     ticket["detail"] = ""
         if not await bd_save_data():
             member.clear()
@@ -192,10 +232,68 @@ async def _cmem_maybe_handle(message, clean_content):
     if not message.guild:
         return False
     text = str(clean_content or "").strip()
-    if _cmem_re.search(r"\b(?:what do you remember about me|show my memories|forget everything about me)\b", text, _cmem_re.I):
+    text = _cmem_re.sub(
+        r"^(?:(?:hey|hi|hello|yo|please)[,! ]+)?cinnamon\s*[,!:.]?\s*(?:please\s+)?",
+        "", text, count=1, flags=_cmem_re.I,
+    )
+
+    # Natural-language privacy controls are always scoped to the current member.
+    # Only unambiguous opt-in/opt-out requests change settings. A vague "forget
+    # this" never guesses which saved preference should be deleted.
+    if _cmem_re.search(
+            r"^(?:turn|switch)\s+(?:my\s+)?memory\s+off[.! ]*$|"
+            r"^forget\s+everything\s+about\s+me[.! ]*$",
+            text, _cmem_re.I):
+        saved = await _cmem_set_enabled(message.guild.id, message.author.id, False)
+        reply = ("🔒 Memory is off and your saved preferences were cleared."
+                 if saved else
+                 "⚠️ Storage didn't confirm that change. Your previous memory setting remains.")
+        await message.reply(reply, mention_author=False,
+                            allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
+            r"^(?:turn|switch)\s+(?:my\s+)?memory\s+on[.! ]*$",
+            text, _cmem_re.I):
+        saved = await _cmem_set_enabled(message.guild.id, message.author.id, True)
+        reply = ("🧠 Memory is enabled. I'll only save preferences you explicitly ask me to keep."
+                 if saved else
+                 "⚠️ Storage didn't confirm that change. Your previous memory setting remains.")
+        await message.reply(reply, mention_author=False,
+                            allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
+            r"^(?:clear|delete|erase)\s+my\s+(?:memory|notes|preferences)[.! ]*$",
+            text, _cmem_re.I):
+        success, detail = await _cmem_remove(message.guild.id, message.author.id)
         await message.reply(
-            "🐈 Your notes are private! Use `/cinnamon-memory view` to inspect them "
-            "or `/cinnamon-memory clear` to erase them.",
+            ("🔒 " + detail) if success else ("⚠️ " + detail),
+            mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
+            r"^(?:edit|change|correct)\s+my\s+(?:memory|notes|preferences)[.! ]*$",
+            text, _cmem_re.I):
+        await message.reply(
+            "🐾 Use /cinnamon-memory view to find your note ID, then "
+            "/cinnamon-memory edit to correct it privately.",
+            mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
+            r"^(?:forget|delete|remove)\s+(?:my\s+)?(?:saved\s+)?(?:preference|note|memory|notes)[.! ]*$",
+            text, _cmem_re.I):
+        await message.reply(
+            "🐾 I won't guess which note you mean. Use /cinnamon-memory view "
+            "then /cinnamon-memory forget note_id:<ID>, or /cinnamon-memory clear "
+            "to erase all your saved preferences.",
+            mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if _cmem_re.search(
+            r"^(?:show|view)\s+my\s+(?:memories|memory|notes|preferences)[.! ]*$",
+            text, _cmem_re.I) or _cmem_re.search(
+            r"^what\s+do\s+you\s+remember\s+about\s+me[?!. ]*$",
+            text, _cmem_re.I):
+        await message.reply(
+            "🐈 Your notes are private! Use /cinnamon-memory view to inspect, "
+            "/cinnamon-memory edit to correct, or /cinnamon-memory forget to remove one.",
             mention_author=False, allowed_mentions=discord.AllowedMentions.none())
         return True
     try:
@@ -212,7 +310,7 @@ async def _cmem_maybe_handle(message, clean_content):
     await message.reply(
         "🐱 " + error if error else
         f"🐈 Saved a {pref.category} preference! View or delete it privately "
-        "with `/cinnamon-memory`. I'm only collecting what you explicitly asked me to keep.",
+        "with `/cinnamon-memory view` or `/cinnamon-memory forget`. I only save what you explicitly ask me to keep.",
         mention_author=False, allowed_mentions=discord.AllowedMentions.none())
     return True
 
@@ -260,6 +358,23 @@ async def cinnamon_memory_save(interaction: discord.Interaction, category: str, 
     await interaction.followup.send(
         "🐾 " + error if error else
         f"✅ Saved preference `{note['id']}`. You can view or remove it anytime.",
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@_cmem_group.command(name="edit", description="Correct your own saved preference immediately and privately")
+@app_commands.guild_only()
+@app_commands.describe(note_id="Your preference ID from /cinnamon-memory view",
+                       new_text="Your corrected preference (same category)")
+async def cinnamon_memory_edit(interaction: discord.Interaction,
+                               note_id: str, new_text: str):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        success, message = await _cmem_edit(
+            interaction.guild.id, interaction.user.id, note_id, new_text)
+    except _CMEM_ERROR as exc:
+        success, message = False, str(exc)
+    await interaction.followup.send(
+        ("✅ " if success else "🐾 ") + message,
         ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 

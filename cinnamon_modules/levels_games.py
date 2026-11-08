@@ -418,7 +418,7 @@ async def levelrewards_remove(interaction: discord.Interaction, level: int):
 @app_commands.checks.has_permissions(administrator=True)
 async def levelrewards_list(interaction: discord.Interaction):
     cfg=level_roles.get(interaction.guild.id,{})
-    if not cfg: return await cinnamon_send(interaction, "No level rewards are configured. Use `/levelrewards add`.",ephemeral=True)
+    if not cfg: return await cinnamon_send(interaction, "No level rewards are configured. Use `/level-rewards add`.",ephemeral=True)
     lines=[]
     for lvl in sorted(cfg):
         role=interaction.guild.get_role(cfg[lvl]); lines.append(f"**Level {lvl}** → {role.mention if role else '❌ Deleted role'}")
