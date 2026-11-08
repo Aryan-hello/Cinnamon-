@@ -335,7 +335,7 @@ class _LTMView(discord.ui.View):
         return True
     async def choose(self,interaction,index):
         rec=_ltm_record(self.guild_id,interaction.user.id)
-        if rec.get("complete") or rec.get("stage")!=self.stage:
+        if (rec.get("complete") and self.stage!="complete") or rec.get("stage")!=self.stage:
             return await interaction.response.send_message("Your story has moved on. Run /cinnamon last-treasure-map to resume.",ephemeral=True)
         await interaction.response.defer()
         label,next_stage=_LTM_SCENES[self.stage][2][index]
