@@ -285,3 +285,101 @@ Your decisions, discoveries, and ending have been saved.
 Use the story command to review your ending or restart.""", [("Close controls","close")])
 }
 _LTM_ENDINGS={"ending_claim","ending_destroy","ending_cat","ending_baron","ending_guardians"}
+
+def _ltm_record(guild_id,user_id):
+    root=advanced_features_data.setdefault(_LTM_KEY,{})
+    rec=root.setdefault(str(guild_id),{}).setdefault(str(user_id),{})
+    rec.setdefault("stage","intro")
+    rec.setdefault("flags",{})
+    rec.setdefault("history",[])
+    rec.setdefault("complete",False)
+    rec.setdefault("ending",None)
+    return rec
+
+
+def _ltm_embed(stage,rec):
+    title, _text, choices = _LTM_SCENES[stage]
+    total=len(_LTM_SCENES)
+    current=list(_LTM_SCENES).index(stage)+1
+    e=cinnamon_story_controls_embed(title,
+        "The narration is in the normal message above.\\n\\n**Choose what happens next using these buttons.**",
+        color=_LTM_COLOR,footer=f"The Last Treasure Map • Scene {current}/{total} • Progress saves automatically")
+    e.add_field(name="Expedition",value=f"{current}/{total} scenes",inline=True)
+    e.add_field(name="Decisions",value=str(len(rec.get("history",[]))),inline=True)
+    return e
+
+
+async def _ltm_send_scene(user,guild_id,rec,stage):
+    title,narration,choices=_LTM_SCENES[stage]
+    await cinnamon_story_send_dm(user,narration,_ltm_embed(stage,rec),_LTMView(user.id,guild_id,stage))
+
+
+class _LTMChoice(discord.ui.Button):
+    def __init__(self,index,label):
+        super().__init__(label=label[:80],style=discord.ButtonStyle.primary,row=0)
+        self.choice_index=index
+    async def callback(self,interaction):
+        await self.view.choose(interaction,self.choice_index)
+
+
+class _LTMView(discord.ui.View):
+    def __init__(self,owner_id,guild_id,stage):
+        super().__init__(timeout=1800)
+        self.owner_id,self.guild_id,self.stage=owner_id,guild_id,stage
+        for i,(label,_next) in enumerate(_LTM_SCENES[stage][2]):
+            self.add_item(_LTMChoice(i,label))
+    async def interaction_check(self,interaction):
+        if interaction.user.id!=self.owner_id:
+            await interaction.response.send_message("🐾 This adventure belongs to another member. Start your own with /cinnamon last-treasure-map.",ephemeral=True)
+            return False
+        return True
+    async def choose(self,interaction,index):
+        rec=_ltm_record(self.guild_id,interaction.user.id)
+        if rec.get("complete") or rec.get("stage")!=self.stage:
+            return await interaction.response.send_message("Your story has moved on. Run /cinnamon last-treasure-map to resume.",ephemeral=True)
+        await interaction.response.defer()
+        label,next_stage=_LTM_SCENES[self.stage][2][index]
+        rec["history"].append({"scene":self.stage,"choice":label})
+        rec["history"]=rec["history"][-100:]
+        rec["flags"][self.stage+"_"+str(index)]=True
+        if self.stage=="final":
+            rec["ending"]=next_stage
+        if next_stage=="complete":
+            rec["complete"]=True
+        rec["stage"]=next_stage
+        await bd_save_data()
+        if next_stage=="close":
+            return await interaction.edit_original_response(embed=cinnamon_story_controls_embed("🐾 Adventure closed","Your progress is saved. Run /cinnamon last-treasure-map to resume."),view=None)
+        await _ltm_send_scene(interaction.user,self.guild_id,rec,next_stage)
+        await interaction.edit_original_response(embed=cinnamon_story_controls_embed("✨ Decision saved",f"**{label}**\n\nThe next scene was sent as a normal message. Continue with its buttons.",color=_LTM_COLOR),view=None)
+
+
+@_cinnamon_stories_group.command(name="last-treasure-map",description="Play or resume The Last Treasure Map")
+@app_commands.guild_only()
+async def last_treasure_map(interaction:discord.Interaction):
+    rec=_ltm_record(interaction.guild.id,interaction.user.id)
+    if rec.get("complete"):
+        return await interaction.response.send_message("🏆 The Last Treasure Map is complete. Restart with /cinnamon last-treasure-map-restart confirm:True.",ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await _ltm_send_scene(interaction.user,interaction.guild.id,rec,rec["stage"])
+        await interaction.followup.send("🐾 **The Last Treasure Map** has been sent to your DMs. Story narration is a normal message; controls are a separate embed.",ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("I couldn't DM you. Enable server-member DMs, then run this command again.",ephemeral=True)
+
+
+@_cinnamon_stories_group.command(name="last-treasure-map-restart",description="Restart The Last Treasure Map")
+@app_commands.guild_only()
+@app_commands.describe(confirm="Confirm erasing this story's choices and restarting")
+async def last_treasure_map_restart(interaction:discord.Interaction,confirm:bool=False):
+    rec=_ltm_record(interaction.guild.id,interaction.user.id)
+    if not confirm:
+        return await interaction.response.send_message("This resets The Last Treasure Map decisions and ending. Run /cinnamon last-treasure-map-restart confirm:True to confirm.",ephemeral=True)
+    rec.update({"stage":"intro","flags":{},"history":[],"complete":False,"ending":None})
+    await bd_save_data()
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await _ltm_send_scene(interaction.user,interaction.guild.id,rec,"intro")
+        await interaction.followup.send("🐾 Restarted The Last Treasure Map in your DMs.",ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("I couldn't DM you. Enable server-member DMs and try again.",ephemeral=True)
