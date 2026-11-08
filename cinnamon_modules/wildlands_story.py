@@ -452,6 +452,7 @@ def _wls_player(guild_id, user_id):
     rec.setdefault('relationship', {})
     rec.setdefault('treasure_deal', 'none')
     rec.setdefault('replay', False)
+    rec.setdefault('ending', None)
     return rec
 
 
@@ -475,7 +476,7 @@ def _wls_scene_parts(rec):
     narration = scene['text']
     echo = _wls_echo(rec, idx) if not branch else ''
     if echo:
-        narration += '\\n\\n' + echo
+        narration += '\n\n' + echo
     return idx, scene, chapter, narration
 
 
@@ -483,7 +484,7 @@ def _wls_scene_embed(interaction, rec):
     idx, scene, chapter, _narration = _wls_scene_parts(rec)
     count = len(_WLS_SCENES)
     e = cinnamon_story_controls_embed(scene['title'],
-        "Narration is in the normal message above.\\n\\n**Choose your next move below.**",
+        "📜 Narration is in the normal message above.\n\n**Choose one of the three moves below.** Your decisions affect clues, trust, allies, and the final outcome.",
         color=CINNAMON_UI['brand'],
         footer=f"{chapter} · {'Branch' if rec.get('branch') else 'Scene'} {idx + 1}/{count}")
     e.add_field(name='Region', value=_wlf_area(scene['area'])[1], inline=True)
@@ -543,7 +544,7 @@ class _WLSChoiceView(discord.ui.View):
         scene=_WLS_BRANCHES[self.branch] if self.branch else _WLS_SCENES[self.index]
         opt=scene['choices'][option_idx]
         if not opt[3]:
-            await interaction.followup.send(content=opt[1]+'\\n\\n*Try another option; Cinnamon says we have a BILLION reasons to keep going.*',ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+            await interaction.followup.send(content=opt[1]+'\n\n*Try another option; Cinnamon says we have a BILLION reasons to keep going.*',ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
             return await interaction.followup.send(embed=cinnamon_story_controls_embed('🐾 That Was... A Choice','Try another choice below.',color=_WLS_COLOR),view=_WLSChoiceView(u,self.index,self.branch,g),ephemeral=True)
         _wls_apply_choice(rec, self.index, option_idx, self.branch)
         if rec['index']<len(_WLS_SCENES):
@@ -571,11 +572,24 @@ class _WLSChoiceView(discord.ui.View):
             else:
                 rec['complete']=True
             access=await _wlf_award_story_access(interaction, kind='bait', guild_id=g)
-            ending_text=('🎉 **ADVENTURE COMPLETE!**\\n\\n'+notes+'\\n\\n'
-                '**The treasure:** Cinnamon’s favourite chew toy from Aryan.\\n'
-                '**Your reward:** **100,000 Catnip** (once per player).\\n'
-                '**Cinnamon’s happiness:** INFINITE.\\n**Your financial expectations:** DESTROYED.\\n'
-                +access+'\\n\\n🎣 The Fishing Bait Merchant is now permanently available to you. Finish School Incident for permanent Rod Merchant access')
+            ending_key = ('contract_cat', 'heart_of_the_expedition', 'baron_refund')[option_idx]
+            rec['ending'] = ending_key
+            rel = rec.setdefault('relationship', {})
+            if option_idx == 1:
+                rel['trust'] = min(9, int(rel.get('trust', 0)) + 2)
+            elif option_idx == 2:
+                rel['beans_friendship'] = min(9, int(rel.get('beans_friendship', 0)) + 1)
+            await bd_save_data()
+            ending_epilogue = {
+                'contract_cat': ('📜 **ENDING: THE CONTRACT CAT**', 'You asked for your promised payment—and Cinnamon paid up. She calls you “an annoyingly competent business associate,” then secretly adds a bonus fish to the pouch.'),
+                'heart_of_the_expedition': ('💛 **ENDING: THE HEART OF THE EXPEDITION**', 'You told Cinnamon the journey mattered more than the payout. She goes quiet, presses Mr. Squeaks into your hands for one second, then gives you the Catnip anyway. “You earned it. And… thank you for staying.”'),
+                'baron_refund': ('👑 **ENDING: THE BARON’S REFUND**', 'Clawdius demands his money back. Beans presents the invoice, the crowd laughs, and the Baron accidentally refunds the entire audience in coupons. Beans resigns—with excellent references.')
+            }[ending_key]
+            ending_text=(ending_epilogue[0]+'\n\n'+notes+'\n\n'+ending_epilogue[1]+'\n\n'
+                '**The treasure:** Mr. Squeaks, Cinnamon’s favourite chew toy from Aryan.\n'
+                '**Your reward:** **100,000 Catnip** (once per player).\n'
+                '**Cinnamon’s happiness:** INFINITE.\n**Your financial expectations:** DESTROYED.\n'
+                +access+'\n\n🎣 The Fishing Bait Merchant is permanently available. Finish School Incident for permanent Rod Merchant access.')
             await interaction.followup.send(content=ending_text[:2000],ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
             return
         await bd_save_data()
@@ -590,13 +604,14 @@ class _WLSChoiceView(discord.ui.View):
         followup = ('\n\n**A new scene has opened because of your decision.**' if rec.get('branch') else '\n\n*The expedition carries your decision forward.*')
         await interaction.followup.send(content=(notes + followup)[:2000],ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
         embed=cinnamon_story_controls_embed('✨ Your Decision Changes Things','Your choice was saved. Continue when ready.',color=_WLS_COLOR)
-        await interaction.followup.send(embed=embed,view=_WLSContinue(u,g),ephemeral=True)
+        await interaction.followup.send(embed=embed,view=_WLSContinue(u,g,rec.get('index'),rec.get('branch')),ephemeral=True)
 
 
 class _WLSContinue(discord.ui.View):
-    def __init__(self, owner_id, guild_id=None):
+    def __init__(self, owner_id, guild_id=None, expected_index=None, expected_branch=None):
         super().__init__(timeout=900)
         self.owner_id,self.guild_id=owner_id,guild_id
+        self.expected_index,self.expected_branch=expected_index,expected_branch
 
     async def interaction_check(self, interaction):
         if interaction.user.id!=self.owner_id:
@@ -607,6 +622,8 @@ class _WLSContinue(discord.ui.View):
     @discord.ui.button(label='Continue the adventure ▶',style=discord.ButtonStyle.success)
     async def advance(self,interaction,button):
         rec=_wls_player(self.guild_id,interaction.user.id)
+        if self.expected_index is not None and (int(rec.get('index',0)) != self.expected_index or rec.get('branch') != self.expected_branch):
+            return await interaction.response.send_message('🐾 That Continue button is from an older scene. Use `/cinnamon stories` to resume the latest one.',ephemeral=True)
         if rec['complete']:
             return await interaction.response.edit_message(embed=_wls_embed(interaction,'🏆 Adventure Complete',
                 'Cinnamon recovered her most precious chew toy. Your reward was 100,000 Catnip. She still insists it is worth ONE BILLION.'),view=None)
@@ -680,7 +697,7 @@ async def wildlands_story_restart(interaction: discord.Interaction, confirm: boo
             ephemeral=True)
     old = _wls_player(interaction.guild.id, interaction.user.id)
     was_paid = bool(old.get('reward_paid'))
-    old.update({'index': 0, 'branch': None, 'clues': [], 'history': [],
+    old.update({'index': 0, 'branch': None, 'clues': [], 'history': [], 'ending': None,
                 'flags': {}, 'relationship': {}, 'treasure_deal': 'none',
                 'complete': False, 'reward_paid': was_paid, 'replay': True})
     # No second one-time payout and no repeat merchant-opening rolls on replays.
