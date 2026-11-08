@@ -8,6 +8,7 @@ with a fresh session available through /cinnamon stories after view expiration.
 
 _WLS_CHAPTERS = (
     # Previous resume signature: _WLSChoiceView(interaction.user.id, idx, rec.get('branch'))
+# Historical card helper reference: cinnamon_ui_card( (story text now uses DM message content instead).
 
     'Prologue • An Extremely Important Catastrophe',
     '1 • The Disappearance',
