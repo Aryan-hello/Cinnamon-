@@ -33,7 +33,7 @@ _SI_SCENES = {
     "route_a": ("Route A — The Principal’s Son",
         "The guard calls the principal. Five minutes later, Cinnamon is in his office, members lined up behind her.\n\n"
         "**Principal:** “I don’t have a son named Aryan.”\n**Cinnamon:** “That’s exactly what someone hiding their son would say.”\n**Principal:** “WHAT?”\n**Cinnamon:** “Nothing.”\n\n"
-        "A teacher steps away to answer a call. Cinnamon looks at the door.\n**Cinnamon:** “Members.”\n**Member:** “No.”\n**Cinnamon:** “I haven’t said anything.”\n**Member:** “Your face has.”"),
+        "A teacher steps away to answer a call. Cinnamon looks at the door.\n**Cinnamon:** “Members.”\n**Member:** “No.”\n**Cinnamon:** “I haven’t said anything.”\n**Member:** “Your face has.”\\n\\nCinnamon gets up. A member knocks over a stack of papers. The teacher returns.\\n**Teacher:** “HEY!”\\nCinnamon runs into the corridor.\\n**Member:** “WHY ARE WE RUNNING?!”\\n**Cinnamon:** “BECAUSE WE’RE FREE!”\\n\\nThey reach the courtyard.\\n**Member:** “We escaped the principal’s office.”\\n**Cinnamon:** “I was never detained.”"),
     "route_c": ("Route C — Sneak Inside",
         "Cinnamon whispers, **“Operation Aryan.”** A member replies, “This is a terrible idea.”\n\n"
         "They attempt to enter without permission. A teacher notices almost immediately.\n"
