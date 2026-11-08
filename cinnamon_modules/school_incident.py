@@ -181,3 +181,72 @@ async def school_incident_restart(interaction: discord.Interaction, confirm: boo
     await bd_save_data()
     scene=_SI_SCENES["intro"]
     await interaction.response.send_message(embed=_si_embed(interaction,scene[0],scene[1]),view=_SIView(interaction.user.id,"intro",["A — Principal’s son (+1 Danger)","B — Call Aryan","C — Sneak inside (+2 Danger)","D — Cat inspector"]),ephemeral=True)
+
+
+class _StoryPicker(discord.ui.Select):
+    def __init__(self):
+        super().__init__(placeholder="Choose a Cinnamon story…", min_values=1, max_values=1,
+            options=[
+                discord.SelectOption(label="The Treasure Worth Billions", value="treasure",
+                    description="A mystery, a fish-shaped map, and a billion-Catnip claim", emoji="💰"),
+                discord.SelectOption(label="School Incident", value="school",
+                    description="Cinnamon visits the wrong school looking for Aryan", emoji="🏫"),
+            ])
+
+    async def callback(self, interaction):
+        choice = self.values[0]
+        if choice == "treasure":
+            rec = _wls_player(interaction.guild.id, interaction.user.id)
+            idx = min(len(_WLS_SCENES)-1, max(0, int(rec["index"])))
+            if rec.get("complete"):
+                return await interaction.response.edit_message(
+                    embed=_wls_embed(interaction, "🏆 The Treasure Worth Billions",
+                    "This story is already complete! Use /cinnamon stories to review it or /wildlands story-restart to replay."),
+                    view=None)
+            await interaction.response.edit_message(
+                embed=_wls_scene_embed(interaction, rec),
+                view=_WLSChoiceView(interaction.user.id, idx, rec.get("branch")))
+        else:
+            rec = _si_record(interaction.guild.id, interaction.user.id)
+            if rec.get("complete"):
+                return await interaction.response.edit_message(
+                    embed=_si_embed(interaction, "🏁 School Incident Complete",
+                    f"Your ending: **{str(rec.get('ending','normal')).title()}**. Restart with /cinnamon school-incident-restart."),
+                    view=None)
+            stage = rec.get("stage", "intro")
+            scene = _SI_SCENES.get(stage, _SI_SCENES["intro"])
+            choices = {
+                "intro":["A — Principal’s son (+1 Danger)","B — Call Aryan","C — Sneak inside (+2 Danger)","D — Cat inspector"],
+                "route_a":["Escape the principal’s office ▶"],"route_b":["Continue ▶"],
+                "route_c":["Leave the principal’s office ▶"],"route_d":["Finish the inspection ▶"],
+                "investigation":["Call Aryan ▶"],"revelation":["Return to the school ▶"],
+                "final":["A — Blame Aryan","B — Planned reconnaissance","C — Apologize","D — Immediate departure"]
+            }.get(stage, ["Continue ▶"])
+            await interaction.response.edit_message(
+                embed=_si_embed(interaction, scene[0], scene[1]),
+                view=_SIView(interaction.user.id, stage, choices))
+
+
+class _StoryPickerView(discord.ui.View):
+    def __init__(self, owner_id):
+        super().__init__(timeout=300)
+        self.owner_id = owner_id
+        self.add_item(_StoryPicker())
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("🐾 Open /story to choose your own adventure.", ephemeral=True)
+            return False
+        return True
+
+
+@bot.tree.command(name="story", description="Choose and play a Cinnamon interactive story")
+@app_commands.guild_only()
+async def cinnamon_story_picker(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🐈 Cinnamon Story Library",
+        description="Pick an adventure below. Your progress is saved separately for each story, so you can switch and come back anytime.",
+        color=_SI_COLOR)
+    embed.add_field(name="💰 The Treasure Worth Billions", value="Cinnamon's missing chew toy • 100,000 Catnip reward", inline=False)
+    embed.add_field(name="🏫 School Incident", value="A wrong-school visit • multiple routes and endings • Fishing Rod Merchant unlock", inline=False)
+    await interaction.response.send_message(embed=embed, view=_StoryPickerView(interaction.user.id), ephemeral=True)
