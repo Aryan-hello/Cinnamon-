@@ -221,37 +221,35 @@ class _StoryPicker(discord.ui.Select):
             ])
 
     async def callback(self, interaction):
+        guild_id = interaction.guild.id
         choice = self.values[0]
-        if choice == "treasure":
-            rec = _wls_player(interaction.guild.id, interaction.user.id)
-            idx = min(len(_WLS_SCENES)-1, max(0, int(rec["index"])))
-            if rec.get("complete"):
-                return await interaction.response.edit_message(
-                    embed=_wls_embed(interaction, "🏆 The Treasure Worth Billions",
-                    "This story is already complete! Use /cinnamon stories to review it or /wildlands story-restart to replay."),
-                    view=None)
-            await interaction.response.edit_message(
-                embed=_wls_scene_embed(interaction, rec),
-                view=_WLSChoiceView(interaction.user.id, idx, rec.get("branch")))
-        else:
-            rec = _si_record(interaction.guild.id, interaction.user.id)
-            if rec.get("complete"):
-                return await interaction.response.edit_message(
-                    embed=_si_embed(interaction, "🏁 School Incident Complete",
-                    f"Your ending: **{str(rec.get('ending','normal')).title()}**. Restart with /cinnamon school-incident-restart."),
-                    view=None)
-            stage = rec.get("stage", "intro")
-            scene = _SI_SCENES.get(stage, _SI_SCENES["intro"])
-            choices = {
-                "intro":["A — Principal’s son (+1 Danger)","B — Call Aryan","C — Sneak inside (+2 Danger)","D — Cat inspector"],
-                "route_a":["Escape the principal’s office ▶"],"route_b":["Continue ▶"],
-                "route_c":["Leave the principal’s office ▶"],"route_d":["Finish the inspection ▶"],
-                "investigation":["Call Aryan ▶"],"revelation":["Return to the school ▶"],
-                "final":["A — Blame Aryan","B — Planned reconnaissance","C — Apologize","D — Immediate departure"]
-            }.get(stage, ["Continue ▶"])
-            await interaction.response.edit_message(
-                embed=_si_embed(interaction, scene[0], scene[1]),
-                view=_SIView(interaction.user.id, stage, choices))
+        await interaction.response.defer(ephemeral=True)
+        try:
+            if choice == "treasure":
+                rec = _wls_player(guild_id, interaction.user.id)
+                if rec.get("complete"):
+                    return await interaction.edit_original_response(content="🏆 The Treasure Worth Billions is already complete. Use /cinnamon stories to replay.",embed=None,view=None)
+                idx = min(len(_WLS_SCENES)-1,max(0,int(rec["index"])))
+                await _wls_dm_scene(interaction.user,rec,_WLSChoiceView(interaction.user.id,idx,rec.get("branch"),guild_id))
+                message = "🐾 **The Treasure Worth Billions** has been sent to your DMs. Read the normal message, then use its separate control embed."
+            else:
+                rec = _si_record(guild_id, interaction.user.id)
+                if rec.get("complete"):
+                    return await interaction.edit_original_response(content=f"🏁 School Incident is complete ({str(rec.get('ending','normal')).title()}). Restart with /cinnamon school-incident-restart.",embed=None,view=None)
+                stage = rec.get("stage","intro")
+                scene = _SI_SCENES.get(stage,_SI_SCENES["intro"])
+                choices = {
+                    "intro":["A — Principal’s son (+1 Danger)","B — Call Aryan","C — Sneak inside (+2 Danger)","D — Cat inspector"],
+                    "route_a":["Escape the principal’s office ▶"],"route_b":["Continue ▶"],
+                    "route_c":["Leave the principal’s office ▶"],"route_d":["Finish the inspection ▶"],
+                    "investigation":["Call Aryan ▶"],"revelation":["Return to the school ▶"],
+                    "final":["A — Blame Aryan","B — Planned reconnaissance","C — Apologize","D — Immediate departure"]
+                }.get(stage,["Continue ▶"])
+                await _si_dm_scene(interaction.user,stage,_SIView(interaction.user.id,stage,choices,guild_id))
+                message = "🐾 **School Incident** has been sent to your DMs. Read the normal message, then use its separate control embed."
+            await interaction.edit_original_response(content=message,embed=None,view=None)
+        except discord.Forbidden:
+            await interaction.edit_original_response(content="I couldn't DM you. Enable server-member DMs and choose the story again.",embed=None,view=None)
 
 
 class _StoryPickerView(discord.ui.View):
