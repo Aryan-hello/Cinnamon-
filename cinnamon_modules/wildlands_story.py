@@ -535,7 +535,8 @@ class _WLSChoiceView(discord.ui.View):
         try:
             await interaction.message.edit(view=None)\n        except Exception:
             pass
-        if rec.get('complete') or int(rec.get('index',0)) != self.index or rec.get('branch') != self.branch:\n            return await interaction.followup.send(
+        if rec.get('complete') or int(rec.get('index',0)) != self.index or rec.get('branch') != self.branch:
+            return await interaction.followup.send(
                 embed=_wls_embed(interaction,'🐾 Cinnamon Is One Step Ahead',
                     'This choice was already recorded. Use `/cinnamon stories` to resume.'),view=None)
         scene=_WLS_BRANCHES[self.branch] if self.branch else _WLS_SCENES[self.index]
@@ -574,7 +575,8 @@ class _WLSChoiceView(discord.ui.View):
                 '**Your reward:** **100,000 Catnip** (once per player).\\n'
                 '**Cinnamon’s happiness:** INFINITE.\\n**Your financial expectations:** DESTROYED.\\n'
                 +access+'\\n\\n🎣 The Fishing Bait Merchant is now permanently available to you. Finish School Incident for permanent Rod Merchant access')
-            await interaction.followup.send(content=ending_text[:2000],ephemeral=True,allowed_mentions=discord.AllowedMentions.none())\n            return
+            await interaction.followup.send(content=ending_text[:2000],ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+            return
         await bd_save_data()
         if interaction.guild and not self.branch and not rec.get('replay') and scene['chance']:
             notes += await _wlf_attempt_merchant(interaction.guild,finder=interaction.user,
@@ -585,7 +587,8 @@ class _WLSChoiceView(discord.ui.View):
                 notes+'\n\n**Cinnamon:** “So... ARE YOU HAVING FUN? Be honest, but consider that my feelings are made of delicate fluff.”')
             return await interaction.edit_original_response(embed=embed,view=_WLSMoodView(u,rec['index'],g))
         followup = ('\n\n**A new scene has opened because of your decision.**' if rec.get('branch') else '\n\n*The expedition carries your decision forward.*')
-        await interaction.followup.send(content=(notes + followup)[:2000],ephemeral=True,allowed_mentions=discord.AllowedMentions.none())\n        embed=cinnamon_story_controls_embed('✨ Your Decision Changes Things','Your choice was saved. Continue when ready.',color=_WLS_COLOR)\n        await interaction.followup.send(embed=embed,view=_WLSContinue(u,g),ephemeral=True)
+        await interaction.followup.send(content=(notes + followup)[:2000],ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+        embed=cinnamon_story_controls_embed('✨ Your Decision Changes Things','Your choice was saved. Continue when ready.',color=_WLS_COLOR)\n        await interaction.followup.send(embed=embed,view=_WLSContinue(u,g),ephemeral=True)
 
 
 class _WLSContinue(discord.ui.View):
