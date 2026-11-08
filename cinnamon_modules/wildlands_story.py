@@ -7,6 +7,8 @@ with a fresh session available through /cinnamon stories after view expiration.
 """
 
 _WLS_CHAPTERS = (
+    # Previous resume signature: _WLSChoiceView(interaction.user.id, idx, rec.get('branch'))
+
     'Prologue • An Extremely Important Catastrophe',
     '1 • The Disappearance',
     '2 • The Great Fish Conspiracy',
