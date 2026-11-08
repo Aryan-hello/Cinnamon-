@@ -156,7 +156,7 @@ class _SIView(discord.ui.View):
             access = ""
             if ending != "bad":
                 try:
-                    access = await _wlf_award_story_access(interaction, kind="rod")
+                    access = await _wlf_award_story_access(interaction, kind="rod", guild_id=self.guild_id)
                 except Exception:
                     log.exception("School Incident completed; Rod Merchant access failed")
                     access = "\n⚠️ Story saved, but Cinnamon could not grant Rod Merchant channel access. Staff can repair permissions."
