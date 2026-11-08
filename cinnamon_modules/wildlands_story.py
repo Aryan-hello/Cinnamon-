@@ -588,7 +588,8 @@ class _WLSChoiceView(discord.ui.View):
             return await interaction.edit_original_response(embed=embed,view=_WLSMoodView(u,rec['index'],g))
         followup = ('\n\n**A new scene has opened because of your decision.**' if rec.get('branch') else '\n\n*The expedition carries your decision forward.*')
         await interaction.followup.send(content=(notes + followup)[:2000],ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
-        embed=cinnamon_story_controls_embed('✨ Your Decision Changes Things','Your choice was saved. Continue when ready.',color=_WLS_COLOR)\n        await interaction.followup.send(embed=embed,view=_WLSContinue(u,g),ephemeral=True)
+        embed=cinnamon_story_controls_embed('✨ Your Decision Changes Things','Your choice was saved. Continue when ready.',color=_WLS_COLOR)
+        await interaction.followup.send(embed=embed,view=_WLSContinue(u,g),ephemeral=True)
 
 
 class _WLSContinue(discord.ui.View):
