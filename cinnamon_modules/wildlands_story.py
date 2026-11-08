@@ -492,9 +492,14 @@ def _wls_scene_embed(interaction, rec):
     return e
 
 
-async def _wls_dm_scene(user, rec, view):
+async def _wls_private_scene(interaction, rec, view, *, replace_original=False):
     _idx, _scene, _chapter, narration = _wls_scene_parts(rec)
-    await cinnamon_story_send_dm(user, narration, _wls_scene_embed(None, rec), view)
+    if replace_original:
+        await interaction.edit_original_response(content=narration,embed=None,view=None)
+    else:
+        await interaction.followup.send(content=narration,ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+    await interaction.followup.send(embed=_wls_scene_embed(interaction,rec),view=view,ephemeral=True)
+
 
 class _WLSChoice(discord.ui.Button):
     def __init__(self, idx, data):
@@ -526,16 +531,14 @@ class _WLSChoiceView(discord.ui.View):
         rec=_wls_player(g,u)
         if rec['complete'] or int(rec['index']) != self.index or rec.get('branch') != self.branch:
             return await interaction.response.send_message('Your adventure moved on! Use `/cinnamon stories` to resume.',ephemeral=True)
-        await interaction.response.defer()  # Merchant channel creation may take longer than Discord's 3s ACK window.
-        if rec.get('complete') or int(rec.get('index',0)) != self.index or rec.get('branch') != self.branch:
-            return await interaction.edit_original_response(
+        await interaction.response.defer(ephemeral=True)  # Private story response; acknowledge before processing.
+        try:\n            await interaction.message.edit(view=None)\n        except Exception:\n            pass\n        if rec.get('complete') or int(rec.get('index',0)) != self.index or rec.get('branch') != self.branch:\n            return await interaction.followup.send(
                 embed=_wls_embed(interaction,'🐾 Cinnamon Is One Step Ahead',
                     'This choice was already recorded. Use `/cinnamon stories` to resume.'),view=None)
         scene=_WLS_BRANCHES[self.branch] if self.branch else _WLS_SCENES[self.index]
         opt=scene['choices'][option_idx]
         if not opt[3]:
-            await interaction.user.send(content=opt[1]+'\\n\\n*Try another option; Cinnamon says we have a BILLION reasons to keep going.*',allowed_mentions=discord.AllowedMentions.none())
-            return await interaction.edit_original_response(embed=cinnamon_story_controls_embed('🐾 That Was... A Choice','That option did not work. Its result was sent as a normal message; try another choice.',color=_WLS_COLOR),view=_WLSChoiceView(u,self.index,self.branch,g))
+            await interaction.followup.send(content=opt[1]+'\\n\\n*Try another option; Cinnamon says we have a BILLION reasons to keep going.*',ephemeral=True,allowed_mentions=discord.AllowedMentions.none())\n            return await interaction.followup.send(embed=cinnamon_story_controls_embed('🐾 That Was... A Choice','Try another choice below.',color=_WLS_COLOR),view=_WLSChoiceView(u,self.index,self.branch,g),ephemeral=True)
         _wls_apply_choice(rec, self.index, option_idx, self.branch)
         if rec['index']<len(_WLS_SCENES):
             next_area=_WLS_SCENES[rec['index']]['area']
@@ -567,8 +570,7 @@ class _WLSChoiceView(discord.ui.View):
                 '**Your reward:** **100,000 Catnip** (once per player).\\n'
                 '**Cinnamon’s happiness:** INFINITE.\\n**Your financial expectations:** DESTROYED.\\n'
                 +access+'\\n\\n🎣 The Fishing Bait Merchant is now permanently available to you. Finish School Incident for permanent Rod Merchant access')
-            await interaction.user.send(content=ending_text[:2000],allowed_mentions=discord.AllowedMentions.none())
-            return await interaction.edit_original_response(embed=cinnamon_story_controls_embed('🏆 THE TREASURE WORTH BILLIONS','Adventure complete! Ending details were sent as a normal message.',color=_WLS_COLOR),view=None)
+            await interaction.followup.send(content=ending_text[:2000],ephemeral=True,allowed_mentions=discord.AllowedMentions.none())\n            return
         await bd_save_data()
         if interaction.guild and not self.branch and not rec.get('replay') and scene['chance']:
             notes += await _wlf_attempt_merchant(interaction.guild,finder=interaction.user,
@@ -579,9 +581,7 @@ class _WLSChoiceView(discord.ui.View):
                 notes+'\n\n**Cinnamon:** “So... ARE YOU HAVING FUN? Be honest, but consider that my feelings are made of delicate fluff.”')
             return await interaction.edit_original_response(embed=embed,view=_WLSMoodView(u,rec['index'],g))
         followup = ('\n\n**A new scene has opened because of your decision.**' if rec.get('branch') else '\n\n*The expedition carries your decision forward.*')
-        await interaction.user.send(content=(notes + followup)[:2000],allowed_mentions=discord.AllowedMentions.none())
-        embed=cinnamon_story_controls_embed('✨ Your Decision Changes Things','Your choice was saved. The result was sent as a normal message. Continue when ready.',color=_WLS_COLOR)
-        await interaction.edit_original_response(embed=embed,view=_WLSContinue(u,g))
+        await interaction.followup.send(content=(notes + followup)[:2000],ephemeral=True,allowed_mentions=discord.AllowedMentions.none())\n        embed=cinnamon_story_controls_embed('✨ Your Decision Changes Things','Your choice was saved. Continue when ready.',color=_WLS_COLOR)\n        await interaction.followup.send(embed=embed,view=_WLSContinue(u,g),ephemeral=True)
 
 
 class _WLSContinue(discord.ui.View):
@@ -602,9 +602,7 @@ class _WLSContinue(discord.ui.View):
             return await interaction.response.edit_message(embed=_wls_embed(interaction,'🏆 Adventure Complete',
                 'Cinnamon recovered her most precious chew toy. Your reward was 100,000 Catnip. She still insists it is worth ONE BILLION.'),view=None)
         idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
-        await interaction.response.defer()
-        await _wls_dm_scene(interaction.user,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),self.guild_id))
-        await interaction.edit_original_response(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),self.guild_id))
+        await interaction.response.defer(ephemeral=True)\n        try:\n            await interaction.message.edit(view=None)\n        except Exception:\n            pass\n        await _wls_private_scene(interaction,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),self.guild_id))
 
 
 class _WLSMoodView(discord.ui.View):
@@ -653,10 +651,7 @@ async def wildlands_story(interaction:discord.Interaction):
     idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
     await interaction.response.defer(ephemeral=True)
     try:
-        await _wls_dm_scene(interaction.user,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),interaction.guild.id))
-        await interaction.followup.send("🐾 **The Treasure Worth Billions** is waiting in your DMs. Narration is a normal message; use the separate control embed to choose.",ephemeral=True)
-    except discord.Forbidden:
-        await interaction.followup.send("I couldn't DM you. Enable server-member DMs, then run /cinnamon stories again.",ephemeral=True)
+        await _wls_private_scene(interaction,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),interaction.guild.id),replace_original=True)
 
 
 
@@ -679,10 +674,7 @@ async def wildlands_story_restart(interaction: discord.Interaction, confirm: boo
     await bd_save_data()
     await interaction.response.defer(ephemeral=True)
     try:
-        await _wls_dm_scene(interaction.user,old,_WLSChoiceView(interaction.user.id,0,None,interaction.guild.id))
-        await interaction.followup.send("🐾 Restarted The Treasure Worth Billions in your DMs.",ephemeral=True)
-    except discord.Forbidden:
-        await interaction.followup.send("I couldn't DM you. Enable server-member DMs and try again.",ephemeral=True)
+        await _wls_private_scene(interaction,old,_WLSChoiceView(interaction.user.id,0,None,interaction.guild.id),replace_original=True)
 
 
 @wildlands_art_group.command(name='story-journal',description='Review your story progress and important discoveries')
