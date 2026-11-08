@@ -116,7 +116,7 @@ class _SIView(discord.ui.View):
             await bd_save_data()
             scene = _SI_SCENES[rec["stage"]]
             await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
-            await interaction.edit_original_response(embed=_si_controls(scene[0],"Your route is saved. Continue when ready."),view=_SIView(self.owner_id,rec["stage"],["Continue to the investigation ▶"],self.guild_id))
+            return await interaction.edit_original_response(embed=_si_controls(scene[0],"Your route is saved. Continue when ready."),view=_SIView(self.owner_id,rec["stage"],["Continue to the investigation ▶"],self.guild_id))
         if self.stage in ("route_a","route_b","route_c","route_d"):
             history.append({"stage":self.stage,"choice":"continue"})
             if self.stage == "route_a": flags["escaped_office"] = True
@@ -125,21 +125,21 @@ class _SIView(discord.ui.View):
             await bd_save_data()
             scene = _SI_SCENES["investigation"]
             await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
-            await interaction.edit_original_response(embed=_si_controls(scene[0],"Your route is saved. Continue when ready."),view=_SIView(self.owner_id,"investigation",["Call Aryan ▶"],self.guild_id))
+            return await interaction.edit_original_response(embed=_si_controls(scene[0],"Your route is saved. Continue when ready."),view=_SIView(self.owner_id,"investigation",["Call Aryan ▶"],self.guild_id))
         if self.stage == "investigation":
             history.append({"stage":"investigation","choice":"call Aryan"})
             rec["stage"] = "revelation"
             await bd_save_data()
             scene = _SI_SCENES["revelation"]
             await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
-            await interaction.edit_original_response(embed=_si_controls(scene[0],"Continue when ready."),view=_SIView(self.owner_id,"revelation",["Return to the school ▶"],self.guild_id))
+            return await interaction.edit_original_response(embed=_si_controls(scene[0],"Continue when ready."),view=_SIView(self.owner_id,"revelation",["Return to the school ▶"],self.guild_id))
         if self.stage == "revelation":
             history.append({"stage":"revelation","choice":"return"})
             rec["stage"] = "final"
             await bd_save_data()
             scene = _SI_SCENES["final"]
             await interaction.user.send(content=scene[1],allowed_mentions=discord.AllowedMentions.none())
-            await interaction.edit_original_response(embed=_si_controls(scene[0],"Choose how to handle the aftermath."),view=_SIView(self.owner_id,"final",["A — Blame Aryan","B — Planned reconnaissance","C — Apologize","D — Immediate departure"],self.guild_id))
+            return await interaction.edit_original_response(embed=_si_controls(scene[0],"Choose how to handle the aftermath."),view=_SIView(self.owner_id,"final",["A — Blame Aryan","B — Planned reconnaissance","C — Apologize","D — Immediate departure"],self.guild_id))
         if self.stage == "final":
             history.append({"stage":"final","choice":["blame","recon","apologize","leave"][index]})
             if index == 0: rec["danger"] += 1
