@@ -533,7 +533,8 @@ class _WLSChoiceView(discord.ui.View):
             return await interaction.response.send_message('Your adventure moved on! Use `/cinnamon stories` to resume.',ephemeral=True)
         await interaction.response.defer(ephemeral=True)  # Private story response; acknowledge before processing.
         try:
-            await interaction.message.edit(view=None)\n        except Exception:
+            await interaction.message.edit(view=None)
+        except Exception:
             pass
         if rec.get('complete') or int(rec.get('index',0)) != self.index or rec.get('branch') != self.branch:
             return await interaction.followup.send(
