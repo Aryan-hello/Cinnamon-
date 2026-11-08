@@ -461,30 +461,37 @@ def _wls_embed(interaction, title, body):
     return embed
 
 
-def _wls_scene_embed(interaction, rec):
+def _wls_scene_parts(rec):
     idx = min(max(0, int(rec['index'])), len(_WLS_SCENES) - 1)
     branch = rec.get('branch')
     scene = _WLS_BRANCHES.get(branch) if branch else _WLS_SCENES[idx]
     if scene is None:
         rec['branch'] = None
         scene = _WLS_SCENES[idx]
-    count = len(_WLS_SCENES)
     chapter = _WLS_CHAPTERS[scene['chapter']]
-    echo = _wls_echo(rec, idx) if not rec.get('branch') else ''
-    body = scene['text'][:2700]
+    narration = scene['text']
+    echo = _wls_echo(rec, idx) if not branch else ''
     if echo:
-        body += '\n\n' + echo
-    body += '\n\n**Your next move**\nChoose how the expedition continues.'
-    e = cinnamon_ui_card(
-        'Wildlands', scene['title'], body,
+        narration += '\\n\\n' + echo
+    return idx, scene, chapter, narration
+
+
+def _wls_scene_embed(interaction, rec):
+    idx, scene, chapter, _narration = _wls_scene_parts(rec)
+    count = len(_WLS_SCENES)
+    e = cinnamon_story_controls_embed(scene['title'],
+        "Narration is in the normal message above.\\n\\n**Choose your next move below.**",
         color=CINNAMON_UI['brand'],
-        footer=f"{chapter}  ·  {'Branch' if branch else 'Scene'} {idx + 1}/{count}",
-    )
+        footer=f"{chapter} · {'Branch' if rec.get('branch') else 'Scene'} {idx + 1}/{count}")
     e.add_field(name='Region', value=_wlf_area(scene['area'])[1], inline=True)
     e.add_field(name='Clues', value=str(len(rec.get('clues', []))), inline=True)
-    e.add_field(name='Story progress',
-                value=cinnamon_ui_progress(idx + 1, count, 8), inline=False)
+    e.add_field(name='Story progress', value=cinnamon_ui_progress(idx + 1, count, 8), inline=False)
     return e
+
+
+async def _wls_dm_scene(user, rec, view):
+    _idx, _scene, _chapter, narration = _wls_scene_parts(rec)
+    await cinnamon_story_send_dm(user, narration, _wls_scene_embed(None, rec), view)
 
 class _WLSChoice(discord.ui.Button):
     def __init__(self, idx, data):
@@ -496,9 +503,9 @@ class _WLSChoice(discord.ui.Button):
 
 
 class _WLSChoiceView(discord.ui.View):
-    def __init__(self, owner_id, index, branch=None):
+    def __init__(self, owner_id, index, branch=None, guild_id=None):
         super().__init__(timeout=900)
-        self.owner_id, self.index, self.branch = owner_id, index, branch
+        self.owner_id, self.index, self.branch, self.guild_id = owner_id, index, branch, guild_id
         scene = _WLS_BRANCHES[branch] if branch else _WLS_SCENES[index]
         for idx, opt in enumerate(scene['choices']):
             self.add_item(_WLSChoice(idx, opt))
@@ -510,9 +517,9 @@ class _WLSChoiceView(discord.ui.View):
         return True
 
     async def pick(self, interaction, option_idx):
-        if not interaction.guild:
-            return await interaction.response.send_message('Use Wildlands in a server.',ephemeral=True)
-        g,u=interaction.guild.id, interaction.user.id
+        g,u=self.guild_id,interaction.user.id
+        if not g:
+            return await interaction.response.send_message('Story session context missing. Start with /cinnamon stories again.',ephemeral=True)
         rec=_wls_player(g,u)
         if rec['complete'] or int(rec['index']) != self.index or rec.get('branch') != self.branch:
             return await interaction.response.send_message('Your adventure moved on! Use `/cinnamon stories` to resume.',ephemeral=True)
@@ -524,8 +531,8 @@ class _WLSChoiceView(discord.ui.View):
         scene=_WLS_BRANCHES[self.branch] if self.branch else _WLS_SCENES[self.index]
         opt=scene['choices'][option_idx]
         if not opt[3]:
-            return await interaction.edit_original_response(embed=_wls_embed(interaction,'🐾 That Was... A Choice',
-                opt[1]+'\n\nTry another option; Cinnamon says we have a BILLION reasons to keep going.'),view=_WLSChoiceView(u,self.index,self.branch))
+            await interaction.user.send(content=opt[1]+'\\n\\n*Try another option; Cinnamon says we have a BILLION reasons to keep going.*',allowed_mentions=discord.AllowedMentions.none())
+            return await interaction.edit_original_response(embed=cinnamon_story_controls_embed('🐾 That Was... A Choice','That option did not work. Its result was sent as a normal message; try another choice.',color=_WLS_COLOR),view=_WLSChoiceView(u,self.index,self.branch,g))
         _wls_apply_choice(rec, self.index, option_idx, self.branch)
         if rec['index']<len(_WLS_SCENES):
             next_area=_WLS_SCENES[rec['index']]['area']
@@ -552,12 +559,13 @@ class _WLSChoiceView(discord.ui.View):
             else:
                 rec['complete']=True
             access=await _wlf_award_story_access(interaction, kind='bait')
-            return await interaction.edit_original_response(embed=_wls_embed(interaction,'🏆 THE TREASURE WORTH BILLIONS',
-                '🎉 **ADVENTURE COMPLETE!**\n\n'+notes+'\n\n'
-                '**The treasure:** Cinnamon’s favourite chew toy from Aryan.\n'
-                '**Your reward:** **100,000 Catnip** (once per player).\n'
-                '**Cinnamon’s happiness:** INFINITE.\n**Your financial expectations:** DESTROYED.\n'
-                +access+'\n\n🎣 The Fishing Bait Merchant is now permanently available to you. Finish School Incident for permanent Rod Merchant access.'),view=None)
+            ending_text=('🎉 **ADVENTURE COMPLETE!**\\n\\n'+notes+'\\n\\n'
+                '**The treasure:** Cinnamon’s favourite chew toy from Aryan.\\n'
+                '**Your reward:** **100,000 Catnip** (once per player).\\n'
+                '**Cinnamon’s happiness:** INFINITE.\\n**Your financial expectations:** DESTROYED.\\n'
+                +access+'\\n\\n🎣 The Fishing Bait Merchant is now permanently available to you. Finish School Incident for permanent Rod Merchant access')
+            await interaction.user.send(content=ending_text[:2000],allowed_mentions=discord.AllowedMentions.none())
+            return await interaction.edit_original_response(embed=cinnamon_story_controls_embed('🏆 THE TREASURE WORTH BILLIONS','Adventure complete! Ending details were sent as a normal message.',color=_WLS_COLOR),view=None)
         await bd_save_data()
         if not self.branch and not rec.get('replay') and scene['chance']:
             notes += await _wlf_attempt_merchant(interaction.guild,finder=interaction.user,
@@ -566,16 +574,17 @@ class _WLSChoiceView(discord.ui.View):
         if not self.branch and not rec.get('branch') and rec['index'] in _WLS_MOOD_STOPS:
             embed=_wls_embed(interaction,'🐈 Cinnamon’s Very Serious Survey',
                 notes+'\n\n**Cinnamon:** “So... ARE YOU HAVING FUN? Be honest, but consider that my feelings are made of delicate fluff.”')
-            return await interaction.edit_original_response(embed=embed,view=_WLSMoodView(u,rec['index']))
+            return await interaction.edit_original_response(embed=embed,view=_WLSMoodView(u,rec['index'],g))
         followup = ('\n\n**A new scene has opened because of your decision.**' if rec.get('branch') else '\n\n*The expedition carries your decision forward.*')
-        embed=_wls_embed(interaction,'✨ Your Decision Changes Things',notes + followup)
-        await interaction.edit_original_response(embed=embed,view=_WLSContinue(u))
+        await interaction.user.send(content=(notes + followup)[:2000],allowed_mentions=discord.AllowedMentions.none())
+        embed=cinnamon_story_controls_embed('✨ Your Decision Changes Things','Your choice was saved. The result was sent as a normal message. Continue when ready.',color=_WLS_COLOR)
+        await interaction.edit_original_response(embed=embed,view=_WLSContinue(u,g))
 
 
 class _WLSContinue(discord.ui.View):
-    def __init__(self, owner_id):
+    def __init__(self, owner_id, guild_id=None):
         super().__init__(timeout=900)
-        self.owner_id=owner_id
+        self.owner_id,self.guild_id=owner_id,guild_id
 
     async def interaction_check(self, interaction):
         if interaction.user.id!=self.owner_id:
@@ -585,18 +594,20 @@ class _WLSContinue(discord.ui.View):
 
     @discord.ui.button(label='Continue the adventure ▶',style=discord.ButtonStyle.success)
     async def advance(self,interaction,button):
-        rec=_wls_player(interaction.guild.id,interaction.user.id)
+        rec=_wls_player(self.guild_id,interaction.user.id)
         if rec['complete']:
             return await interaction.response.edit_message(embed=_wls_embed(interaction,'🏆 Adventure Complete',
                 'Cinnamon recovered her most precious chew toy. Your reward was 100,000 Catnip. She still insists it is worth ONE BILLION.'),view=None)
         idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
-        await interaction.response.edit_message(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(interaction.user.id,idx,rec.get('branch')))
+        await interaction.response.defer()
+        await _wls_dm_scene(interaction.user,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),self.guild_id))
+        await interaction.edit_original_response(embed=_wls_scene_embed(interaction,rec),view=_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),self.guild_id))
 
 
 class _WLSMoodView(discord.ui.View):
-    def __init__(self,owner_id,index):
+    def __init__(self,owner_id,index,guild_id=None):
         super().__init__(timeout=900)
-        self.owner_id,self.index=owner_id,index
+        self.owner_id,self.index,self.guild_id=owner_id,index,guild_id
 
     async def interaction_check(self,interaction):
         if interaction.user.id!=self.owner_id:
@@ -607,7 +618,7 @@ class _WLSMoodView(discord.ui.View):
     @discord.ui.button(label='YES! 😸',style=discord.ButtonStyle.success)
     async def yes(self,interaction,button):
         await interaction.response.edit_message(embed=_wls_embed(interaction,'🐈 Excellent Review',
-            '“FIVE STARS!” Cinnamon declares. “I will frame your review next to my photo of myself.”'),view=_WLSContinue(self.owner_id))
+            '“FIVE STARS!” Cinnamon declares. “I will frame your review next to my photo of myself.”'),view=_WLSContinue(self.owner_id,self.guild_id))
 
     @discord.ui.button(label='I am bored 😴',style=discord.ButtonStyle.danger)
     async def bored(self,interaction,button):
