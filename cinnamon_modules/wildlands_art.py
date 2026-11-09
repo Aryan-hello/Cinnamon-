@@ -159,8 +159,8 @@ class WildlandsArtView(discord.ui.View):
         embed.set_footer(text=footer)
         if path:
             img = _wl_card(path, title, summary, _WL_KIND_TITLES.get(self.category, 'Artwork'))
-            attached = discord.File(fp=img, filename='cinnamon_wildlands_card.png')
-            embed.set_image(url='attachment://cinnamon_wildlands_card.png')
+            attached = discord.File(fp=img, filename='cinnamon_adventure_card.png')
+            embed.set_image(url='attachment://cinnamon_adventure_card.png')
         else:
             attached = None
             embed.add_field(name='Image not yet saved', value='The existing artwork link must first be copied into the repository by the included GitHub workflow.', inline=False)
@@ -222,7 +222,7 @@ def _wl_import_missing_assets():
         _wl_import_running = False
         _wl_import_finished = True
 
-if _wl_os.environ.get('CINNAMON_WILDLANDS_AUTO_FETCH', '1').strip().lower() not in ('0', 'false', 'no'):
+if _wl_os.environ.get('CINNAMON_ADVENTURE_AUTO_FETCH', _wl_os.environ.get('CINNAMON_WILDLANDS_AUTO_FETCH', '1')).strip().lower() not in ('0', 'false', 'no'):
     _wl_source_list = _WL_BASE.parents[1] / 'tools' / 'runway_art_urls.txt'
     if _wl_source_list.is_file() and any(
         wildlands_local_asset(_item.get('key')) is None for _item in wildlands_art_items()
