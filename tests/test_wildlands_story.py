@@ -7,8 +7,8 @@ import time
 import unittest
 
 BASE=Path(__file__).resolve().parents[1]
-STORY=BASE/'cinnamon_modules'/'wildlands_story.py'
-FISHING=BASE/'cinnamon_modules'/'wildlands_fishing.py'
+STORY=BASE/'cinnamon_modules'/'cinnamon_adventure_story.py'
+FISHING=BASE/'cinnamon_modules'/'cinnamon_adventure_fishing.py'
 MAIN=BASE/'main.py'
 
 
@@ -33,7 +33,7 @@ class StoryTests(unittest.TestCase):
 
     def test_module_order_and_no_old_story_loaded(self):
         main=MAIN.read_text()
-        self.assertLess(main.index('"wildlands_fishing.py"'),main.index('"wildlands_story.py"'))
+        self.assertLess(main.index('"cinnamon_adventure_fishing.py"'),main.index('"cinnamon_adventure_story.py"'))
         self.assertNotIn('    "wildlands.py",',main)
         self.assertIn('    "school_incident.py",',main)
 
