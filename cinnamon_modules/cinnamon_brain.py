@@ -4,7 +4,8 @@ This module is loaded into main.py's shared namespace. It NEVER calls Gemini
 or executes moderation/economy actions. A private, bounded activity sample
 helps Cinnamon decide when a surprise game would be welcome.
 """
-from cinnamon_modules.brain_health import build_brain_health as _cb_build_health, command_name_counts as _cb_command_counts\nfrom collections import deque as _cb_deque
+from cinnamon_modules.brain_health import build_brain_health as _cb_build_health, command_name_counts as _cb_command_counts
+from collections import deque as _cb_deque
 import time as _cb_time
 from cinnamon_modules.brain_decision import (
     ActivitySignals as _CBSignals,
