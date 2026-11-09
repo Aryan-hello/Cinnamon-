@@ -29,7 +29,9 @@ async def _cx_alert_serious(guild, source_channel):
     if now - float(cfg.get("last_alert_at", 0) or 0) < 900:
         return False
     destination = guild.get_channel(int(cfg["channel_id"]))
-    if (not isinstance(destination, discord.TextChannel)\n            or destination.permissions_for(guild.default_role).view_channel is not False\n            or not guild_channel_send_allowed(guild, destination)):
+    if (not isinstance(destination, discord.TextChannel)
+            or destination.permissions_for(guild.default_role).view_channel is not False
+            or not guild_channel_send_allowed(guild, destination)):
         return False
     prior = cfg.get("last_alert_at", 0)
     cfg["last_alert_at"] = now
