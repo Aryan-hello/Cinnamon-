@@ -11,7 +11,8 @@ from cinnamon_modules.brain_private_qa import (
 )
 from cinnamon_modules.brain_personalization import (
     STYLES as _me_styles, validate_style as _me_validate_style,
-    validate_teasing as _me_validate_teasing, prompt_guidance as _me_prompt_guidance,\n)
+    validate_teasing as _me_validate_teasing, prompt_guidance as _me_prompt_guidance,
+)
 from cinnamon_modules.brain_member_v2 import (
     due_today as _me_due_today,
     format_timezone_offset as _me_timezone,
