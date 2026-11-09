@@ -119,7 +119,7 @@ class CommandWiringTests(unittest.TestCase):
         self.assertIn('@bot.tree.command(name="botstatus"', src)
         self.assertIn('name="help", description="Browse Cinnamon commands', src)
         self.assertIn("commands_list = _all_leaf_commands()", src)
-        self.assertIn("_help_command_pages(entries, max_chars=940", src)
+        self.assertIn("commands_list = _all_leaf_commands(); pages=[]", src)
         self.assertNotIn("_HELP_EVERYONE =", src)
         self.assertNotIn("current_len+extra>3000", src)
 
