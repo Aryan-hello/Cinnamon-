@@ -134,9 +134,10 @@ class CommandWiringTests(unittest.TestCase):
     def test_status_commands_use_transaction_readiness_not_just_backend_label(self):
         slash = self.read("cinnamon_modules/server_setup.py")
         prefix = self.read("cinnamon_modules/core_events.py")
-        for source in (slash, prefix):
-            self.assertIn('status["transactions_ready"]', source)
-            self.assertIn("storage_status()", source)
+        self.assertIn('status["transactions_ready"]', slash)
+        self.assertIn('storage["transactions_ready"]', prefix)
+        self.assertIn("storage_status()", slash)
+        self.assertIn("storage_status()", prefix)
         self.assertIn("await interaction.response.defer(ephemeral=True)", slash)
         self.assertIn("await interaction.followup.send(", slash)
 
