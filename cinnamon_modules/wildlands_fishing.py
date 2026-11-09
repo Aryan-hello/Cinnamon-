@@ -894,10 +894,14 @@ async def _craft_repair_rod(interaction: discord.Interaction):
     p["rod_broken"] = False
     result = await bd_save_data()
     if not result:
-        p["rod_broken"] = True
-        inv["fishing_string"] = int(inv.get("fishing_string", 0)) + 1
+        if result.status in {"failed", "unavailable"}:
+            p["rod_broken"] = True
+            inv["fishing_string"] = int(inv.get("fishing_string", 0)) + 1
+            return await interaction.response.send_message(
+                "Repair could not be saved. Your string was returned; try again later.", ephemeral=True)
         return await interaction.response.send_message(
-            "Repair could not be saved. Your string was returned; try again later.", ephemeral=True)
+            "⚠️ Repair storage is uncertain. Do not retry or spend another string until an administrator checks /economy diagnose and the logs.",
+            ephemeral=True)
     await interaction.response.send_message(
         "🔧 **Rod repaired!** One Fishing String was used. You're ready to cast again. 🎣",
         ephemeral=True)
