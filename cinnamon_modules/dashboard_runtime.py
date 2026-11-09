@@ -139,12 +139,13 @@ def _bd_decode(raw: dict):
     # place so existing views/helpers retain their shared catalog reference.
     saved_items = raw.get("economy_items")
     if isinstance(saved_items, dict):
-        # Merge persisted custom shop entries over current built-ins instead of
-        # clearing code-defined items. This keeps newly shipped items (e.g.
-        # Fishing String) available after a snapshot from an older version.
-        for item_id, saved_item in saved_items.items():
-            if isinstance(item_id, str) and isinstance(saved_item, dict):
-                ECONOMY_ITEMS[item_id] = saved_item
+        # Preserve the exact saved catalog (including intentional empty catalogs
+        # and custom removals), then migrate only the newly introduced built-in.
+        current_defaults = dict(ECONOMY_ITEMS)
+        ECONOMY_ITEMS.clear()
+        ECONOMY_ITEMS.update(saved_items)
+        if saved_items and "fishing_string" not in saved_items:
+            ECONOMY_ITEMS["fishing_string"] = current_defaults["fishing_string"]
     else:
         # Migrate only legacy/default catalogs. Explicitly saved prices are
         # administrator choices and may validly be below these default floors.
