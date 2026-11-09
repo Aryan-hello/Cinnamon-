@@ -206,10 +206,11 @@ class CinnamonRepairAndSelection(unittest.TestCase):
 
 
 class EconomySnapshotMigrationTests(unittest.TestCase):
-    def test_old_snapshot_cannot_erase_new_builtin_shop_items(self):
+    def test_old_snapshot_migrates_new_builtin_without_overwriting_custom_catalog(self):
         runtime = (MODULES / "dashboard_runtime.py").read_text()
-        self.assertIn("for item_id, saved_item in saved_items.items()", runtime)
-        self.assertIn("ECONOMY_ITEMS[item_id] = saved_item", runtime)
-        self.assertNotIn("ECONOMY_ITEMS.clear()", runtime)
+        self.assertIn("ECONOMY_ITEMS.clear()", runtime)
+        self.assertIn("ECONOMY_ITEMS.update(saved_items)", runtime)
+        self.assertIn('if saved_items and "fishing_string" not in saved_items:', runtime)
+        self.assertIn('ECONOMY_ITEMS["fishing_string"] = current_defaults["fishing_string"]', runtime)
         main = (ROOT / "main.py").read_text()
         self.assertIn('"fishing_string": {"name": "Fishing String"', main)
