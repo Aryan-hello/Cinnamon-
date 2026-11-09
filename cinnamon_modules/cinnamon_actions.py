@@ -493,6 +493,7 @@ class _CABatchConfirm(discord.ui.View):
         self.gid, self.requester_id = gid, requester_id
         self.proposals, self.source_id, self.channel_id = tuple(proposals), source_id, channel_id
         self.used = False
+        self.state = "pending"
         self.expires_at = _ca_time.monotonic() + CONFIRM_SECONDS
         self.lock = _ca_asyncio.Lock()
         self.message = None
@@ -512,6 +513,7 @@ class _CABatchConfirm(discord.ui.View):
                 self.used = True
                 return await interaction.response.send_message("This batch expired or was already handled.", ephemeral=True)
             self.used = True
+            self.state = "executing"
             await interaction.response.defer(ephemeral=True)
             guild = interaction.guild
             results = []
@@ -581,6 +583,10 @@ class _CABatchConfirm(discord.ui.View):
                     results.append(f"{index}. Stopped: server verification/storage error ({type(exc).__name__}).")
                     break
             report = "\n".join(results)
+            self.state = "completed"
+            self.stop()
+            if _CA_PENDING.get((self.gid, self.requester_id)) is self:
+                _CA_PENDING.pop((self.gid, self.requester_id), None)
             try:
                 await interaction.message.edit(content="Batch result:\n"+report, embed=None, view=None,
                                              allowed_mentions=discord.AllowedMentions.none())
@@ -597,13 +603,19 @@ class _CABatchConfirm(discord.ui.View):
             if self.used:
                 return await interaction.response.send_message("This batch was already handled.", ephemeral=True)
             self.used = True
+            self.state = "cancelled"
             self.stop()
+            if _CA_PENDING.get((self.gid, self.requester_id)) is self:
+                _CA_PENDING.pop((self.gid, self.requester_id), None)
             await interaction.response.edit_message(content="Batch cancelled. No actions taken.", embed=None, view=None)
 
     async def on_timeout(self):
         if self.used:
             return
         self.used = True
+        self.state = "expired"
+        if _CA_PENDING.get((self.gid, self.requester_id)) is self:
+            _CA_PENDING.pop((self.gid, self.requester_id), None)
         if self.message:
             try:
                 await self.message.edit(content="Batch confirmation expired. No action taken.", embed=None, view=None)
