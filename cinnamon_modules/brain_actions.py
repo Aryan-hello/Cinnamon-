@@ -243,7 +243,8 @@ def parse_action(text: str, *, requester_id: int, target_ids: Sequence[int],
             "Chat kick/ban actions are paused pending security review. "
             "Use the existing /kick or /ban slash command with its required permissions.",
             code="unsupported_action")
-    if not clean or not _ACTION_LIKE.match(clean):
+    action_probe = re.sub(r"[\r\n]+", " ", clean)
+    if not clean or not _ACTION_LIKE.match(action_probe):
         return None
     if "\n" in clean or "\r" in clean or len(clean) > 2000:
         raise ActionValidationError("Send one short action request on a single line.",
@@ -255,7 +256,7 @@ def parse_action(text: str, *, requester_id: int, target_ids: Sequence[int],
         rf"(?P<targets>{_MENTION}(?:\s*(?:,|and)\s*{_MENTION})*)"
         rf"\s*(?:,?\s+and\s+)?mute\s+(?P<mod>{_MENTION})"
         rf"\s+for\s+(?P<duration>{_QUANTITY})\s*(?P<unit>{_UNIT})[.!?]?",
-        _FLAGS)
+        clean, _FLAGS)
     if batch:
         mentioned = [int(x) for x in re.findall(r"<@!?([0-9]{15,22})>", batch["targets"])]
         all_ids = [int(x) for x in re.findall(r"<@!?([0-9]{15,22})>", clean)]
