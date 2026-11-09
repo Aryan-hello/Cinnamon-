@@ -682,12 +682,12 @@ class _WLSStorySelect(discord.ui.View):
     def __init__(self, owner_id, guild_id, index, branch):
         super().__init__(timeout=300)
         self.owner_id, self.guild_id, self.index, self.branch = owner_id, guild_id, index, branch
-        self.selected_story = "wildlands"
+        self.selected_story = "cinnamon_mystery"
         self.add_item(discord.ui.Select(
             placeholder="Choose a Cinnamon adventure",
             min_values=1, max_values=1, row=0,
             options=[
-                discord.SelectOption(label="Cinnamon Mystery", value="wildlands",
+                discord.SelectOption(label="Cinnamon Mystery", value="cinnamon_mystery",
                                    description="The treasure adventure", emoji="🗺️"),
                 discord.SelectOption(label="The Last Treasure Map", value="last_treasure",
                                    description="A branching mystery with Beans and Clawdius", emoji="📜"),
@@ -701,7 +701,7 @@ class _WLSStorySelect(discord.ui.View):
     async def choose_story(self, interaction):
         if not await self.interaction_check(interaction): return
         self.selected_story = interaction.data["values"][0]
-        label = "Cinnamon Mystery" if self.selected_story == "wildlands" else "The Last Treasure Map"
+        label = "Cinnamon Mystery" if self.selected_story == "cinnamon_mystery" else "The Last Treasure Map"
         await interaction.response.edit_message(content=f"Selected **{label}**. Press **Start selected story** when ready.", embed=interaction.message.embeds[0], view=self)
     @discord.ui.button(label="Start selected story", emoji="📖", style=discord.ButtonStyle.success, row=1)
     async def begin(self, interaction, button):
