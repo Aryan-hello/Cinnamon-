@@ -1,7 +1,8 @@
 import unittest
 
 from cinnamon_modules.brain_personalization import (
-    STYLES, validate_style, validate_teasing, prompt_guidance,\n    SERVER_STYLES, validate_server_style, server_prompt_guidance,
+    STYLES, validate_style, validate_teasing, prompt_guidance,
+    SERVER_STYLES, validate_server_style, server_prompt_guidance,
 )
 
 
