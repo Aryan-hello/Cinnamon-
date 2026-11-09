@@ -182,7 +182,7 @@ async def craft_item(guild_id, user, recipe_id, quantity=1):
         have = int(inv.get(item_id, 0))
         total = needed * quantity
         if have < total:
-            item = ECONOMY_ITEMS[item_id]
+            item = ECONOMY_ITEMS.get(item_id, {"name": item_id.replace("_", " ").title(), "emoji": "📦"})
             missing.append(f"{item['emoji']} {item['name']}: need **{total}**, have **{have}**")
     if missing:
         return False, "❌ Not enough ingredients:\n" + "\n".join(missing)
