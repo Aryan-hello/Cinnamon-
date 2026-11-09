@@ -1001,7 +1001,7 @@ async def economy_income_cmd(interaction: discord.Interaction, action: app_comma
     cfg[role.id] = {"amount": int(amount), "cooldown": int(minutes) * 60}
     await bd_save_data()
     await economy_log(guild_id, title="💰 Income role configured", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Role", role.name), ("Income", f"{amount:,} Catnip / {minutes} min")])
-    await cinnamon_send(interaction, f"✅ {role.mention} now earns **{amount:,} Catnip every {minutes} minutes** when members use `/collect`.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ {role.mention} now earns **{amount:,} Catnip every {minutes} minutes** when members use `/economy collect`.", ephemeral=True)
 
 
 async def economy_collect(interaction: discord.Interaction):
@@ -1216,7 +1216,7 @@ async def economy_add_role_income_cmd(interaction: discord.Interaction, role: di
     economy_income_roles.setdefault(interaction.guild.id, {})[role.id] = {"amount": int(amount), "cooldown": cooldown, "interval": int(interval), "unit": unit.value}
     await bd_save_data()
     await economy_log(interaction.guild.id, title="💰 Role income added/updated", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Role", f"{role} ({role.id})"), ("Income", f"{amount:,} Catnip / {interval} {unit.name.lower()}")])
-    await cinnamon_send(interaction, f"✅ {role.mention} now provides **{amount:,} Catnip every {interval} {unit.name.lower()}** via `/collect`.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ {role.mention} now provides **{amount:,} Catnip every {interval} {unit.name.lower()}** via `/economy collect`.", ephemeral=True)
 
 
 @economy_group.command(name="remove-role-income", description="Admin: remove a role's recurring Catnip income")
