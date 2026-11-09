@@ -384,6 +384,29 @@ async def _wlf_expire_shops():
         bot._wlf_shop_reaper_running = False
 
 
+
+@cinnamon_adventure_group.command(name="fish-leaderboard", description="Rank server anglers by fish caught")
+@app_commands.guild_only()
+async def adventure_fish_leaderboard(interaction: discord.Interaction):
+    members = _wlf_server(interaction.guild.id).get("members", {})
+    totals = []
+    for uid, record in members.items():
+        fish = record.get("fish", {}) if isinstance(record, dict) else {}
+        caught = sum(max(0, int(amount)) for amount in fish.values())
+        if caught:
+            totals.append((int(uid), caught, len([k for k,v in fish.items() if int(v)>0])))
+    totals.sort(key=lambda row: (row[1], row[2]), reverse=True)
+    lines = []
+    for rank, (uid, caught, species) in enumerate(totals[:10], start=1):
+        member = interaction.guild.get_member(uid)
+        label = member.display_name if member else f"Member {uid}"
+        lines.append(f"**{rank}.** {discord.utils.escape_markdown(label)} — **{caught:,}** fish · {species} species")
+    embed = _wlf_embed("🏆 Server Anglers", "\n".join(lines) if lines else
+                       "No catches yet. Be the first to cast a line!")
+    embed.set_footer(text="Cinnamon Fishing • All-time catches")
+    await interaction.response.send_message(embed=embed, ephemeral=True,
+                                          allowed_mentions=discord.AllowedMentions.none())
+
 @cinnamon_adventure_group.command(name='rods', description='Browse fishing rods and their stats')
 @app_commands.guild_only()
 async def adventure_rod_catalog(interaction: discord.Interaction):
