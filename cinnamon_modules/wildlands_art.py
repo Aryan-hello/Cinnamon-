@@ -1,6 +1,6 @@
-"""Cinnamon Wildlands artwork browser; standalone, no economy changes.
+"""Cinnamon Adventures artwork browser; standalone, no economy changes.
 
-Existing Runway images can be copied to static/wildlands/ by the one-time
+Existing Runway images can be copied to static/adventure/ by the one-time
 GitHub workflow or auto-cached in the background on deployment.
 Images are never fetched by Discord from expiring Runway URLs.
 This module does not invent item identities for the 46 unlabeled transparent
@@ -17,7 +17,7 @@ from pathlib import Path as _WL_Path
 
 from PIL import Image as _WL_Image, ImageDraw as _WL_Draw, ImageFont as _WL_Font, ImageOps as _WL_ImageOps
 
-_WL_BASE = _WL_Path(__file__).resolve().parents[1] / 'static' / 'wildlands'
+_WL_BASE = _WL_Path(__file__).resolve().parents[1] / 'static' / 'adventure'
 _WL_MANIFEST = _WL_BASE / 'manifest.json'
 
 _WL_SPOT_DESCRIPTIONS = {
@@ -145,16 +145,16 @@ class WildlandsArtView(discord.ui.View):
 
     def make_message(self):
         if not self.items:
-            return discord.Embed(title='🐈 Cinnamon Wildlands', description='The art registry is missing. Check that `static/wildlands/manifest.json` was deployed.', color=_WL_COLOR), None
+            return discord.Embed(title='🐈 Cinnamon Adventures', description='The art registry is missing. Check that `static/adventure/manifest.json` was deployed.', color=_WL_COLOR), None
         item = self.items[self.index]
         filename = item['file']
         path = wildlands_local_asset(item['key'])
         if self.category == 'fishing_place':
-            summary = _WL_SPOT_DESCRIPTIONS.get(item['key'], 'A new corner of Cinnamon Wildlands.')
+            summary = _WL_SPOT_DESCRIPTIONS.get(item['key'], 'A new corner of Cinnamon Adventures.')
         else:
             summary = 'Background-free fish, fishing rod, or bait artwork. Item name not mapped yet.'
         title = item['label']
-        footer = f'Wildlands • {self.index+1} of {len(self.items)}'
+        footer = f'Adventure • {self.index+1} of {len(self.items)}'
         embed = discord.Embed(title='🌿 ' + title, description=summary, color=_WL_COLOR)
         embed.set_footer(text=footer)
         if path:
@@ -182,12 +182,12 @@ class WildlandsArtView(discord.ui.View):
         await self.show(interaction)
 
     async def on_error(self, interaction, error, item):
-        log.exception('Wildlands gallery UI failed: %s', error)
+        log.exception('Adventure gallery UI failed: %s', error)
         if not interaction.response.is_done():
             await interaction.response.send_message('🐈 Cinnamon dropped an art frame. Try the command again.', ephemeral=True)
 
 
-wildlands_art_group = app_commands.Group(name='wildlands', description='Cinnamon Wildlands art and fishing locations')
+wildlands_art_group = app_commands.Group(name='adventure', description='Cinnamon Adventures art and fishing locations')
 
 
 # Register precisely once; do not create any duplicated slash-command aliases.
@@ -210,14 +210,14 @@ def _wl_import_missing_assets():
         )
         if proc.returncode:
             _wl_import_error = True
-            log.warning('Wildlands artwork auto-cache incomplete (%d). %s',
+            log.warning('Adventure artwork auto-cache incomplete (%d). %s',
                         proc.returncode, (proc.stderr or '')[-900:])
         else:
-            log.info('Wildlands artwork auto-cache complete: %s',
+            log.info('Adventure artwork auto-cache complete: %s',
                      (proc.stdout or '').splitlines()[-1:])
     except Exception as exc:
         _wl_import_error = True
-        log.warning('Wildlands artwork auto-cache failed: %s', type(exc).__name__)
+        log.warning('Adventure artwork auto-cache failed: %s', type(exc).__name__)
     finally:
         _wl_import_running = False
         _wl_import_finished = True
