@@ -268,7 +268,7 @@ economy_level_rewards_claimed = {}        # (guild_id, user_id) -> [level number
 economy_income_roles = {}                 # guild_id -> {role_id: {amount, cooldown}}
 
 ECONOMY_ITEMS = {
-    "tuna": {"name": "Tuna", "price": 1000, "emoji": "🐟", "description": "A tasty tuna snack for Cinnamon.", "max_per_person": 0},
+    "tuna": {"name": "Tuna", "price": 1000, "emoji": "🐟", "description": "A tasty tuna snack for Cinnamon.", "max_per_person": 0, "shop_enabled": True},
     "treat": {"name": "Cat Treat", "price": 1000, "emoji": "🍪", "description": "A crunchy little reward.", "max_per_person": 0},
     "churu": {"name": "Churu", "price": 1500, "emoji": "🥫", "description": "Premium lickable cat snack.", "max_per_person": 0},
     "catnip_ball": {"name": "Catnip Ball", "price": 2000, "emoji": "🧶", "description": "Instant zoomies fuel.", "max_per_person": 0},
@@ -380,7 +380,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True  # needed for /role add-all and for finding the owner by username
 
-bot = commands.Bot(command_prefix="?", intents=intents, case_insensitive=True, help_command=None,
+bot = commands.Bot(command_prefix="!", intents=intents, case_insensitive=True, help_command=None,
                    allowed_mentions=discord.AllowedMentions.none())
 
 
@@ -426,6 +426,7 @@ _CINNAMON_MODULES = (
     "achievements.py",
     "hangry_games.py",
     "wildlands_art.py",
+    "story_delivery.py",  # Shared story helpers must load before story commands.
     "wildlands_fishing.py",
     "wildlands_fishing_game.py",
     "wildlands_story.py",

@@ -172,6 +172,18 @@ def _craft_embed(guild_id, user, recipe_id, quantity=1):
 
 
 async def craft_item(guild_id, user, recipe_id, quantity=1):
+    if recipe_id == 'repair_rod':
+        inv = economy_inventory_for(guild_id, user.id)
+        player = _wlf_player(guild_id, user.id)
+        if not player.get('rod_broken'):
+            return False, '🎣 Your fishing rod is already in working condition.'
+        if int(inv.get('fishing_line', 0)) < 1:
+            return False, '🧵 You need 1 Fishing Line. Buy it from Cinnamon’s Shop first.'
+        inv['fishing_line'] = int(inv['fishing_line']) - 1
+        if inv['fishing_line'] <= 0: inv.pop('fishing_line', None)
+        player['rod_broken'] = False
+        await bd_save_data()
+        return True, '🔧 Fishing rod repaired! You can cast again.'
     recipe = CRAFTING_RECIPES.get(recipe_id)
     if not recipe:
         return False, "❌ I don't know that recipe. Use `/craft` to see the recipes."
@@ -182,7 +194,7 @@ async def craft_item(guild_id, user, recipe_id, quantity=1):
         have = int(inv.get(item_id, 0))
         total = needed * quantity
         if have < total:
-            item = ECONOMY_ITEMS[item_id]
+            item = ECONOMY_ITEMS.get(item_id, {"name": item_id.replace("_", " ").title(), "emoji": "📦"})
             missing.append(f"{item['emoji']} {item['name']}: need **{total}**, have **{have}**")
     if missing:
         return False, "❌ Not enough ingredients:\n" + "\n".join(missing)
@@ -222,7 +234,10 @@ async def craft_cmd(interaction: discord.Interaction, recipe: str, quantity: app
 
 async def craft_autocomplete(interaction, current: str):
     current = current.lower().strip()
-    return [app_commands.Choice(name=f"{r['emoji']} {r['name']}", value=k) for k, r in CRAFTING_RECIPES.items() if current in k.lower() or current in r['name'].lower()][:25]
+    choices = [app_commands.Choice(name=f"{r['emoji']} {r['name']}", value=k) for k, r in CRAFTING_RECIPES.items() if current in k.lower() or current in r['name'].lower()]
+    if "repair_rod".startswith(current) or "repair rod".startswith(current):
+        choices.append(app_commands.Choice(name="🔧 Repair Fishing Rod", value="repair_rod"))
+    return choices[:25]
 craft_cmd.autocomplete("recipe")(craft_autocomplete)
 
 

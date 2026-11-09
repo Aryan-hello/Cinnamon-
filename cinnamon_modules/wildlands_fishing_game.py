@@ -233,6 +233,8 @@ class _FGView(discord.ui.View):
                 catch = state['fish']
             if self.phase != 'fight':
                 self.player()['fishing_session'] = None
+                if not catch and state['tension'] >= 90:
+                    self.player()['rod_broken'] = True
                 self.clear_items()
                 if catch:
                     p = self.player()
