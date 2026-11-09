@@ -9,6 +9,7 @@ history, quoted examples, or external documents back into this parser.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 import math
 import re
 from types import MappingProxyType
@@ -170,15 +171,23 @@ def _wake_text(text: str) -> str:
 
 
 def _number(text: str, *, limit: int, label: str) -> int:
-    if not (re.fullmatch(r"[0-9]+", text)
-            or re.fullmatch(r"[1-9][0-9]{0,2}(?:,[0-9]{3})+", text)):
+    raw = text.strip()
+    suffix = raw[-1:].lower() if raw[-1:].lower() in {"k", "m"} else ""
+    number = raw[:-1] if suffix else raw
+    if not (re.fullmatch(r"[0-9]+", number)
+            or re.fullmatch(r"[1-9][0-9]{0,2}(?:,[0-9]{3})+", number)
+            or re.fullmatch(r"[0-9]+\\.[0-9]+", number)):
         raise ActionValidationError(f"Use a positive whole {label}; commas must group thousands.",
                                     code="invalid_number")
-    digits = text.replace(",", "")
-    if len(digits) > len(str(limit)) or not 1 <= int(digits) <= limit:
+    try:
+        value = Decimal(number.replace(",", ""))
+        value *= 1000 if suffix == "k" else 1_000_000 if suffix == "m" else 1
+    except InvalidOperation:
+        raise ActionValidationError(f"The {label} is invalid.", code="invalid_number")
+    if value != value.to_integral_value() or not 1 <= value <= limit:
         raise ActionValidationError(f"The {label} is outside the supported chat limit.",
                                     code="invalid_number")
-    return int(digits)
+    return int(value)
 
 
 def _target(text: str, *, requester_id: int, target_ids: Sequence[int],
@@ -261,6 +270,6 @@ def parse_action(text: str, *, requester_id: int, target_ids: Sequence[int],
             seconds = quantity * multiplier
         return validate_proposal(ActionProposal(action, target, amount, seconds))
     raise ActionValidationError(
-        "I need one exact supported request: add/remove Catnip for one mentioned member, "
+        "I couldn't parse that safely. Try 'add 20k Catnip to @member' or 'remove 500 Catnip from @member'. "
         "or timeout/unmute one member. Use /help for other commands.",
         code="unsupported_request")
