@@ -1,6 +1,6 @@
 """Cinnamon Adventures: The Treasure Worth Billions — interactive story.
 
-Loaded *after* wildlands_fishing.py by main.py. The shared
+Loaded *after* cinnamon_adventure_fishing.py by main.py. The shared
 advanced_features_data/Upstash snapshot stores story progress separately from
 existing fishing inventories and older Adventure saves. Story UI is ephemeral,
 with a fresh session available through /cinnamon stories after view expiration.
