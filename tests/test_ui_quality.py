@@ -86,7 +86,7 @@ class PresentationTests(unittest.TestCase):
         self.assertIn("await interaction.response.defer()", economy)
 
     def test_story_resume_keeps_its_branch_buttons(self):
-        story = (MODULES / "wildlands_story.py").read_text()
+        story = (MODULES / "cinnamon_adventure_story.py").read_text()
         self.assertIn("_WLSChoiceView(interaction.user.id, idx, rec.get('branch'))", story)
         self.assertIn("cinnamon_ui_card(", story)
 
@@ -105,7 +105,7 @@ class PresentationTests(unittest.TestCase):
         self.assertIn("contents: write", workflow)
 
     def test_fishing_displays_text_progress(self):
-        game = (MODULES / "wildlands_fishing_game.py").read_text()
+        game = (MODULES / "cinnamon_fishing_game.py").read_text()
         self.assertIn("cinnamon_ui_progress(tension, 100", game)
         self.assertIn("cinnamon_ui_progress(state['progress'], state['goal']", game)
 
