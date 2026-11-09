@@ -525,6 +525,30 @@ async def economy_inventory_cmd(interaction: discord.Interaction, member: discor
         ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
+
+@economy_group.command(name="diagnose", description="Check economy data consistency (administrator)")
+@app_commands.guild_only()
+@app_commands.default_permissions(administrator=True)
+async def economy_diagnose_cmd(interaction: discord.Interaction, member: discord.Member | None = None):
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("Administrator permission is required.", ephemeral=True)
+    target = member or interaction.user
+    key = economy_key(interaction.guild.id, target.id)
+    stored = economy_balances.get(key)
+    embed = cinnamon_embed(
+        "🧰 Economy consistency check",
+        "Read-only diagnostics; this command never changes or repairs balances.",
+        color=CINNAMON_BLUE, user=interaction.user, footer="Cinnamon Economy • Diagnostics")
+    cinnamon_field(embed, "Target", f"{target.mention} ({target.id})")
+    cinnamon_field(embed, "Guild key", str(interaction.guild.id))
+    cinnamon_field(embed, "Balance map entry", "Present" if key in economy_balances else "Missing")
+    cinnamon_field(embed, "Raw loaded value", f"{stored:,}" if isinstance(stored, int) else repr(stored))
+    cinnamon_field(embed, "Accessor value", f"{economy_balance(*key):,} Catnip")
+    cinnamon_field(embed, "Loaded account entries", str(len(economy_balances)))
+    cinnamon_field(embed, "Snapshot status", f"{bd_store.status} — {bd_store.reason}")
+    cinnamon_field(embed, "Backend durable", str(bd_store.durable))
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 @economy_group.command(name="shop", description="Open Cinnamon's interactive Catnip shop")
 @app_commands.guild_only()
 async def economy_shop_cmd(interaction: discord.Interaction):
