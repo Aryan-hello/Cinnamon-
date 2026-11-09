@@ -4,7 +4,7 @@ import unittest
 
 from cinnamon_modules.brain_actions import (
     ACTION_REGISTRY, CONFIRM_SECONDS, MAX_CATNIP, MAX_TIMEOUT_SECONDS,
-    SOURCE_MAX_AGE_SECONDS, ActionProposal, ActionValidationError, TrustedRequest,
+    SOURCE_MAX_AGE_SECONDS, ActionBatch, ActionProposal, ActionValidationError, TrustedRequest,
     parse_action, validate_proposal, validate_request,
 )
 
@@ -105,6 +105,17 @@ class ActionRecognitionTests(unittest.TestCase):
             with self.subTest(text=text):
                 with self.assertRaises(ActionValidationError):
                     self.parse(text)
+
+    def test_compound_catnip_for_multiple_members_and_timeout(self):
+        third = 423456789012345678
+        text = f"add 2k catnip to <@{MEMBER}> and <@{OTHER}> and mute <@{third}> for 10 minutes"
+        result = self.parse(text, mentions=[MEMBER, OTHER, third])
+        self.assertIsInstance(result, ActionBatch)
+        self.assertEqual(result.actions, (
+            ActionProposal("economy.add_catnip", MEMBER, amount=2000),
+            ActionProposal("economy.add_catnip", OTHER, amount=2000),
+            ActionProposal("moderation.timeout", third, seconds=600),
+        ))
 
     def test_invalid_amounts_and_grouping(self):
         for amount in ("0", "-1", "+1", "1.0", "20,00", "1,00,000", "0,100",
