@@ -436,6 +436,34 @@ async def _ch_maybe_handle(message, clean_content):
     return True
 
 
+
+async def _ch_private_data_redirect(message, clean_content):
+    """Keep a member's private account questions out of public chat and AI history."""
+    classifier = globals().get("_me_classify_private_question")
+    snapshot_builder = globals().get("_me_private_snapshot")
+    answer_builder = globals().get("_me_generate_private_answer")
+    if not message.guild or not callable(classifier) or not callable(snapshot_builder) or not callable(answer_builder):
+        return False
+    scopes = classifier(clean_content)
+    if not scopes:
+        return False
+    snapshot = snapshot_builder(message.guild.id, message.author.id, scopes)
+    try:
+        answer = await asyncio.to_thread(answer_builder, clean_content, snapshot)
+        answer = str(answer or "I couldn't verify those details.")[:1400]
+        await message.author.send(answer, allowed_mentions=discord.AllowedMentions.none())
+    except (discord.Forbidden, discord.HTTPException):
+        # Never put account values in a public fallback.
+        try:
+            await message.channel.send(
+                f"{message.author.mention} I couldn't DM that private answer. "
+                "Use /cinnamon-me ask for an ephemeral reply; I won't disclose account values here.",
+                allowed_mentions=discord.AllowedMentions(users=True),
+            )
+        except discord.HTTPException:
+            pass
+    return True
+
 async def _cinnamon_try_assistance(message, clean_content):
     """Trusted, acknowledged personal requests and help precede Gemini."""
     reminder_handler = globals().get("_cr_maybe_handle")
@@ -443,6 +471,8 @@ async def _cinnamon_try_assistance(message, clean_content):
     if message.guild and callable(reminder_handler) and await reminder_handler(message, clean_content):
         return True
     if message.guild and callable(memory_handler) and await memory_handler(message, clean_content):
+        return True
+    if message.guild and await _ch_private_data_redirect(message, clean_content):
         return True
     if await _ch_maybe_handle(message, clean_content):
         return True
