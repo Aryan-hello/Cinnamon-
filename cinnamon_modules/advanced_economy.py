@@ -234,7 +234,10 @@ async def craft_cmd(interaction: discord.Interaction, recipe: str, quantity: app
 
 async def craft_autocomplete(interaction, current: str):
     current = current.lower().strip()
-    return [app_commands.Choice(name=f"{r['emoji']} {r['name']}", value=k) for k, r in CRAFTING_RECIPES.items() if current in k.lower() or current in r['name'].lower()][:25]
+    choices = [app_commands.Choice(name=f"{r['emoji']} {r['name']}", value=k) for k, r in CRAFTING_RECIPES.items() if current in k.lower() or current in r['name'].lower()]
+    if "repair_rod".startswith(current) or "repair rod".startswith(current):
+        choices.append(app_commands.Choice(name="🔧 Repair Fishing Rod", value="repair_rod"))
+    return choices[:25]
 craft_cmd.autocomplete("recipe")(craft_autocomplete)
 
 
