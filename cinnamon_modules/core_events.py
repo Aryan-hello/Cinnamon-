@@ -438,7 +438,7 @@ async def _ch_maybe_handle(message, clean_content):
 
 
 async def _ch_private_data_redirect(message, clean_content):
-    """Keep a member's private account questions out of public chat and AI history."""
+    """Keep private account questions out of public chat. Never disclose account values publicly."""
     classifier = globals().get("_me_classify_private_question")
     snapshot_builder = globals().get("_me_private_snapshot")
     answer_builder = globals().get("_me_generate_private_answer")
@@ -472,7 +472,8 @@ async def _cinnamon_try_assistance(message, clean_content):
         return True
     if message.guild and callable(memory_handler) and await memory_handler(message, clean_content):
         return True
-    if message.guild and await _ch_private_data_redirect(message, clean_content):
+    private_redirect = globals().get('_ch_private_data_redirect')
+    if message.guild and callable(private_redirect) and await private_redirect(message, clean_content):
         return True
     if await _ch_maybe_handle(message, clean_content):
         return True
