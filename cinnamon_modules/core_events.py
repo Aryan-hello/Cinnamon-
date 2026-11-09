@@ -374,7 +374,7 @@ async def prefix_help(ctx):
     for index, body in enumerate(pages, start=1):
         embed = cinnamon_embed(
             "🐾 Cinnamon · Prefix commands",
-            "These commands are registered right now. Use `?command`, "
+            "These commands are registered right now. Use `!command`, "
             "or `/help` for slash commands and more details.",
             color=CINNAMON_ORANGE, user=ctx.author,
             footer=cinnamon_page_footer("Prefix Help", index, total, 
@@ -672,13 +672,19 @@ async def prefix_botstatus(ctx):
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
-    # Dispatch ? commands before the regular AI/XP chat pipeline.
-    # Be forgiving about whitespace after the prefix so both `?work` and
-    # `? work` (including multiple spaces) invoke the same prefix command.
-    # This only normalizes messages that actually begin with the configured
-    # Cinnamon prefix, leaving ordinary chat untouched.
-    if message.content.startswith("?") and len(message.content) > 1 and message.content[1].isspace():
-        message.content = "?" + message.content[1:].lstrip()
+    # Prefix commands are intentionally !-only. The former ? prefix is retired.
+    if message.content.startswith("?") and len(message.content) > 1:
+        candidate = message.content[1:].lstrip().split(maxsplit=1)[0].lower()
+        if candidate and candidate.replace("-", "").isalnum():
+            try:
+                await message.reply(
+                    "🐾 Cinnamon's prefix is now **!**. Try `!" + candidate + "`.",
+                    mention_author=False,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except discord.HTTPException:
+                pass
+            return
     ctx = await bot.get_context(message)
     if ctx.valid:
         await bot.invoke(ctx)
