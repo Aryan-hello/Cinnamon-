@@ -135,7 +135,7 @@ class CommandWiringTests(unittest.TestCase):
         slash = self.read("cinnamon_modules/server_setup.py")
         prefix = self.read("cinnamon_modules/core_events.py")
         for source in (slash, prefix):
-            self.assertIn('storage["transactions_ready"]', source)
+            self.assertIn('status["transactions_ready"]', source)
             self.assertIn("storage_status()", source)
         self.assertIn("await interaction.response.defer(ephemeral=True)", slash)
         self.assertIn("await interaction.followup.send(", slash)
