@@ -168,6 +168,7 @@ async def modinfo(interaction: discord.Interaction, user: discord.User):
 
 # --- Health / status ---------------------------------------------------------
 
+@bot.tree.command(name="ping", description="Check Cinnamon's Discord latency")
 async def ping(interaction: discord.Interaction):
     latency_ms = round(bot.latency * 1000)
     await cinnamon_send(interaction, 
@@ -176,6 +177,7 @@ async def ping(interaction: discord.Interaction):
     )
 
 
+@bot.tree.command(name="botstatus", description="Show Cinnamon's server and storage health")
 @app_commands.guild_only()
 async def botstatus(interaction: discord.Interaction):
     guild = interaction.guild
