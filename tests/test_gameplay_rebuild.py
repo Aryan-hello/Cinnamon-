@@ -204,3 +204,12 @@ class CinnamonRepairAndSelection(unittest.TestCase):
         self.assertIn("Your fishing line went still", game)
         self.assertIn("The fish escaped!", game)
 
+
+class EconomySnapshotMigrationTests(unittest.TestCase):
+    def test_old_snapshot_cannot_erase_new_builtin_shop_items(self):
+        runtime = (MODULES / "dashboard_runtime.py").read_text()
+        self.assertIn("for item_id, saved_item in saved_items.items()", runtime)
+        self.assertIn("ECONOMY_ITEMS[item_id] = saved_item", runtime)
+        self.assertNotIn("ECONOMY_ITEMS.clear()", runtime)
+        main = (ROOT / "main.py").read_text()
+        self.assertIn('"fishing_string": {"name": "Fishing String"', main)
