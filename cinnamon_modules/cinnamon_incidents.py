@@ -144,6 +144,7 @@ async def cinnamon_incident_alerts(interaction: discord.Interaction, enabled: bo
             ephemeral=True)
     chosen = channel or interaction.guild.get_channel(int(cfg.get("channel_id", 0) or 0))
     if enabled and (not chosen or chosen.guild.id != interaction.guild.id
+                    or chosen.permissions_for(interaction.guild.default_role).view_channel is not False
                     or not guild_channel_send_allowed(interaction.guild, chosen)):
         return await interaction.response.send_message(
             "Cinnamon needs permission to send in a staff channel from this server.",
