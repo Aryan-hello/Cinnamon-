@@ -384,16 +384,16 @@ async def _wlf_expire_shops():
         bot._wlf_shop_reaper_running = False
 
 
-@wildlands_art_group.command(name='rods', description='Browse fishing rods and their stats')
+@cinnamon_adventure_group.command(name='rods', description='Browse fishing rods and their stats')
 @app_commands.guild_only()
-async def wildlands_rod_catalog(interaction: discord.Interaction):
+async def adventure_rod_catalog(interaction: discord.Interaction):
     view = _WLFCatalog(interaction.user.id, 'rod', interaction.guild.id)
     await interaction.response.send_message(embed=view.render(), view=view)
 
 
-@wildlands_art_group.command(name='bait', description='Browse fishing bait and their prices')
+@cinnamon_adventure_group.command(name='bait', description='Browse fishing bait and their prices')
 @app_commands.guild_only()
-async def wildlands_bait_catalog(interaction: discord.Interaction):
+async def adventure_bait_catalog(interaction: discord.Interaction):
     view = _WLFCatalog(interaction.user.id, 'bait', interaction.guild.id)
     await interaction.response.send_message(embed=view.render(), view=view)
 
