@@ -1,4 +1,4 @@
-"""A real timed fishing mini-game, loaded after Wildlands fishing.
+"""A real timed fishing mini-game, loaded after Adventure fishing.
 Shared globals deliberately come from main.py's modular loader.
 """
 import asyncio as _fg_asyncio
@@ -267,7 +267,7 @@ class _FGView(discord.ui.View):
             + ('📓 NEW SPECIES!\n' if p['fish'][catch] == 1 else '') + bonus), view=None)
         if fish['rarity'] in ('Legendary', 'Mythical'):
             try:
-                await _cp_good_event(interaction.guild, interaction.user, 'Rare Wildlands fish caught', points=2)
+                await _cp_good_event(interaction.guild, interaction.user, 'Rare Adventure fish caught', points=2)
                 await _cp_react(interaction.guild, interaction.user, interaction.channel,
                                 'rare_fish', detail=fish['name'])
             except Exception:

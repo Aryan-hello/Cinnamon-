@@ -302,7 +302,7 @@ def _header():
 
 
 def _nav(guild_id, tab):
-    items = [("overview", "⌂", "Overview"), ("mind", "🐈", "Cinnamon Mind"), ("wildlands", "🎣", "Wildlands & Fishing"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
+    items = [("overview", "⌂", "Overview"), ("mind", "🐈", "Cinnamon Mind"), ("adventure", "🎣", "Adventures & Fishing"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
     links = "".join(
         f"<a class='{'active' if tab == key else ''}' href='/dashboard?guild_id={guild_id}&tab={key}'><span>{ico}</span>{label}</a>" for key, ico, label in items
     )
@@ -548,7 +548,7 @@ def _mind(guild, state):
             f"<p class='muted'>Use /recall to fill missing mood/visitor snapshots without overwriting live state.</p></article></div>")
 
 
-def _wildlands(guild, state):
+def _adventure(guild, state):
     gid = guild.id
     fish = state.get("cinnamon_wildlands_fishing", {}).get(str(gid), {}) or {}
     story = state.get("cinnamon_wildlands_story", {}).get(str(gid), {}) or {}
@@ -584,7 +584,7 @@ def _wildlands(guild, state):
     finished = sum(bool(p.get("complete", False)) for p in story.values())
     rod_rows = "".join("<tr><td>" + _esc(x.get("name")) + "</td><td>" + str(x.get("price",0)) +
                        "</td><td>" + str(x.get("bonus",0)) + "</td></tr>" for x in state.get("wlf_rods", []))
-    return (f"<h1>🎣 Wildlands & Fishing</h1><p class='muted'>The Billion-Catnip Mystery, fishing, equipment and "
+    return (f"<h1>🎣 Adventures & Fishing</h1><p class='muted'>The Billion-Catnip Mystery, fishing, equipment and "
             f"the two private merchant channels. Shop visibility is managed separately from finder commissions.</p>"
             f"<div class='grid'><article class='card third'><div class='statlabel'>Story explorers</div><div class='stat'>{len(story)}</div></article>"
             f"<article class='card third'><div class='statlabel'>Story completions</div><div class='stat'>{finished}</div></article>"
@@ -594,9 +594,9 @@ def _wildlands(guild, state):
             f" Mood influences rarity, but technique does not change the underlying fish roll.</p>"
             f"<div class='tablewrap'><table><thead><tr><th>Rod</th><th>Base Catnip</th><th>Luck bonus</th></tr></thead>"
             f"<tbody>{rod_rows}</tbody></table></div></article>"
-            f"<article class='card full'><h2>📖 Wildlands story</h2><p class='muted'>26 choice-driven scenes across six regions."
+            f"<article class='card full'><h2>📖 Cinnamon story</h2><p class='muted'>26 choice-driven scenes across six regions."
             f" Story progress is tracked per member and the 100,000 Catnip finale remains a one-time reward."
-            f" Members continue their personal story with /wildlands story.</p></article></div>")
+            f" Members continue their personal story with /adventure story.</p></article></div>")
 
 
 def _overview(guild, state):
@@ -919,7 +919,7 @@ async def _dashboard_setup(guild,state):
                 await ch.set_permissions(guild.me,view_channel=True,send_messages=True,embed_links=True,read_message_history=True)
         channels[name]=ch
     normal=state.get("ACHIEVEMENTS",{}); secret=state.get("SECRET_ACHIEVEMENTS",{}); admin=state.get("ADMIN_ACHIEVEMENT",{}) or {}
-    role_names=sorted({str(a.get("role")).strip() for a in list(normal.values())+list(secret.values())+[admin] if a.get("role")})+ ["Quest Master","Hangry Games","Fishing Rod Merchant","Fishing Bait Merchant","Wildlands • Treasure Hunter","Cinnamon's Naughty List"]
+    role_names=sorted({str(a.get("role")).strip() for a in list(normal.values())+list(secret.values())+[admin] if a.get("role")})+ ["Quest Master","Hangry Games","Fishing Rod Merchant","Fishing Bait Merchant","Adventure • Treasure Hunter","Cinnamon's Naughty List"]
     existing={r.name:r for r in guild.roles if not r.managed}
     for name in dict.fromkeys(role_names):
         if name not in existing:
@@ -1398,10 +1398,10 @@ def dashboard_home():
         return _page("<main class='main'>"+_header()+body+"</main>")
     guild_id=request.args.get("guild_id") or eligible[0]["id"]
     guild,guild_item=_get_access(sid,guilds,guild_id)
-    tab=request.args.get("tab","overview"); allowed={"overview","mind","wildlands","automation","moderation","engagement","achievements","quests","friendship","economy","giveaways","hangry","community","message_studio","analytics","activity_logs","system"}
+    tab=request.args.get("tab","overview"); allowed={"overview","mind","adventure","automation","moderation","engagement","achievements","quests","friendship","economy","giveaways","hangry","community","message_studio","analytics","activity_logs","system"}
     if tab not in allowed: tab="overview"
     state=_state(); notice=session.pop("dashboard_notice",None)
-    pages={"overview":_overview,"mind":_mind,"wildlands":_wildlands,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
+    pages={"overview":_overview,"mind":_mind,"adventure":_adventure,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
     return _shell(guild,eligible,tab,pages[tab](guild,state),notice)
 
 
