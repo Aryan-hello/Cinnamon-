@@ -456,7 +456,7 @@ async def _ch_private_data_redirect(message, clean_content):
         # Never put account values in a public fallback.
         try:
             await message.channel.send(
-                f"{message.author.mention} I couldn't DM that private answer. "
+                f"{getattr(message.author, 'mention', 'the member')} I couldn't DM that private answer. "
                 "Use /cinnamon-me ask for an ephemeral reply; I won't disclose account values here.",
                 allowed_mentions=discord.AllowedMentions.none(),
             )
