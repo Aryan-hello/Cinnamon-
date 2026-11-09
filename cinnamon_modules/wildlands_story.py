@@ -680,19 +680,42 @@ bot.tree.add_command(_cinnamon_stories_group)
 
 class _WLSStorySelect(discord.ui.View):
     def __init__(self, owner_id, guild_id, index, branch):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.owner_id, self.guild_id, self.index, self.branch = owner_id, guild_id, index, branch
+        self.selected_story = "wildlands"
+        self.add_item(discord.ui.Select(
+            placeholder="Choose a Cinnamon adventure",
+            min_values=1, max_values=1, row=0,
+            options=[
+                discord.SelectOption(label="Cinnamon Mystery", value="wildlands",
+                                   description="The treasure adventure", emoji="🗺️"),
+                discord.SelectOption(label="The Last Treasure Map", value="last_treasure",
+                                   description="A branching mystery with Beans and Clawdius", emoji="📜"),
+            ]))
+        self.children[0].callback = self.choose_story
     async def interaction_check(self, interaction):
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message("This story menu belongs to another player.", ephemeral=True)
             return False
         return True
-    @discord.ui.button(label="Start / Continue Cinnamon Mystery", emoji="📖", style=discord.ButtonStyle.success)
+    async def choose_story(self, interaction):
+        if not await self.interaction_check(interaction): return
+        self.selected_story = interaction.data["values"][0]
+        label = "Cinnamon Mystery" if self.selected_story == "wildlands" else "The Last Treasure Map"
+        await interaction.response.edit_message(content=f"Selected **{label}**. Press **Start selected story** when ready.", embed=interaction.message.embeds[0], view=self)
+    @discord.ui.button(label="Start selected story", emoji="📖", style=discord.ButtonStyle.success, row=1)
     async def begin(self, interaction, button):
+        if not await self.interaction_check(interaction): return
+        await interaction.response.defer(ephemeral=True)
+        if self.selected_story == "last_treasure":
+            record = _ltm_record(self.guild_id, self.owner_id)
+            await _ltm_private_scene(interaction, self.guild_id, record, record["stage"])
+            return
         rec = _wls_player(self.guild_id, self.owner_id)
-        await _wls_private_scene(interaction, rec, _WLSChoiceView(self.owner_id, self.index, self.branch, self.guild_id), replace_original=True)
-    @discord.ui.button(label="Story Journal", emoji="📓", style=discord.ButtonStyle.secondary)
+        await _wls_private_scene(interaction, rec, _WLSChoiceView(self.owner_id, self.index, self.branch, self.guild_id))
+    @discord.ui.button(label="Story Journal", emoji="📓", style=discord.ButtonStyle.secondary, row=1)
     async def journal(self, interaction, button):
+        if not await self.interaction_check(interaction): return
         rec = _wls_player(self.guild_id, self.owner_id)
         await interaction.response.send_message(embed=_wls_embed(interaction, "📖 Your Adventure Journal", f"Progress: scene {rec.get('index',0)+1}/{len(_WLS_SCENES)}\nChoices and clues save automatically."), ephemeral=True)
 
