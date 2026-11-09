@@ -18,6 +18,10 @@ This document distinguishes repository-backed findings from proposed work. It is
 - Economy: `/economy balance` and prefix `!balance`/`!bal` use the same `economy_balance(guild_id,user_id)` accessor.
 - Read-only `/economy diagnose` (Administrator) reports the exact guild/member entry and snapshot readiness without creating a missing balance.
 - Prefix docs and retired-prefix response are aligned to `!`.
+- Adventure/fishing module files were renamed to `cinnamon_adventure_*` / `cinnamon_fishing_game.py`; persisted `wildlands_*` keys remain unchanged for save compatibility.
+- Private Brain Q&A is now routed to DM for public chat, and `/cinnamon-me ask` returns an ephemeral read-only answer. Memory on/off/clear/view/edit natural-language controls are explicit and member-scoped.
+- `/ping` and `/botstatus` are registered slash commands; status reports snapshot and economy transaction readiness.
+- Snapshot loading merges persisted custom shop items over current code defaults, so old snapshots cannot remove newly shipped built-in shop items.
 - New offline regression tests cover story selection, repair, prefix consistency, and line snap.
 
 ## Main risks / bugs to keep addressing
