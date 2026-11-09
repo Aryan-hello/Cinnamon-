@@ -12,7 +12,7 @@ import re as _ca_re
 import time as _ca_time
 
 from cinnamon_modules.brain_actions import (
-    ActionProposal, ActionValidationError, parse_action, validate_proposal,
+    ActionProposal, ActionBatch, ActionValidationError, parse_action, validate_proposal,
     MAX_CATNIP, CONFIRM_SECONDS, SOURCE_MAX_AGE_SECONDS,
     RECEIPT_RETENTION_SECONDS,
 )
@@ -510,14 +510,18 @@ async def _ca_maybe_handle(message, clean_content):
     async def refuse(text):
         await message.reply("🐾 " + text, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
     gid = message.guild.id
-    target = message.guild.get_member(proposal.target_user_id)
-    if not target:
-        await refuse("I can't find that member in this server.")
-        return True
-    problem = _ca_permission_reason(message.guild, message.author, target, proposal.action)
-    if problem:
-        await refuse(problem)
-        return True
+    proposals = proposal.actions if isinstance(proposal, ActionBatch) else (proposal,)
+    targets = []
+    for item in proposals:
+        target = message.guild.get_member(item.target_user_id)
+        if not target:
+            await refuse(f"I can't find member <@{item.target_user_id}> in this server.")
+            return True
+        problem = _ca_permission_reason(message.guild, message.author, target, item.action)
+        if problem:
+            await refuse(f"<@{target.id}>: {problem}")
+            return True
+        targets.append(target)
     if not _ca_settings(gid).get("enabled", False):
         await refuse("Conversational actions are switched off. An Administrator can enable them with `/cinnamon-mind actions`. Existing slash commands are available.")
         return True
@@ -545,6 +549,23 @@ async def _ca_maybe_handle(message, clean_content):
     if pending and (pending.state == "executing" or (pending.state == "pending" and pending.expires_at > now)):
         await refuse("Finish or cancel your existing confirmation first.")
         return True
+    if isinstance(proposal, ActionBatch):
+        view = _CABatchConfirm(gid, message.author.id, proposals, source_id=message.id,
+                               channel_id=message.channel.id)
+        summary = "\n".join(
+            f"• {_ca_action_label(item.action, item.seconds, item.amount)} — <@{item.target_user_id}>"
+            for item in proposals)
+        card = discord.Embed(title="🐈 Cinnamon · Confirm all actions",
+            description=f"{summary}\n\n**All actions are listed above.** Nothing happens until you confirm.",
+            color=0xD97732)
+        card.set_footer(text="One confirmation for the complete batch · expires in 60 seconds")
+        view.message = await message.reply(embed=card, view=view, mention_author=False,
+                                          allowed_mentions=discord.AllowedMentions.none())
+        _CA_PENDING[key] = view
+        _CA_RECENT_SOURCES[source] = now + SOURCE_MAX_AGE_SECONDS
+        return True
+
+    target = targets[0]
     before = economy_balance(gid, target.id) if proposal.action.startswith("economy.") else None
     if proposal.action == "economy.remove_catnip" and before < proposal.amount:
         await refuse(f"That member has {before:,} Catnip. Request an amount within that balance.")
