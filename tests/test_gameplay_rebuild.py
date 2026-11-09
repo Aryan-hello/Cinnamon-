@@ -162,3 +162,45 @@ class FeedingBehavior(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class CinnamonRepairAndSelection(unittest.TestCase):
+    def test_rod_repair_is_nested_craft_and_consumes_string(self):
+        fishing = (MODULES / 'wildlands_fishing.py').read_text()
+        game = (MODULES / 'wildlands_fishing_game.py').read_text()
+        main = (ROOT / 'main.py').read_text()
+        self.assertIn('Group(name="craft"', fishing)
+        self.assertIn('@_craft_group.command(name="repair_rod"', fishing)
+        self.assertIn("inv.get('fishing_string', 0)", fishing)
+        self.assertIn("p['rod_broken'] = False", fishing)
+        self.assertIn('"fishing_string": {"name": "Fishing String"', main)
+        self.assertIn("p.get('rod_broken', False)", game)
+
+    def test_story_picker_requires_explicit_selection(self):
+        story = (MODULES / 'wildlands_story.py').read_text()
+        self.assertIn('Choose a Cinnamon adventure', story)
+        self.assertIn('Start selected story', story)
+        self.assertIn('The Last Treasure Map', story)
+        self.assertIn('self.selected_story = interaction.data["values"][0]', story)
+        self.assertNotIn('CINNAMON · WILDLANDS', story)
+
+    def test_prefix_docs_and_dispatch_are_consistent(self):
+        main = (ROOT / 'main.py').read_text()
+        events = (MODULES / 'core_events.py').read_text()
+        self.assertIn('command_prefix="!"', main)
+        self.assertIn('Use `!command`', events)
+        self.assertIn("Prefix commands are intentionally !-only", events)
+        self.assertIn('name="balance",aliases=["bal","wallet"]', events)
+
+    def test_fishing_decisions_can_snap_line_or_lose_fish(self):
+        ns = pick('wildlands_fishing_game.py', {'_fg_move'})
+        step = ns['_fg_move']
+        tension = 48
+        # Aggressive repeated reels raise tension; the game has a snap threshold.
+        for move in (0, 1, 2, 0, 1):
+            tension, _ = step(tension, 0, move, 'reel')
+        self.assertGreaterEqual(tension, 90)
+        game = (MODULES / 'wildlands_fishing_game.py').read_text()
+        self.assertIn("state['tension'] >= 90", game)
+        self.assertIn("Your fishing line went still", game)
+        self.assertIn("The fish escaped!", game)
+
