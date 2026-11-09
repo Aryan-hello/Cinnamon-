@@ -228,32 +228,60 @@ async def _cmem_resolve(gid, ticket_id, approve):
         return True, "Correction approved." if approve else "Correction declined."
 
 
+
 async def _cmem_maybe_handle(message, clean_content):
     if not message.guild:
         return False
     text = str(clean_content or "").strip()
-    if _cmem_re.search(r"\b(?:what do you remember about me|show my memories|forget everything about me)\b", text, _cmem_re.I):
-        await message.reply(
-            "🐈 Your notes are private! Use `/cinnamon-memory view` to inspect, "
-            "`/cinnamon-memory edit` to correct, or `/cinnamon-memory clear` to erase them.",
-            mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+    reply = message.reply
+    mentions = discord.AllowedMentions.none()
+    gid, uid = message.guild.id, message.author.id
+
+    if _cmem_re.search(r"\b(?:turn|switch|disable|stop)\s+(?:my\s+)?memory\s+(?:off|disable)|\bforget\s+everything\s+about\s+me\b", text, _cmem_re.I):
+        saved = await _cmem_set_enabled(gid, uid, False)
+        await reply(
+            "🔒 Your memory was turned off and your saved notes were cleared."
+            if saved else "⚠️ Storage didn't confirm the memory change. I haven't claimed it was cleared.",
+            mention_author=False, allowed_mentions=mentions)
         return True
+    if _cmem_re.search(r"\b(?:turn|switch|enable|start)\s+(?:my\s+)?memory\s+(?:on|enable)\b", text, _cmem_re.I):
+        saved = await _cmem_set_enabled(gid, uid, True)
+        await reply("🧠 Your personal memory is enabled." if saved else
+                    "⚠️ Storage didn't confirm the memory change; please try again.",
+                    mention_author=False, allowed_mentions=mentions)
+        return True
+    if _cmem_re.search(r"\b(?:clear|delete|erase)\s+my\s+(?:saved\s+)?(?:notes|memories|memory)\b", text, _cmem_re.I):
+        success, result = await _cmem_remove(gid, uid)
+        await reply(result if success else "⚠️ Storage didn't confirm the deletion. " + str(result),
+                    mention_author=False, allowed_mentions=mentions)
+        return True
+    if _cmem_re.search(r"\bforget\s+my\s+(?:saved\s+)?(?:preference|note)\b", text, _cmem_re.I):
+        await reply("Which note do you mean? I won't delete everything from an ambiguous request. "
+                    "Use /cinnamon-memory view to choose a note or /cinnamon-memory forget.",
+                    mention_author=False, allowed_mentions=mentions)
+        return True
+    if _cmem_re.search(r"\b(?:edit|change|correct|update)\s+my\s+(?:saved\s+)?(?:preferences|notes|memory)\b", text, _cmem_re.I):
+        await reply("Use /cinnamon-memory edit to correct a note safely.",
+                    mention_author=False, allowed_mentions=mentions)
+        return True
+    if _cmem_re.search(r"\b(?:show|view|list)\s+my\s+(?:saved\s+)?(?:notes|memories|preferences)\b", text, _cmem_re.I):
+        await reply("Your notes are private. Use /cinnamon-memory view for an ephemeral list.",
+                    mention_author=False, allowed_mentions=mentions)
+        return True
+
     try:
         pref = _cmem_parse(text)
     except _CMEM_ERROR as exc:
-        await message.reply(
-            "🐾 " + str(exc), mention_author=False,
-            allowed_mentions=discord.AllowedMentions.none())
+        await reply("🐾 " + str(exc), mention_author=False, allowed_mentions=mentions)
         return True
     if pref is None:
         return False
-    note, error = await _cmem_save(message.guild.id, message.author.id,
-                                   pref.category, pref.detail)
-    await message.reply(
+    note, error = await _cmem_save(gid, uid, pref.category, pref.detail)
+    await reply(
         "🐱 " + error if error else
         f"🐈 Saved a {pref.category} preference! View or delete it privately "
-        "with `/cinnamon-memory view` or `/cinnamon-memory forget`. I only save what you explicitly ask me to keep.",
-        mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        f"with /cinnamon-memory view or /cinnamon-memory forget. I only save what you explicitly ask me to keep.",
+        mention_author=False, allowed_mentions=mentions)
     return True
 
 
