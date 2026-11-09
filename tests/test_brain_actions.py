@@ -4,7 +4,7 @@ import unittest
 
 from cinnamon_modules.brain_actions import (
     ACTION_REGISTRY, CONFIRM_SECONDS, MAX_CATNIP, MAX_TIMEOUT_SECONDS,
-    SOURCE_MAX_AGE_SECONDS, ActionProposal, ActionValidationError, TrustedRequest,
+    SOURCE_MAX_AGE_SECONDS, ActionBatch, ActionProposal, ActionValidationError, TrustedRequest,
     parse_action, validate_proposal, validate_request,
 )
 
@@ -30,6 +30,18 @@ class ActionRecognitionTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(self.parse(text),
                                  ActionProposal("economy.add_catnip", MEMBER, amount=20000))
+        # Natural chat shorthand must normalize to exact integer Catnip.
+        for amount, expected in (("20k", 20000), ("1.5k", 1500), ("2m", 2000000)):
+            with self.subTest(amount=amount):
+                if expected > MAX_CATNIP:
+                    with self.assertRaises(ActionValidationError):
+                        self.parse(f"add {amount} Catnip to <@{MEMBER}>")
+                else:
+                    self.assertEqual(
+                        self.parse(f"add {amount} catnip to <@{MEMBER}>"),
+                        ActionProposal("economy.add_catnip", MEMBER, amount=expected))
+        self.assertEqual(self.parse(f"add 20k catnip to <@{MEMBER}>"),
+                         ActionProposal("economy.add_catnip", MEMBER, amount=20000))
         self.assertEqual(self.parse(f"remove 500 Catnip from <@{MEMBER}>"),
                          ActionProposal("economy.remove_catnip", MEMBER, amount=500))
         self.assertEqual(self.parse(f"take 500 catnip from <@{MEMBER}>"),
@@ -93,6 +105,17 @@ class ActionRecognitionTests(unittest.TestCase):
             with self.subTest(text=text):
                 with self.assertRaises(ActionValidationError):
                     self.parse(text)
+
+    def test_compound_catnip_for_multiple_members_and_timeout(self):
+        third = 423456789012345678
+        text = f"add 2k catnip to <@{MEMBER}> and <@{OTHER}> and mute <@{third}> for 10 minutes"
+        result = self.parse(text, mentions=[MEMBER, OTHER, third])
+        self.assertIsInstance(result, ActionBatch)
+        self.assertEqual(result.actions, (
+            ActionProposal("economy.add_catnip", MEMBER, amount=2000),
+            ActionProposal("economy.add_catnip", OTHER, amount=2000),
+            ActionProposal("moderation.timeout", third, seconds=600),
+        ))
 
     def test_invalid_amounts_and_grouping(self):
         for amount in ("0", "-1", "+1", "1.0", "20,00", "1,00,000", "0,100",

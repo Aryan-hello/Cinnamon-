@@ -12,7 +12,7 @@ import re as _ca_re
 import time as _ca_time
 
 from cinnamon_modules.brain_actions import (
-    ActionProposal, ActionValidationError, parse_action, validate_proposal,
+    ActionProposal, ActionBatch, ActionValidationError, parse_action, validate_proposal,
     MAX_CATNIP, CONFIRM_SECONDS, SOURCE_MAX_AGE_SECONDS,
     RECEIPT_RETENTION_SECONDS,
 )
@@ -484,6 +484,145 @@ class _CAConfirm(discord.ui.View):
             await interaction.response.edit_message(content="Cancelled. No action taken.", embed=None, view=None)
 
 
+
+
+class _CABatchConfirm(discord.ui.View):
+    """One explicit confirmation for a bounded compound action request."""
+    def __init__(self, gid, requester_id, proposals, *, source_id, channel_id):
+        super().__init__(timeout=CONFIRM_SECONDS)
+        self.gid, self.requester_id = gid, requester_id
+        self.proposals, self.source_id, self.channel_id = tuple(proposals), source_id, channel_id
+        self.used = False
+        self.state = "pending"
+        self.expires_at = _ca_time.monotonic() + CONFIRM_SECONDS
+        self.lock = _ca_asyncio.Lock()
+        self.message = None
+
+    async def interaction_check(self, interaction):
+        if not interaction.guild or interaction.guild.id != self.gid or interaction.user.id != self.requester_id:
+            await interaction.response.send_message("Only the original requester can confirm this batch.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Confirm all actions", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction, button):
+        if not await self.interaction_check(interaction):
+            return
+        async with self.lock:
+            if self.used or _ca_time.monotonic() >= self.expires_at:
+                self.used = True
+                return await interaction.response.send_message("This batch expired or was already handled.", ephemeral=True)
+            self.used = True
+            self.state = "executing"
+            await interaction.response.defer(ephemeral=True)
+            guild = interaction.guild
+            results = []
+            # Sequential execution gives every action its own fresh authorization
+            # and durable receipt. A failure stops the batch; completed items
+            # are reported honestly and are never silently rolled back.
+            for index, item in enumerate(self.proposals, 1):
+                try:
+                    await _ca_refresh_roles(guild)
+                    actor = await _ca_fresh_member(guild, self.requester_id)
+                    target = await _ca_fresh_member(guild, item.target_user_id)
+                    me = await _ca_fresh_member(guild, guild.me.id)
+                    channel = await guild.fetch_channel(self.channel_id)
+                    problem = _ca_permission_reason(guild, actor, target, item.action, me=me)
+                    perms = channel.permissions_for(me)
+                    if (not _ca_settings(self.gid).get("enabled", False)
+                            or self.channel_id in disabled_channels[self.gid]
+                            or not perms.view_channel or not perms.send_messages):
+                        problem = "Conversational actions or channel access changed."
+                    if problem:
+                        results.append(f"{index}. {target.display_name}: BLOCKED — {problem}")
+                        break
+                    if item.action.startswith("economy."):
+                        result = await _ca_adjust_catnip(
+                            self.gid, actor.id, target.id, item.amount, True,
+                            f"chat:{self.source_id}:batch:{index}:{target.id}",
+                            conversational=True, channel_id=self.channel_id)
+                        if result["status"] != "committed":
+                            results.append(f"{index}. {target.display_name}: {result['status']} — {result.get('reason','not committed')}")
+                            break
+                        results.append(f"{index}. Added {result['actual']:,} Catnip to {target.display_name}.")
+                    else:
+                        receipt = f"{self.gid}:chat:{self.source_id}:batch:{index}:{target.id}"
+                        record = {"guild_id": self.gid, "requester_id": actor.id,
+                                  "target_id": target.id, "action": item.action,
+                                  "seconds": item.seconds, "at": _ca_time.time(),
+                                  "outcome": "executing", "source_id": str(self.source_id)}
+                        saved = await _ca_record_moderation(self.gid, receipt, record, initial=True)
+                        if not saved or saved.status != "committed":
+                            results.append(f"{index}. {target.display_name}: receipt unavailable; not attempted.")
+                            break
+                        # Refresh authorization once more after durable intent.
+                        await _ca_refresh_roles(guild)
+                        actor = await _ca_fresh_member(guild, self.requester_id)
+                        target = await _ca_fresh_member(guild, item.target_user_id)
+                        me = await _ca_fresh_member(guild, guild.me.id)
+                        problem = _ca_permission_reason(guild, actor, target, item.action, me=me)
+                        if problem:
+                            await _ca_record_moderation(self.gid, receipt, dict(record, outcome="refused"))
+                            results.append(f"{index}. {target.display_name}: BLOCKED — {problem}")
+                            break
+                        deadline = _ca_datetime.datetime.now(_ca_datetime.timezone.utc) + _ca_datetime.timedelta(seconds=item.seconds)
+                        try:
+                            await target.timeout(deadline, reason=f"Cinnamon confirmed batch; requester {actor.id}; receipt {receipt}")
+                            outcome = "committed"
+                            results.append(f"{index}. Timed out {target.display_name} for {item.seconds//60}m {item.seconds%60}s.")
+                        except discord.Forbidden:
+                            outcome = "failed"
+                            results.append(f"{index}. Discord refused timeout for {target.display_name}.")
+                        except (discord.HTTPException, _ca_asyncio.TimeoutError, OSError):
+                            outcome = "uncertain"
+                            results.append(f"{index}. Timeout result for {target.display_name} is uncertain; check audit log.")
+                        await _ca_record_moderation(self.gid, receipt, dict(record, outcome=outcome))
+                        if outcome != "committed":
+                            break
+                except (discord.HTTPException, AttributeError, OSError) as exc:
+                    results.append(f"{index}. Stopped: server verification/storage error ({type(exc).__name__}).")
+                    break
+            report = "\n".join(results)
+            self.state = "completed"
+            self.stop()
+            if _CA_PENDING.get((self.gid, self.requester_id)) is self:
+                _CA_PENDING.pop((self.gid, self.requester_id), None)
+            try:
+                await interaction.message.edit(content="Batch result:\n"+report, embed=None, view=None,
+                                             allowed_mentions=discord.AllowedMentions.none())
+            except discord.HTTPException:
+                pass
+            await interaction.followup.send(report or "No actions were executed.", ephemeral=True,
+                                          allowed_mentions=discord.AllowedMentions.none())
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, button):
+        if not await self.interaction_check(interaction):
+            return
+        async with self.lock:
+            if self.used:
+                return await interaction.response.send_message("This batch was already handled.", ephemeral=True)
+            self.used = True
+            self.state = "cancelled"
+            self.stop()
+            if _CA_PENDING.get((self.gid, self.requester_id)) is self:
+                _CA_PENDING.pop((self.gid, self.requester_id), None)
+            await interaction.response.edit_message(content="Batch cancelled. No actions taken.", embed=None, view=None)
+
+    async def on_timeout(self):
+        if self.used:
+            return
+        self.used = True
+        self.state = "expired"
+        if _CA_PENDING.get((self.gid, self.requester_id)) is self:
+            _CA_PENDING.pop((self.gid, self.requester_id), None)
+        if self.message:
+            try:
+                await self.message.edit(content="Batch confirmation expired. No action taken.", embed=None, view=None)
+            except discord.HTTPException:
+                pass
+
+
 async def _ca_maybe_handle(message, clean_content):
     """Consume actions before model generation; never parse generated prose."""
     if not message.guild or not isinstance(message.author, discord.Member):
@@ -510,14 +649,18 @@ async def _ca_maybe_handle(message, clean_content):
     async def refuse(text):
         await message.reply("🐾 " + text, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
     gid = message.guild.id
-    target = message.guild.get_member(proposal.target_user_id)
-    if not target:
-        await refuse("I can't find that member in this server.")
-        return True
-    problem = _ca_permission_reason(message.guild, message.author, target, proposal.action)
-    if problem:
-        await refuse(problem)
-        return True
+    proposals = proposal.actions if isinstance(proposal, ActionBatch) else (proposal,)
+    targets = []
+    for item in proposals:
+        target = message.guild.get_member(item.target_user_id)
+        if not target:
+            await refuse(f"I can't find member <@{item.target_user_id}> in this server.")
+            return True
+        problem = _ca_permission_reason(message.guild, message.author, target, item.action)
+        if problem:
+            await refuse(f"<@{target.id}>: {problem}")
+            return True
+        targets.append(target)
     if not _ca_settings(gid).get("enabled", False):
         await refuse("Conversational actions are switched off. An Administrator can enable them with `/cinnamon-mind actions`. Existing slash commands are available.")
         return True
@@ -545,6 +688,23 @@ async def _ca_maybe_handle(message, clean_content):
     if pending and (pending.state == "executing" or (pending.state == "pending" and pending.expires_at > now)):
         await refuse("Finish or cancel your existing confirmation first.")
         return True
+    if isinstance(proposal, ActionBatch):
+        view = _CABatchConfirm(gid, message.author.id, proposals, source_id=message.id,
+                               channel_id=message.channel.id)
+        summary = "\n".join(
+            f"• {_ca_action_label(item.action, item.seconds, item.amount)} — <@{item.target_user_id}>"
+            for item in proposals)
+        card = discord.Embed(title="🐈 Cinnamon · Confirm all actions",
+            description=f"{summary}\n\n**All actions are listed above.** Nothing happens until you confirm.",
+            color=0xD97732)
+        card.set_footer(text="One confirmation for the complete batch · expires in 60 seconds")
+        view.message = await message.reply(embed=card, view=view, mention_author=False,
+                                          allowed_mentions=discord.AllowedMentions.none())
+        _CA_PENDING[key] = view
+        _CA_RECENT_SOURCES[source] = now + SOURCE_MAX_AGE_SECONDS
+        return True
+
+    target = targets[0]
     before = economy_balance(gid, target.id) if proposal.action.startswith("economy.") else None
     if proposal.action == "economy.remove_catnip" and before < proposal.amount:
         await refuse(f"That member has {before:,} Catnip. Request an amount within that balance.")

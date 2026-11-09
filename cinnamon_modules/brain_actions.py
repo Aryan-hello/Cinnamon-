@@ -9,6 +9,7 @@ history, quoted examples, or external documents back into this parser.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 import math
 import re
 from types import MappingProxyType
@@ -36,6 +37,11 @@ class ActionProposal:
     target_user_id: int
     amount: int = 0
     seconds: int = 0
+
+
+@dataclass(frozen=True)
+class ActionBatch:
+    actions: tuple[ActionProposal, ...]
 
 
 @dataclass(frozen=True)
@@ -131,7 +137,7 @@ _FLAGS = re.IGNORECASE | re.ASCII
 _MENTION = r"<@!?[0-9]{15,22}>"
 _RELATIVE = r"(?:this|that)\s+(?:member|user|person)"
 _MOD_TARGET = rf"(?:{_MENTION}|{_RELATIVE})"
-_QUANTITY = r"[+-]?[0-9][0-9,]*(?:\.[0-9]+)?"
+_QUANTITY = r"[+-]?(?:[0-9]+(?:,[0-9]{3})*|[0-9]+(?:\.[0-9]+)?)(?:[kKmM])?"
 _END = r"\s*[.!?]?\s*"
 _UNIT = r"(?:seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d)"
 _TIMEOUT = re.compile(
@@ -170,15 +176,23 @@ def _wake_text(text: str) -> str:
 
 
 def _number(text: str, *, limit: int, label: str) -> int:
-    if not (re.fullmatch(r"[0-9]+", text)
-            or re.fullmatch(r"[1-9][0-9]{0,2}(?:,[0-9]{3})+", text)):
+    raw = text.strip()
+    suffix = raw[-1:].lower() if raw[-1:].lower() in {"k", "m"} else ""
+    number = raw[:-1] if suffix else raw
+    if not (re.fullmatch(r"[0-9]+", number)
+            or re.fullmatch(r"[1-9][0-9]{0,2}(?:,[0-9]{3})+", number)
+            or re.fullmatch(r"[0-9]+\.[0-9]+", number)):
         raise ActionValidationError(f"Use a positive whole {label}; commas must group thousands.",
                                     code="invalid_number")
-    digits = text.replace(",", "")
-    if len(digits) > len(str(limit)) or not 1 <= int(digits) <= limit:
+    try:
+        value = Decimal(number.replace(",", ""))
+        value *= 1000 if suffix == "k" else 1_000_000 if suffix == "m" else 1
+    except InvalidOperation:
+        raise ActionValidationError(f"The {label} is invalid.", code="invalid_number")
+    if value != value.to_integral_value() or not 1 <= value <= limit:
         raise ActionValidationError(f"The {label} is outside the supported chat limit.",
                                     code="invalid_number")
-    return int(digits)
+    return int(value)
 
 
 def _target(text: str, *, requester_id: int, target_ids: Sequence[int],
@@ -205,7 +219,7 @@ def _target(text: str, *, requester_id: int, target_ids: Sequence[int],
 
 
 def parse_action(text: str, *, requester_id: int, target_ids: Sequence[int],
-                 reply_target_id: int | None = None) -> ActionProposal | None:
+                 reply_target_id: int | None = None) -> ActionProposal | ActionBatch | None:
     """Recognize one complete direct instruction, or return ``None`` for chat.
 
     ``target_ids`` must be the actual user mentions excluding Cinnamon's own
@@ -229,15 +243,37 @@ def parse_action(text: str, *, requester_id: int, target_ids: Sequence[int],
             "Chat kick/ban actions are paused pending security review. "
             "Use the existing /kick or /ban slash command with its required permissions.",
             code="unsupported_action")
-    # Normalize only the *classification* probe so a split action cannot fall
-    # through to chat. The original input remains subject to the single-line
-    # rule and is the only input ever used for proposal recognition.
     action_probe = re.sub(r"[\r\n]+", " ", clean)
     if not clean or not _ACTION_LIKE.match(action_probe):
         return None
     if "\n" in clean or "\r" in clean or len(clean) > 2000:
         raise ActionValidationError("Send one short action request on a single line.",
                                     code="invalid_request")
+
+    # Closed compound grammar: add one amount to >=2 explicit mentions, then mute one.
+    batch = re.fullmatch(
+        rf"add\s+(?P<amount>{_QUANTITY})\s+catnip\s+to\s+"
+        rf"(?P<targets>{_MENTION}(?:\s*(?:,|and)\s*{_MENTION})*)"
+        rf"\s*(?:,?\s+and\s+)?mute\s+(?P<mod>{_MENTION})"
+        rf"\s+for\s+(?P<duration>{_QUANTITY})\s*(?P<unit>{_UNIT})[.!?]?",
+        clean, _FLAGS)
+    if batch:
+        mentioned = [int(x) for x in re.findall(r"<@!?([0-9]{15,22})>", batch["targets"])]
+        all_ids = [int(x) for x in re.findall(r"<@!?([0-9]{15,22})>", clean)]
+        if len(mentioned) < 2 or len(set(mentioned)) != len(mentioned):
+            raise ActionValidationError("List at least two different Catnip recipients.", code="ambiguous_target")
+        if sorted(all_ids) != sorted(set(target_ids)) or len(all_ids) != len(set(all_ids)):
+            raise ActionValidationError("Every target must be an explicit, unique member mention.", code="ambiguous_target")
+        amount = _number(batch["amount"], limit=MAX_CATNIP, label="Catnip amount")
+        quantity = _number(batch["duration"], limit=MAX_TIMEOUT_SECONDS, label="timeout duration")
+        unit = batch["unit"].lower()
+        multiplier = (1 if unit.startswith("s") else 60 if unit.startswith("m")
+                      else 3600 if unit.startswith("h") else 86400)
+        seconds = quantity * multiplier
+        actions = tuple(ActionProposal("economy.add_catnip", uid, amount=amount) for uid in mentioned)
+        actions += (ActionProposal("moderation.timeout", int(batch["mod"].strip("<@!>")),
+                                  seconds=seconds),)
+        return ActionBatch(tuple(validate_proposal(x) for x in actions))
 
     for expression, action in (
         (_ADD, "economy.add_catnip"), (_GIVE, "economy.add_catnip"),
@@ -261,6 +297,6 @@ def parse_action(text: str, *, requester_id: int, target_ids: Sequence[int],
             seconds = quantity * multiplier
         return validate_proposal(ActionProposal(action, target, amount, seconds))
     raise ActionValidationError(
-        "I need one exact supported request: add/remove Catnip for one mentioned member, "
+        "I couldn't parse that safely. Try 'add 20k Catnip to @member' or 'remove 500 Catnip from @member'. "
         "or timeout/unmute one member. Use /help for other commands.",
         code="unsupported_request")
