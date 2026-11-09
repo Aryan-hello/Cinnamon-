@@ -48,3 +48,21 @@ def prompt_guidance(style: object = "balanced", teasing: object = True) -> str:
              "never target vulnerabilities or appearance." if teasing else
              "Avoid teasing this member; be warm and respectful.")
     return f"Member's chosen response style: {guide}\n{tease}"
+
+SERVER_STYLES = ("classic", "extra_playful", "gentle", "formal")
+
+
+def validate_server_style(value: object) -> str:
+    if not isinstance(value, str) or value.strip().lower() not in SERVER_STYLES:
+        raise ValueError("Choose one of: " + ", ".join(SERVER_STYLES))
+    return value.strip().lower()
+
+
+def server_prompt_guidance(value: object = "classic") -> str:
+    style = validate_server_style(value)
+    return {
+        "classic": "Keep Cinnamon's established mischievous, warm cat identity.",
+        "extra_playful": "Use extra playful energy and silly cat humor when the context is casual.",
+        "gentle": "Use a softer, more patient and encouraging voice.",
+        "formal": "Use clearer, more composed language while remaining recognizably Cinnamon.",
+    }[style]
