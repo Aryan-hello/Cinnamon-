@@ -1,8 +1,8 @@
-"""Cinnamon Wildlands: The Treasure Worth Billions — interactive story.
+"""Cinnamon Adventures: The Treasure Worth Billions — interactive story.
 
 Loaded *after* wildlands_fishing.py by main.py. The shared
 advanced_features_data/Upstash snapshot stores story progress separately from
-existing fishing inventories and older Wildlands saves. Story UI is ephemeral,
+existing fishing inventories and older Adventure saves. Story UI is ephemeral,
 with a fresh session available through /cinnamon stories after view expiration.
 """
 
@@ -467,11 +467,11 @@ def _wls_player(guild_id, user_id):
 
 
 def _wls_embed(interaction, title, body):
-    """Shared Wildlands look: high-contrast title and concise readable sections."""
+    """Shared Adventure look: high-contrast title and concise readable sections."""
     embed = discord.Embed(title=('📖 ' + str(title))[:256],
                           description=str(body)[:3800], color=0xD97732)
     embed.set_author(name="🐈 CINNAMON · THE BILLION-CATNIP MYSTERY")
-    embed.set_footer(text="Wildlands • Your decisions are saved • /wildlands story-journal")
+    embed.set_footer(text="Adventure • Your decisions are saved • /adventure story-journal")
     return embed
 
 
@@ -575,10 +575,10 @@ class _WLSChoiceView(discord.ui.View):
                         rec['complete']=True
                         await bd_save_data()
                 try:
-                    await economy_log(g,title='🏆 Cinnamon Wildlands story completed',fields=[
+                    await economy_log(g,title='🏆 Cinnamon Adventures story completed',fields=[
                         ('Member ID',u),('Reward Catnip',_WLS_REWARD),('Story','The Treasure Worth Billions')])
                 except Exception:
-                    log.exception('Wildlands story reward saved; achievement log failed')
+                    log.exception('Cinnamon story reward saved; achievement log failed')
             else:
                 rec['complete']=True
             access=await _wlf_award_story_access(interaction, kind='bait', guild_id=g)
@@ -687,7 +687,7 @@ class _WLSStorySelect(discord.ui.View):
             await interaction.response.send_message("This story menu belongs to another player.", ephemeral=True)
             return False
         return True
-    @discord.ui.button(label="Start / Continue Wildlands Mystery", emoji="📖", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Start / Continue Cinnamon Mystery", emoji="📖", style=discord.ButtonStyle.success)
     async def begin(self, interaction, button):
         rec = _wls_player(self.guild_id, self.owner_id)
         await _wls_private_scene(interaction, rec, _WLSChoiceView(self.owner_id, self.index, self.branch, self.guild_id), replace_original=True)
@@ -706,12 +706,12 @@ async def wildlands_story(interaction:discord.Interaction):
             'You have permanent access to the Fishing Bait Merchant!'),ephemeral=True)
         return
     idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
-    label = "Continue your saved mystery" if idx > 0 or rec.get('branch') else "Begin the Wildlands Mystery"
+    label = "Continue your saved mystery" if idx > 0 or rec.get('branch') else "Begin the Cinnamon Mystery"
     await interaction.response.send_message(embed=_wls_embed(interaction,'📚 Cinnamon Stories',
-        f"**🐈 The Wildlands Mystery**\n{label}\n\nYour progress is saved automatically. Choose below when you're ready."),
+        f"**🐈 The Cinnamon Mystery**\n{label}\n\nYour progress is saved automatically. Choose below when you're ready."),
         view=_WLSStorySelect(interaction.user.id,interaction.guild.id,idx,rec.get('branch')),ephemeral=True)
 
-@wildlands_art_group.command(name='story-restart', description='Replay the Wildlands mystery from the beginning; one-time reward stays claimed')
+@wildlands_art_group.command(name='story-restart', description='Replay the Adventure mystery from the beginning; one-time reward stays claimed')
 @app_commands.describe(confirm='Set True to reset your story decisions and start again')
 @app_commands.guild_only()
 async def wildlands_story_restart(interaction: discord.Interaction, confirm: bool = False):
@@ -719,7 +719,7 @@ async def wildlands_story_restart(interaction: discord.Interaction, confirm: boo
         return await interaction.response.send_message(
             '🐈 Restarting wipes your CURRENT story decisions, clues and relationships. '
             'Your completed reward and fishing gear stay safe. '
-            'Run /wildlands story-restart with confirm=True when ready.',
+            'Run /adventure story-restart with confirm=True when ready.',
             ephemeral=True)
     old = _wls_player(interaction.guild.id, interaction.user.id)
     was_paid = bool(old.get('reward_paid'))
@@ -759,8 +759,8 @@ async def wildlands_story_journal(interaction:discord.Interaction):
 async def wildlands_story_help(interaction:discord.Interaction):
     await interaction.response.send_message(embed=_wls_embed(interaction,'🐈 The Rules (As Written by a Cat)',
         '**Play:** `/cinnamon stories` to begin or resume; select dialogue and puzzle choices with buttons.\n'
-        '**Replay:** `/wildlands story-restart confirm:True` resets only the story route, not the one-time payout or fishing gear.\n'
-        '**Track:** `/wildlands story-journal`. Branches, relationships and negotiated deals influence later scenes. Bad puzzle guesses do not lose progress.\n'
+        '**Replay:** `/adventure story-restart confirm:True` resets only the story route, not the one-time payout or fishing gear.\n'
+        '**Track:** `/adventure story-journal`. Branches, relationships and negotiated deals influence later scenes. Bad puzzle guesses do not lose progress.\n'
         '**Merchants:** Staff can open each merchant publicly for **2 hours** using `/fishing merchant-access`. Completing The Treasure Worth Billions permanently unlocks the Bait Merchant; School Incident will unlock the Rod Merchant.\n'
         '**Finder bonus:** 10% of other players’ purchases made inside the open shop channel. The bonus is extra Catnip, not a surcharge.\n'
         '**Forever access:** Finish The Treasure Worth Billions for permanent Bait Merchant access. School Incident will grant permanent Rod Merchant access.\n'
