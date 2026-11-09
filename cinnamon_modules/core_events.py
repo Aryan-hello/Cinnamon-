@@ -1287,7 +1287,7 @@ async def prefix_reactionrole_remove(ctx, role: discord.Role):
 @commands.guild_only()
 @commands.has_guild_permissions(administrator=True)
 async def prefix_welcome(ctx):
-    await ctx.reply("👋 Use `?welcome set #channel [message]` or `?welcome disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
+    await ctx.reply("👋 Use `!welcome set #channel [message]` or `!welcome disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
 
 
 @prefix_welcome.command(name="set")
@@ -1316,7 +1316,7 @@ async def prefix_welcome_disable(ctx):
 @commands.guild_only()
 @commands.has_guild_permissions(administrator=True)
 async def prefix_goodbye(ctx):
-    await ctx.reply("🚪 Use `?goodbye set #channel [message]` or `?goodbye disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
+    await ctx.reply("🚪 Use `!goodbye set #channel [message]` or `!goodbye disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
 
 
 @prefix_goodbye.command(name="set")
