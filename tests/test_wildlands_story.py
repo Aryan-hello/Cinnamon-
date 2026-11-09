@@ -35,7 +35,7 @@ class StoryTests(unittest.TestCase):
         main=MAIN.read_text()
         self.assertLess(main.index('"cinnamon_adventure_fishing.py"'),main.index('"cinnamon_adventure_story.py"'))
         self.assertNotIn('    "wildlands.py",',main)
-        self.assertIn('    "school_incident.py",',main)
+        self.assertIn('    "cinnamon_incidents.py",',main)
 
     def test_merchant_window_and_finder_commission(self):
         state={}
