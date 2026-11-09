@@ -132,7 +132,7 @@ _FLAGS = re.IGNORECASE | re.ASCII
 _MENTION = r"<@!?[0-9]{15,22}>"
 _RELATIVE = r"(?:this|that)\s+(?:member|user|person)"
 _MOD_TARGET = rf"(?:{_MENTION}|{_RELATIVE})"
-_QUANTITY = r"[+-]?[0-9][0-9,]*(?:\.[0-9]+)?"
+_QUANTITY = r"[+-]?(?:[0-9]+(?:,[0-9]{3})*|[0-9]+(?:\.[0-9]+)?)(?:[kKmM])?"
 _END = r"\s*[.!?]?\s*"
 _UNIT = r"(?:seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d)"
 _TIMEOUT = re.compile(
@@ -176,7 +176,7 @@ def _number(text: str, *, limit: int, label: str) -> int:
     number = raw[:-1] if suffix else raw
     if not (re.fullmatch(r"[0-9]+", number)
             or re.fullmatch(r"[1-9][0-9]{0,2}(?:,[0-9]{3})+", number)
-            or re.fullmatch(r"[0-9]+\\.[0-9]+", number)):
+            or re.fullmatch(r"[0-9]+\.[0-9]+", number)):
         raise ActionValidationError(f"Use a positive whole {label}; commas must group thousands.",
                                     code="invalid_number")
     try:
