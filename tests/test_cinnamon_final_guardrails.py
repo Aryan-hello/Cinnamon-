@@ -101,7 +101,7 @@ class FinalPreDeploymentTests(unittest.TestCase):
     def test_dashboard_real_controls_and_protected_actions(self):
         dashboard=(ROOT/"dashboard.py").read_text(encoding="utf8")
         runtime=source("dashboard_runtime.py")
-        for name in ("_mind(", "_wildlands(", "mind_settings", "merchant_access",
+        for name in ("_mind(", "_adventure(", "mind_settings", "merchant_access",
                      "economy_transfer", "_get_access(", "_check_csrf()",
                      "_member_select(", "_channel_select("):
             self.assertIn(name,dashboard)
