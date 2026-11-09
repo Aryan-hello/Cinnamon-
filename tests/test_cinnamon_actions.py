@@ -100,7 +100,7 @@ class SafeCinnamonActionsTests(unittest.TestCase):
         dash=(ROOT/"dashboard.py").read_text(encoding="utf8")
         self.assertLess(main.index('"cinnamon_personality.py"'),main.index('"cinnamon_actions.py"'))
         self.assertIn('_ca_maybe_handle',core)
-        self.assertIn("for route in plan.route_order",core)
+        self.assertIn("for route in routes",core)
         self.assertIn("plan_intent(clean_content)",core)
         self.assertIn("await _ca_maybe_prank(message)",core)
         self.assertIn("authorize_dashboard_edit",dash)
