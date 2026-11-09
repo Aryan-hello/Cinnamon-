@@ -39,7 +39,7 @@ def build_brain_health(*, storage_ready: bool, model_configured: bool,
         ready = bool(modules.get(key, False))
         checks.append(HealthCheck(label, ready, "loaded" if ready else "missing"))
     duplicates = duplicate_commands or {}
-    checks.append(HealthCheck("Slash command names", not duplicates,
-                              "no duplicate top-level names" if not duplicates else
-                              "duplicates: " + ", ".join(f"{k}×{v}" for k, v in sorted(duplicates.items())))
+    duplicate_detail = ("no duplicate top-level names" if not duplicates else
+                         "duplicates: " + ", ".join(f"{k}×{v}" for k, v in sorted(duplicates.items())))
+    checks.append(HealthCheck("Slash command names", not duplicates, duplicate_detail))
     return tuple(checks)
