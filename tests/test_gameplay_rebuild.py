@@ -25,7 +25,7 @@ def pick(path, definitions, assignments=(), extra=None):
 
 class ChoiceBehavior(unittest.TestCase):
     def game(self):
-        return pick('wildlands_story.py',
+        return pick('cinnamon_adventure_story.py',
                     {'_wls_scene', '_wls_apply_choice', '_wls_echo'},
                     {'_WLS_SCENES', '_WLS_BRANCHES', '_WLS_ENTRY', '_WLS_NEXT', '_WLS_EFFECTS'})
 
@@ -95,15 +95,15 @@ class ChoiceBehavior(unittest.TestCase):
 
 class FishingBehavior(unittest.TestCase):
     def test_skill_turns_are_not_cosmetic(self):
-        ns = pick('wildlands_fishing_game.py', {'_fg_move'})
+        ns = pick('cinnamon_fishing_game.py', {'_fg_move'})
         step = ns['_fg_move']
         self.assertLess(step(48, 0, 0, 'give')[0], step(48, 0, 0, 'reel')[0])
         self.assertGreater(step(48, 0, 1, 'reel')[1], step(48, 0, 1, 'give')[1])
         self.assertGreater(step(48, 0, 2, 'steady')[1], step(48, 0, 2, 'reel')[1])
 
     def test_no_fishing_cooldown_after_session_finishes(self):
-        active = (MODULES / 'wildlands_fishing_game.py').read_text()
-        legacy = (MODULES / 'wildlands_fishing.py').read_text()
+        active = (MODULES / 'cinnamon_fishing_game.py').read_text()
+        legacy = (MODULES / 'cinnamon_adventure_fishing.py').read_text()
         self.assertNotIn('next_cast', active)
         # These are allowed only as a backward-compatible saved-state default.
         self.assertNotIn('now + 30', active)
@@ -115,15 +115,15 @@ class FishingBehavior(unittest.TestCase):
         self.assertIn('_wlf_random.randint(10, 20)', active)
 
     def test_discord_state_machine_and_module_order(self):
-        text = (MODULES / 'wildlands_fishing_game.py').read_text()
+        text = (MODULES / 'cinnamon_fishing_game.py').read_text()
         self.assertIn('_wlf_random.randint(10, 20)', text)
         self.assertIn("state['phase'] = self.phase = 'bite'", text)
         self.assertIn("state['phase'] = self.phase = 'fight'", text)
         self.assertIn("p['bait'][self.bait] -= 1", text)
         self.assertIn("@_wlf_group.command(name='cast'", text)
         main = (ROOT / 'main.py').read_text()
-        self.assertLess(main.index('"wildlands_fishing.py"'), main.index('"wildlands_fishing_game.py"'))
-        self.assertLess(main.index('"wildlands_fishing_game.py"'), main.index('"wildlands_story.py"'))
+        self.assertLess(main.index('"cinnamon_adventure_fishing.py"'), main.index('"cinnamon_fishing_game.py"'))
+        self.assertLess(main.index('"cinnamon_fishing_game.py"'), main.index('"cinnamon_adventure_story.py"'))
 
 
 class FeedingBehavior(unittest.TestCase):
@@ -165,8 +165,8 @@ if __name__ == '__main__':
 
 class CinnamonRepairAndSelection(unittest.TestCase):
     def test_rod_repair_is_nested_craft_and_consumes_string(self):
-        fishing = (MODULES / 'wildlands_fishing.py').read_text()
-        game = (MODULES / 'wildlands_fishing_game.py').read_text()
+        fishing = (MODULES / 'cinnamon_adventure_fishing.py').read_text()
+        game = (MODULES / 'cinnamon_fishing_game.py').read_text()
         main = (ROOT / 'main.py').read_text()
         self.assertIn('Group(name="craft"', fishing)
         self.assertIn('@_craft_group.command(name="repair_rod"', fishing)
@@ -176,7 +176,7 @@ class CinnamonRepairAndSelection(unittest.TestCase):
         self.assertIn("p.get('rod_broken', False)", game)
 
     def test_story_picker_requires_explicit_selection(self):
-        story = (MODULES / 'wildlands_story.py').read_text()
+        story = (MODULES / 'cinnamon_adventure_story.py').read_text()
         self.assertIn('Choose a Cinnamon adventure', story)
         self.assertIn('Start selected story', story)
         self.assertIn('The Last Treasure Map', story)
@@ -192,14 +192,14 @@ class CinnamonRepairAndSelection(unittest.TestCase):
         self.assertIn('name="balance",aliases=["bal","wallet"]', events)
 
     def test_fishing_decisions_can_snap_line_or_lose_fish(self):
-        ns = pick('wildlands_fishing_game.py', {'_fg_move'})
+        ns = pick('cinnamon_fishing_game.py', {'_fg_move'})
         step = ns['_fg_move']
         tension = 48
         # Aggressive repeated reels raise tension; the game has a snap threshold.
         for move in (0, 1, 2, 0, 1):
             tension, _ = step(tension, 0, move, 'reel')
         self.assertGreaterEqual(tension, 90)
-        game = (MODULES / 'wildlands_fishing_game.py').read_text()
+        game = (MODULES / 'cinnamon_fishing_game.py').read_text()
         self.assertIn("state['tension'] >= 90", game)
         self.assertIn("Your fishing line went still", game)
         self.assertIn("The fish escaped!", game)
