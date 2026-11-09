@@ -172,6 +172,18 @@ def _craft_embed(guild_id, user, recipe_id, quantity=1):
 
 
 async def craft_item(guild_id, user, recipe_id, quantity=1):
+    if recipe_id == 'repair_rod':
+        inv = economy_inventory_for(guild_id, user.id)
+        player = _wlf_player(guild_id, user.id)
+        if not player.get('rod_broken'):
+            return False, '🎣 Your fishing rod is already in working condition.'
+        if int(inv.get('fishing_line', 0)) < 1:
+            return False, '🧵 You need 1 Fishing Line. Buy it from Cinnamon’s Shop first.'
+        inv['fishing_line'] = int(inv['fishing_line']) - 1
+        if inv['fishing_line'] <= 0: inv.pop('fishing_line', None)
+        player['rod_broken'] = False
+        await bd_save_data()
+        return True, '🔧 Fishing rod repaired! You can cast again.'
     recipe = CRAFTING_RECIPES.get(recipe_id)
     if not recipe:
         return False, "❌ I don't know that recipe. Use `/craft` to see the recipes."
