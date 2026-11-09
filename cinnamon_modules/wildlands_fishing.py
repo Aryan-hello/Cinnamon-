@@ -79,6 +79,7 @@ def _wlf_player(guild_id, user_id):
     p.setdefault('areas', ['whispering_woods'])
     p.setdefault('area', 'whispering_woods')
     p.setdefault('rod', 'twig')
+    p.setdefault('rod_broken', False)
     p.setdefault('rods', ['twig'])
     p.setdefault('bait', {'normal': 10})
     p.setdefault('fish', {})
@@ -95,7 +96,7 @@ def _wlf_area(area_id):
 def _wlf_embed(title, description='', *, interaction=None):
     e = discord.Embed(title=str(title)[:256], description=str(description)[:3900],
                       color=_WLF_COLOR)
-    e.set_author(name='🎣 CINNAMON · WILDLANDS FISHING')
+    e.set_author(name='🎣 CINNAMON · FISHING')
     if interaction is not None:
         e.set_footer(text=f'{interaction.guild.name} • Rods · Bait · Six regions · /fishing journal')
     else:
@@ -871,3 +872,38 @@ async def fishing_setup_roles(interaction: discord.Interaction):
 # Only one /fishing slash group. /adventure subgroup commands are appended to
 # the already registered /adventure group and will be synced on next startup.
 bot.tree.add_command(_wlf_group)
+
+# /craft is a command group; repair_rod is its subcommand (not a separate root).
+_craft_group = discord.app_commands.Group(name="craft", description="Craft and repair Cinnamon gear")
+
+@_craft_group.command(name="repair_rod", description="Repair a snapped fishing rod using Fishing String")
+async def _craft_repair_rod(interaction: discord.Interaction):
+    if not interaction.guild:
+        return await interaction.response.send_message("Use this in a server.", ephemeral=True)
+    p = _wlf_player(interaction.guild.id, interaction.user.id)
+    if not p.get("rod_broken", False):
+        return await interaction.response.send_message("Your fishing rod is already in working condition. 🎣", ephemeral=True)
+    inv = economy_inventory_for(interaction.guild.id, interaction.user.id)
+    if int(inv.get("fishing_string", 0)) < 1:
+        return await interaction.response.send_message(
+            "You need **1 Fishing String**. Buy it from the shop, then run /craft repair_rod.",
+            ephemeral=True)
+    inv["fishing_string"] = int(inv["fishing_string"]) - 1
+    if inv["fishing_string"] <= 0:
+        inv.pop("fishing_string", None)
+    p["rod_broken"] = False
+    result = await bd_save_data()
+    if not result:
+        p["rod_broken"] = True
+        inv["fishing_string"] = int(inv.get("fishing_string", 0)) + 1
+        return await interaction.response.send_message(
+            "Repair could not be saved. Your string was returned; try again later.", ephemeral=True)
+    await interaction.response.send_message(
+        "🔧 **Rod repaired!** One Fishing String was used. You're ready to cast again. 🎣",
+        ephemeral=True)
+
+try:
+    bot.tree.add_command(_craft_group)
+except discord.app_commands.CommandAlreadyRegistered:
+    pass
+
