@@ -4,6 +4,11 @@ Read-only summaries of existing member-owned state. No AI inference,
 unsolicited messages, privileged access or new background jobs.
 """
 import datetime as _me_datetime
+from cinnamon_modules.brain_private_qa import (
+    classify_private_question as _me_classify_private_question,
+    build_private_prompt as _me_build_private_prompt,
+    sanitize_private_answer as _me_sanitize_private_answer,
+)
 from cinnamon_modules.brain_member_v2 import (
     due_today as _me_due_today,
     format_timezone_offset as _me_timezone,
@@ -14,6 +19,80 @@ _me_group = app_commands.Group(
     description="Private personal tools and privacy controls for Cinnamon",
 )
 
+
+
+def _me_private_snapshot(guild_id, user_id, scopes):
+    """Build read-only, requester-only sections; never initialize or mutate state."""
+    if not _cb_storage_available():
+        return {scope: {"available": False, "reason": "saved storage is not ready"}
+                for scope in scopes}
+    gid, uid = int(guild_id), int(user_id)
+    result = {}
+    for scope in scopes:
+        if scope == "wallet":
+            balance = economy_balances.get((gid, uid))
+            inventory = economy_inventory.get((gid, uid), {})
+            result[scope] = {
+                "available": balance is not None,
+                "catnip": int(balance) if balance is not None else None,
+                "inventory": {str(k): int(v) for k, v in inventory.items() if int(v) > 0},
+            }
+        elif scope == "progress":
+            xp = int(xp_data.get((gid, uid), 0))
+            member = quest_data.get(gid, {}).get("users", {}).get(str(uid), {})
+            result[scope] = {
+                "available": True, "total_xp": xp,
+                "level": int(level_from_xp(xp)),
+                "quest_points": int(member.get("qp", 0)),
+                "achievements": len(achievement_data.get((gid, uid), []))
+                    if isinstance(achievement_data.get((gid, uid), []), (list, tuple, set)) else None,
+            }
+        elif scope == "reminders":
+            root = advanced_features_data.get("cinnamon_reminders_v1", {})
+            member = root.get(str(gid), {}).get("members", {}).get(str(uid), {})
+            result[scope] = {"available": True, "items": [
+                {"text": str(v.get("text", ""))[:120], "due_at": int(v.get("due_at", 0)),
+                 "status": str(v.get("status", ""))}
+                for v in member.values() if isinstance(v, dict) and v.get("status") == "scheduled"
+            ]}
+        elif scope == "memory":
+            root = advanced_features_data.get("cinnamon_memory_v1", {})
+            member = root.get(str(gid), {}).get("members", {}).get(str(uid), {})
+            enabled = bool(member.get("enabled", True))
+            notes = member.get("notes", []) if enabled else []
+            result[scope] = {"available": True, "enabled": enabled, "note_count": len(notes)}
+        else:
+            result[scope] = {"available": False, "reason": "unsupported scope"}
+    return result
+
+
+def _me_generate_private_answer(question, snapshot):
+    """Generate a bounded answer from only the selected read-only snapshot."""
+    system, prompt = _me_build_private_prompt(question, snapshot)
+    response = gemini_client.models.generate_content(
+        model=GEMINI_MODEL, contents=prompt,
+        config=types.GenerateContentConfig(system_instruction=system, max_output_tokens=220),
+    )
+    return _me_sanitize_private_answer(getattr(response, "text", ""))
+
+
+@_me_group.command(name="ask", description="Ask privately about your own Cinnamon data")
+@app_commands.guild_only()
+async def cinnamon_me_ask(interaction: discord.Interaction, question: str):
+    scopes = _me_classify_private_question(question)
+    if not scopes:
+        return await interaction.response.send_message(
+            "I can privately summarize only your own wallet, progress, reminders, or saved preferences. "
+            "General questions and actions should use normal chat or commands.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    snapshot = _me_private_snapshot(interaction.guild.id, interaction.user.id, scopes)
+    try:
+        answer = await asyncio.to_thread(_me_generate_private_answer, question, snapshot)
+    except Exception:
+        log.exception("Private Cinnamon Q&A failed")
+        answer = "I couldn't safely prepare that private summary right now. Please try again later."
+    await interaction.followup.send(answer or "I couldn't verify that information.", ephemeral=True,
+                                  allowed_mentions=discord.AllowedMentions.none())
 
 @_me_group.command(name="today", description="Privately see today's reminders and your Cinnamon settings")
 @app_commands.guild_only()
