@@ -73,12 +73,12 @@ class FinalPreDeploymentTests(unittest.TestCase):
         self.assertIn("discord.AllowedMentions.none()", mind)
 
     def test_merchant_staff_override_and_setup_idempotency(self):
-        fish = source("wildlands_fishing.py")
+        fish = source("cinnamon_adventure_fishing.py")
         self.assertIn("manual_public", fish)
         self.assertIn('name="merchant-access"', fish)
         self.assertIn("perms.administrator", fish)
         self.assertIn("finder_id", fish)
-        ns=extracted("wildlands_fishing.py", {"_wlf_active"},
+        ns=extracted("cinnamon_adventure_fishing.py", {"_wlf_active"},
                      {"_wlf_window":lambda gid,k: {"ends_at":0,"manual_public":True},
                       "_wlf_time":types.SimpleNamespace(time=lambda:50)})
         self.assertTrue(ns["_wlf_active"](1,"rod"))
@@ -89,10 +89,10 @@ class FinalPreDeploymentTests(unittest.TestCase):
         self.assertIn('channels["cinnamon-stuff-logs"]',setup)
 
     def test_story_embeds_and_fishing_interaction(self):
-        story=source("wildlands_story.py")
+        story=source("cinnamon_adventure_story.py")
         self.assertIn("e.add_field(name='Story progress'", story)
         self.assertIn("e.add_field(name='Clues'", story)
-        fish=source("wildlands_fishing.py")
+        fish=source("cinnamon_adventure_fishing.py")
         for x in ("_WLFReelView", "Choose which bait to use", "Reel gently",
                   "Keep steady", "YANK!", "asyncio.Lock()", "self.used = True",
                   "No bait is spent until you reel."):
@@ -101,11 +101,11 @@ class FinalPreDeploymentTests(unittest.TestCase):
     def test_dashboard_real_controls_and_protected_actions(self):
         dashboard=(ROOT/"dashboard.py").read_text(encoding="utf8")
         runtime=source("dashboard_runtime.py")
-        for name in ("_mind(", "_wildlands(", "mind_settings", "merchant_access",
+        for name in ("_mind(", "_adventure(", "mind_settings", "merchant_access",
                      "economy_transfer", "_get_access(", "_check_csrf()",
                      "_member_select(", "_channel_select("):
             self.assertIn(name,dashboard)
-        for name in ("cinnamon_social", "cinnamon_moods", "cinnamon_wildlands_fishing",
+        for name in ("cinnamon_social", "cinnamon_moods", "cinnamon_adventure_fishing",
                      "wlf_refresh_channel", "bd_save_data"):
             self.assertIn(name,runtime)
         self.assertIn("if nonce in used:", dashboard)

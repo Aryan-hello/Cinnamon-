@@ -374,7 +374,7 @@ async def prefix_help(ctx):
     for index, body in enumerate(pages, start=1):
         embed = cinnamon_embed(
             "🐾 Cinnamon · Prefix commands",
-            "These commands are registered right now. Use `?command`, "
+            "These commands are registered right now. Use `!command`, "
             "or `/help` for slash commands and more details.",
             color=CINNAMON_ORANGE, user=ctx.author,
             footer=cinnamon_page_footer("Prefix Help", index, total, 
@@ -436,6 +436,34 @@ async def _ch_maybe_handle(message, clean_content):
     return True
 
 
+
+async def _ch_private_data_redirect(message, clean_content):
+    """Keep private account questions out of public chat. Never disclose account values publicly."""
+    classifier = globals().get("_me_classify_private_question")
+    snapshot_builder = globals().get("_me_private_snapshot")
+    answer_builder = globals().get("_me_generate_private_answer")
+    if not message.guild or not callable(classifier) or not callable(snapshot_builder) or not callable(answer_builder):
+        return False
+    scopes = classifier(clean_content)
+    if not scopes:
+        return False
+    snapshot = snapshot_builder(message.guild.id, message.author.id, scopes)
+    try:
+        answer = await asyncio.to_thread(answer_builder, clean_content, snapshot)
+        answer = str(answer or "I couldn't verify those details.")[:1400]
+        await message.author.send(answer, allowed_mentions=discord.AllowedMentions.none())
+    except (discord.Forbidden, discord.HTTPException):
+        # Never put account values in a public fallback.
+        try:
+            await message.channel.send(
+                f"{getattr(message.author, 'mention', 'the member')} I couldn't DM that private answer. "
+                "Use /cinnamon-me ask for an ephemeral reply; I won't disclose account values here.",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.HTTPException:
+            pass
+    return True
+
 async def _cinnamon_try_assistance(message, clean_content):
     """Trusted, acknowledged personal requests and help precede Gemini."""
     reminder_handler = globals().get("_cr_maybe_handle")
@@ -443,6 +471,9 @@ async def _cinnamon_try_assistance(message, clean_content):
     if message.guild and callable(reminder_handler) and await reminder_handler(message, clean_content):
         return True
     if message.guild and callable(memory_handler) and await memory_handler(message, clean_content):
+        return True
+    private_redirect = globals().get('_ch_private_data_redirect')
+    if message.guild and callable(private_redirect) and await private_redirect(message, clean_content):
         return True
     if await _ch_maybe_handle(message, clean_content):
         return True
@@ -672,13 +703,19 @@ async def prefix_botstatus(ctx):
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
-    # Dispatch ? commands before the regular AI/XP chat pipeline.
-    # Be forgiving about whitespace after the prefix so both `?work` and
-    # `? work` (including multiple spaces) invoke the same prefix command.
-    # This only normalizes messages that actually begin with the configured
-    # Cinnamon prefix, leaving ordinary chat untouched.
-    if message.content.startswith("?") and len(message.content) > 1 and message.content[1].isspace():
-        message.content = "?" + message.content[1:].lstrip()
+    # Prefix commands are intentionally !-only. The former ? prefix is retired.
+    if message.content.startswith("?") and len(message.content) > 1:
+        candidate = message.content[1:].lstrip().split(maxsplit=1)[0].lower()
+        if candidate and candidate.replace("-", "").isalnum():
+            try:
+                await message.reply(
+                    "🐾 Cinnamon's prefix is now **!**. Try `!" + candidate + "`.",
+                    mention_author=False,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except discord.HTTPException:
+                pass
+            return
     ctx = await bot.get_context(message)
     if ctx.valid:
         await bot.invoke(ctx)
@@ -1281,7 +1318,7 @@ async def prefix_reactionrole_remove(ctx, role: discord.Role):
 @commands.guild_only()
 @commands.has_guild_permissions(administrator=True)
 async def prefix_welcome(ctx):
-    await ctx.reply("👋 Use `?welcome set #channel [message]` or `?welcome disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
+    await ctx.reply("👋 Use `!welcome set #channel [message]` or `!welcome disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
 
 
 @prefix_welcome.command(name="set")
@@ -1310,7 +1347,7 @@ async def prefix_welcome_disable(ctx):
 @commands.guild_only()
 @commands.has_guild_permissions(administrator=True)
 async def prefix_goodbye(ctx):
-    await ctx.reply("🚪 Use `?goodbye set #channel [message]` or `?goodbye disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
+    await ctx.reply("🚪 Use `!goodbye set #channel [message]` or `!goodbye disable`. Placeholders: `{member}`, `{server}`.", mention_author=False)
 
 
 @prefix_goodbye.command(name="set")

@@ -33,7 +33,7 @@ _wl_import_finished = False
 _wl_import_error = False
 
 
-def wildlands_art_items(category=None):
+def adventure_art_items(category=None):
     """Read the stable local manifest, NEVER the source URL list."""
     try:
         data = _wl_json.loads(_WL_MANIFEST.read_text(encoding='utf-8'))
@@ -45,9 +45,9 @@ def wildlands_art_items(category=None):
     ) and isinstance(i.get('file'), str)]
 
 
-def wildlands_local_asset(key):
+def adventure_local_asset(key):
     """Reusable integration hook for future fishing, merchant and item panels."""
-    for item in wildlands_art_items():
+    for item in adventure_art_items():
         if item.get('key') != key:
             continue
         path = (_WL_BASE / item['file']).resolve()
@@ -127,12 +127,12 @@ def _wl_card(path, title, summary, subtitle):
     return out
 
 
-class WildlandsArtView(discord.ui.View):
+class CinnamonAdventureArtView(discord.ui.View):
     def __init__(self, owner_id: int, category: str, selected: int = 0):
         super().__init__(timeout=240)
         self.owner_id = owner_id
         self.category = category
-        self.items = wildlands_art_items(category)
+        self.items = adventure_art_items(category)
         self.index = min(max(0, selected), max(0, len(self.items)-1))
         if not self.items:
             self.clear_items()
@@ -148,7 +148,7 @@ class WildlandsArtView(discord.ui.View):
             return discord.Embed(title='🐈 Cinnamon Adventures', description='The art registry is missing. Check that `static/adventure/manifest.json` was deployed.', color=_WL_COLOR), None
         item = self.items[self.index]
         filename = item['file']
-        path = wildlands_local_asset(item['key'])
+        path = adventure_local_asset(item['key'])
         if self.category == 'fishing_place':
             summary = _WL_SPOT_DESCRIPTIONS.get(item['key'], 'A new corner of Cinnamon Adventures.')
         else:
@@ -159,8 +159,8 @@ class WildlandsArtView(discord.ui.View):
         embed.set_footer(text=footer)
         if path:
             img = _wl_card(path, title, summary, _WL_KIND_TITLES.get(self.category, 'Artwork'))
-            attached = discord.File(fp=img, filename='cinnamon_wildlands_card.png')
-            embed.set_image(url='attachment://cinnamon_wildlands_card.png')
+            attached = discord.File(fp=img, filename='cinnamon_adventure_card.png')
+            embed.set_image(url='attachment://cinnamon_adventure_card.png')
         else:
             attached = None
             embed.add_field(name='Image not yet saved', value='The existing artwork link must first be copied into the repository by the included GitHub workflow.', inline=False)
@@ -187,11 +187,11 @@ class WildlandsArtView(discord.ui.View):
             await interaction.response.send_message('🐈 Cinnamon dropped an art frame. Try the command again.', ephemeral=True)
 
 
-wildlands_art_group = app_commands.Group(name='adventure', description='Cinnamon Adventures art and fishing locations')
+cinnamon_adventure_group = app_commands.Group(name='adventure', description='Cinnamon Adventures art and fishing locations')
 
 
 # Register precisely once; do not create any duplicated slash-command aliases.
-bot.tree.add_command(wildlands_art_group)
+bot.tree.add_command(cinnamon_adventure_group)
 
 
 # Best-effort deployment fallback: on Render or another online host, copy the
@@ -222,10 +222,10 @@ def _wl_import_missing_assets():
         _wl_import_running = False
         _wl_import_finished = True
 
-if _wl_os.environ.get('CINNAMON_WILDLANDS_AUTO_FETCH', '1').strip().lower() not in ('0', 'false', 'no'):
+if _wl_os.environ.get('CINNAMON_ADVENTURE_AUTO_FETCH', _wl_os.environ.get('CINNAMON_WILDLANDS_AUTO_FETCH', '1')).strip().lower() not in ('0', 'false', 'no'):
     _wl_source_list = _WL_BASE.parents[1] / 'tools' / 'runway_art_urls.txt'
     if _wl_source_list.is_file() and any(
-        wildlands_local_asset(_item.get('key')) is None for _item in wildlands_art_items()
+        adventure_local_asset(_item.get('key')) is None for _item in adventure_art_items()
     ):
         _wl_threading.Thread(target=_wl_import_missing_assets,
-                             name='CinnamonWildlandsArtImport', daemon=True).start()
+                             name='CinnamonAdventureArtImport', daemon=True).start()

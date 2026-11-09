@@ -168,6 +168,7 @@ async def modinfo(interaction: discord.Interaction, user: discord.User):
 
 # --- Health / status ---------------------------------------------------------
 
+@bot.tree.command(name="ping", description="Check Cinnamon's Discord latency")
 async def ping(interaction: discord.Interaction):
     latency_ms = round(bot.latency * 1000)
     await cinnamon_send(interaction, 
@@ -176,6 +177,7 @@ async def ping(interaction: discord.Interaction):
     )
 
 
+@bot.tree.command(name="botstatus", description="Show Cinnamon's server and storage health")
 @app_commands.guild_only()
 async def botstatus(interaction: discord.Interaction):
     guild = interaction.guild
@@ -191,6 +193,8 @@ async def botstatus(interaction: discord.Interaction):
     embed.add_field(name="XP / leveling", value="Active", inline=True)
     embed.add_field(name="Hangry Games", value="Ready" if hg_cog else "Starting", inline=True)
     embed.add_field(name="Storage", value=storage["backend"], inline=True)
+    embed.add_field(name="Economy writes", value="Ready" if storage.get("transactions_ready") else "Blocked / needs review", inline=True)
+    embed.add_field(name="Snapshot", value=f"{storage.get('status', 'unknown')} · {'loaded' if storage.get('snapshot_ready') else 'not loaded'}", inline=True)
     embed.set_footer(text="Use /help for commands. 🐾")
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
 

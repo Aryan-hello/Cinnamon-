@@ -179,10 +179,13 @@ def _number(text: str, *, limit: int, label: str) -> int:
     raw = text.strip()
     suffix = raw[-1:].lower() if raw[-1:].lower() in {"k", "m"} else ""
     number = raw[:-1] if suffix else raw
-    if not (re.fullmatch(r"[0-9]+", number)
-            or re.fullmatch(r"[1-9][0-9]{0,2}(?:,[0-9]{3})+", number)
-            or re.fullmatch(r"[0-9]+\.[0-9]+", number)):
-        raise ActionValidationError(f"Use a positive whole {label}; commas must group thousands.",
+    valid_number = (
+        re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", number) if suffix
+        else (re.fullmatch(r"[0-9]+", number)
+              or re.fullmatch(r"[1-9][0-9]{0,2}(?:,[0-9]{3})+", number))
+    )
+    if not valid_number:
+        raise ActionValidationError(f"Use a positive whole {label}; decimals require a k/m shorthand and commas must group thousands.",
                                     code="invalid_number")
     try:
         value = Decimal(number.replace(",", ""))

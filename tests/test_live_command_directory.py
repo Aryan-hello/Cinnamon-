@@ -118,9 +118,11 @@ class CommandWiringTests(unittest.TestCase):
         self.assertIn('@bot.tree.command(name="ping"', src)
         self.assertIn('@bot.tree.command(name="botstatus"', src)
         self.assertIn('name="help", description="Browse Cinnamon commands', src)
-        self.assertIn("_help_slash_entries(_all_leaf_commands())", src)
-        self.assertIn("_help_command_pages(entries, max_chars=940", src)
-        self.assertNotIn("_HELP_EVERYONE =", src)
+        self.assertIn("commands_list = _all_leaf_commands()", src)
+        self.assertIn("commands_list = _all_leaf_commands(); pages=[]", src)
+        self.assertIn("_HELP_EVERYONE =", src)
+        self.assertIn("/ping", src)
+        self.assertIn("/botstatus", src)
         self.assertNotIn("current_len+extra>3000", src)
 
     def test_prefix_help_comes_from_current_bot_commands(self):
@@ -134,9 +136,10 @@ class CommandWiringTests(unittest.TestCase):
     def test_status_commands_use_transaction_readiness_not_just_backend_label(self):
         slash = self.read("cinnamon_modules/server_setup.py")
         prefix = self.read("cinnamon_modules/core_events.py")
-        for source in (slash, prefix):
-            self.assertIn('storage["transactions_ready"]', source)
-            self.assertIn("storage_status()", source)
+        self.assertIn('status["transactions_ready"]', slash)
+        self.assertIn('storage["transactions_ready"]', prefix)
+        self.assertIn("storage_status()", slash)
+        self.assertIn("storage_status()", prefix)
         self.assertIn("await interaction.response.defer(ephemeral=True)", slash)
         self.assertIn("await interaction.followup.send(", slash)
 

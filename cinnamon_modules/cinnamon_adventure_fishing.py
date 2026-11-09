@@ -79,6 +79,7 @@ def _wlf_player(guild_id, user_id):
     p.setdefault('areas', ['whispering_woods'])
     p.setdefault('area', 'whispering_woods')
     p.setdefault('rod', 'twig')
+    p.setdefault('rod_broken', False)
     p.setdefault('rods', ['twig'])
     p.setdefault('bait', {'normal': 10})
     p.setdefault('fish', {})
@@ -95,7 +96,7 @@ def _wlf_area(area_id):
 def _wlf_embed(title, description='', *, interaction=None):
     e = discord.Embed(title=str(title)[:256], description=str(description)[:3900],
                       color=_WLF_COLOR)
-    e.set_author(name='🎣 CINNAMON · WILDLANDS FISHING')
+    e.set_author(name='🎣 CINNAMON · FISHING')
     if interaction is not None:
         e.set_footer(text=f'{interaction.guild.name} • Rods · Bait · Six regions · /fishing journal')
     else:
@@ -383,16 +384,39 @@ async def _wlf_expire_shops():
         bot._wlf_shop_reaper_running = False
 
 
-@wildlands_art_group.command(name='rods', description='Browse fishing rods and their stats')
+
+@cinnamon_adventure_group.command(name="fish-leaderboard", description="Rank server anglers by fish caught")
 @app_commands.guild_only()
-async def wildlands_rod_catalog(interaction: discord.Interaction):
+async def adventure_fish_leaderboard(interaction: discord.Interaction):
+    members = _wlf_server(interaction.guild.id).get("members", {})
+    totals = []
+    for uid, record in members.items():
+        fish = record.get("fish", {}) if isinstance(record, dict) else {}
+        caught = sum(max(0, int(amount)) for amount in fish.values())
+        if caught:
+            totals.append((int(uid), caught, len([k for k,v in fish.items() if int(v)>0])))
+    totals.sort(key=lambda row: (row[1], row[2]), reverse=True)
+    lines = []
+    for rank, (uid, caught, species) in enumerate(totals[:10], start=1):
+        member = interaction.guild.get_member(uid)
+        label = member.display_name if member else f"Member {uid}"
+        lines.append(f"**{rank}.** {discord.utils.escape_markdown(label)} — **{caught:,}** fish · {species} species")
+    embed = _wlf_embed("🏆 Server Anglers", "\n".join(lines) if lines else
+                       "No catches yet. Be the first to cast a line!")
+    embed.set_footer(text="Cinnamon Fishing • All-time catches")
+    await interaction.response.send_message(embed=embed, ephemeral=True,
+                                          allowed_mentions=discord.AllowedMentions.none())
+
+@cinnamon_adventure_group.command(name='rods', description='Browse fishing rods and their stats')
+@app_commands.guild_only()
+async def adventure_rod_catalog(interaction: discord.Interaction):
     view = _WLFCatalog(interaction.user.id, 'rod', interaction.guild.id)
     await interaction.response.send_message(embed=view.render(), view=view)
 
 
-@wildlands_art_group.command(name='bait', description='Browse fishing bait and their prices')
+@cinnamon_adventure_group.command(name='bait', description='Browse fishing bait and their prices')
 @app_commands.guild_only()
-async def wildlands_bait_catalog(interaction: discord.Interaction):
+async def adventure_bait_catalog(interaction: discord.Interaction):
     view = _WLFCatalog(interaction.user.id, 'bait', interaction.guild.id)
     await interaction.response.send_message(embed=view.render(), view=view)
 
@@ -871,3 +895,42 @@ async def fishing_setup_roles(interaction: discord.Interaction):
 # Only one /fishing slash group. /adventure subgroup commands are appended to
 # the already registered /adventure group and will be synced on next startup.
 bot.tree.add_command(_wlf_group)
+
+# /craft is a command group; repair_rod is its subcommand (not a separate root).
+_craft_group = discord.app_commands.Group(name="craft", description="Craft and repair Cinnamon gear")
+
+@_craft_group.command(name="repair_rod", description="Repair a snapped fishing rod using Fishing String")
+async def _craft_repair_rod(interaction: discord.Interaction):
+    if not interaction.guild:
+        return await interaction.response.send_message("Use this in a server.", ephemeral=True)
+    p = _wlf_player(interaction.guild.id, interaction.user.id)
+    if not p.get("rod_broken", False):
+        return await interaction.response.send_message("Your fishing rod is already in working condition. 🎣", ephemeral=True)
+    inv = economy_inventory_for(interaction.guild.id, interaction.user.id)
+    if int(inv.get("fishing_string", 0)) < 1:
+        return await interaction.response.send_message(
+            "You need **1 Fishing String**. Buy it from the shop, then run /craft repair_rod.",
+            ephemeral=True)
+    inv["fishing_string"] = int(inv["fishing_string"]) - 1
+    if inv["fishing_string"] <= 0:
+        inv.pop("fishing_string", None)
+    p["rod_broken"] = False
+    result = await bd_save_data()
+    if not result:
+        if result.status in {"failed", "unavailable"}:
+            p["rod_broken"] = True
+            inv["fishing_string"] = int(inv.get("fishing_string", 0)) + 1
+            return await interaction.response.send_message(
+                "Repair could not be saved. Your string was returned; try again later.", ephemeral=True)
+        return await interaction.response.send_message(
+            "⚠️ Repair storage is uncertain. Do not retry or spend another string until an administrator checks /economy diagnose and the logs.",
+            ephemeral=True)
+    await interaction.response.send_message(
+        "🔧 **Rod repaired!** One Fishing String was used. You're ready to cast again. 🎣",
+        ephemeral=True)
+
+try:
+    bot.tree.add_command(_craft_group)
+except discord.app_commands.CommandAlreadyRegistered:
+    pass
+

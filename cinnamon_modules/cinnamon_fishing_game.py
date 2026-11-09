@@ -138,6 +138,8 @@ class _FGView(discord.ui.View):
         await interaction.response.defer()
         async with self.lock():
             p = self.player()
+            if p.get('rod_broken', False):
+                return await interaction.followup.send('Your rod is broken. Buy Fishing String from the shop and use /craft repair_rod.', ephemeral=True)
             if self.phase != 'prepare' or p.get('fishing_session'):
                 return await interaction.edit_original_response(
                     content='🐟 A cast is already in progress.', view=None)

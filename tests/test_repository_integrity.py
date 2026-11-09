@@ -45,9 +45,9 @@ class RepositoryIntegrityTests(unittest.TestCase):
         self.assertEqual(len(loaded), len(set(loaded)), "Module loaded twice")
         for module in loaded:
             self.assertTrue((MODULE_DIR / module).is_file(), module)
-        for active in ("wildlands_art.py", "wildlands_fishing.py", "wildlands_story.py"):
+        for active in ("cinnamon_adventure_art.py", "cinnamon_adventure_fishing.py", "cinnamon_adventure_story.py"):
             self.assertIn(active, loaded)
-        self.assertLess(loaded.index("wildlands_fishing.py"), loaded.index("wildlands_story.py"))
+        self.assertLess(loaded.index("cinnamon_adventure_fishing.py"), loaded.index("cinnamon_adventure_story.py"))
 
     def test_obsolete_duplicate_games_removed(self):
         loaded = runtime_modules()
@@ -60,8 +60,9 @@ class RepositoryIntegrityTests(unittest.TestCase):
         text = (MODULE_DIR / "core_events.py").read_text(encoding="utf-8")
         self.assertNotIn("bot.tree.copy_global_to(", text,
                          "Duplicated guild/global registrations risk showing commands twice")
-        self.assertIn("bot.tree.clear_commands(guild=guild)", text)
-        self.assertIn("bot.tree.sync(guild=guild)", text)
+        self.assertIn("bot.tree.sync()", text)
+        self.assertNotIn("bot.tree.clear_commands(guild=guild)", text)
+        self.assertNotIn("bot.tree.sync(guild=guild)", text)
 
     def test_no_duplicate_loaded_slash_command_names(self):
         loaded = runtime_modules()

@@ -139,8 +139,13 @@ def _bd_decode(raw: dict):
     # place so existing views/helpers retain their shared catalog reference.
     saved_items = raw.get("economy_items")
     if isinstance(saved_items, dict):
+        # Preserve the exact saved catalog (including intentional empty catalogs
+        # and custom removals), then migrate only the newly introduced built-in.
+        current_defaults = dict(ECONOMY_ITEMS)
         ECONOMY_ITEMS.clear()
         ECONOMY_ITEMS.update(saved_items)
+        if saved_items and "fishing_string" not in saved_items:
+            ECONOMY_ITEMS["fishing_string"] = current_defaults["fishing_string"]
     else:
         # Migrate only legacy/default catalogs. Explicitly saved prices are
         # administrator choices and may validly be below these default floors.
@@ -255,7 +260,9 @@ def dashboard_state_provider() -> dict:
         "cinnamon_social": advanced_features_data.setdefault("cinnamon_social_v1", {}),
         "cinnamon_actions": advanced_features_data.setdefault("cinnamon_actions_v1", {}),
         "cinnamon_moods": advanced_features_data.setdefault("cinnamon_mood_v1", {}),
+        "cinnamon_adventure_fishing": advanced_features_data.setdefault("wildlands_fishing_v1", {}),
         "cinnamon_wildlands_fishing": advanced_features_data.setdefault("wildlands_fishing_v1", {}),
+        "cinnamon_adventure_story": advanced_features_data.setdefault("wildlands_story_v2", {}),
         "cinnamon_wildlands_story": advanced_features_data.setdefault("wildlands_story_v2", {}),
         "wlf_refresh_channel": _wlf_refresh_channel,
         "wlf_active": _wlf_active,

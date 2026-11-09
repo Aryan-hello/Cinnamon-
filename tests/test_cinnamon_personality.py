@@ -125,7 +125,7 @@ class PersonalityTests(unittest.TestCase):
     def test_mounted_after_all_dependencies(self):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn('"cinnamon_personality.py"', main)
-        for dep in ("hangry_games.py", "cinnamon_moods.py", "wildlands_story.py"):
+        for dep in ("hangry_games.py", "cinnamon_moods.py", "cinnamon_adventure_story.py"):
             self.assertLess(main.index(dep), main.index('"cinnamon_personality.py"'))
         setup = (ROOT / "cinnamon_modules/server_setup.py").read_text(encoding="utf-8")
         self.assertIn("cinnamon-stuff-logs", setup)

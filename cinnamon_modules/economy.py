@@ -525,6 +525,30 @@ async def economy_inventory_cmd(interaction: discord.Interaction, member: discor
         ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
+
+@economy_group.command(name="diagnose", description="Check economy data consistency (administrator)")
+@app_commands.guild_only()
+@app_commands.default_permissions(administrator=True)
+async def economy_diagnose_cmd(interaction: discord.Interaction, member: discord.Member | None = None):
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("Administrator permission is required.", ephemeral=True)
+    target = member or interaction.user
+    key = economy_key(interaction.guild.id, target.id)
+    stored = economy_balances.get(key)
+    embed = cinnamon_embed(
+        "🧰 Economy consistency check",
+        "Read-only diagnostics; this command never changes or repairs balances.",
+        color=CINNAMON_BLUE, user=interaction.user, footer="Cinnamon Economy • Diagnostics")
+    cinnamon_field(embed, "Target", f"{target.mention} ({target.id})")
+    cinnamon_field(embed, "Guild key", str(interaction.guild.id))
+    cinnamon_field(embed, "Balance map entry", "Present" if key in economy_balances else "Missing")
+    cinnamon_field(embed, "Raw loaded value", f"{stored:,}" if isinstance(stored, int) else repr(stored))
+    cinnamon_field(embed, "Accessor value", f"{int(stored if stored is not None else ECONOMY_STARTING_BALANCE):,} Catnip (default only if missing)")
+    cinnamon_field(embed, "Loaded account entries", str(len(economy_balances)))
+    cinnamon_field(embed, "Snapshot status", f"{bd_store.status} — {bd_store.reason}")
+    cinnamon_field(embed, "Backend durable", str(bd_store.durable))
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 @economy_group.command(name="shop", description="Open Cinnamon's interactive Catnip shop")
 @app_commands.guild_only()
 async def economy_shop_cmd(interaction: discord.Interaction):
@@ -977,7 +1001,7 @@ async def economy_income_cmd(interaction: discord.Interaction, action: app_comma
     cfg[role.id] = {"amount": int(amount), "cooldown": int(minutes) * 60}
     await bd_save_data()
     await economy_log(guild_id, title="💰 Income role configured", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Role", role.name), ("Income", f"{amount:,} Catnip / {minutes} min")])
-    await cinnamon_send(interaction, f"✅ {role.mention} now earns **{amount:,} Catnip every {minutes} minutes** when members use `/collect`.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ {role.mention} now earns **{amount:,} Catnip every {minutes} minutes** when members use `/economy collect`.", ephemeral=True)
 
 
 async def economy_collect(interaction: discord.Interaction):
@@ -1192,7 +1216,7 @@ async def economy_add_role_income_cmd(interaction: discord.Interaction, role: di
     economy_income_roles.setdefault(interaction.guild.id, {})[role.id] = {"amount": int(amount), "cooldown": cooldown, "interval": int(interval), "unit": unit.value}
     await bd_save_data()
     await economy_log(interaction.guild.id, title="💰 Role income added/updated", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Role", f"{role} ({role.id})"), ("Income", f"{amount:,} Catnip / {interval} {unit.name.lower()}")])
-    await cinnamon_send(interaction, f"✅ {role.mention} now provides **{amount:,} Catnip every {interval} {unit.name.lower()}** via `/collect`.", ephemeral=True)
+    await cinnamon_send(interaction, f"✅ {role.mention} now provides **{amount:,} Catnip every {interval} {unit.name.lower()}** via `/economy collect`.", ephemeral=True)
 
 
 @economy_group.command(name="remove-role-income", description="Admin: remove a role's recurring Catnip income")
