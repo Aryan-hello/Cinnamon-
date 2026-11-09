@@ -171,7 +171,7 @@ class CinnamonRepairAndSelection(unittest.TestCase):
         self.assertIn('Group(name="craft"', fishing)
         self.assertIn('@_craft_group.command(name="repair_rod"', fishing)
         self.assertIn("inv.get('fishing_string', 0)", fishing)
-        self.assertIn("p['rod_broken'] = False", fishing)
+        self.assertIn('p["rod_broken"] = False', fishing)
         self.assertIn('"fishing_string": {"name": "Fishing String"', main)
         self.assertIn("p.get('rod_broken', False)", game)
 
