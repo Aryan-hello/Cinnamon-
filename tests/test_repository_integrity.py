@@ -45,9 +45,9 @@ class RepositoryIntegrityTests(unittest.TestCase):
         self.assertEqual(len(loaded), len(set(loaded)), "Module loaded twice")
         for module in loaded:
             self.assertTrue((MODULE_DIR / module).is_file(), module)
-        for active in ("wildlands_art.py", "wildlands_fishing.py", "wildlands_story.py"):
+        for active in ("cinnamon_adventure_art.py", "cinnamon_adventure_fishing.py", "cinnamon_adventure_story.py"):
             self.assertIn(active, loaded)
-        self.assertLess(loaded.index("wildlands_fishing.py"), loaded.index("wildlands_story.py"))
+        self.assertLess(loaded.index("cinnamon_adventure_fishing.py"), loaded.index("cinnamon_adventure_story.py"))
 
     def test_obsolete_duplicate_games_removed(self):
         loaded = runtime_modules()
