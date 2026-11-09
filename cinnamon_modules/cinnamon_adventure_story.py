@@ -721,7 +721,7 @@ class _WLSStorySelect(discord.ui.View):
 
 @_cinnamon_stories_group.command(name='stories',description='Choose a Cinnamon story to play or resume')
 @app_commands.guild_only()
-async def wildlands_story(interaction:discord.Interaction):
+async def cinnamon_adventure_story(interaction:discord.Interaction):
     rec=_wls_player(interaction.guild.id,interaction.user.id)
     if rec['complete']:
         await interaction.response.send_message(embed=_wls_embed(interaction,'🏆 Adventure Already Complete',
@@ -734,10 +734,10 @@ async def wildlands_story(interaction:discord.Interaction):
         f"**🐈 The Cinnamon Mystery**\n{label}\n\nYour progress is saved automatically. Choose below when you're ready."),
         view=_WLSStorySelect(interaction.user.id,interaction.guild.id,idx,rec.get('branch')),ephemeral=True)
 
-@wildlands_art_group.command(name='story-restart', description='Replay the Adventure mystery from the beginning; one-time reward stays claimed')
+@cinnamon_adventure_group.command(name='story-restart', description='Replay the Adventure mystery from the beginning; one-time reward stays claimed')
 @app_commands.describe(confirm='Set True to reset your story decisions and start again')
 @app_commands.guild_only()
-async def wildlands_story_restart(interaction: discord.Interaction, confirm: bool = False):
+async def adventure_story_restart(interaction: discord.Interaction, confirm: bool = False):
     if not confirm:
         return await interaction.response.send_message(
             '🐈 Restarting wipes your CURRENT story decisions, clues and relationships. '
@@ -755,9 +755,9 @@ async def wildlands_story_restart(interaction: discord.Interaction, confirm: boo
     await _wls_private_scene(interaction,old,_WLSChoiceView(interaction.user.id,0,None,interaction.guild.id),replace_original=True)
 
 
-@wildlands_art_group.command(name='story-journal',description='Review your story progress and important discoveries')
+@cinnamon_adventure_group.command(name='story-journal',description='Review your story progress and important discoveries')
 @app_commands.guild_only()
-async def wildlands_story_journal(interaction:discord.Interaction):
+async def adventure_story_journal(interaction:discord.Interaction):
     rec=_wls_player(interaction.guild.id,interaction.user.id)
     idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
     area=_wls_scene_area=(_WLS_SCENES[idx]['area'] if not rec['complete'] else 'forgotten_ruins')
@@ -777,9 +777,9 @@ async def wildlands_story_journal(interaction:discord.Interaction):
     await interaction.response.send_message(embed=_wls_embed(interaction,'📖 Your Adventure Journal',msg),ephemeral=True)
 
 
-@wildlands_art_group.command(name='story-help',description='How Cinnamon’s interactive mystery and merchant shops work')
+@cinnamon_adventure_group.command(name='story-help',description='How Cinnamon’s interactive mystery and merchant shops work')
 @app_commands.guild_only()
-async def wildlands_story_help(interaction:discord.Interaction):
+async def adventure_story_help(interaction:discord.Interaction):
     await interaction.response.send_message(embed=_wls_embed(interaction,'🐈 The Rules (As Written by a Cat)',
         '**Play:** `/cinnamon stories` to begin or resume; select dialogue and puzzle choices with buttons.\n'
         '**Replay:** `/adventure story-restart confirm:True` resets only the story route, not the one-time payout or fishing gear.\n'
