@@ -4,7 +4,7 @@ This module is loaded into main.py's shared namespace. It NEVER calls Gemini
 or executes moderation/economy actions. A private, bounded activity sample
 helps Cinnamon decide when a surprise game would be welcome.
 """
-from cinnamon_modules.brain_health import build_brain_health as _cb_build_health, command_name_counts as _cb_command_counts
+from cinnamon_modules.brain_personalization import SERVER_STYLES as _cb_server_styles, validate_server_style as _cb_validate_server_style\nfrom cinnamon_modules.brain_health import build_brain_health as _cb_build_health, command_name_counts as _cb_command_counts
 from collections import deque as _cb_deque
 import time as _cb_time
 from cinnamon_modules.brain_decision import (
@@ -195,6 +195,33 @@ _cb_group = app_commands.Group(
     name="cinnamon-mind",
     description="Cinnamon's independent activity controls and diagnostics",
 )
+
+
+@_cb_group.command(name="style", description="Admin: choose Cinnamon's server-wide speaking style")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.choices(style=[
+    app_commands.Choice(name="Classic Cinnamon", value="classic"),
+    app_commands.Choice(name="Extra playful", value="extra_playful"),
+    app_commands.Choice(name="Gentle", value="gentle"),
+    app_commands.Choice(name="Formal", value="formal"),
+])
+async def cinnamon_mind_style(interaction: discord.Interaction, style: str):
+    try:
+        chosen = _cb_validate_server_style(style)
+    except ValueError as exc:
+        return await interaction.response.send_message(str(exc), ephemeral=True)
+    settings = _cb_settings(interaction.guild.id)
+    prior = settings.get("speaking_style", "classic")
+    settings["speaking_style"] = chosen
+    if not await bd_save_data():
+        settings["speaking_style"] = prior
+        return await interaction.response.send_message(
+            "⚠️ Storage didn't confirm the voice setting. Nothing changed.", ephemeral=True)
+    await interaction.response.send_message(
+        f"🐾 Cinnamon's server voice is now **{chosen.replace('_', ' ')}**. "
+        "Serious conversations always override playful settings.",
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 @_cb_group.command(name="status", description="Admin: inspect AI actions, activity readiness and safety settings")
