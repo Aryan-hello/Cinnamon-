@@ -678,22 +678,38 @@ class _WLSMoodView(discord.ui.View):
 _cinnamon_stories_group = app_commands.Group(name='cinnamon', description='Cinnamon’s interactive adventures and stories')
 bot.tree.add_command(_cinnamon_stories_group)
 
-@_cinnamon_stories_group.command(name='stories',description='Play and continue Cinnamon’s interactive stories')
+class _WLSStorySelect(discord.ui.View):
+    def __init__(self, owner_id, guild_id, index, branch):
+        super().__init__(timeout=120)
+        self.owner_id, self.guild_id, self.index, self.branch = owner_id, guild_id, index, branch
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("This story menu belongs to another player.", ephemeral=True)
+            return False
+        return True
+    @discord.ui.button(label="Start / Continue Wildlands Mystery", emoji="📖", style=discord.ButtonStyle.success)
+    async def begin(self, interaction, button):
+        rec = _wls_player(self.guild_id, self.owner_id)
+        await _wls_private_scene(interaction, rec, _WLSChoiceView(self.owner_id, self.index, self.branch, self.guild_id), replace_original=True)
+    @discord.ui.button(label="Story Journal", emoji="📓", style=discord.ButtonStyle.secondary)
+    async def journal(self, interaction, button):
+        rec = _wls_player(self.guild_id, self.owner_id)
+        await interaction.response.send_message(embed=_wls_embed(interaction, "📖 Your Adventure Journal", f"Progress: scene {rec.get('index',0)+1}/{len(_WLS_SCENES)}\nChoices and clues save automatically."), ephemeral=True)
+
+@_cinnamon_stories_group.command(name='stories',description='Choose a Cinnamon story to play or resume')
 @app_commands.guild_only()
 async def wildlands_story(interaction:discord.Interaction):
     rec=_wls_player(interaction.guild.id,interaction.user.id)
     if rec['complete']:
-        await interaction.response.defer(ephemeral=True)
-        access=await _wlf_award_story_access(interaction)
-        return await interaction.followup.send(embed=_wls_embed(interaction,'🏆 Adventure Already Complete',
-            'Cinnamon found her chew toy from Aryan. You claimed your one-time **100,000 Catnip** reward. '\
-            'You have permanent access to the Fishing Bait Merchant!\n\n'
-            '“I SAID THE *TREASURE* WAS WORTH A BILLION,” Cinnamon reminds you.'+access),ephemeral=True)
+        await interaction.response.send_message(embed=_wls_embed(interaction,'🏆 Adventure Already Complete',
+            'Cinnamon found her chew toy from Aryan. Your one-time **100,000 Catnip** reward is claimed.\n'
+            'You have permanent access to the Fishing Bait Merchant!'),ephemeral=True)
+        return
     idx=min(len(_WLS_SCENES)-1,max(0,int(rec['index'])))
-    await interaction.response.defer(ephemeral=True)
-    await _wls_private_scene(interaction,rec,_WLSChoiceView(interaction.user.id,idx,rec.get('branch'),interaction.guild.id),replace_original=True)
-
-
+    label = "Continue your saved mystery" if idx > 0 or rec.get('branch') else "Begin the Wildlands Mystery"
+    await interaction.response.send_message(embed=_wls_embed(interaction,'📚 Cinnamon Stories',
+        f"**🐈 The Wildlands Mystery**\n{label}\n\nYour progress is saved automatically. Choose below when you're ready."),
+        view=_WLSStorySelect(interaction.user.id,interaction.guild.id,idx,rec.get('branch')),ephemeral=True)
 
 @wildlands_art_group.command(name='story-restart', description='Replay the Wildlands mystery from the beginning; one-time reward stays claimed')
 @app_commands.describe(confirm='Set True to reset your story decisions and start again')
