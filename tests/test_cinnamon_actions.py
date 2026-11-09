@@ -101,7 +101,7 @@ class SafeCinnamonActionsTests(unittest.TestCase):
         self.assertLess(main.index('"cinnamon_personality.py"'),main.index('"cinnamon_actions.py"'))
         self.assertIn('_ca_maybe_handle',core)
         self.assertIn("_ca_maybe_handle(message, clean_content)",core)
-        self.assertIn("_cinnamon_brain_intent_model_call",core)
+        self.assertIn("_cinnamon_try_assistance(message, clean_content)",core)
         self.assertIn("await _ca_maybe_prank(message)",core)
         self.assertIn("authorize_dashboard_edit",dash)
         self.assertIn('"play_enabled" in request.form',dash)
