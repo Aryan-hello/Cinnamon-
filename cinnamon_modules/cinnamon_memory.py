@@ -257,15 +257,15 @@ async def _cmem_maybe_handle(message, clean_content):
         return True
     if _cmem_re.search(r"\bforget\s+my\s+(?:saved\s+)?(?:preference|note)\b", text, _cmem_re.I):
         await reply("Which note do you mean? I won't delete everything from an ambiguous request. "
-                    "Use /cinnamon-memory view to choose a note or /cinnamon-memory forget.",
+                    "Use `/cinnamon-memory view` to choose a note or `/cinnamon-memory forget`.",
                     mention_author=False, allowed_mentions=mentions)
         return True
     if _cmem_re.search(r"\b(?:edit|change|correct|update)\s+my\s+(?:saved\s+)?(?:preferences|notes|memory)\b", text, _cmem_re.I):
-        await reply("Use /cinnamon-memory edit to correct a note safely.",
+        await reply("Use `/cinnamon-memory edit` to correct a note safely.",
                     mention_author=False, allowed_mentions=mentions)
         return True
     if _cmem_re.search(r"\b(?:show|view|list)\s+my\s+(?:saved\s+)?(?:notes|memories|preferences)\b", text, _cmem_re.I):
-        await reply("Your notes are private. Use /cinnamon-memory view for an ephemeral list.",
+        await reply("Your notes are private. Use `/cinnamon-memory view` for an ephemeral list.",
                     mention_author=False, allowed_mentions=mentions)
         return True
 
