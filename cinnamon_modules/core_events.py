@@ -458,7 +458,7 @@ async def _ch_private_data_redirect(message, clean_content):
             await message.channel.send(
                 f"{message.author.mention} I couldn't DM that private answer. "
                 "Use /cinnamon-me ask for an ephemeral reply; I won't disclose account values here.",
-                allowed_mentions=discord.AllowedMentions(users=True),
+                allowed_mentions=discord.AllowedMentions.none(),
             )
         except discord.HTTPException:
             pass
