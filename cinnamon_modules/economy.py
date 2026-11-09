@@ -543,7 +543,7 @@ async def economy_diagnose_cmd(interaction: discord.Interaction, member: discord
     cinnamon_field(embed, "Guild key", str(interaction.guild.id))
     cinnamon_field(embed, "Balance map entry", "Present" if key in economy_balances else "Missing")
     cinnamon_field(embed, "Raw loaded value", f"{stored:,}" if isinstance(stored, int) else repr(stored))
-    cinnamon_field(embed, "Accessor value", f"{economy_balance(*key):,} Catnip")
+    cinnamon_field(embed, "Accessor value", f"{int(stored if stored is not None else ECONOMY_STARTING_BALANCE):,} Catnip (default only if missing)")
     cinnamon_field(embed, "Loaded account entries", str(len(economy_balances)))
     cinnamon_field(embed, "Snapshot status", f"{bd_store.status} — {bd_store.reason}")
     cinnamon_field(embed, "Backend durable", str(bd_store.durable))
