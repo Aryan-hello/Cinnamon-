@@ -193,6 +193,8 @@ async def botstatus(interaction: discord.Interaction):
     embed.add_field(name="XP / leveling", value="Active", inline=True)
     embed.add_field(name="Hangry Games", value="Ready" if hg_cog else "Starting", inline=True)
     embed.add_field(name="Storage", value=storage["backend"], inline=True)
+    embed.add_field(name="Economy writes", value="Ready" if storage.get("transactions_ready") else "Blocked / needs review", inline=True)
+    embed.add_field(name="Snapshot", value=f"{storage.get('status', 'unknown')} · {'loaded' if storage.get('snapshot_ready') else 'not loaded'}", inline=True)
     embed.set_footer(text="Use /help for commands. 🐾")
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
 
