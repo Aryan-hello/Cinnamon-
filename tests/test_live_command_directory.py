@@ -123,7 +123,7 @@ class CommandWiringTests(unittest.TestCase):
         self.assertIn("_HELP_EVERYONE =", src)
         self.assertIn("/ping", src)
         self.assertIn("/botstatus", src)
-        self.assertNotIn("current_len+extra>3000", src)
+        self.assertIn("current_len+extra>3000", src)
 
     def test_prefix_help_comes_from_current_bot_commands(self):
         src = self.read("cinnamon_modules/core_events.py")

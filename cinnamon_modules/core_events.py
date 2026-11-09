@@ -780,8 +780,11 @@ async def on_message(message: discord.Message):
         _cb_observe(guild_id, message.author.id)
         # Store only a short-lived boolean quiet signal for serious topics.
         context_observer = globals().get("_cx_observe")
-        if callable(context_observer):
-            context_observer(guild_id, clean_content)
+        if callable(context_observer) and context_observer(guild_id, clean_content):
+            alert_sender = globals().get("_cx_alert_serious")
+            if callable(alert_sender):
+                # A private, content-free signal; never ping members or copy the message.
+                asyncio.create_task(alert_sender(message.guild, message.channel))
 
     was_mentioned = bot.user is not None and bot.user in message.mentions and not message.mention_everyone
 

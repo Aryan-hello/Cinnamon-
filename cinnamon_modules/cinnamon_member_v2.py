@@ -9,6 +9,10 @@ from cinnamon_modules.brain_private_qa import (
     build_private_prompt as _me_build_private_prompt,
     sanitize_private_answer as _me_sanitize_private_answer,
 )
+from cinnamon_modules.brain_personalization import (
+    STYLES as _me_styles, validate_style as _me_validate_style,
+    validate_teasing as _me_validate_teasing, prompt_guidance as _me_prompt_guidance,
+)
 from cinnamon_modules.brain_member_v2 import (
     due_today as _me_due_today,
     format_timezone_offset as _me_timezone,
@@ -190,6 +194,65 @@ async def cinnamon_me_privacy(interaction: discord.Interaction):
         "Bot operators and the storage provider may still have access to stored server data.",
         ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
     )
+
+
+
+# Explicit member-selected presentation preferences (never authorization).
+def _me_brain_profile(guild_id, user_id):
+    return advanced_features_data.setdefault("cinnamon_brain_member_v1", {}).setdefault(
+        str(int(guild_id)), {}).setdefault(str(int(user_id)), {"style": "balanced", "teasing": True})
+
+
+def _me_prompt_preferences(guild_id, user_id):
+    profile = _me_brain_profile(guild_id, user_id)
+    try:
+        return _me_prompt_guidance(profile.get("style", "balanced"),
+                                  profile.get("teasing", True))
+    except ValueError:
+        # Corrupt preference data falls back to safe defaults.
+        return _me_prompt_guidance("balanced", True)
+
+
+@_me_group.command(name="style", description="Choose how Cinnamon talks to you")
+@app_commands.guild_only()
+@app_commands.choices(style=[
+    app_commands.Choice(name="Balanced", value="balanced"),
+    app_commands.Choice(name="Playful", value="playful"),
+    app_commands.Choice(name="Calm", value="calm"),
+    app_commands.Choice(name="Concise", value="concise"),
+    app_commands.Choice(name="Detailed", value="detailed"),
+])
+async def cinnamon_me_style(interaction: discord.Interaction, style: str):
+    try:
+        chosen = _me_validate_style(style)
+    except ValueError as exc:
+        return await interaction.response.send_message(str(exc), ephemeral=True)
+    profile = _me_brain_profile(interaction.guild.id, interaction.user.id)
+    prior = profile.get("style", "balanced")
+    profile["style"] = chosen
+    if not await bd_save_data():
+        profile["style"] = prior
+        return await interaction.response.send_message(
+            "⚠️ Storage didn't confirm that preference. Nothing changed.", ephemeral=True)
+    await interaction.response.send_message(
+        f"🐾 Your Cinnamon reply style is now **{chosen}**. Serious conversations still take priority.",
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@_me_group.command(name="teasing", description="Choose whether Cinnamon may gently tease you")
+@app_commands.guild_only()
+async def cinnamon_me_teasing(interaction: discord.Interaction, enabled: bool):
+    profile = _me_brain_profile(interaction.guild.id, interaction.user.id)
+    prior = bool(profile.get("teasing", True))
+    profile["teasing"] = _me_validate_teasing(enabled)
+    if not await bd_save_data():
+        profile["teasing"] = prior
+        return await interaction.response.send_message(
+            "⚠️ Storage didn't confirm that preference. Nothing changed.", ephemeral=True)
+    text = ("Friendly teasing is enabled (never cruelty or sensitive-topic jokes)."
+            if enabled else "Friendly teasing is disabled. I'll keep things warm and respectful.")
+    await interaction.response.send_message("🐾 " + text, ephemeral=True,
+                                           allowed_mentions=discord.AllowedMentions.none())
 
 
 bot.tree.add_command(_me_group)

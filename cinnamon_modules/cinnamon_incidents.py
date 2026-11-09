@@ -15,6 +15,42 @@ _CX_SERIOUS_UNTIL = {}  # guild ID -> Unix timestamp; no chat text or member ID
 _CX_QUIET_SECONDS = 15 * 60
 
 
+def _cx_alert_settings(gid):
+    return advanced_features_data.setdefault("cinnamon_incident_alerts_v1", {}).setdefault(
+        str(int(gid)), {"enabled": False, "channel_id": 0, "last_alert_at": 0})
+
+
+async def _cx_alert_serious(guild, source_channel):
+    """Send one content-free, rate-limited signal to an admin-chosen channel."""
+    cfg = _cx_alert_settings(guild.id)
+    if not cfg.get("enabled") or not int(cfg.get("channel_id", 0) or 0):
+        return False
+    now = _cx_time.time()
+    if now - float(cfg.get("last_alert_at", 0) or 0) < 900:
+        return False
+    destination = guild.get_channel(int(cfg["channel_id"]))
+    if (not isinstance(destination, discord.TextChannel)
+            or destination.permissions_for(guild.default_role).view_channel is not False
+            or not guild_channel_send_allowed(guild, destination)):
+        return False
+    prior = cfg.get("last_alert_at", 0)
+    cfg["last_alert_at"] = now
+    if not await bd_save_data():
+        cfg["last_alert_at"] = prior
+        return False
+    try:
+        await destination.send(
+            "🛡️ **Cinnamon Brain · possible serious conversation**\\n"
+            f"A cautious text signal was detected in {source_channel.mention} "
+            f"(<t:{int(now)}:R>). This may be a false positive. "
+            "No message content was copied, no member was pinged, and no one was judged. "
+            "Use /cinnamon-incident review if a human moderator needs a neutral recap.",
+            allowed_mentions=discord.AllowedMentions.none())
+        return True
+    except discord.HTTPException:
+        return False
+
+
 def _cx_observe(gid, text, *, now=None):
     now = _cx_time.time() if now is None else float(now)
     if _cx_looks_serious(text):
@@ -93,6 +129,40 @@ async def cinnamon_incident_policy(interaction: discord.Interaction):
         "I hold back on games when a discussion seems serious. "
         "Authorized human moderators can request a private chronological recap "
         "with /cinnamon-incident review. It is an aid, not a verdict.",
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@_cx_group.command(name="alerts", description="Admin: configure private serious-conversation signals")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(administrator=True)
+async def cinnamon_incident_alerts(interaction: discord.Interaction, enabled: bool,
+                                  channel: discord.TextChannel | None = None):
+    cfg = _cx_alert_settings(interaction.guild.id)
+    if enabled and channel is None and not int(cfg.get("channel_id", 0) or 0):
+        return await interaction.response.send_message(
+            "Choose a private staff channel when enabling alerts for the first time.",
+            ephemeral=True)
+    chosen = channel or interaction.guild.get_channel(int(cfg.get("channel_id", 0) or 0))
+    if enabled and (not chosen or chosen.guild.id != interaction.guild.id
+                    or chosen.permissions_for(interaction.guild.default_role).view_channel is not False
+                    or not guild_channel_send_allowed(interaction.guild, chosen)):
+        return await interaction.response.send_message(
+            "Cinnamon needs permission to send in a staff channel from this server.",
+            ephemeral=True)
+    old = dict(cfg)
+    cfg["enabled"] = bool(enabled)
+    if channel is not None:
+        cfg["channel_id"] = int(channel.id)
+    if not await bd_save_data():
+        cfg.clear()
+        cfg.update(old)
+        return await interaction.response.send_message(
+            "⚠️ Storage didn't confirm the alert settings. Nothing changed.", ephemeral=True)
+    await interaction.response.send_message(
+        ("🛡️ Content-free serious-topic signals are enabled" if enabled
+         else "🔕 Serious-topic staff signals are disabled")
+        + (f" in {chosen.mention}." if chosen else ".")
+        + " Alerts are rate-limited to one per 15 minutes and never include message text.",
         ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
