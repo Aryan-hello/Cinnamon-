@@ -484,6 +484,133 @@ class _CAConfirm(discord.ui.View):
             await interaction.response.edit_message(content="Cancelled. No action taken.", embed=None, view=None)
 
 
+
+
+class _CABatchConfirm(discord.ui.View):
+    """One explicit confirmation for a bounded compound action request."""
+    def __init__(self, gid, requester_id, proposals, *, source_id, channel_id):
+        super().__init__(timeout=CONFIRM_SECONDS)
+        self.gid, self.requester_id = gid, requester_id
+        self.proposals, self.source_id, self.channel_id = tuple(proposals), source_id, channel_id
+        self.used = False
+        self.expires_at = _ca_time.monotonic() + CONFIRM_SECONDS
+        self.lock = _ca_asyncio.Lock()
+        self.message = None
+
+    async def interaction_check(self, interaction):
+        if not interaction.guild or interaction.guild.id != self.gid or interaction.user.id != self.requester_id:
+            await interaction.response.send_message("Only the original requester can confirm this batch.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Confirm all actions", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction, button):
+        if not await self.interaction_check(interaction):
+            return
+        async with self.lock:
+            if self.used or _ca_time.monotonic() >= self.expires_at:
+                self.used = True
+                return await interaction.response.send_message("This batch expired or was already handled.", ephemeral=True)
+            self.used = True
+            await interaction.response.defer(ephemeral=True)
+            guild = interaction.guild
+            results = []
+            # Sequential execution gives every action its own fresh authorization
+            # and durable receipt. A failure stops the batch; completed items
+            # are reported honestly and are never silently rolled back.
+            for index, item in enumerate(self.proposals, 1):
+                try:
+                    await _ca_refresh_roles(guild)
+                    actor = await _ca_fresh_member(guild, self.requester_id)
+                    target = await _ca_fresh_member(guild, item.target_user_id)
+                    me = await _ca_fresh_member(guild, guild.me.id)
+                    channel = await guild.fetch_channel(self.channel_id)
+                    problem = _ca_permission_reason(guild, actor, target, item.action, me=me)
+                    perms = channel.permissions_for(me)
+                    if (not _ca_settings(self.gid).get("enabled", False)
+                            or self.channel_id in disabled_channels[self.gid]
+                            or not perms.view_channel or not perms.send_messages):
+                        problem = "Conversational actions or channel access changed."
+                    if problem:
+                        results.append(f"{index}. {target.display_name}: BLOCKED — {problem}")
+                        break
+                    if item.action.startswith("economy."):
+                        result = await _ca_adjust_catnip(
+                            self.gid, actor.id, target.id, item.amount, True,
+                            f"chat:{self.source_id}:batch:{index}:{target.id}",
+                            conversational=True, channel_id=self.channel_id)
+                        if result["status"] != "committed":
+                            results.append(f"{index}. {target.display_name}: {result['status']} — {result.get('reason','not committed')}")
+                            break
+                        results.append(f"{index}. Added {result['actual']:,} Catnip to {target.display_name}.")
+                    else:
+                        receipt = f"{self.gid}:chat:{self.source_id}:batch:{index}:{target.id}"
+                        record = {"guild_id": self.gid, "requester_id": actor.id,
+                                  "target_id": target.id, "action": item.action,
+                                  "seconds": item.seconds, "at": _ca_time.time(),
+                                  "outcome": "executing", "source_id": str(self.source_id)}
+                        saved = await _ca_record_moderation(self.gid, receipt, record, initial=True)
+                        if not saved or saved.status != "committed":
+                            results.append(f"{index}. {target.display_name}: receipt unavailable; not attempted.")
+                            break
+                        # Refresh authorization once more after durable intent.
+                        await _ca_refresh_roles(guild)
+                        actor = await _ca_fresh_member(guild, self.requester_id)
+                        target = await _ca_fresh_member(guild, item.target_user_id)
+                        me = await _ca_fresh_member(guild, guild.me.id)
+                        problem = _ca_permission_reason(guild, actor, target, item.action, me=me)
+                        if problem:
+                            await _ca_record_moderation(self.gid, receipt, dict(record, outcome="refused"))
+                            results.append(f"{index}. {target.display_name}: BLOCKED — {problem}")
+                            break
+                        deadline = _ca_datetime.datetime.now(_ca_datetime.timezone.utc) + _ca_datetime.timedelta(seconds=item.seconds)
+                        try:
+                            await target.timeout(deadline, reason=f"Cinnamon confirmed batch; requester {actor.id}; receipt {receipt}")
+                            outcome = "committed"
+                            results.append(f"{index}. Timed out {target.display_name} for {item.seconds//60}m {item.seconds%60}s.")
+                        except discord.Forbidden:
+                            outcome = "failed"
+                            results.append(f"{index}. Discord refused timeout for {target.display_name}.")
+                        except (discord.HTTPException, _ca_asyncio.TimeoutError, OSError):
+                            outcome = "uncertain"
+                            results.append(f"{index}. Timeout result for {target.display_name} is uncertain; check audit log.")
+                        await _ca_record_moderation(self.gid, receipt, dict(record, outcome=outcome))
+                        if outcome != "committed":
+                            break
+                except (discord.HTTPException, AttributeError, OSError) as exc:
+                    results.append(f"{index}. Stopped: server verification/storage error ({type(exc).__name__}).")
+                    break
+            report = "\n".join(results)
+            try:
+                await interaction.message.edit(content="Batch result:\n"+report, embed=None, view=None,
+                                             allowed_mentions=discord.AllowedMentions.none())
+            except discord.HTTPException:
+                pass
+            await interaction.followup.send(report or "No actions were executed.", ephemeral=True,
+                                          allowed_mentions=discord.AllowedMentions.none())
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, button):
+        if not await self.interaction_check(interaction):
+            return
+        async with self.lock:
+            if self.used:
+                return await interaction.response.send_message("This batch was already handled.", ephemeral=True)
+            self.used = True
+            self.stop()
+            await interaction.response.edit_message(content="Batch cancelled. No actions taken.", embed=None, view=None)
+
+    async def on_timeout(self):
+        if self.used:
+            return
+        self.used = True
+        if self.message:
+            try:
+                await self.message.edit(content="Batch confirmation expired. No action taken.", embed=None, view=None)
+            except discord.HTTPException:
+                pass
+
+
 async def _ca_maybe_handle(message, clean_content):
     """Consume actions before model generation; never parse generated prose."""
     if not message.guild or not isinstance(message.author, discord.Member):
