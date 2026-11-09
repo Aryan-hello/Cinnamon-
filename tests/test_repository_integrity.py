@@ -60,8 +60,9 @@ class RepositoryIntegrityTests(unittest.TestCase):
         text = (MODULE_DIR / "core_events.py").read_text(encoding="utf-8")
         self.assertNotIn("bot.tree.copy_global_to(", text,
                          "Duplicated guild/global registrations risk showing commands twice")
-        self.assertIn("bot.tree.clear_commands(guild=guild)", text)
-        self.assertIn("bot.tree.sync(guild=guild)", text)
+        self.assertIn("bot.tree.sync()", text)
+        self.assertNotIn("bot.tree.clear_commands(guild=guild)", text)
+        self.assertNotIn("bot.tree.sync(guild=guild)", text)
 
     def test_no_duplicate_loaded_slash_command_names(self):
         loaded = runtime_modules()
