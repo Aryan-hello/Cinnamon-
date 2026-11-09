@@ -1,4 +1,4 @@
-"""Offline behavior tests for meaningful Wildlands choices, fishing, and feeds."""
+"""Offline behavior tests for meaningful Cinnamon Adventure choices, fishing, and feeds."""
 import ast
 import asyncio
 from pathlib import Path
