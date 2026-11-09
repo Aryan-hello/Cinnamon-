@@ -437,7 +437,7 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
         if a.get("role")
     })
     achievement_role_names.append("Quest Master")
-    # Fishing titles and the two server-wide merchants are core Wildlands roles.
+    # Fishing titles and the two server-wide merchants are core Adventure roles.
     achievement_role_names.extend(_wlf_required_roles())
     achievement_role_names.append(_CM_NAUGHTY_ROLE)  # playful temporary penalty role
     achievement_role_names.append("Hangry Games")
@@ -569,7 +569,7 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
     embed.add_field(
         name="Next steps",
         value=(
-            "Use `/fishing start` and `/wildlands gather` for Wildlands fishing, or `/help` for all commands. "
+            "Use `/fishing start` and `/adventure gather` for Adventure fishing, or `/help` for all commands. "
             "Use `/dashboard` to open Cinnamon Control. "
             "Dashboard actions are recorded in the dashboard audit channel. Use `/economy snapshot` before a reset. "
             "Use `/economy restore-snapshot` after a reset if needed."
