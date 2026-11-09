@@ -273,6 +273,7 @@ ECONOMY_ITEMS = {
     "churu": {"name": "Churu", "price": 1500, "emoji": "🥫", "description": "Premium lickable cat snack.", "max_per_person": 0},
     "catnip_ball": {"name": "Catnip Ball", "price": 2000, "emoji": "🧶", "description": "Instant zoomies fuel.", "max_per_person": 0},
     "fish": {"name": "Fancy Fish", "price": 2500, "emoji": "🐠", "description": "A fancy fish for a very fancy cat.", "max_per_person": 0},
+    "fishing_string": {"name": "Fishing String", "price": 250, "emoji": "🧵", "description": "Strong replacement line for a broken fishing rod.", "max_per_person": 0, "shop_enabled": True},
 }
 
 
