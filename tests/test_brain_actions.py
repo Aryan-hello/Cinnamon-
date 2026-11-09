@@ -30,6 +30,18 @@ class ActionRecognitionTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(self.parse(text),
                                  ActionProposal("economy.add_catnip", MEMBER, amount=20000))
+        # Natural chat shorthand must normalize to exact integer Catnip.
+        for amount, expected in (("20k", 20000), ("1.5k", 1500), ("2m", 2000000)):
+            with self.subTest(amount=amount):
+                if expected > MAX_CATNIP:
+                    with self.assertRaises(ActionValidationError):
+                        self.parse(f"add {amount} Catnip to <@{MEMBER}>")
+                else:
+                    self.assertEqual(
+                        self.parse(f"add {amount} catnip to <@{MEMBER}>"),
+                        ActionProposal("economy.add_catnip", MEMBER, amount=expected))
+        self.assertEqual(self.parse(f"add 20k catnip to <@{MEMBER}>"),
+                         ActionProposal("economy.add_catnip", MEMBER, amount=20000))
         self.assertEqual(self.parse(f"remove 500 Catnip from <@{MEMBER}>"),
                          ActionProposal("economy.remove_catnip", MEMBER, amount=500))
         self.assertEqual(self.parse(f"take 500 catnip from <@{MEMBER}>"),
