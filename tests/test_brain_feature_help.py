@@ -1,7 +1,7 @@
 """Regression tests for expanded, safe feature explanations."""
 import unittest
 from types import SimpleNamespace
-from cinnamon_modules.brain_help import answer_help, build_command_catalog
+from cinnamon_modules.brain_help import answer_help, build_command_catalog, feature_knowledge
 
 def cmd(name, parent=None, description="Live command description"):
     return SimpleNamespace(name=name, parent=parent, description=description, parameters=(), callback=lambda: None)
@@ -30,6 +30,14 @@ class ExpandedFeatureHelpTests(unittest.TestCase):
     def test_dashboard_and_giveaways(self):
         self.assertIn("Administrators",answer_help("what is the dashboard?",self.catalog))
         self.assertIn("staff-controlled",answer_help("how do giveaways work?",self.catalog))
+
+    def test_feature_knowledge_includes_slash_and_prefix_registry(self):
+        reference=feature_knowledge(self.catalog, [SimpleNamespace(path='?quest daily'), SimpleNamespace(path='?automod spam')])
+        self.assertIn('/economy balance',reference)
+        self.assertIn('?quest daily',reference)
+        self.assertIn('?automod spam',reference)
+        self.assertIn('never reveal another member',reference)
+        self.assertIn('AI never punishes',reference)
 
     def test_games_and_wildlands_do_not_claim_unreleased_content(self):
         self.assertIn("optional",answer_help("how do games work?",self.catalog))
