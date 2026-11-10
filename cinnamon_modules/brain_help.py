@@ -214,7 +214,7 @@ def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_la
         body = "Moderation tools help staff timeout/mute, unmute, kick, ban, and review incidents. Discord permissions and role hierarchy apply; explaining never performs moderation."
         paths = ("/mute", "/unmute", "/kick", "/ban", "/cinnamon-incident review", "/cinnamon-incident policy")
     elif topic == "roles":
-        body = "Role tools assign/remove roles and support reaction roles where configured. Cinnamon must sit above managed roles; Discord permissions and hierarchy are enforced."
+        body = "Role tools assign/remove roles and support reaction roles where configured. Cinnamon must sit above managed roles; Discord permissions and role hierarchy are enforced."
         paths = ("/role", "/reactionrole")
     elif topic == "leveling":
         body = "Activity XP and levels reward participation according to server progression. Check rank/profile and leaderboard; exact thresholds are data-driven, so I will not guess."
