@@ -133,10 +133,10 @@ def feature_knowledge(catalog: Mapping[str, CommandGuide], prefix_commands: Iter
         "DASHBOARD/SETUP/RECALL: protected operations; never reveal credentials or claim deleted history can be recovered.",
         "AI/INDEPENDENCE: optional activities; no moderator powers or autonomous punishments; quiet is valid.",
     ]
-    content = ("CINNAMON FEATURE KNOWLEDGE (live command registry):\\n"
-               + "\\n".join(sections) + "\\n" + prefix_text + "\\n\\n"
-               + "\\n".join(fixed))
-    return content[:9000] + ("\\n[registry reference truncated]" if len(content) > 9000 else "")
+    content = ("CINNAMON FEATURE KNOWLEDGE (live command registry):\n"
+               + "\n".join(sections) + "\n" + prefix_text + "\n\n"
+               + "\n".join(fixed))
+    return content[:9000] + ("\n[registry reference truncated]" if len(content) > 9000 else "")
 
 def _feature_index(catalog: Mapping[str, CommandGuide]) -> str:
     """Compact live feature map generated only from registered commands."""
