@@ -31,3 +31,12 @@ Cinnamon should answer feature questions in her own playful, warm cat voice whil
 
 ## Current implementation PR
 Expanded deterministic feature routing in `cinnamon_modules/brain_help.py`, plus tests in `tests/test_brain_feature_help.py`.
+
+
+## Runtime wiring (November 2026)
+- `feature_knowledge()` is now injected into Gemini's system instruction for each reply, generated from the live slash command tree and `bot.walk_commands()` prefix registry.
+- The reference includes command paths plus safety/privacy guardrails. It contains public metadata only (no callbacks, member memories, secrets, or private state) and is bounded to 9,000 characters.
+- Slash `/help` now prints exact registered usage signatures and a guide covering how to ask Cinnamon for feature explanations, memory/reminder privacy, staff boundaries, and recovery limits.
+- `!help` / `?help` remains a registry-generated prefix directory. Conversational `Cinnamon, what features can you do?` returns a compact live feature atlas.
+- Feature changes are automatically represented in both slash and prefix registry references after command registration; reviewed behavior/guardrails still need tests/docs updates when feature semantics change.
+- Verification: `tests/test_brain_feature_help.py` and `tests/test_live_command_directory.py` cover the prompt reference and help source wiring.
