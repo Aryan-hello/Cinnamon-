@@ -308,6 +308,14 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
     unicode emoji, the bare name of one of the guild's custom emoji (no colons),
     or "" if nothing fits.
     """
+    # Deterministic feature help: current command metadata, read-only, no callbacks.
+    try:
+        grounded_help = answer_help(trigger_text, build_command_catalog(bot.tree.get_commands()))
+        if grounded_help:
+            return {"reply": grounded_help, "reaction": ""}
+    except Exception:
+        pass  # Help failures must not interrupt normal conversation.
+
     history = channel_memories[channel_id]
     convo = "\n".join(f"{name}: {text}" for name, text in history)
 
