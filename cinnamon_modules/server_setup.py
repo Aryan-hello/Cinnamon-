@@ -775,32 +775,57 @@ class HelpPagesView(discord.ui.View):
 
 @app_commands.guild_only()
 async def help_cmd(interaction: discord.Interaction):
-    commands_list = _all_leaf_commands(); pages=[]; current_lines=[]; current_len=0; last_root=None
-    for command in commands_list:
-        path=_command_path(command); root=path.split()[0].lstrip("/"); description=getattr(command,"description",None) or "No description provided."
-        line=f"**{path}** — {description}"; line=line[:897]+"..." if len(line)>900 else line
-        heading="" if root==last_root else f"\n**{root.replace('-', ' ').replace('_', ' ').title()}**"
-        extra=len(heading)+len(line)+1
-        if current_lines and current_len+extra>3000:
-            pages.append("\n".join(current_lines)); current_lines=[]; current_len=0; heading=f"**{root.replace('-', ' ').replace('_', ' ').title()}**"; extra=len(heading)+len(line)+1
-        current_lines.extend([heading,line]); current_len+=extra; last_root=root
-    if current_lines: pages.append("\n".join(current_lines))
+    # Always build this page from the actual Discord registry. The same live
+    # catalog powers Cinnamon's conversational feature knowledge in main.py.
+    commands_list = _all_leaf_commands()
+    catalog = build_command_catalog(commands_list)
+    pages = []
+    current_lines = []
+    current_len = 0
+    last_root = None
+    for guide in catalog.values():
+        root = guide.path.split()[0].lstrip("/")
+        line = f"**{guide.path}** — {guide.description}\\nUsage: `{guide.syntax}`"
+        line = line[:1100] + "..." if len(line) > 1100 else line
+        heading = "" if root == last_root else f"\\n**{root.replace('-', ' ').replace('_', ' ').title()}**"
+        extra = len(heading) + len(line) + 1
+        if current_lines and current_len + extra > 3000:
+            pages.append("\\n".join(current_lines))
+            current_lines = []
+            current_len = 0
+            heading = f"**{root.replace('-', ' ').replace('_', ' ').title()}**"
+            extra = len(heading) + len(line) + 1
+        current_lines.extend([heading, line])
+        current_len += extra
+        last_root = root
+    if current_lines:
+        pages.append("\\n".join(current_lines))
 
-    embeds=[]; total=len(commands_list)
-    for index,body in enumerate(pages,start=1):
-        e=cinnamon_embed(f"📖 Cinnamon Help","Browse Cinnamon's commands with the buttons below.",color=CINNAMON_BLUE,footer=cinnamon_page_footer("Help",index,len(pages)+1,f"{total} commands"))
-        e.add_field(name="Commands",value=body,inline=False); embeds.append(e)
-    guide=cinnamon_embed("🐾 Using Cinnamon","A quick guide to the bot.",color=CINNAMON_ORANGE,footer=cinnamon_page_footer("Help",len(embeds)+1,len(embeds)+1,"Guide"))
-    guide.add_field(name="🚀 Start here",value="Run `/setup` in a new server. Then use `/help` whenever you need the command directory. Open the web control panel with `/dashboard`.",inline=False)
-    guide.add_field(name="🎮 Everyday",value="Use `/pet`, `/mood status`, `/mood play`, `/rank`, `/economy shop`, `/quests daily`, and `/achievement list`. Cinnamon’s mood changes shop prices and fishing luck! Stories begin with `/cinnamon stories`; fishing starts with `/fishing start`.",inline=False)
-    guide.add_field(name="🛡️ Admin",value="Moderation, logging, recovery, and configuration commands require the appropriate Discord permissions.",inline=False)
-    guide.add_field(name="🧭 Web dashboard",value="`/dashboard` opens Cinnamon Control. Message Studio, analytics, activity logs, and every dashboard change are linked to the `cinnamon-dashboard-logs` audit channel created by `/setup`.",inline=False)
-    guide.add_field(name="💾 Reset protection",value="Run `/economy snapshot` before a reset and restore it afterward if needed.",inline=False)
+    embeds = []
+    total = len(catalog)
+    for index, body in enumerate(pages, start=1):
+        e = cinnamon_embed(
+            "📖 Cinnamon Help",
+            "Live command directory. Usage signatures are taken from Discord's registered commands.",
+            color=CINNAMON_BLUE,
+            footer=cinnamon_page_footer("Help", index, len(pages) + 1, f"{total} commands"),
+        )
+        e.add_field(name="Commands", value=body, inline=False)
+        embeds.append(e)
+    guide = cinnamon_embed("🐾 Using Cinnamon", "A quick guide to the bot.", color=CINNAMON_ORANGE,
+                           footer=cinnamon_page_footer("Help", len(embeds) + 1, len(embeds) + 1, "Guide"))
+    guide.add_field(name="🚀 Start here", value="Run `/setup` in a new server. Then use `/help` whenever you need the live command directory. Open Cinnamon Control with `/dashboard`.", inline=False)
+    guide.add_field(name="🎮 Play & progress", value="Try `/pet`, `/mood status`, `/rank`, `/economy shop`, `/quests daily`, `/achievement list`, `/cinnamon stories`, and `/fishing start`. Features and exact options are listed in the command pages.", inline=False)
+    guide.add_field(name="🧠 Ask Cinnamon", value="Mention Cinnamon or use `!ask` and ask how a feature works, what a command does, or what permissions it needs. Her explanations use the live slash + prefix command registry; she won't execute a command just because you ask about it.", inline=False)
+    guide.add_field(name="🔐 Privacy & staff", value="Member memory and reminders are private and member-controlled. Moderation, server setup, dashboard changes, and recovery require the appropriate Discord permissions; AI explanations never perform punishments or reveal another member's private notes.", inline=False)
+    guide.add_field(name="💾 Data & recovery", value="Use `/datastatus check` to inspect storage and `/economy snapshot` before a reset. `/recall` reconstructs only data available in configured logs/snapshots; it cannot restore deleted Discord history.", inline=False)
     embeds.append(guide)
-    view=HelpPagesView(interaction.user.id,embeds,0)
-    await interaction.response.send_message(embed=embeds[0],view=view,ephemeral=True)
+    view = HelpPagesView(interaction.user.id, embeds, 0)
+    await interaction.response.send_message(embed=embeds[0], view=view, ephemeral=True)
     try:
-        await send_log(interaction.guild.id, title="📖 Slash help opened", description=f"{interaction.user} ({interaction.user.id}) opened the slash-command guide.", interaction=interaction, category="dashboard")
+        await send_log(interaction.guild.id, title="📖 Slash help opened",
+                       description=f"{interaction.user} ({interaction.user.id}) opened the slash-command guide.",
+                       interaction=interaction, category="dashboard")
     except Exception:
         log.exception("Could not log help command use")
 
