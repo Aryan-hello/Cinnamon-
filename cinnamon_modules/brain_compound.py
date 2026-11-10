@@ -80,7 +80,7 @@ def parse_compound_request(text: str) -> CompoundPlan | None:
         clause = clause.strip().rstrip(".!?")
         add = re.fullmatch(rf"(?:add|give)\s+({_AMOUNT})\s+catnip\s+to\s+(.+)", clause, re.I)
         remove = re.fullmatch(rf"(?:remove|take)\s+({_AMOUNT})\s+catnip\s+from\s+({_MENTION})", clause, re.I)
-        timeout = re.fullmatch(rf"(?:mute|timeout|time\s+out)\s+({_MENTION})\s+(?:for\s+)?([0-9]+(?:s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days))", clause, re.I)
+        timeout = re.fullmatch(rf"(?:mute|timeout|time\s+out)\s+({_MENTION})\s+(?:for\s+)?([0-9]+\\s*(?:s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days))", clause, re.I)
         untimeout = re.fullmatch(rf"(?:unmute|untimeout)\s+({_MENTION})", clause, re.I)
         if add:
             amount, target_text = add.groups()
