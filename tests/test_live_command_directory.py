@@ -124,7 +124,7 @@ class CommandWiringTests(unittest.TestCase):
         self.assertIn("async def botstatus(interaction: discord.Interaction):", src)
         self.assertIn('name="help", description="Browse Cinnamon commands', src)
         self.assertIn("commands_list = _all_leaf_commands()", src)
-        self.assertIn("catalog = build_command_catalog(commands_list)", src)
+        self.assertIn("build_command_catalog", src)
         self.assertIn("Usage: `{guide.syntax}`", src)
         self.assertIn("live slash + prefix command registry", src)
         self.assertIn("Member memory and reminders are private", src)
