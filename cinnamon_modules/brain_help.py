@@ -88,6 +88,21 @@ def _links(catalog: Mapping[str, CommandGuide], paths: tuple[str, ...]) -> str:
     return " · ".join("`" + catalog[path].path + "`" for path in paths if path in catalog)
 
 
+def _feature_index(catalog: Mapping[str, CommandGuide]) -> str:
+    """Compact live feature map generated only from registered commands."""
+    groups: dict[str, list[str]] = {}
+    for guide in catalog.values():
+        root = guide.path.strip("/").split()[0].lower()
+        groups.setdefault(root, []).append(guide.path)
+    labels = {"economy":"Catnip economy", "quest":"Quests", "quests":"Quest tracking", "achievement":"Achievements", "fishing":"Fishing", "cinnamon":"Cinnamon companion & stories", "cinnamon-mind":"Brain & independent activities", "cinnamon-memory":"Personal memory & privacy", "cinnamon-reminder":"Reminders & personal day", "cinnamon-incident":"Incident review", "hangry":"Hangry Games", "wildlands":"Wildlands", "role":"Roles", "reactionrole":"Reaction roles", "giveaway":"Giveaways", "poll":"Polls", "profile":"Profiles", "rank":"Ranks", "leaderboard":"Leaderboards", "mute":"Moderation", "ban":"Moderation", "kick":"Moderation", "dashboard":"Dashboard", "recall":"Recovery / recall", "setup":"Server setup"}
+    rows = []
+    for root, paths in sorted(groups.items()):
+        label = labels.get(root, root.replace("-", " ").replace("_", " ").title())
+        shown = ", ".join("`" + p + "`" for p in paths[:5])
+        if len(paths) > 5: shown += f" (+{len(paths)-5} more)"
+        rows.append(f"**{label}**: {shown}")
+    return "*opens her feature atlas* Here is what is registered right now:\n" + "\n".join(rows[:28]) + "\nAsk about any feature or slash command for details. Planned ideas are not presented as live."
+
 def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_label: str) -> str:
     if topic == "quests":
         body = ("Five daily and five weekly quests track your progress. Completing them earns "
@@ -215,7 +230,7 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
     query = _ADDRESS.sub("", text, count=1).strip()
     lower = query.lower()
     simple_topic = lower.rstrip(" ?.! ")
-    is_question = bool(_QUERY.match(query)) or simple_topic in {
+    overview_request = bool(re.search(r"\\b(?:what\\s+(?:can|do)|all\\s+(?:the\\s+)?features|features\\s+list|feature\\s+list|everything\\s+(?:you|cinnamon)|what\\s+features)\\b", lower))\n    is_question = overview_request or bool(_QUERY.match(query)) or simple_topic in {
         "quests", "quest", "fishing", "stories", "achievements", "economy", "catnip",
         "help", "reminder", "reminders", "memory", "memories", "independence", "brain",
         "incident", "incidents", "today", "my day", "myday", "privacy",
