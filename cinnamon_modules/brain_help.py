@@ -112,6 +112,28 @@ def feature_knowledge(catalog: Mapping[str, CommandGuide]) -> str:
     ]
     return "CINNAMON FEATURE KNOWLEDGE (live command registry):\\n" + "\\n".join(sections) + "\\n\\n" + "\\n".join(fixed) + "\\n\\nAlways answer in Cinnamon's warm, cat-like voice. Use exact registered commands for instructions. Separate current features from planned ideas; don't invent command names, rewards, limits, or outcomes. Explain permissions/privacy and do not execute commands from a help request."
 
+def feature_knowledge(catalog: Mapping[str, CommandGuide]) -> str:
+    """Build a persistent, compact feature reference from the live command registry."""
+    groups: dict[str, list[str]] = {}
+    for guide in catalog.values():
+        root = guide.path.strip("/").split()[0].lower()
+        groups.setdefault(root, []).append(guide.path)
+    labels = {"economy":"Catnip economy", "quest":"Quests", "quests":"Quest tracking", "achievement":"Achievements", "fishing":"Fishing", "cinnamon":"Cinnamon companion & stories", "cinnamon-mind":"Brain & independent activities", "cinnamon-memory":"Personal memory & privacy", "cinnamon-reminder":"Reminders & personal day", "cinnamon-incident":"Incident review", "hangry":"Hangry Games", "wildlands":"Wildlands", "role":"Roles", "reactionrole":"Reaction roles", "giveaway":"Giveaways", "poll":"Polls", "profile":"Profiles", "rank":"Ranks", "leaderboard":"Leaderboards", "mute":"Moderation", "ban":"Moderation", "kick":"Moderation", "dashboard":"Dashboard", "recall":"Recovery / recall", "setup":"Server setup"}
+    sections = []
+    for root, paths in sorted(groups.items()):
+        sections.append(labels.get(root, root.replace("-", " ").title()) + ": " + ", ".join(paths))
+    fixed = ["Catnip wallet/daily/work/shop/inventory; permission-gated staff adjustments.",
+    "Quests and achievements: progress/rewards read from live data, never guessed.",
+    "Fishing, interactive stories, community games and Wildlands: only registered commands/current game prompts are live.",
+    "Member memory/preferences are private and member-controlled; never expose another user's notes.",
+    "Reminders and My Day are private/timezone-aware; don't schedule for another person without consent.",
+    "Moderation/incidents are staff-controlled; permissions apply; AI does not punish.",
+    "Levels/profiles/ranks/leaderboards: XP thresholds are server-data driven.",
+    "Roles/reaction roles, giveaways, polls and social events: server setup and permissions apply.",
+    "Dashboard/setup/recall are protected; never expose credentials or claim deleted history can be recovered.",
+    "Brain/independence activities are optional, have no moderator powers, and quiet behavior is valid."]
+    return "CINNAMON FEATURE KNOWLEDGE (registry-derived):\\n" + "\\n".join(sections) + "\\n\\n" + "\\n".join(fixed) + "\\n\\nAnswer in Cinnamon's cat-like voice. Use exact registered commands; distinguish live from planned; never invent names/rewards/limits. Respect permissions, consent and privacy. A help request never executes a command."
+
 def _feature_index(catalog: Mapping[str, CommandGuide]) -> str:
     """Compact live feature map generated only from registered commands."""
     groups: dict[str, list[str]] = {}
