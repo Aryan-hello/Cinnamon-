@@ -88,6 +88,30 @@ def _links(catalog: Mapping[str, CommandGuide], paths: tuple[str, ...]) -> str:
     return " · ".join("`" + catalog[path].path + "`" for path in paths if path in catalog)
 
 
+def feature_knowledge(catalog: Mapping[str, CommandGuide]) -> str:
+    """Build a persistent, compact feature reference from the live command registry."""
+    groups: dict[str, list[str]] = {}
+    for guide in catalog.values():
+        root = guide.path.strip("/").split()[0].lower()
+        groups.setdefault(root, []).append(guide.path)
+    labels = {"economy":"Catnip economy", "quest":"Quests", "quests":"Quest tracking", "achievement":"Achievements", "fishing":"Fishing", "cinnamon":"Cinnamon companion & stories", "cinnamon-mind":"Brain & independent activities", "cinnamon-memory":"Personal memory & privacy", "cinnamon-reminder":"Reminders & personal day", "cinnamon-incident":"Incident review", "hangry":"Hangry Games", "wildlands":"Wildlands", "role":"Roles", "reactionrole":"Reaction roles", "giveaway":"Giveaways", "poll":"Polls", "profile":"Profiles", "rank":"Ranks", "leaderboard":"Leaderboards", "mute":"Moderation", "ban":"Moderation", "kick":"Moderation", "dashboard":"Dashboard", "recall":"Recovery / recall", "setup":"Server setup"}
+    sections = []
+    for root, paths in sorted(groups.items()):
+        sections.append(labels.get(root, root.replace("-", " ").title()) + ": " + ", ".join(paths))
+    fixed = [
+      "CATNIP: wallet/balance, daily/work rewards, shop/inventory; staff economy adjustments are permission-gated.",
+      "QUESTS/ACHIEVEMENTS: progress, claim/redeem and milestone tracking; actual rewards/thresholds must be read from live data, never guessed.",
+      "FISHING/STORIES/GAMES/WILDLANDS: interactive gameplay and authored story routes; only registered commands and current game prompts are live.",
+      "MEMORY/PRIVACY: member-controlled preferences/private notes; explain view/edit/clear/disable controls, never expose another member's private notes.",
+      "REMINDERS/MY DAY: personal scheduled DMs and timezone-aware private daily view; never schedule for someone else without consent.",
+      "MODERATION/INCIDENTS: staff tools and private incident review; Discord permission and role hierarchy apply; AI explanation does not punish.",
+      "LEVELS/PROFILES: XP, ranks, profiles, leaderboards; exact thresholds come from server data.",
+      "ROLES/REACTION ROLES, GIVEAWAYS, POLLS, SOCIAL EVENTS: setup/configuration varies; staff permissions are respected.",
+      "DASHBOARD/RECALL/SETUP: admin/owner-only operations and recovery; never reveal credentials/session URLs or claim deleted history can be recovered.",
+      "AI/INDEPENDENCE: optional eligible activities and conversation help; no moderator powers, no autonomous punishments, and quiet behavior is valid."
+    ]
+    return "CINNAMON FEATURE KNOWLEDGE (live command registry):\\n" + "\\n".join(sections) + "\\n\\n" + "\\n".join(fixed) + "\\n\\nAlways answer in Cinnamon's warm, cat-like voice. Use exact registered commands for instructions. Separate current features from planned ideas; don't invent command names, rewards, limits, or outcomes. Explain permissions/privacy and do not execute commands from a help request."
+
 def _feature_index(catalog: Mapping[str, CommandGuide]) -> str:
     """Compact live feature map generated only from registered commands."""
     groups: dict[str, list[str]] = {}
