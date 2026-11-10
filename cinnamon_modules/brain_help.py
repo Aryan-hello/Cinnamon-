@@ -133,14 +133,14 @@ def feature_knowledge(catalog: Mapping[str, CommandGuide], prefix_commands: Iter
         "DASHBOARD/SETUP/RECALL: protected operations; never reveal credentials or claim deleted history can be recovered.",
         "AI/INDEPENDENCE: optional activities; no moderator powers or autonomous punishments; quiet is valid.",
     ]
-    registry = ("SLASH COMMANDS BY FEATURE:\\n" + "\\n".join(sections)
-                + "\\n" + prefix_text)
-    registry = registry[:6500] + ("\\n[command registry shortened]" if len(registry) > 6500 else "")
-    guardrails = ("\\n\\n" + "\\n".join(fixed)
-                  + "\\n\\nAnswer in Cinnamon's warm cat voice. Explain exact registered commands; "
+    registry = ("SLASH COMMANDS BY FEATURE:\n" + "\n".join(sections)
+                + "\n" + prefix_text)
+    registry = registry[:6500] + ("\n[command registry shortened]" if len(registry) > 6500 else "")
+    guardrails = ("\n\n" + "\n".join(fixed)
+                  + "\n\nAnswer in Cinnamon's warm cat voice. Explain exact registered commands; "
                     "distinguish live from planned; never invent options, rewards, limits, or outcomes. "
                     "Respect permissions, consent, and privacy. Help never executes commands.")
-    return ("CINNAMON FEATURE KNOWLEDGE (generated live each response):\\n"
+    return ("CINNAMON FEATURE KNOWLEDGE (generated live each response):\n"
             + registry + guardrails)[:9000]
 
 def _feature_index(catalog: Mapping[str, CommandGuide]) -> str:
