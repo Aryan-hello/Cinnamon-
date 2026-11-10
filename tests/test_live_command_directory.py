@@ -23,6 +23,11 @@ def slash_leaf(name, description, *, parent=None):
 
 
 class LiveDirectoryTests(unittest.TestCase):
+    def test_slash_ping_and_botstatus_exist_in_registry_source(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn('@bot.tree.command(name="ping"', main)
+        self.assertIn('@bot.tree.command(name="botstatus"', main)
+
     def test_grouped_slash_metadata_has_exact_registered_paths(self):
         group = SimpleNamespace(name="economy", parent=None, commands=[])
         admin = SimpleNamespace(name="admin", parent=group, commands=[])
