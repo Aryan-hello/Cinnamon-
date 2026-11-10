@@ -338,7 +338,7 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
         topic = "moderation"
     elif re.search(r"\b(?:roles?|reaction.?roles?)\b", lower):
         topic = "roles"
-    elif re.search(r"\b(?:level|xp|rank|leaderboard)\b", lower):
+    elif re.search(r"\b(?:level(?:ing)?|xp|rank|leaderboard)\b", lower):
         topic = "leveling"
     elif re.search(r"\b(?:game|games|hangry)\b", lower):
         topic = "games"
