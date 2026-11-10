@@ -120,8 +120,8 @@ class CommandWiringTests(unittest.TestCase):
 
     def test_slash_ping_and_botstatus_exist_in_registry_source(self):
         src = self.read("cinnamon_modules/server_setup.py")
-        self.assertIn('@bot.tree.command(name="ping"', src)
-        self.assertIn('@bot.tree.command(name="botstatus"', src)
+        self.assertIn("async def ping(interaction: discord.Interaction):", src)
+        self.assertIn("async def botstatus(interaction: discord.Interaction):", src)
         self.assertIn('name="help", description="Browse Cinnamon commands', src)
         self.assertIn("commands_list = _all_leaf_commands()", src)
         self.assertIn("catalog = build_command_catalog(commands_list)", src)
