@@ -240,6 +240,8 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
         return None
 
     slash = _SLASH.search(query)
+    if overview_request and not slash:
+        return _feature_index(catalog)[:1900]
     if slash:
         words = slash.group(1).lower().split()
         # Following prose ("do?", "work?") cannot change which registry entry
