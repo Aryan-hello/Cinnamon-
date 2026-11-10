@@ -138,9 +138,14 @@ def _bd_decode(raw: dict):
     # Older snapshots without this field keep the built-in catalog. Update in
     # place so existing views/helpers retain their shared catalog reference.
     saved_items = raw.get("economy_items")
+    current_defaults = dict(ECONOMY_ITEMS)
     if isinstance(saved_items, dict):
         ECONOMY_ITEMS.clear()
         ECONOMY_ITEMS.update(saved_items)
+        # Add newly introduced built-ins to legacy catalogs without replacing
+        # administrator-defined prices or custom item entries.
+        if saved_items and "fishing_string" not in saved_items:
+            ECONOMY_ITEMS["fishing_string"] = current_defaults["fishing_string"]
     else:
         # Migrate only legacy/default catalogs. Explicitly saved prices are
         # administrator choices and may validly be below these default floors.
