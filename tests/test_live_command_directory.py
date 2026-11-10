@@ -119,11 +119,14 @@ class CommandWiringTests(unittest.TestCase):
         self.assertIn('@bot.tree.command(name="botstatus"', src)
         self.assertIn('name="help", description="Browse Cinnamon commands', src)
         self.assertIn("commands_list = _all_leaf_commands()", src)
-        self.assertIn("commands_list = _all_leaf_commands(); pages=[]", src)
+        self.assertIn("catalog = build_command_catalog(commands_list)", src)
+        self.assertIn("Usage: `{guide.syntax}`", src)
+        self.assertIn("live slash + prefix command registry", src)
+        self.assertIn("Member memory and reminders are private", src)
         self.assertIn("_HELP_EVERYONE =", src)
         self.assertIn("/ping", src)
         self.assertIn("/botstatus", src)
-        self.assertIn("current_len+extra>3000", src)
+        self.assertIn("current_len + extra > 3000", src)
 
     def test_prefix_help_comes_from_current_bot_commands(self):
         src = self.read("cinnamon_modules/core_events.py")

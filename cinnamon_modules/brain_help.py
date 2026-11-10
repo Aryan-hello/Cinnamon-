@@ -88,6 +88,76 @@ def _links(catalog: Mapping[str, CommandGuide], paths: tuple[str, ...]) -> str:
     return " · ".join("`" + catalog[path].path + "`" for path in paths if path in catalog)
 
 
+def feature_knowledge(catalog: Mapping[str, CommandGuide], prefix_commands: Iterable[object] = ()) -> str:
+    """Build the runtime feature reference used in Gemini's system instruction.
+
+    Slash paths come from Discord's live app-command registry; prefix commands
+    come from bot.walk_commands(). No callback source or user data is included.
+    """
+    groups: dict[str, list[str]] = {}
+    for guide in catalog.values():
+        root = guide.path.strip("/").split()[0].lower()
+        groups.setdefault(root, []).append(guide.path)
+    labels = {
+        "economy": "Catnip economy", "quest": "Quests", "quests": "Quest tracking",
+        "achievement": "Achievements", "fishing": "Fishing",
+        "cinnamon": "Cinnamon companion & stories",
+        "cinnamon-mind": "Brain & independent activities",
+        "cinnamon-memory": "Personal memory & privacy",
+        "cinnamon-reminder": "Reminders & personal day",
+        "cinnamon-incident": "Incident review", "hangry": "Hangry Games",
+        "wildlands": "Wildlands", "role": "Roles", "reactionrole": "Reaction roles",
+        "giveaway": "Giveaways", "poll": "Polls", "profile": "Profiles",
+        "rank": "Ranks", "leaderboard": "Leaderboards", "mute": "Moderation",
+        "ban": "Moderation", "kick": "Moderation", "dashboard": "Dashboard",
+        "recall": "Recovery / recall", "setup": "Server setup",
+    }
+    sections = []
+    for root, paths in sorted(groups.items()):
+        sections.append(labels.get(root, root.replace("-", " ").title()) + ": " + ", ".join(paths))
+    prefix = []
+    for item in prefix_commands:
+        path = str(getattr(item, "path", "") or "")
+        if path:
+            prefix.append(path)
+    prefix_text = "PREFIX COMMANDS: " + ", ".join(sorted(set(prefix))) if prefix else "PREFIX COMMANDS: none registered"
+    fixed = [
+        "CATNIP: wallet/balance, daily/work rewards, shop/inventory; staff adjustments are permission-gated.",
+        "QUESTS/ACHIEVEMENTS: progress and rewards must be grounded in live server data, never guessed.",
+        "FISHING/STORIES/GAMES/WILDLANDS: interactive gameplay; only registered commands/current prompts are live.",
+        "MEMORY/PRIVACY: member-controlled private notes/preferences; never reveal another member's notes.",
+        "REMINDERS/MY DAY: private, timezone-aware; never schedule for someone else without consent.",
+        "MODERATION/INCIDENTS: staff-controlled, Discord permissions/role hierarchy apply; AI never punishes.",
+        "LEVELS/PROFILES: XP, ranks, profiles, leaderboards; thresholds are server-data driven.",
+        "ROLES/GIVEAWAYS/POLLS/SOCIAL: configuration and permissions vary by server.",
+        "DASHBOARD/SETUP/RECALL: protected operations; never reveal credentials or claim deleted history can be recovered.",
+        "AI/INDEPENDENCE: optional activities; no moderator powers or autonomous punishments; quiet is valid.",
+    ]
+    registry = ("SLASH COMMANDS BY FEATURE:\n" + "\n".join(sections)
+                + "\n" + prefix_text)
+    registry = registry[:6500] + ("\n[command registry shortened]" if len(registry) > 6500 else "")
+    guardrails = ("\n\n" + "\n".join(fixed)
+                  + "\n\nAnswer in Cinnamon's warm cat voice. Explain exact registered commands; "
+                    "distinguish live from planned; never invent options, rewards, limits, or outcomes. "
+                    "Respect permissions, consent, and privacy. Help never executes commands.")
+    return ("CINNAMON FEATURE KNOWLEDGE (generated live each response):\n"
+            + registry + guardrails)[:9000]
+
+def _feature_index(catalog: Mapping[str, CommandGuide]) -> str:
+    """Compact live feature map generated only from registered commands."""
+    groups: dict[str, list[str]] = {}
+    for guide in catalog.values():
+        root = guide.path.strip("/").split()[0].lower()
+        groups.setdefault(root, []).append(guide.path)
+    labels = {"economy":"Catnip economy", "quest":"Quests", "quests":"Quest tracking", "achievement":"Achievements", "fishing":"Fishing", "cinnamon":"Cinnamon companion & stories", "cinnamon-mind":"Brain & independent activities", "cinnamon-memory":"Personal memory & privacy", "cinnamon-reminder":"Reminders & personal day", "cinnamon-incident":"Incident review", "hangry":"Hangry Games", "wildlands":"Wildlands", "role":"Roles", "reactionrole":"Reaction roles", "giveaway":"Giveaways", "poll":"Polls", "profile":"Profiles", "rank":"Ranks", "leaderboard":"Leaderboards", "mute":"Moderation", "ban":"Moderation", "kick":"Moderation", "dashboard":"Dashboard", "recall":"Recovery / recall", "setup":"Server setup"}
+    rows = []
+    for root, paths in sorted(groups.items()):
+        label = labels.get(root, root.replace("-", " ").replace("_", " ").title())
+        shown = ", ".join("`" + p + "`" for p in paths[:5])
+        if len(paths) > 5: shown += f" (+{len(paths)-5} more)"
+        rows.append(f"**{label}**: {shown}")
+    return "*opens her feature atlas* Here is what is registered right now:\n" + "\n".join(rows[:28]) + "\nAsk about any feature or slash command for details. Planned ideas are not presented as live."
+
 def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_label: str) -> str:
     if topic == "quests":
         body = ("Five daily and five weekly quests track your progress. Completing them earns "
@@ -145,6 +215,33 @@ def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_la
                 "It reconstructs only data those sources support; it cannot recover deleted "
                 "Discord history or retrieve personal AI memories. Asking about it does not run recovery.")
         paths = ("/recall",)
+    elif topic == "moderation":
+        body = "Moderation tools help staff timeout/mute, unmute, kick, ban, and review incidents. Discord permissions and role hierarchy apply; explaining never performs moderation."
+        paths = ("/mute", "/unmute", "/kick", "/ban", "/cinnamon-incident review", "/cinnamon-incident policy")
+    elif topic == "roles":
+        body = "Role tools assign/remove roles and support reaction roles where configured. Cinnamon must sit above managed roles; Discord permissions and role hierarchy are enforced."
+        paths = ("/role", "/reactionrole")
+    elif topic == "leveling":
+        body = "Activity XP and levels reward participation according to server progression. Check rank/profile and leaderboard; exact thresholds are data-driven, so I will not guess."
+        paths = ("/level", "/rank", "/leaderboard", "/profile")
+    elif topic == "games":
+        body = "Cinnamon has community games and Hangry Games. Use registered game commands for modes and lobbies. Surprise games are optional and should stay quiet during inactivity or serious conversations."
+        paths = ("/hangry", "/hangrygames", "/cinnamon-mind status")
+    elif topic == "giveaways":
+        body = "Giveaways host timed prize events with member entry controls. Creation/editing/ending are staff-controlled; check registered commands for exact options."
+        paths = ("/giveaway",)
+    elif topic == "wildlands":
+        body = "Wildlands is Cinnamon exploration/gameplay. Available actions come from live commands and in-game prompts; planned features are not necessarily live."
+        paths = tuple(path for path in catalog if "wildland" in path)
+    elif topic == "social":
+        body = "Social events are optional community activities. Available controls depend on commands registered in this server."
+        paths = tuple(path for path in catalog if any(word in path for word in ("event", "social", "birthday")))
+    elif topic == "dashboard":
+        body = "The dashboard is a web control center. Anyone may request its link, but viewing/changing server settings is restricted to the owner/Administrators. Never share private login/session links."
+        paths = ("/dashboard",)
+    elif topic == "profile":
+        body = "Profile/rank commands show member progression and public server stats. Leaderboards compare configured categories; exact values come from current server data."
+        paths = ("/profile", "/rank", "/leaderboard")
     else:
         body = ("Catnip is this server's economy currency. Check your wallet, earn Catnip with "
                 "daily/work rewards, and use the shop for items. Administrative adjustments "
@@ -188,7 +285,8 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
     query = _ADDRESS.sub("", text, count=1).strip()
     lower = query.lower()
     simple_topic = lower.rstrip(" ?.! ")
-    is_question = bool(_QUERY.match(query)) or simple_topic in {
+    overview_request = bool(re.search(r"\b(?:what\s+(?:can|do)|all\s+(?:the\s+)?features|features\s+list|feature\s+list|everything\s+(?:you|cinnamon)|what\s+features)\b", lower))
+    is_question = overview_request or bool(_QUERY.match(query)) or simple_topic in {
         "quests", "quest", "fishing", "stories", "achievements", "economy", "catnip",
         "help", "reminder", "reminders", "memory", "memories", "independence", "brain",
         "incident", "incidents", "today", "my day", "myday", "privacy",
@@ -197,6 +295,8 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
         return None
 
     slash = _SLASH.search(query)
+    if overview_request and not slash:
+        return _feature_index(catalog)[:1900]
     if slash:
         words = slash.group(1).lower().split()
         # Following prose ("do?", "work?") cannot change which registry entry
@@ -234,6 +334,24 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
         topic = "recall"
     elif re.search(r"\b(?:catnip|economy|wallet|shop)\b", lower):
         topic = "economy"
+    elif re.search(r"\b(?:moderation|timeout|mute|ban|kick|automod)\b", lower):
+        topic = "moderation"
+    elif re.search(r"\b(?:roles?|reaction.?roles?)\b", lower):
+        topic = "roles"
+    elif re.search(r"\b(?:level(?:ing)?|xp|rank|leaderboard)\b", lower):
+        topic = "leveling"
+    elif re.search(r"\b(?:game|games|hangry)\b", lower):
+        topic = "games"
+    elif re.search(r"\bgiveaways?\b", lower):
+        topic = "giveaways"
+    elif re.search(r"\bwildlands\b", lower):
+        topic = "wildlands"
+    elif re.search(r"\bsocial|events?\b", lower):
+        topic = "social"
+    elif re.search(r"\bdashboard\b", lower):
+        topic = "dashboard"
+    elif re.search(r"\bprofile\b", lower):
+        topic = "profile"
     elif simple_topic == "help" or re.fullmatch(r"(?:what|how).*(?:commands|features).*", lower):
         return "*unrolls her command ledger* Use `/help` for registered commands, or ask about quests, reminders, memory, fishing, Catnip, stories, or my independent activities."
     else:
