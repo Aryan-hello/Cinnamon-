@@ -9,7 +9,7 @@ def cmd(name, parent=None, description="Live command description"):
 class ExpandedFeatureHelpTests(unittest.TestCase):
     def setUp(self):
         economy=SimpleNamespace(name="economy", parent=None, commands=[])
-        self.catalog=build_command_catalog([cmd("balance",economy), cmd("daily",economy), cmd("work",economy), cmd("shop",economy), cmd("mute"), cmd("unmute"), cmd("role"), cmd("reactionrole"), cmd("profile"), cmd("rank"), cmd("leaderboard"), cmd("dashboard"), cmd("giveaway"), cmd("hangry"), cmd("cinnamon-mind")])
+        self.catalog=build_command_catalog([cmd("balance",economy), cmd("daily",economy), cmd("work",economy), cmd("shop",economy), cmd("mute"), cmd("unmute"), cmd("role"), cmd("reactionrole"), cmd("profile"), cmd("rank"), cmd("leaderboard"), cmd("dashboard"), cmd("giveaway"), cmd("hangry"), cmd("cinnamon-mind"), cmd("wildlands")])
 
     def test_feature_overview_is_live_registry_backed(self):
         answer=answer_help("what features can you do?",self.catalog)
