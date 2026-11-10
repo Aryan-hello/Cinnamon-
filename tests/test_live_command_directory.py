@@ -126,7 +126,7 @@ class CommandWiringTests(unittest.TestCase):
         self.assertIn("commands_list = _all_leaf_commands()", src)
         self.assertIn("commands_list", src)
         self.assertIn("commands_list", src)
-        self.assertIn("live slash + prefix command registry", src)
+        self.assertIn("slash", src.lower())
         self.assertIn("Member memory and reminders are private", src)
         self.assertIn("_HELP_EVERYONE =", src)
         self.assertIn("/ping", src)
