@@ -785,12 +785,12 @@ async def help_cmd(interaction: discord.Interaction):
     last_root = None
     for guide in catalog.values():
         root = guide.path.split()[0].lstrip("/")
-        line = f"**{guide.path}** — {guide.description}\\nUsage: `{guide.syntax}`"
+        line = f"**{guide.path}** — {guide.description}\nUsage: `{guide.syntax}`"
         line = line[:1100] + "..." if len(line) > 1100 else line
-        heading = "" if root == last_root else f"\\n**{root.replace('-', ' ').replace('_', ' ').title()}**"
+        heading = "" if root == last_root else f"\n**{root.replace('-', ' ').replace('_', ' ').title()}**"
         extra = len(heading) + len(line) + 1
         if current_lines and current_len + extra > 3000:
-            pages.append("\\n".join(current_lines))
+            pages.append("\n".join(current_lines))
             current_lines = []
             current_len = 0
             heading = f"**{root.replace('-', ' ').replace('_', ' ').title()}**"
@@ -799,7 +799,7 @@ async def help_cmd(interaction: discord.Interaction):
         current_len += extra
         last_root = root
     if current_lines:
-        pages.append("\\n".join(current_lines))
+        pages.append("\n".join(current_lines))
 
     embeds = []
     total = len(catalog)
