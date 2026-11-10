@@ -145,6 +145,33 @@ def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_la
                 "It reconstructs only data those sources support; it cannot recover deleted "
                 "Discord history or retrieve personal AI memories. Asking about it does not run recovery.")
         paths = ("/recall",)
+    elif topic == "moderation":
+        body = "Moderation tools help staff timeout/mute, unmute, kick, ban, and review incidents. Discord permissions and role hierarchy apply; explaining never performs moderation."
+        paths = ("/mute", "/unmute", "/kick", "/ban", "/cinnamon-incident review", "/cinnamon-incident policy")
+    elif topic == "roles":
+        body = "Role tools assign/remove roles and support reaction roles where configured. Cinnamon must sit above managed roles; Discord permissions and hierarchy are enforced."
+        paths = ("/role", "/reactionrole")
+    elif topic == "leveling":
+        body = "Activity XP and levels reward participation according to server progression. Check rank/profile and leaderboard; exact thresholds are data-driven, so I will not guess."
+        paths = ("/level", "/rank", "/leaderboard", "/profile")
+    elif topic == "games":
+        body = "Cinnamon has community games and Hangry Games. Use registered game commands for modes and lobbies. Surprise games are optional and should stay quiet during inactivity or serious conversations."
+        paths = ("/hangry", "/hangrygames", "/cinnamon-mind status")
+    elif topic == "giveaways":
+        body = "Giveaways host timed prize events with member entry controls. Creation/editing/ending are staff-controlled; check registered commands for exact options."
+        paths = ("/giveaway",)
+    elif topic == "wildlands":
+        body = "Wildlands is Cinnamon exploration/gameplay. Available actions come from live commands and in-game prompts; planned features are not necessarily live."
+        paths = tuple(path for path in catalog if "wildland" in path)
+    elif topic == "social":
+        body = "Social events are optional community activities. Available controls depend on commands registered in this server."
+        paths = tuple(path for path in catalog if any(word in path for word in ("event", "social", "birthday")))
+    elif topic == "dashboard":
+        body = "The dashboard is a web control center. Anyone may request its link, but viewing/changing server settings is restricted to the owner/Administrators. Never share private login/session links."
+        paths = ("/dashboard",)
+    elif topic == "profile":
+        body = "Profile/rank commands show member progression and public server stats. Leaderboards compare configured categories; exact values come from current server data."
+        paths = ("/profile", "/rank", "/leaderboard")
     else:
         body = ("Catnip is this server's economy currency. Check your wallet, earn Catnip with "
                 "daily/work rewards, and use the shop for items. Administrative adjustments "
@@ -234,6 +261,24 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
         topic = "recall"
     elif re.search(r"\b(?:catnip|economy|wallet|shop)\b", lower):
         topic = "economy"
+    elif re.search(r"\b(?:moderation|timeout|mute|ban|kick|automod)\b", lower):
+        topic = "moderation"
+    elif re.search(r"\b(?:role|reaction.?role)\b", lower):
+        topic = "roles"
+    elif re.search(r"\b(?:level|xp|rank|leaderboard)\b", lower):
+        topic = "leveling"
+    elif re.search(r"\b(?:game|games|hangry)\b", lower):
+        topic = "games"
+    elif re.search(r"\bgiveaways?\b", lower):
+        topic = "giveaways"
+    elif re.search(r"\bwildlands\b", lower):
+        topic = "wildlands"
+    elif re.search(r"\bsocial|events?\b", lower):
+        topic = "social"
+    elif re.search(r"\bdashboard\b", lower):
+        topic = "dashboard"
+    elif re.search(r"\bprofile\b", lower):
+        topic = "profile"
     elif simple_topic == "help" or re.fullmatch(r"(?:what|how).*(?:commands|features).*", lower):
         return "*unrolls her command ledger* Use `/help` for registered commands, or ask about quests, reminders, memory, fishing, Catnip, stories, or my independent activities."
     else:
