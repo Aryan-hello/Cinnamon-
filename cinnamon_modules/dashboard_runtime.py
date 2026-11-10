@@ -255,6 +255,7 @@ def dashboard_state_provider() -> dict:
         "cinnamon_social": advanced_features_data.setdefault("cinnamon_social_v1", {}),
         "cinnamon_actions": advanced_features_data.setdefault("cinnamon_actions_v1", {}),
         "cinnamon_moods": advanced_features_data.setdefault("cinnamon_mood_v1", {}),
+        "cinnamon_adventure_fishing": advanced_features_data.setdefault("cinnamon_adventure_fishing_v1", {}),
         "cinnamon_wildlands_fishing": advanced_features_data.setdefault("wildlands_fishing_v1", {}),
         "cinnamon_wildlands_story": advanced_features_data.setdefault("wildlands_story_v2", {}),
         "wlf_refresh_channel": _wlf_refresh_channel,
