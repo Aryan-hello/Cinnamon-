@@ -11,6 +11,12 @@ class ExpandedFeatureHelpTests(unittest.TestCase):
         economy=SimpleNamespace(name="economy", parent=None, commands=[])
         self.catalog=build_command_catalog([cmd("balance",economy), cmd("daily",economy), cmd("work",economy), cmd("shop",economy), cmd("mute"), cmd("unmute"), cmd("role"), cmd("reactionrole"), cmd("profile"), cmd("rank"), cmd("leaderboard"), cmd("dashboard"), cmd("giveaway"), cmd("hangry"), cmd("cinnamon-mind")])
 
+    def test_feature_overview_is_live_registry_backed(self):
+        answer=answer_help("what features can you do?",self.catalog)
+        self.assertIn("feature atlas",answer)
+        self.assertIn("/economy balance",answer)
+        self.assertIn("registered right now",answer)
+
     def test_moderation_explains_permissions_without_action(self):
         answer=answer_help("how does moderation work?",self.catalog)
         self.assertIn("Discord permissions",answer)
