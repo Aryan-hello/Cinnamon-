@@ -168,7 +168,6 @@ async def modinfo(interaction: discord.Interaction, user: discord.User):
 
 # --- Health / status ---------------------------------------------------------
 
-@bot.tree.command(name="ping", description="Check Cinnamon's Discord latency")
 async def ping(interaction: discord.Interaction):
     latency_ms = round(bot.latency * 1000)
     await cinnamon_send(interaction, 
@@ -177,7 +176,6 @@ async def ping(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name="botstatus", description="Show Cinnamon's server and storage health")
 @app_commands.guild_only()
 async def botstatus(interaction: discord.Interaction):
     guild = interaction.guild
@@ -193,8 +191,6 @@ async def botstatus(interaction: discord.Interaction):
     embed.add_field(name="XP / leveling", value="Active", inline=True)
     embed.add_field(name="Hangry Games", value="Ready" if hg_cog else "Starting", inline=True)
     embed.add_field(name="Storage", value=storage["backend"], inline=True)
-    embed.add_field(name="Economy writes", value="Ready" if storage.get("transactions_ready") else "Blocked / needs review", inline=True)
-    embed.add_field(name="Snapshot", value=f"{storage.get('status', 'unknown')} · {'loaded' if storage.get('snapshot_ready') else 'not loaded'}", inline=True)
     embed.set_footer(text="Use /help for commands. 🐾")
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
 
@@ -441,7 +437,7 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
         if a.get("role")
     })
     achievement_role_names.append("Quest Master")
-    # Fishing titles and the two server-wide merchants are core Adventure roles.
+    # Fishing titles and the two server-wide merchants are core Wildlands roles.
     achievement_role_names.extend(_wlf_required_roles())
     achievement_role_names.append(_CM_NAUGHTY_ROLE)  # playful temporary penalty role
     achievement_role_names.append("Hangry Games")
@@ -573,7 +569,7 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
     embed.add_field(
         name="Next steps",
         value=(
-            "Use `/fishing start` and `/adventure gather` for Adventure fishing, or `/help` for all commands. "
+            "Use `/fishing start` and `/wildlands gather` for Wildlands fishing, or `/help` for all commands. "
             "Use `/dashboard` to open Cinnamon Control. "
             "Dashboard actions are recorded in the dashboard audit channel. Use `/economy snapshot` before a reset. "
             "Use `/economy restore-snapshot` after a reset if needed."
@@ -775,57 +771,32 @@ class HelpPagesView(discord.ui.View):
 
 @app_commands.guild_only()
 async def help_cmd(interaction: discord.Interaction):
-    # Always build this page from the actual Discord registry. The same live
-    # catalog powers Cinnamon's conversational feature knowledge in main.py.
-    commands_list = _all_leaf_commands()
-    catalog = build_command_catalog(commands_list)
-    pages = []
-    current_lines = []
-    current_len = 0
-    last_root = None
-    for guide in catalog.values():
-        root = guide.path.split()[0].lstrip("/")
-        line = f"**{guide.path}** — {guide.description}\nUsage: `{guide.syntax}`"
-        line = line[:1100] + "..." if len(line) > 1100 else line
-        heading = "" if root == last_root else f"\n**{root.replace('-', ' ').replace('_', ' ').title()}**"
-        extra = len(heading) + len(line) + 1
-        if current_lines and current_len + extra > 3000:
-            pages.append("\n".join(current_lines))
-            current_lines = []
-            current_len = 0
-            heading = f"**{root.replace('-', ' ').replace('_', ' ').title()}**"
-            extra = len(heading) + len(line) + 1
-        current_lines.extend([heading, line])
-        current_len += extra
-        last_root = root
-    if current_lines:
-        pages.append("\n".join(current_lines))
+    commands_list = _all_leaf_commands(); pages=[]; current_lines=[]; current_len=0; last_root=None
+    for command in commands_list:
+        path=_command_path(command); root=path.split()[0].lstrip("/"); description=getattr(command,"description",None) or "No description provided."
+        line=f"**{path}** — {description}"; line=line[:897]+"..." if len(line)>900 else line
+        heading="" if root==last_root else f"\n**{root.replace('-', ' ').replace('_', ' ').title()}**"
+        extra=len(heading)+len(line)+1
+        if current_lines and current_len+extra>3000:
+            pages.append("\n".join(current_lines)); current_lines=[]; current_len=0; heading=f"**{root.replace('-', ' ').replace('_', ' ').title()}**"; extra=len(heading)+len(line)+1
+        current_lines.extend([heading,line]); current_len+=extra; last_root=root
+    if current_lines: pages.append("\n".join(current_lines))
 
-    embeds = []
-    total = len(catalog)
-    for index, body in enumerate(pages, start=1):
-        e = cinnamon_embed(
-            "📖 Cinnamon Help",
-            "Live command directory. Usage signatures are taken from Discord's registered commands.",
-            color=CINNAMON_BLUE,
-            footer=cinnamon_page_footer("Help", index, len(pages) + 1, f"{total} commands"),
-        )
-        e.add_field(name="Commands", value=body, inline=False)
-        embeds.append(e)
-    guide = cinnamon_embed("🐾 Using Cinnamon", "A quick guide to the bot.", color=CINNAMON_ORANGE,
-                           footer=cinnamon_page_footer("Help", len(embeds) + 1, len(embeds) + 1, "Guide"))
-    guide.add_field(name="🚀 Start here", value="Run `/setup` in a new server. Then use `/help` whenever you need the live command directory. Open Cinnamon Control with `/dashboard`.", inline=False)
-    guide.add_field(name="🎮 Play & progress", value="Try `/pet`, `/mood status`, `/rank`, `/economy shop`, `/quests daily`, `/achievement list`, `/cinnamon stories`, and `/fishing start`. Features and exact options are listed in the command pages.", inline=False)
-    guide.add_field(name="🧠 Ask Cinnamon", value="Mention Cinnamon or use `!ask` and ask how a feature works, what a command does, or what permissions it needs. Her explanations use the live slash + prefix command registry; she won't execute a command just because you ask about it.", inline=False)
-    guide.add_field(name="🔐 Privacy & staff", value="Member memory and reminders are private and member-controlled. Moderation, server setup, dashboard changes, and recovery require the appropriate Discord permissions; AI explanations never perform punishments or reveal another member's private notes.", inline=False)
-    guide.add_field(name="💾 Data & recovery", value="Use `/datastatus check` to inspect storage and `/economy snapshot` before a reset. `/recall` reconstructs only data available in configured logs/snapshots; it cannot restore deleted Discord history.", inline=False)
+    embeds=[]; total=len(commands_list)
+    for index,body in enumerate(pages,start=1):
+        e=cinnamon_embed(f"📖 Cinnamon Help","Browse Cinnamon's commands with the buttons below.",color=CINNAMON_BLUE,footer=cinnamon_page_footer("Help",index,len(pages)+1,f"{total} commands"))
+        e.add_field(name="Commands",value=body,inline=False); embeds.append(e)
+    guide=cinnamon_embed("🐾 Using Cinnamon","A quick guide to the bot.",color=CINNAMON_ORANGE,footer=cinnamon_page_footer("Help",len(embeds)+1,len(embeds)+1,"Guide"))
+    guide.add_field(name="🚀 Start here",value="Run `/setup` in a new server. Then use `/help` whenever you need the command directory. Open the web control panel with `/dashboard`.",inline=False)
+    guide.add_field(name="🎮 Everyday",value="Use `/pet`, `/mood status`, `/mood play`, `/rank`, `/economy shop`, `/quests daily`, and `/achievement list`. Cinnamon’s mood changes shop prices and fishing luck! Stories begin with `/cinnamon stories`; fishing starts with `/fishing start`.",inline=False)
+    guide.add_field(name="🛡️ Admin",value="Moderation, logging, recovery, and configuration commands require the appropriate Discord permissions.",inline=False)
+    guide.add_field(name="🧭 Web dashboard",value="`/dashboard` opens Cinnamon Control. Message Studio, analytics, activity logs, and every dashboard change are linked to the `cinnamon-dashboard-logs` audit channel created by `/setup`.",inline=False)
+    guide.add_field(name="💾 Reset protection",value="Run `/economy snapshot` before a reset and restore it afterward if needed.",inline=False)
     embeds.append(guide)
-    view = HelpPagesView(interaction.user.id, embeds, 0)
-    await interaction.response.send_message(embed=embeds[0], view=view, ephemeral=True)
+    view=HelpPagesView(interaction.user.id,embeds,0)
+    await interaction.response.send_message(embed=embeds[0],view=view,ephemeral=True)
     try:
-        await send_log(interaction.guild.id, title="📖 Slash help opened",
-                       description=f"{interaction.user} ({interaction.user.id}) opened the slash-command guide.",
-                       interaction=interaction, category="dashboard")
+        await send_log(interaction.guild.id, title="📖 Slash help opened", description=f"{interaction.user} ({interaction.user.id}) opened the slash-command guide.", interaction=interaction, category="dashboard")
     except Exception:
         log.exception("Could not log help command use")
 
@@ -931,8 +902,7 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
         "messages_scanned": 0, "embeds_scanned": 0,
         "title_counts": defaultdict(int), "category_counts": defaultdict(int),
         "scan_errors": [], "xp_users_restored": 0,
-        "economy_users_from_events": 0, "inventory_items_restored": 0,
-        "inventory_users_restored": 0,
+        "economy_users_from_events": 0,
     }
     events = []
     for channel_id, labels in channel_map.items():
@@ -1028,57 +998,12 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
                     current = economy_inventory.get(key)
                     if current is None or item_id not in current:
                         economy_inventory.setdefault(key, {})[item_id] = quantity
-                        result["inventory_items_restored"] += 1
-                        result["inventory_users_restored"] += int(not current)
 
     return result
 
 
-def _recall_merge_missing(live, saved):
-    """Fill gaps recursively without replacing current values."""
-    restored = 0
-    if isinstance(live, dict) and isinstance(saved, dict):
-        for key, value in saved.items():
-            if key not in live:
-                live[key] = value
-                restored += 1
-            elif isinstance(live[key], dict) and isinstance(value, dict):
-                restored += _recall_merge_missing(live[key], value)
-            elif isinstance(live[key], list) and isinstance(value, list):
-                before = len(live[key])
-                for item in value:
-                    if item not in live[key]:
-                        live[key].append(item)
-                restored += len(live[key]) - before
-            elif live[key] is None and value is not None:
-                live[key] = value
-                restored += 1
-    return restored
-
-
-async def recall_upstash_snapshot():
-    """Read the latest persisted snapshot directly and fill missing live state."""
-    result = await bd_store.load()  # GET the configured Upstash snapshot key
-    if not result:
-        return {"status": getattr(bd_store, "status", "unavailable"),
-                "reason": getattr(bd_store, "reason", "snapshot read failed"),
-                "keys_restored": 0, "fields_restored": 0}
-    saved = result.snapshot or {}
-    _bd_validate_snapshot(saved)
-    live = _bd_encode()
-    merged = dict(live)
-    fields_restored = _recall_merge_missing(merged, saved)
-    keys_restored = sum(1 for key in saved if key not in live)
-    _bd_validate_snapshot(merged)
-    _bd_decode(merged)
-    return {"status": "read", "reason": "Latest snapshot read and merged",
-            "keys_restored": keys_restored, "fields_restored": fields_restored}
-
-
 async def recall_guild_data(guild: discord.Guild) -> dict:
     """Scan all configured log channels, then merge only safely recoverable state."""
-    # Read latest persisted snapshot first, then merge missing fields only.
-    snapshot_recovery = await recall_upstash_snapshot()
     # The new Cinnamon Stuff log is recoverable even when its saved channel mapping vanished.
     social_recovered = await _cp_recover(guild)
     scan = await _scan_recovery_log_channels(guild)
@@ -1102,12 +1027,6 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
         "hangry_wins_seen": wins,
         "economy_accounts": economy_restored + scan.get("economy_users_from_events", 0),
         "economy_snapshot_detail": snapshot_detail,
-        "persistent_store": getattr(bd_store, "status", "unknown"),
-        "persistent_store_durable": bool(getattr(bd_store, "durable", False)),
-        "upstash_snapshot_status": snapshot_recovery["status"],
-        "upstash_snapshot_keys_restored": snapshot_recovery["keys_restored"],
-        "upstash_snapshot_fields_restored": snapshot_recovery["fields_restored"],
-        "upstash_snapshot_reason": snapshot_recovery["reason"],
     })
     return scan
 
@@ -1129,7 +1048,7 @@ async def recall_cmd(interaction: discord.Interaction):
                            ("XP users restored", str(result["xp_users_restored"])), ("Economy accounts restored", str(result["economy_accounts"])),
                            ("Hangry games found", str(result["hangry_game_count"])),
                            ("Cinnamon people restored", str(result["cinnamon_people_restored"])),
-                           ("Mood restored", str(result["cinnamon_mood_restored"])), ("Inventory entries restored", str(result.get("inventory_items_restored", 0))), ("Persistent store", str(result.get("persistent_store", "unknown")))])
+                           ("Mood restored", str(result["cinnamon_mood_restored"]))])
     titles = sorted(result["title_counts"].items(), key=lambda pair: pair[1], reverse=True)[:8]
     title_summary = "\n".join(f"• {name[:65]}: **{count}**" for name, count in titles) or "• No embeds found in scanned history."
     errors = "\n".join(f"• {e}" for e in result["scan_errors"][:4]) or "None"
@@ -1142,13 +1061,11 @@ async def recall_cmd(interaction: discord.Interaction):
         f"• XP users restored/updated from absolute XP logs: **{result['xp_users_restored']}**\n"
         f"• Economy accounts filled from events/snapshot: **{result['economy_accounts']}**\n"
         f"• Economy snapshot: {result['economy_snapshot_detail']}\n"
-        f"• Main persisted snapshot: {result['upstash_snapshot_status']} (top-level keys filled: {result['upstash_snapshot_keys_restored']}, nested fields filled: {result['upstash_snapshot_fields_restored']})\n"
         f"• Hangry game counter: **#{result['hangry_game_count']}**; wins found: **{result['hangry_wins_seen']}**\n"
         f"• Cinnamon Stuff: **{result['cinnamon_people_restored']}** people and **{result['cinnamon_mood_restored']}** mood snapshots restored from **{result['cinnamon_snapshots_scanned']}** records\n\n"
         f"**Most common log types found**\n{title_summary}\n\n"
         f"**Channel scan issues**\n{errors}\n\n"
         "Recovery is idempotent for reconstructed counts and only uses absolute values or snapshots where possible. "
-        "The main Upstash snapshot is already loaded by Cinnamon at startup; /recall supplements it from retained Discord logs and economy snapshots. "
         "It cannot recreate deleted messages, AI chat memory, or state that was never logged. Review the counts above to see what was actually found.",
         ephemeral=True,
     )
