@@ -51,7 +51,7 @@ from google.genai import types
 import aiohttp
 
 from cinnamon_modules.brain_personalization import server_prompt_guidance as _cb_server_prompt_guidance
-from cinnamon_modules.brain_help import answer_help, build_command_catalog
+from cinnamon_modules.brain_help import answer_help, build_command_catalog, feature_knowledge
 from cinnamon_modules.brain_command_directory import (
     slash_entries as _help_slash_entries,
     prefix_entries as _help_prefix_entries,
@@ -371,7 +371,10 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
         model=GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
+            system_instruction=(SYSTEM_PROMPT + "\n\n" + feature_knowledge(
+                build_command_catalog(bot.tree.get_commands()),
+                _help_prefix_entries(bot.walk_commands()),
+            )),
             max_output_tokens=200,
             temperature=0.9,
             response_mime_type="application/json",
