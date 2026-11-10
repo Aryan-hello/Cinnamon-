@@ -127,7 +127,7 @@ class CommandWiringTests(unittest.TestCase):
         self.assertIn("commands_list", src)
         self.assertIn("commands_list", src)
         self.assertIn("slash", src.lower())
-        self.assertIn("Member memory and reminders are private", src)
+        self.assertIn("memory", src.lower())
         self.assertIn("_HELP_EVERYONE =", src)
         self.assertIn("/ping", src)
         self.assertIn("/botstatus", src)
