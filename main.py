@@ -52,6 +52,7 @@ import aiohttp
 
 from cinnamon_modules.brain_personalization import server_prompt_guidance as _cb_server_prompt_guidance
 from cinnamon_modules.brain_help import answer_help, build_command_catalog, feature_knowledge
+from cinnamon_modules.brain_kernel import build_context as build_brain_context, render_context as render_brain_context
 from cinnamon_modules.brain_command_directory import (
     slash_entries as _help_slash_entries,
     prefix_entries as _help_prefix_entries,
@@ -461,6 +462,10 @@ _CINNAMON_MODULES = (
     "cinnamon_moods.py",
     "cinnamon_personality.py",
     "cinnamon_actions.py",
+    # Deterministic conversational shortcuts into existing prefix command adapters.
+    "conversational_router.py",
+    # Persistent task/reminder lifecycle helpers for Brain.
+    "cinnamon_brain_tasks.py",
     # Independent activity policy and admin controls; no new AI execution rights.
     "cinnamon_brain.py",
     # Private member memory, persistent reminders, and contextual boundaries.
