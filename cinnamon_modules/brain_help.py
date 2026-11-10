@@ -230,7 +230,8 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
     query = _ADDRESS.sub("", text, count=1).strip()
     lower = query.lower()
     simple_topic = lower.rstrip(" ?.! ")
-    overview_request = bool(re.search(r"\\b(?:what\\s+(?:can|do)|all\\s+(?:the\\s+)?features|features\\s+list|feature\\s+list|everything\\s+(?:you|cinnamon)|what\\s+features)\\b", lower))\n    is_question = overview_request or bool(_QUERY.match(query)) or simple_topic in {
+    overview_request = bool(re.search(r"\b(?:what\s+(?:can|do)|all\s+(?:the\s+)?features|features\s+list|feature\s+list|everything\s+(?:you|cinnamon)|what\s+features)\b", lower))
+    is_question = overview_request or bool(_QUERY.match(query)) or simple_topic in {
         "quests", "quest", "fishing", "stories", "achievements", "economy", "catnip",
         "help", "reminder", "reminders", "memory", "memories", "independence", "brain",
         "incident", "incidents", "today", "my day", "myday", "privacy",
