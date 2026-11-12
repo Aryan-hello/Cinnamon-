@@ -1472,7 +1472,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","ticket_settings_save","ticket_panel_save","ticket_panel_update","ticket_panel_publish","ticket_panel_delete","roles_setup_save","config_backup_restore","hangry_logs","recall","message_send"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -1909,17 +1909,110 @@ def dashboard_action():
             message=_run_bot(send_studio_embed(),timeout=25)
             _audit(gid,actor,"Dashboard: Message Studio embed sent",f"Destination #{channel.name} ({channel.id}); title: {title[:150]}; message ID {message.id}.")
             session["dashboard_notice"]=f"Embed sent to #{channel.name}."
+
+        elif action=="ticket_settings_save":
+            raw_log=request.form.get("log_channel_id","").strip(); raw_parent=request.form.get("ticket_category_id","").strip()
+            log_channel=guild.get_channel(int(raw_log)) if raw_log.isdigit() else None
+            parent=guild.get_channel(int(raw_parent)) if raw_parent.isdigit() else None
+            if raw_log and not isinstance(log_channel,__import__("discord").TextChannel): raise ValueError("Choose a valid ticket log text channel.")
+            if raw_parent and not isinstance(parent,__import__("discord").CategoryChannel)): raise ValueError("Choose a valid ticket category.")
+            try: maximum=int(request.form.get("max_open_per_user","3")); cooldown=int(request.form.get("cooldown_seconds","60")); auto_close=int(request.form.get("auto_close_hours","0"))
+            except ValueError: raise ValueError("Ticket limits must be whole numbers.")
+            if not 1<=maximum<=10 or not 0<=cooldown<=86400 or not 0<=auto_close<=720: raise ValueError("Ticket limits are outside allowed ranges.")
+            staff=[]; trusted=[]
+            for field,target in (("staff_role_ids",staff),("trusted_booster_role_ids",trusted)):
+                for raw in request.form.getlist(field):
+                    if not raw.isdigit(): raise ValueError("Invalid role selection.")
+                    role=guild.get_role(int(raw))
+                    if not role or role.is_default() or role.managed: raise ValueError("A selected ticket role is unavailable or managed.")
+                    target.append(role.id)
+            cfg=state.setdefault("advanced_features_data",{}).setdefault("cinnamon_tickets_v1",{}).setdefault(str(gid),{})
+            cfg.setdefault("panels",{}); cfg.setdefault("tickets",{}); cfg.setdefault("closed",{}); cfg.setdefault("cooldowns",{})
+            cfg["settings"]={"log_channel_id":log_channel.id if log_channel else None,"ticket_category_id":parent.id if parent else None,"staff_role_ids":staff,"trusted_booster_role_ids":trusted,"max_open_per_user":maximum,"cooldown_seconds":cooldown,"auto_close_hours":auto_close,"transcript_on_close":"transcript_on_close" in request.form,"rating_enabled":True}
+            _save(); _audit(gid,actor,"Ticket settings updated",f"Log channel {raw_log or 'disabled'}; parent {raw_parent or 'not set'}; staff roles {len(staff)}; trusted booster roles {len(trusted)}.")
+            session["dashboard_notice"]="Ticket settings saved to durable storage."
+        elif action in {"ticket_panel_save","ticket_panel_update"}:
+            panel_id=request.form.get("panel_id","").strip()
+            cfg=state.setdefault("advanced_features_data",{}).setdefault("cinnamon_tickets_v1",{}).setdefault(str(gid),{})
+            panels=cfg.setdefault("panels",{})
+            if action=="ticket_panel_update":
+                panel=panels.get(panel_id)
+                if not panel: raise ValueError("Ticket panel not found.")
+            else:
+                panel_id=secrets.token_hex(6); panel={"id":panel_id,"published":False,"categories":[]}
+            name=request.form.get("panel_name","").strip(); title=request.form.get("panel_title","").strip(); description=request.form.get("panel_description","").strip(); color=request.form.get("panel_color","#D99048").strip()
+            raw_channel=request.form.get("channel_id","").strip(); channel=guild.get_channel(int(raw_channel)) if raw_channel.isdigit() else None
+            if not name or len(name)>60 or not title or len(title)>256 or len(description)>3500 or not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Panel name, title, description or channel is invalid.")
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}",color): raise ValueError("Panel color must be a six-digit hex color.")
+            if action=="ticket_panel_save":
+                label=request.form.get("category_label","").strip(); button=request.form.get("button_label","").strip(); routing=request.form.get("routing","support").strip()
+                if not label or len(label)>60 or not button or len(button)>80 or routing not in {"support","shop","grow_a_garden"}: raise ValueError("Ticket category/button/routing is invalid.")
+                questions=[]
+                for i in range(1,6):
+                    q=request.form.get("question"+str(i),"").strip()
+                    if q: questions.append({"label":q,"required":True,"paragraph":True,"max_length":400})
+                category={"id":secrets.token_hex(4),"label":label,"button_label":button,"emoji":request.form.get("button_emoji","").strip()[:100],"button_style":"primary","routing":routing,"trusted_booster_routing":routing=="grow_a_garden","welcome_message":request.form.get("welcome_message","").strip()[:1500],"questions":questions}
+                panel["categories"]=[category]
+            panel.update({"id":panel_id,"name":name,"channel_id":channel.id,"title":title,"description":description,"color":color,"updated_at":int(time.time())})
+            panels[panel_id]=panel
+            _save(); _audit(gid,actor,"Ticket panel configuration saved",f"Panel {name} ({panel_id}); published={bool(panel.get('published'))}.")
+            session["dashboard_notice"]="Panel configuration saved. Publish separately to update Discord."
+        elif action=="ticket_panel_publish":
+            panel_id=request.form.get("panel_id","").strip(); cfg=state.setdefault("advanced_features_data",{}).setdefault("cinnamon_tickets_v1",{}).setdefault(str(gid),{}); panel=cfg.setdefault("panels",{}).get(panel_id)
+            if not panel or not panel.get("categories"): raise ValueError("Save a panel with at least one category before publishing.")
+            channel=guild.get_channel(int(panel.get("channel_id",0)))
+            if not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Panel channel is unavailable.")
+            embed=__import__("discord").Embed(title=panel.get("title","Support Center"),description=panel.get("description","Choose a category below."),color=int(panel.get("color","#D99048")[1:],16))
+            embed.set_footer(text="Cinnamon Tickets")
+            async def publish_panel():
+                view=state["ticket_panel_view"](gid,panel_id,panel)
+                message=None
+                if panel.get("message_id"):
+                    try: message=await channel.fetch_message(int(panel["message_id"]))
+                    except Exception: message=None
+                if message: await message.edit(embed=embed,view=view)
+                else: message=await channel.send(embed=embed,view=view)
+                panel["message_id"]=message.id; panel["published"]=True; panel["published_at"]=int(time.time())
+                if not await state["bd_save_data"](): raise ValueError("Could not verify durable panel publish.")
+                return message.id
+            mid=_run_bot(publish_panel(),timeout=40); _audit(gid,actor,"Ticket panel published",f"{panel.get('name')} in #{channel.name}; message {mid}.")
+            session["dashboard_notice"]="Ticket panel published/updated in Discord."
+        elif action=="ticket_panel_delete":
+            panel_id=request.form.get("panel_id","").strip(); cfg=state.setdefault("advanced_features_data",{}).setdefault("cinnamon_tickets_v1",{}).setdefault(str(gid),{}); panel=cfg.setdefault("panels",{}).pop(panel_id,None)
+            if not panel: raise ValueError("Ticket panel not found.")
+            async def remove_panel_message():
+                channel=guild.get_channel(int(panel.get("channel_id",0)))
+                if channel and panel.get("message_id"):
+                    try: msg=await channel.fetch_message(int(panel["message_id"])); await msg.edit(view=None)
+                    except Exception: pass
+                await state["bd_save_data"]()
+            _run_bot(remove_panel_message()); _audit(gid,actor,"Ticket panel deleted",str(panel.get("name",panel_id)))
+            session["dashboard_notice"]="Panel configuration deleted; old panel message has been disabled."
+        elif action=="roles_setup_save":
+            root=state.setdefault("advanced_features_data",{}).setdefault("cinnamon_role_permissions_v1",{}); cfg={}
+            role_keys=("giveaway_creator","hangry_runner","trusted_booster","ticket_staff","ticket_admin","shop_manager","economy_admin","quest_manager","event_manager","moderator")
+            for key in role_keys:
+                ids=[]
+                for raw in request.form.getlist("role_"+key):
+                    if not raw.isdigit(): raise ValueError("Invalid role selection.")
+                    role=guild.get_role(int(raw))
+                    if not role or role.is_default() or role.managed: raise ValueError("A selected permission role is unavailable or managed.")
+                    ids.append(role.id)
+                cfg[key]=sorted(set(ids))
+            root[str(gid)]=cfg; _save(); _audit(gid,actor,"Roles Setup permissions saved",", ".join(f"{k}: {len(v)} role(s)" for k,v in cfg.items()))
+            session["dashboard_notice"]="All role permissions saved to durable storage and logged."
+
         elif action=="moderate":
             target,mod_action=_moderate(guild,_tokens[sid]["user"]["id"],request.form)
             _audit(gid,actor,f"Dashboard moderation: {mod_action}",f"Target {target}; reason: {request.form.get('reason','No reason provided')[:350]}")
             session["dashboard_notice"]=f"{mod_action.title()} action completed for {target}."
         else:
             raise ValueError("Unknown dashboard action.")
-        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
+        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","ticket_settings_save":"tickets","ticket_panel_save":"tickets","ticket_panel_update":"tickets","ticket_panel_publish":"tickets","ticket_panel_delete":"tickets","roles_setup_save":"roles_setup","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice"]=str(exc)[:300]
-        return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","moderate":"moderation","automod":"moderation","antiraid":"moderation","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","message_send":"message_studio"}.get(request.form.get("action"),"community")))
+        return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","ticket_settings_save":"tickets","ticket_panel_save":"tickets","ticket_panel_update":"tickets","ticket_panel_publish":"tickets","ticket_panel_delete":"tickets","roles_setup_save":"roles_setup","config_backup_restore":"system","hangry_logs":"hangry","moderate":"moderation","automod":"moderation","antiraid":"moderation","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","message_send":"message_studio"}.get(request.form.get("action"),"community")))
     except Exception as exc:
         log.exception("Dashboard action failed (%s)",type(exc).__name__)
         session["dashboard_notice"]="The change could not be completed. Check Cinnamon's Render logs and bot permissions."
