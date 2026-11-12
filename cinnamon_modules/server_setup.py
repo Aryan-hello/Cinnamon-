@@ -524,9 +524,17 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
         await hg_cog._save()
 
     await bd_save_data()
-
-    # /setup now includes /recall after all log routes are configured.
-    # Recovery failure must not undo an otherwise successful setup.
+    # Setup also runs the same safe recovery path as /recall once channels/routes exist.
+    setup_recall_result = None
+    setup_recall_error = None
+    try:
+        setup_recall_result = await recall_guild_data(guild)
+    except Exception as exc:
+        setup_recall_error = type(exc).__name__
+        log.exception("/setup automatic recall failed in guild %s", guild.id)
+    await send_log(guild.id, title="⚙️ Cinnamon setup applied", category="setup",
+                   fields=[("Main logs", channels["cinnamon-logs"].mention), ("Economy logs", channels["cinnamon-economy"].mention),
+                           ("Hangry logs", channels["cinnamon-hangry"].mention), ("AI channel", channels["cinnamon-ai"].mention)])
     setup_recall_result = None
     setup_recall_error = None
     try:
@@ -581,7 +589,18 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
     embed.add_field(name="🐱 AI chat", value=channels["cinnamon-ai"].mention, inline=True)
     if setup_recall_result is not None:
         recovery = setup_recall_result
-        embed.add_field(
+        embed.add_field(name="🩹 Automatic recall", value=(
+            f"Scanned {recovery['channels_scanned']} channels / {recovery['messages_scanned']} messages. "
+            f"XP users: {recovery['xp_users_restored']} · level roles restored/removed: "
+            f"{recovery['level_roles_restored']}/{recovery['level_roles_removed']} · "
+            f"members checked: {recovery['level_members_scanned']} · roles granted: {recovery['level_roles_granted']} · "
+            f"economy accounts: {recovery['economy_accounts']} · warnings: {recovery['warnings']}."
+        )[:1024], inline=False)
+    else:
+        embed.add_field(name="🩹 Automatic recall", value=f"Setup succeeded; recovery failed ({setup_recall_error}). Run /recall and check Render logs.", inline=False)
+    embed.add_field(
+        name="Next steps",
+        value=(
             name="🩹 Automatic recall (same as /recall)",
             value=(
                 f"Scanned **{recovery['channels_scanned']}** channels / **{recovery['messages_scanned']}** messages "
@@ -936,9 +955,12 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
         "title_counts": defaultdict(int), "category_counts": defaultdict(int),
         "scan_errors": [], "xp_users_restored": 0,
         "economy_users_from_events": 0,
-        "shop_item_events": {}, "income_role_events": {}, "box_reward_events": {},
+        "level_roles_restored": 0, "level_roles_removed": 0,
+        "level_members_scanned": 0, "level_roles_granted": 0,
+        "level_role_sync_errors": [],
     }
     events = []
+    for channel_id, labels in channel_map.items():
     for channel_id, labels in channel_map.items():
         channel = bot.get_channel(channel_id)
         if channel is None:
@@ -968,21 +990,48 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
 
     # Process newest-to-oldest so each missing value is reconstructed from its
     # latest absolute log value, never by replaying deltas (which double-count).
+    # latest absolute log value, never by replaying deltas (which double-count).
     events.sort(key=lambda item: item[0], reverse=True)
     seen_xp, seen_balances, seen_inventory = set(), set(), set()
-    seen_shop_items, seen_income_roles, seen_box_rewards = set(), set(), set()
+    seen_level_role_levels = set()
     economy_keys_before = {uid for gid, uid in economy_balances if gid == guild.id}
     for created_at, channel_id, embed in events:
         fields = {str(f.name).strip(): str(f.value).strip() for f in embed.fields}
         title = (embed.title or "").strip()
 
+        # Level-role configuration events are processed newest-first. Each level's
+        # latest logged action wins, so an old "added" event cannot undo a later removal.
+        if title in {"🎖️ Level role added", "🎖️ Level role removed"}:
+            level_match = re.search(r"\d+", fields.get("Level", ""))
+            role_text = fields.get("Role", "").strip()
+            role_id_match = re.search(r"(\d{15,20})", fields.get("Role ID", ""))
+            if not role_id_match and role_text:
+                role_match = next((r for r in guild.roles if r.name == role_text), None)
+                if role_match:
+                    role_id_match = re.match(r"(\d+)", str(role_match.id))
+            if level_match:
+                lvl = int(level_match.group(0))
+                if 1 <= lvl <= 200 and lvl not in seen_level_role_levels:
+                    seen_level_role_levels.add(lvl)
+                    cfg = level_roles.setdefault(guild.id, {})
+                    is_removed = title.endswith("removed") or fields.get("Action", "").lower() == "removed"
+                    if is_removed:
+                        cfg.pop(lvl, None)
+                        result["level_roles_removed"] += 1
+                    elif role_id_match:
+                        cfg[lvl] = int(role_id_match.group(1))
+                        result["level_roles_restored"] += 1
+
         # XP logs contain absolute XP after each award, making safe recovery possible.
-        if title == "📈 XP changed":
-            user_text = fields.get("User", "")
+        if title in {"📈 XP changed", "📈 XP manually changed", "📈 XP manually added", "📉 XP manually removed", "📈 Level progress / role reward"}:
+            user_text = fields.get("User") or fields.get("Member", "")
             match = re.search(r"\((\d+)\)\s*$", user_text)
-            xp_match = re.search(r"-?\d+", fields.get("XP after", ""))
+            xp_text = fields.get("XP after", "")
+            if not xp_text and "→" in fields.get("XP", ""):
+                xp_text = fields.get("XP", "").split("→", 1)[1]
+            xp_match = re.search(r"-?[\d,]+", xp_text)
             if match and xp_match:
-                uid, xp_after = int(match.group(1)), max(0, int(xp_match.group(0)))
+                uid, xp_after = int(match.group(1)), max(0, int(xp_match.group(0).replace(",", "")))
                 key = (guild.id, uid)
                 if uid not in seen_xp:
                     seen_xp.add(uid)
@@ -1114,9 +1163,40 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
     snapshot_detail = "No economy snapshot restored."
     if economy_log_channels.get(guild.id) or category_log_channels.get(guild.id, {}).get("economy") or log_channels.get(guild.id):
         economy_restored, snapshot_detail = await economy_restore_from_snapshot(guild, merge_only=True)
-    # Apply newest logged shop and role-income configuration after snapshot merge;
-    # event history therefore wins over an older backup, including explicit removals.
-    for item_id, event in scan.get("shop_item_events", {}).items():
+    # Re-apply earned level roles after reconstructing the latest role mapping.
+    role_cfg = level_roles.get(guild.id, {})
+    if role_cfg:
+        sync_failures_before = int(level_role_sync_failures.get(guild.id, 0))
+        members = list(guild.members)
+        try:
+            fetched_ids = {m.id for m in members}
+            async for member in guild.fetch_members(limit=None):
+                if member.id not in fetched_ids:
+                    members.append(member); fetched_ids.add(member.id)
+        except (discord.HTTPException, discord.Forbidden) as exc:
+            scan["level_role_sync_errors"].append(f"Member fetch: {type(exc).__name__}; used cached members")
+        scan["level_members_scanned"] = len(members)
+        for member in members:
+            member_level = level_from_xp(int(xp_data.get((guild.id, member.id), 0) or 0))
+            try:
+                granted = await sync_level_roles(member, member_level)
+                scan["level_roles_granted"] += len(granted)
+            except Exception as exc:
+                scan["level_role_sync_errors"].append(f"Member {member.id}: {type(exc).__name__}")
+        sync_failures_after = int(level_role_sync_failures.get(guild.id, 0))
+        new_role_sync_failures = max(0, sync_failures_after - sync_failures_before)
+        if new_role_sync_failures:
+            scan["level_role_sync_errors"].append(f"{new_role_sync_failures} Discord role assignment failure(s); see Render logs")
+        await send_log(guild.id, title="🩹 Level role recovery", category="levels", fields=[
+            ("Role mappings restored", str(scan["level_roles_restored"])),
+            ("Role mappings removed", str(scan["level_roles_removed"])),
+            ("Members checked", str(scan["level_members_scanned"])),
+            ("Roles granted", str(scan["level_roles_granted"])),
+            ("Sync issues", str(len(scan["level_role_sync_errors"]))),
+        ])
+    await bd_save_data()
+    scan.update({
+        "warnings": warnings_restored,
         if event.get("action") == "removed":
             ECONOMY_ITEMS.pop(item_id, None)
         elif isinstance(event.get("item"), dict):
@@ -1237,10 +1317,13 @@ async def recall_cmd(interaction: discord.Interaction):
         )
     await send_log(interaction.guild.id, title="🩹 Log recovery completed", interaction=interaction, category="setup",
                    fields=[("Log embeds scanned", str(result["embeds_scanned"])), ("Warnings restored", str(result["warnings"])),
-                           ("XP users restored", str(result["xp_users_restored"])), ("Economy accounts restored", str(result["economy_accounts"])),
-                           ("Shop items restored/removed", f"{result.get('shop_items_restored',0)}/{result.get('shop_items_removed',0)}"),
-                           ("Income roles restored/removed", f"{result.get('income_roles_restored',0)}/{result.get('income_roles_removed',0)}"),
-                           ("Mystery Box custom rewards restored", str(result.get('custom_box_rewards_restored',0))),
+                           ("XP users restored", str(result["xp_users_restored"])),
+                           ("Level-role mappings restored", str(result["level_roles_restored"])), ("Level-role mappings removed", str(result["level_roles_removed"])),
+                           ("Members checked for level roles", str(result["level_members_scanned"])), ("Level roles granted", str(result["level_roles_granted"])),
+                           ("Level-role sync issues", str(len(result["level_role_sync_errors"]))), ("Economy accounts restored", str(result["economy_accounts"])),
+                           ("Hangry games found", str(result["hangry_game_count"])),
+                           ("Cinnamon people restored", str(result["cinnamon_people_restored"])),
+                           ("Mood restored", str(result["cinnamon_mood_restored"]))])
                            ("Hangry games found", str(result["hangry_game_count"])),
                            ("Cinnamon people restored", str(result["cinnamon_people_restored"])),
                            ("Mood restored", str(result["cinnamon_mood_restored"]))])
@@ -1254,9 +1337,11 @@ async def recall_cmd(interaction: discord.Interaction):
         f"• Messages scanned: **{result['messages_scanned']}**; log embeds: **{result['embeds_scanned']}**\n\n"
         f"**Data recovered**\n• Warnings reconstructed: **{result['warnings']}**\n"
         f"• XP users restored/updated from absolute XP logs: **{result['xp_users_restored']}**\n"
+        f"• Level-role mappings restored/removed: **{result['level_roles_restored']} / {result['level_roles_removed']}**\n"
+        f"• Members checked for level roles: **{result['level_members_scanned']}**; roles granted: **{result['level_roles_granted']}**; sync issues: **{len(result['level_role_sync_errors'])}**\n"
         f"• Economy accounts filled from events/snapshot: **{result['economy_accounts']}**\n"
-        f"• Shop items restored/removed from logs: **{result.get('shop_items_restored',0)}/{result.get('shop_items_removed',0)}**\n"
-        f"• Income roles restored/removed: **{result.get('income_roles_restored',0)}/{result.get('income_roles_removed',0)}** · custom Mystery Box rewards restored: **{result.get('custom_box_rewards_restored',0)}**\n"
+        f"• Economy snapshot: {result['economy_snapshot_detail']}\n"
+        f"• Hangry game counter: **#{result['hangry_game_count']}**; wins found: **{result['hangry_wins_seen']}**\n"
         f"• Economy snapshot: {result['economy_snapshot_detail']}\n"
         f"• Hangry game counter: **#{result['hangry_game_count']}**; wins found: **{result['hangry_wins_seen']}**\n"
         f"• Cinnamon Stuff: **{result['cinnamon_people_restored']}** people and **{result['cinnamon_mood_restored']}** mood snapshots restored from **{result['cinnamon_snapshots_scanned']}** records\n\n"
@@ -1280,6 +1365,9 @@ async def datastatus_recover(interaction: discord.Interaction):
     await interaction.followup.send(
         f"🩹 Recovery scan complete: **{result['embeds_scanned']}** log embeds across **{result['channels_scanned']}** channels.\n"
         f"Warnings: **{result['warnings']}** · XP users restored/updated: **{result['xp_users_restored']}** · "
+        f"Level-role mappings restored/removed: **{result['level_roles_restored']}/{result['level_roles_removed']}** · "
+        f"Members checked: **{result['level_members_scanned']}** · roles granted: **{result['level_roles_granted']}** · "
+        f"Level-role sync issues: **{len(result['level_role_sync_errors'])}** · "
         f"Economy accounts filled: **{result['economy_accounts']}** · Hangry games: **#{result['hangry_game_count']}**, wins: **{result['hangry_wins_seen']}**.\n"
         f"Snapshot: {result['economy_snapshot_detail']}\n"
         "Only data supported by retained logs or snapshots can be recovered; see `/recall` for the full scan report.",
