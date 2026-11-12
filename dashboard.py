@@ -1454,7 +1454,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -1709,7 +1709,7 @@ def dashboard_action():
             if not role_id.isdigit() or cfg.pop(int(role_id),None) is None: raise ValueError("That role income rule no longer exists.")
             _save(); _audit(gid,actor,"Dashboard: role income removed",f"Role ID {role_id}.")
             session["dashboard_notice"]="Role income rule removed."
-        elif action in {"giveaway_create","giveaway_edit","giveaway_draft_save"}:
+        elif action in {"giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update"}:
             prize=request.form.get("prize","").strip()
             try: winners=int(request.form.get("winners","1")); duration=int(request.form.get("duration_minutes","60"))
             except ValueError: raise ValueError("Winner count and duration must be whole numbers.")
@@ -1733,7 +1733,14 @@ def dashboard_action():
                 "denied_message":request.form.get("denied_message","")[:300],
                 "embed_title":request.form.get("embed_title","")[:256],
                 "embed_description":request.form.get("embed_description","")[:3500]})
-            if action=="giveaway_draft_save":
+            if action=="giveaway_draft_update":
+                draft_id=request.form.get("draft_id",""); drafts=state.setdefault("giveaway_drafts",{}).setdefault(gid,{})
+                draft=drafts.get(draft_id)
+                if not draft or int(draft.get("guild_id",0))!=gid: raise ValueError("That giveaway draft was not found.")
+                draft.update({"prize":prize,"winners":winners,"duration_minutes":duration,"config":config,"updated_at":time.time()})
+                _save(); _audit(gid,actor,"Dashboard: giveaway draft edited",f"Draft {draft_id}; prize {prize}; {winners} winner(s).")
+                session["dashboard_notice"]="Draft updated. Discord has not been changed."
+            elif action=="giveaway_draft_save":
                 channel_id=request.form.get("channel_id","").strip(); channel=guild.get_channel(int(channel_id)) if channel_id.isdigit() else None
                 if not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Choose a valid text channel in this server.")
                 drafts=state.setdefault("giveaway_drafts",{}).setdefault(gid,{})
@@ -1915,7 +1922,7 @@ def dashboard_action():
             session["dashboard_notice"]=f"{mod_action.title()} action completed for {target}."
         else:
             raise ValueError("Unknown dashboard action.")
-        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
+        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_update":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice"]=str(exc)[:300]
