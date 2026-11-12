@@ -535,17 +535,6 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
     await send_log(guild.id, title="⚙️ Cinnamon setup applied", category="setup",
                    fields=[("Main logs", channels["cinnamon-logs"].mention), ("Economy logs", channels["cinnamon-economy"].mention),
                            ("Hangry logs", channels["cinnamon-hangry"].mention), ("AI channel", channels["cinnamon-ai"].mention)])
-    setup_recall_result = None
-    setup_recall_error = None
-    try:
-        setup_recall_result = await recall_guild_data(guild)
-    except Exception as exc:
-        setup_recall_error = type(exc).__name__
-        log.exception("/setup automatic recall failed in guild %s", guild.id)
-
-    await send_log(guild.id, title="⚙️ Cinnamon setup applied", category="setup",
-                   fields=[("Main logs", channels["cinnamon-logs"].mention), ("Economy logs", channels["cinnamon-economy"].mention),
-                           ("Hangry logs", channels["cinnamon-hangry"].mention), ("AI channel", channels["cinnamon-ai"].mention)])
     await send_log(guild.id, title="🧭 Dashboard audit • Cinnamon setup applied", category="dashboard",
                    description="The guided /setup flow configured Cinnamon's channels and logging routes.",
                    fields=[("Dashboard audit log", channels["cinnamon-dashboard-logs"].mention),
