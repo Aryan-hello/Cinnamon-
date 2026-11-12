@@ -70,6 +70,12 @@ _XS_STORIES = {
  }
 }
 
+def _xs_record(guild_id,user_id,key):
+ root=advanced_features_data.setdefault(_XS_KEY,{})
+ guild=root.setdefault(str(guild_id),{})
+ player=guild.setdefault(str(user_id),{})
+ return player.setdefault(key,{"stage":0,"flags":{},"complete":False,"ending":None})
+
 class _XSMenu(discord.ui.View):
  def __init__(self,owner): super().__init__(timeout=240); self.owner=owner; self.add_item(_XSSelect())
  async def interaction_check(self,i):
