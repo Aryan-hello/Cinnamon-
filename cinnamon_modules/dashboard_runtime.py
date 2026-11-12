@@ -422,3 +422,9 @@ async def storage_status() -> dict:
         "transactions_ready": transactions_ready,
         "local_override": allow_local,
     }
+# Register the OAuth-backed dashboard routes on the same Flask server that
+# Render exposes. Previously dashboard.py defined a Blueprint but it was never
+# mounted, so /dashboard returned the keep-alive response/404 instead of login.
+import dashboard as _cinnamon_dashboard_module
+_cinnamon_dashboard_module.configure_dashboard(bot, lambda: globals())
+flask_app.register_blueprint(_cinnamon_dashboard_module.dashboard_bp)
