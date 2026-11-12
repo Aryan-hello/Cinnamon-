@@ -1642,11 +1642,17 @@ def dashboard_action():
             if not guild.me or role>=guild.me.top_role: raise ValueError("Move Cinnamon's highest role above the reward role first.")
             state["level_roles"].setdefault(gid,{})[level]=role.id
             _save(); _audit(gid,actor,"Dashboard: level reward added",f"Level {level}: {role.name}")
+            send_log=state.get("send_log")
+            if callable(send_log): _run_bot(send_log(gid,title="🎖️ Level role added",category="levels",fields=[("Action","Added"),("Level",str(level)),("Role",role.name),("Role ID",str(role.id)),("Dashboard actor",str(actor))]))
             session["dashboard_notice"]="Level reward saved."
         elif action=="levelrole_remove":
             level=int(request.form.get("level","0")); mapping=state["level_roles"].get(gid,{})
-            if mapping.pop(level,None) is None: raise ValueError("No reward is configured for that level.")
+            role_id=mapping.pop(level,None)
+            if role_id is None: raise ValueError("No reward is configured for that level.")
+            role=guild.get_role(int(role_id))
             _save(); _audit(gid,actor,"Dashboard: level reward removed",f"Level {level}")
+            send_log=state.get("send_log")
+            if callable(send_log): _run_bot(send_log(gid,title="🎖️ Level role removed",category="levels",fields=[("Action","Removed"),("Level",str(level)),("Role",role.name if role else "Deleted role"),("Role ID",str(role_id)),("Dashboard actor",str(actor))]))
             session["dashboard_notice"]="Level reward removed. Members keep roles already earned."
         elif action in {"economy_item_add","economy_item_save"}:
             item_id=request.form.get("item_id","").strip().lower(); items=state["ECONOMY_ITEMS"]
