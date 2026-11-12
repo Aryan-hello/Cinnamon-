@@ -460,6 +460,7 @@ _CINNAMON_MODULES = (
     "cinnamon_adventure_fishing.py",
     "cinnamon_fishing_game.py",
     "cinnamon_adventure_story.py",
+    "cinnamon_extra_stories.py",  # Five new branching player adventures.
     "cinnamon_moods.py",
     "cinnamon_personality.py",
     "cinnamon_actions.py",
