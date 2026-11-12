@@ -233,9 +233,15 @@ class CinnamonShopView(discord.ui.LayoutView):
                 name = item.get("name", item_id)
                 emoji = item.get("emoji", "🐾")
                 desc = cinnamon_ui_literal(item.get("description", "No description provided."), 210)
-                can_buy = price <= balance and (not limit or owned < limit)
+                under_limit = not limit or owned < limit
+                can_buy = price <= balance and under_limit
+                # Don't call a perfectly valid product "Unavailable" just because
+                # this member cannot afford it yet. Show the actual blocker.
+                button_label = ("Buy 1" if can_buy else
+                               (f"Need {price - balance:,} Catnip" if under_limit and price > balance
+                                else "Limit reached"))
                 button = discord.ui.Button(
-                    label="Buy 1" if can_buy else "Unavailable",
+                    label=button_label[:80],
                     style=discord.ButtonStyle.success if can_buy else discord.ButtonStyle.secondary,
                     disabled=not can_buy,
                 )
