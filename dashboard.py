@@ -1998,14 +1998,20 @@ def dashboard_action():
                 for item in categories:
                     if not isinstance(item,dict): raise ValueError("Each category must be a JSON object.")
                     label=str(item.get("label","")).strip(); button=str(item.get("button_label",label)).strip(); routing=str(item.get("routing","support")).lower()
-                    if not label or len(label)>60 or not button or len(button)>80 or routing not in {"support","shop","grow_a_garden","gag","boosting"}: raise ValueError("Category label, button or routing is invalid.")
+                    if not label or len(label)>60 or not button or len(button)>80 or routing not in {"support","shop","grow_a_garden","gag","boosting","faq"}: raise ValueError("Category label, button or routing is invalid.")
                     questions=item.get("questions",[])
                     if not isinstance(questions,list) or len(questions)>5: raise ValueError("Each category supports up to five modal questions.")
                     clean_questions=[]
                     for q in questions:
                         if not isinstance(q,dict) or not str(q.get("label","")).strip() or len(str(q.get("label","")))>45: raise ValueError("Question labels must be 1–45 characters.")
                         clean_questions.append({"label":str(q["label"]).strip(),"required":bool(q.get("required",True)),"paragraph":bool(q.get("paragraph",True)),"max_length":max(1,min(1000,int(q.get("max_length",400)))),"placeholder":str(q.get("placeholder","Your answer"))[:100]})
-                    clean_categories.append({"id":str(item.get("id") or secrets.token_hex(4))[:40],"label":label,"button_label":button,"emoji":str(item.get("emoji",""))[:100],"button_style":str(item.get("button_style","primary")).lower(),"routing":routing,"trusted_booster_routing":bool(item.get("trusted_booster_routing",routing in {"grow_a_garden","gag","boosting"})),"welcome_title":str(item.get("welcome_title",""))[:256],"welcome_message":str(item.get("welcome_message",""))[:1500],"channel_category_id":int(item.get("channel_category_id",0) or 0),"channel_name_format":str(item.get("channel_name_format","ticket-{username}"))[:80],"questions":clean_questions})
+                    raw_staff=item.get("staff_role_ids",[])
+                    if not isinstance(raw_staff,list) or len(raw_staff)>20: raise ValueError("Category staff_role_ids must be a list of at most 20 roles.")
+                    category_staff=[]
+                    for rid in raw_staff:
+                        if not str(rid).isdigit() or not guild.get_role(int(rid)) or guild.get_role(int(rid)).managed: raise ValueError("A category staff role is invalid.")
+                        category_staff.append(int(rid))
+                    clean_categories.append({"id":str(item.get("id") or secrets.token_hex(4))[:40],"label":label,"button_label":button,"emoji":str(item.get("emoji",""))[:100],"button_style":str(item.get("button_style","primary")).lower(),"routing":routing,"trusted_booster_routing":bool(item.get("trusted_booster_routing",routing in {"grow_a_garden","gag","boosting"})),"staff_role_ids":category_staff,"faq_answer":str(item.get("faq_answer",""))[:2000],"welcome_title":str(item.get("welcome_title",""))[:256],"welcome_message":str(item.get("welcome_message",""))[:1500],"channel_category_id":int(item.get("channel_category_id",0) or 0),"channel_name_format":str(item.get("channel_name_format","ticket-{username}"))[:80],"questions":clean_questions})
                 panel["categories"]=clean_categories
             elif action=="ticket_panel_save":
                 label=request.form.get("category_label","").strip(); button=request.form.get("button_label","").strip(); routing=request.form.get("routing","support").strip()
