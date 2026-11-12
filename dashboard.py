@@ -806,6 +806,30 @@ def _giveaways(guild,state):
     "<div class='field full'><label>Embed description (optional)</label><textarea name='embed_description' maxlength='3500' placeholder='Additional details for your giveaway'></textarea></div>"
     "<div class='field'><label>Entry confirmation</label><input name='entry_message' maxlength='300' value='🎉 You are entered! Tap again to leave.'></div><div class='field'><label>Leave confirmation</label><input name='leave_message' maxlength='300' value='You left the giveaway.'></div>"
     "<div class='field full'><label>Eligibility-denied message</label><input name='denied_message' maxlength='300' value='You do not meet this giveaway\'s entry requirements.'></div></div>")
+    def _giveaway_form_fields(prize,winners,duration,config):
+        c=config or {}
+        bonus="\\n".join(f"{rid}:{count}" for rid,count in (c.get("bonus_roles",{}) or {}).items())
+        roles=lambda key:"\\n".join(str(x) for x in (c.get(key,[]) or []))
+        return ("<div class='formgrid'><div class='field'><label>Prize</label><input name='prize' maxlength='200' required value='"+_esc(prize)+"'></div>"
+        "<div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='"+str(int(winners))+"'></div>"
+        "<div class='field'><label>Duration (minutes)</label><input name='duration_minutes' type='number' min='1' max='525600' value='"+str(int(duration))+"'></div>"
+        "<div class='field'><label>Role bonuses (ROLE_ID:EXTRA per line)</label><textarea name='bonus_roles'>"+_esc(bonus)+"</textarea></div>"
+        "<div class='field'><label>Required roles (IDs/mentions)</label><textarea name='required_roles'>"+_esc(roles('required_roles'))+"</textarea></div>"
+        "<div class='field'><label>Bypass roles</label><textarea name='bypass_roles'>"+_esc(roles('bypass_roles'))+"</textarea></div>"
+        "<div class='field'><label>Blacklisted roles</label><textarea name='blacklisted_roles'>"+_esc(roles('blacklisted_roles'))+"</textarea></div>"
+        "<div class='field'><label>Minimum account age (days)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='"+str(int(c.get('min_account_age_days',0) or 0))+"'></div>"
+        "<div class='field'><label>Minimum server age (days)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='"+str(int(c.get('min_server_age_days',0) or 0))+"'></div>"
+        "<div class='field'><label>Winner role ID</label><input name='winner_role_id' value='"+_esc(c.get('winner_role_id',''))+"'></div>"
+        "<div class='field'><label>Winner role duration (minutes)</label><input name='winner_role_minutes' type='number' min='0' max='525600' value='"+str(int(c.get('winner_role_minutes',0) or 0))+"'></div>"
+        "<div class='field'><label>Winner thread duration (minutes)</label><input name='winner_thread_minutes' type='number' min='0' max='10080' value='"+str(int(c.get('winner_thread_minutes',0) or 0))+"'></div>"
+        "<div class='field'><label>Embed color (hex)</label><input name='embed_color' value='"+_esc(c.get('embed_color','FEE75C'))+"'></div>"
+        "<div class='field'><label>Entry emoji</label><input name='entry_emoji' value='"+_esc(c.get('entry_emoji','🎉'))+"'></div>"
+        "<div class='field'><label>Entry message</label><input name='entry_message' maxlength='300' value='"+_esc(c.get('entry_message','🎉 You are entered! Tap again to leave.'))+"'></div>"
+        "<div class='field'><label>Leave message</label><input name='leave_message' maxlength='300' value='"+_esc(c.get('leave_message','You left the giveaway.'))+"'></div>"
+        "<div class='field full'><label>Denied message</label><input name='denied_message' maxlength='300' value='"+_esc(c.get('denied_message','You do not meet this giveaway requirements.'))+"'></div>"
+        "<div class='field'><label>Embed title</label><input name='embed_title' maxlength='256' value='"+_esc(c.get('embed_title',''))+"'></div>"
+        "<div class='field full'><label>Embed description</label><textarea name='embed_description' maxlength='3500'>"+_esc(c.get('embed_description',''))+"</textarea></div>"
+        "<div class='field'><label><input type='checkbox' name='reaction_entries' "+("checked" if c.get('reaction_entries') else "")+"> Enable reaction entries</label></div></div>")
     create_card="<article class='card full'><h2>Build giveaway (save draft first)</h2>"+_form(gid,"giveaway_draft_save",create,"Save draft")+"<p class='muted'>Features include eligibility rules, bypass/blacklisted roles, bonus entries, custom embeds and messages, timed winner roles, winner threads, reusable templates, recurring schedules, and rerolls.</p></article>"
     schedules=state.get("giveaway_schedules",{}) or {}; schedule_rows=[]
     for sid,cfg in schedules.items():
