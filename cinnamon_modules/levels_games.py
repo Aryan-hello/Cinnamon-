@@ -807,11 +807,11 @@ def _validate_giveaway_config(guild, *, bonus_roles="", required_roles="", bypas
 giveaway_group = app_commands.Group(name="giveaway", description="Manage Cinnamon's server giveaways")
 
 
-@giveaway_group.command(name="start", description="Start a configurable giveaway in this channel")
+@giveaway_group.command(name="create", description="Create a configurable giveaway in this channel")
 @app_commands.describe(duration_minutes="Duration in minutes (up to one year)", winners="Number of unique winners", prize="What's being given away")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
-async def giveaway_start(interaction: discord.Interaction,
+async def giveaway_create(interaction: discord.Interaction,
                          duration_minutes: app_commands.Range[int, 1, 525600],
                          winners: app_commands.Range[int, 1, 100], prize: app_commands.Range[str, 1, 200]):
     try:
