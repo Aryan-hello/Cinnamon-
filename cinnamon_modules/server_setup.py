@@ -1324,9 +1324,6 @@ async def recall_cmd(interaction: discord.Interaction):
                            ("Hangry games found", str(result["hangry_game_count"])),
                            ("Cinnamon people restored", str(result["cinnamon_people_restored"])),
                            ("Mood restored", str(result["cinnamon_mood_restored"]))])
-                           ("Hangry games found", str(result["hangry_game_count"])),
-                           ("Cinnamon people restored", str(result["cinnamon_people_restored"])),
-                           ("Mood restored", str(result["cinnamon_mood_restored"]))])
     titles = sorted(result["title_counts"].items(), key=lambda pair: pair[1], reverse=True)[:8]
     title_summary = "\n".join(f"• {name[:65]}: **{count}**" for name, count in titles) or "• No embeds found in scanned history."
     errors = "\n".join(f"• {e}" for e in result["scan_errors"][:4]) or "None"
