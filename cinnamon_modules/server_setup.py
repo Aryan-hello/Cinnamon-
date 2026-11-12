@@ -1100,6 +1100,11 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
         target = pool_cfg.setdefault(pool, [])
         if item_id not in target:
             target.append(item_id)
+    scan["shop_items_restored"] = sum(1 for event in scan.get("shop_item_events", {}).values() if event.get("action") == "upsert")
+    scan["shop_items_removed"] = sum(1 for event in scan.get("shop_item_events", {}).values() if event.get("action") == "removed")
+    scan["income_roles_restored"] = sum(1 for event in scan.get("income_role_events", {}).values() if event.get("action") == "upsert")
+    scan["income_roles_removed"] = sum(1 for event in scan.get("income_role_events", {}).values() if event.get("action") == "removed")
+    scan["custom_box_rewards_restored"] = len(scan.get("box_reward_events", {}))
     await bd_save_data()
     scan.update({
         "warnings": warnings_restored,
@@ -1129,6 +1134,9 @@ async def recall_cmd(interaction: discord.Interaction):
     await send_log(interaction.guild.id, title="🩹 Log recovery completed", interaction=interaction, category="setup",
                    fields=[("Log embeds scanned", str(result["embeds_scanned"])), ("Warnings restored", str(result["warnings"])),
                            ("XP users restored", str(result["xp_users_restored"])), ("Economy accounts restored", str(result["economy_accounts"])),
+                           ("Shop items restored/removed", f"{result.get('shop_items_restored',0)}/{result.get('shop_items_removed',0)}"),
+                           ("Income roles restored/removed", f"{result.get('income_roles_restored',0)}/{result.get('income_roles_removed',0)}"),
+                           ("Mystery Box custom rewards restored", str(result.get('custom_box_rewards_restored',0))),
                            ("Hangry games found", str(result["hangry_game_count"])),
                            ("Cinnamon people restored", str(result["cinnamon_people_restored"])),
                            ("Mood restored", str(result["cinnamon_mood_restored"]))])
@@ -1143,6 +1151,8 @@ async def recall_cmd(interaction: discord.Interaction):
         f"**Data recovered**\n• Warnings reconstructed: **{result['warnings']}**\n"
         f"• XP users restored/updated from absolute XP logs: **{result['xp_users_restored']}**\n"
         f"• Economy accounts filled from events/snapshot: **{result['economy_accounts']}**\n"
+        f"• Shop items restored/removed from logs: **{result.get('shop_items_restored',0)}/{result.get('shop_items_removed',0)}**\n"
+        f"• Income roles restored/removed: **{result.get('income_roles_restored',0)}/{result.get('income_roles_removed',0)}** · custom Mystery Box rewards restored: **{result.get('custom_box_rewards_restored',0)}**\n"
         f"• Economy snapshot: {result['economy_snapshot_detail']}\n"
         f"• Hangry game counter: **#{result['hangry_game_count']}**; wins found: **{result['hangry_wins_seen']}**\n"
         f"• Cinnamon Stuff: **{result['cinnamon_people_restored']}** people and **{result['cinnamon_mood_restored']}** mood snapshots restored from **{result['cinnamon_snapshots_scanned']}** records\n\n"
