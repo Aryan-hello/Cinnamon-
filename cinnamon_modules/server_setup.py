@@ -1105,6 +1105,14 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
     scan["income_roles_restored"] = sum(1 for event in scan.get("income_role_events", {}).values() if event.get("action") == "upsert")
     scan["income_roles_removed"] = sum(1 for event in scan.get("income_role_events", {}).values() if event.get("action") == "removed")
     scan["custom_box_rewards_restored"] = len(scan.get("box_reward_events", {}))
+    await economy_log(guild.id, title="🩹 Economy configuration recovery", fields=[
+        ("Shop items restored", str(scan["shop_items_restored"])),
+        ("Shop items removed", str(scan["shop_items_removed"])),
+        ("Income roles restored", str(scan["income_roles_restored"])),
+        ("Income roles removed", str(scan["income_roles_removed"])),
+        ("Mystery Box rewards restored", str(scan["custom_box_rewards_restored"])),
+        ("Snapshot", snapshot_detail),
+    ])
     await bd_save_data()
     scan.update({
         "warnings": warnings_restored,
