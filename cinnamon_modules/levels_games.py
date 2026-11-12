@@ -1164,6 +1164,28 @@ async def check_timers():
         except Exception as e:
             log.error("Recurring giveaway %s failed: %s", sid, e)
         await bd_save_data()
+    # Auto-reroll unclaimed winners after the configured claim deadline.
+    for hmid,hgw in list(globals().setdefault("giveaway_history",{}).items()):
+        deadline=float(hgw.get("claim_deadline",0) or 0)
+        if not deadline or deadline>now or hgw.get("claim_rerolled"): continue
+        guild=bot.get_guild(int(hgw.get("guild_id",0)))
+        channel=bot.get_channel(int(hgw.get("channel_id",0)))
+        if not guild or not channel: continue
+        winners=list(dict.fromkeys(int(x) for x in hgw.get("winner_ids",[]) if str(x).isdigit()))
+        claimed=set(int(x) for x in hgw.get("claimed_winners",[]) if str(x).isdigit())
+        missing=[x for x in winners if x not in claimed]
+        if not missing:
+            hgw["claim_rerolled"]=True; await bd_save_data(); continue
+        try:
+            await channel.send("⏰ Giveaway claim window ended. Automatically rerolling for unclaimed winner(s).")
+            # Restore the giveaway to active transient state, then finish excluding all prior winners.
+            reroll=dict(hgw); reroll["entrants"]=list(hgw.get("eligible_entrants",hgw.get("entrants",[])))
+            reroll["ends_at"]=now; reroll["winner_ids"]=winners; reroll["claim_minutes"]=0
+            active_giveaways[int(hmid)]=reroll
+            await finish_giveaway(int(hmid),exclude_winners=True)
+            hgw["claim_rerolled"]=True; hgw["claim_deadline"]=0; await bd_save_data()
+        except Exception as e:
+            log.error("Automatic giveaway reroll %s failed: %s",hmid,e)
     # Remove timed winner roles and archive winner threads when their timers expire.
     timed_roles = globals().setdefault("giveaway_timed_roles", [])
     for item in list(timed_roles):
