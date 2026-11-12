@@ -823,6 +823,7 @@ def _giveaways(guild,state):
         "<div class='field'><label>Winner role ID</label><input name='winner_role_id' value='"+_esc(c.get('winner_role_id',''))+"'></div>"
         "<div class='field'><label>Winner role duration (minutes)</label><input name='winner_role_minutes' type='number' min='0' max='525600' value='"+str(int(c.get('winner_role_minutes',0) or 0))+"'></div>"
         "<div class='field'><label>Winner thread duration (minutes)</label><input name='winner_thread_minutes' type='number' min='0' max='10080' value='"+str(int(c.get('winner_thread_minutes',0) or 0))+"'></div>"
+        "<div class='field'><label>Claim deadline (minutes; 0 = off)</label><input name='claim_minutes' type='number' min='0' max='10080' value='"+str(int(c.get('claim_minutes',0) or 0))+"'></div>"
         "<div class='field'><label>Embed color (hex)</label><input name='embed_color' value='"+_esc(c.get('embed_color','FEE75C'))+"'></div>"
         "<div class='field'><label>Entry emoji</label><input name='entry_emoji' value='"+_esc(c.get('entry_emoji','🎉'))+"'></div>"
         "<div class='field'><label>Entry message</label><input name='entry_message' maxlength='300' value='"+_esc(c.get('entry_message','🎉 You are entered! Tap again to leave.'))+"'></div>"
@@ -1727,9 +1728,10 @@ def dashboard_action():
                 winner_role_id=request.form.get("winner_role_id",""),
                 winner_role_minutes=request.form.get("winner_role_minutes","0"),
                 winner_thread_minutes=request.form.get("winner_thread_minutes","0"),
+                claim_minutes=request.form.get("claim_minutes","0"),
                 embed_color=request.form.get("embed_color","FEE75C"), entry_emoji=request.form.get("entry_emoji","🎉"),
                 reaction_entries="reaction_entries" in request.form)
-            config.update({"entry_message":request.form.get("entry_message","")[:300],
+            config.update({"claim_minutes":int(request.form.get("claim_minutes","0") or 0),"entry_message":request.form.get("entry_message","")[:300],
                 "leave_message":request.form.get("leave_message","")[:300],
                 "denied_message":request.form.get("denied_message","")[:300],
                 "embed_title":request.form.get("embed_title","")[:256],
