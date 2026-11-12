@@ -757,6 +757,54 @@ def _automation(guild,state):
     return ("<h1>Automation Studio</h1><p class='muted'>A single place to monitor Cinnamon's event-driven automations and jump into their detailed settings. Changes are permission-checked and saved through the existing bot data store.</p><div class='grid'>"+cards+"</div><div class='grid'><article class='card half'><h2>Welcome automation</h2>"+_form(gid,"welcome",welcome_content,"Save welcome rule")+"</article><article class='card half'><h2>Goodbye automation</h2>"+_form(gid,"goodbye",goodbye_content,"Save goodbye rule")+"</article><article class='card full'><h2>Cinnamon conversations</h2>"+_form(gid,"ai_channel",ai_content,"Save AI channel")+"</article><article class='card full'><h2>Rule management</h2><p class='muted'>AutoMod, anti-raid, XP filters, scheduled giveaways, and log routing are managed by their dedicated pages. This hub shows their current state without pretending disabled rules are running.</p>"+quick+"</article></div>")
 
 
+
+def _tickets(guild,state):
+    gid=guild.id
+    root=(state.get("advanced_features_data",{}) or {}).get("cinnamon_tickets_v1",{}) or {}
+    cfg=root.get(str(gid),{}) or {}
+    settings=cfg.get("settings",{}) or {}
+    panels=cfg.get("panels",{}) or {}
+    tickets=cfg.get("tickets",{}) or {}
+    open_count=sum(1 for t in tickets.values() if t.get("status")=="open")
+    closed_count=len(cfg.get("closed",{}) or {})
+    log_form="<div class='formgrid'><div class='field'><label>Ticket log channel</label>"+_channel_select(guild,"log_channel_id",settings.get("log_channel_id"))+"</div><div class='field'><label>Ticket parent category</label>"+_category_select(guild,"ticket_category_id",settings.get("ticket_category_id"))+"</div><div class='field'><label>Maximum open tickets per member</label><input name='max_open_per_user' type='number' min='1' max='10' value='"+str(max(1,min(10,int(settings.get("max_open_per_user",3)))))+"'></div><div class='field'><label>Opening cooldown (seconds)</label><input name='cooldown_seconds' type='number' min='0' max='86400' value='"+str(max(0,min(86400,int(settings.get("cooldown_seconds",60)))))+"'></div><div class='field'><label>Auto-close after inactivity (hours; 0 disables)</label><input name='auto_close_hours' type='number' min='0' max='720' value='"+str(max(0,min(720,int(settings.get("auto_close_hours",0)))))+"'></div></div><div class='toggle'><input type='checkbox' name='transcript_on_close'"+(" checked" if settings.get("transcript_on_close",True) else "")+"><span><b>Attach HTML transcript to logs on close</b><small>Transcript is sent to the configured log channel.</small></span></div>"
+    log_form+= "<div class='field'><label>General ticket staff roles</label>"+_role_multi_select(guild,"staff_role_ids",settings.get("staff_role_ids",[]))+"</div><div class='field'><label>Trusted Booster roles</label>"+_role_multi_select(guild,"trusted_booster_role_ids",settings.get("trusted_booster_role_ids",[]))+"</div>"
+    settings_card="<article class='card full'><h2>Ticket settings</h2><p class='muted'>Changes are validated and saved together. Ticket settings and metadata live inside Cinnamon's Upstash-backed snapshot.</p>"+_form(gid,"ticket_settings_save",log_form,"Save ticket settings")+"</article>"
+    create="<div class='formgrid'><div class='field'><label>Panel name (dashboard label)</label><input name='panel_name' maxlength='60' required placeholder='Support Center'></div><div class='field'><label>Publish channel</label>"+_channel_select(guild,"channel_id",allow_none=False)+"</div><div class='field'><label>Panel title</label><input name='panel_title' maxlength='256' required value='Cinnamon Support Center'></div><div class='field'><label>Embed color (hex)</label><input name='panel_color' maxlength='7' value='#D99048'></div><div class='field full'><label>Panel description</label><textarea name='panel_description' maxlength='3500'>Choose a category below to open a private support ticket.</textarea></div><div class='field'><label>First category name</label><input name='category_label' maxlength='60' required value='General Support'></div><div class='field'><label>Button label</label><input name='button_label' maxlength='80' required value='Open Support Ticket'></div><div class='field'><label>Button emoji (optional)</label><input name='button_emoji' maxlength='100' placeholder='🎫'></div><div class='field'><label>Routing</label><select name='routing'><option value='support'>General support</option><option value='shop'>Shop support</option><option value='grow_a_garden'>Grow a Garden / boosting</option></select></div><div class='field full'><label>Welcome message</label><textarea name='welcome_message' maxlength='1500'>Thanks for opening a ticket. Staff will help you here.</textarea></div><div class='field'><label>Question 1</label><input name='question1' maxlength='45' placeholder='What do you need help with?'></div><div class='field'><label>Question 2</label><input name='question2' maxlength='45' placeholder='What did you purchase?'></div><div class='field'><label>Question 3</label><input name='question3' maxlength='45' placeholder='Order ID'></div><div class='field'><label>Question 4</label><input name='question4' maxlength='45' placeholder='Describe the issue'></div><div class='field'><label>Question 5</label><input name='question5' maxlength='45' placeholder='Anything else?'></div></div>"
+    create_card="<article class='card full'><h2>Create ticket panel</h2><p class='muted'>Create a panel configuration first, then publish it separately. Modal questions are asked before the private channel is created.</p>"+_form(gid,"ticket_panel_save",create,"Save panel draft")+"</article>"
+    panel_rows=[]
+    for pid,p in sorted(panels.items()):
+        state_label="Published" if p.get("published") else "Draft"
+        ch=guild.get_channel(int(p.get("channel_id",0) or 0))
+        cats=p.get("categories",[]) or []
+        panel_rows.append("<article class='card full'><h3>"+_esc(p.get("name","Ticket panel"))+" <span class='pill'>"+state_label+"</span></h3><p class='muted'>"+_esc("#"+ch.name if ch else "No channel")+" · "+str(len(cats))+" categories · ID "+_esc(pid)+"</p>"+_form(gid,"ticket_panel_update","<input type='hidden' name='panel_id' value='"+_esc(pid)+"'><div class='formgrid'><div class='field'><label>Panel name</label><input name='panel_name' maxlength='60' required value='"+_esc(p.get("name",""))+"'></div><div class='field'><label>Channel</label>"+_channel_select(guild,"channel_id",p.get("channel_id"),allow_none=False)+"</div><div class='field'><label>Title</label><input name='panel_title' maxlength='256' required value='"+_esc(p.get("title","Support Center"))+"'></div><div class='field'><label>Color</label><input name='panel_color' maxlength='7' value='"+_esc(p.get("color","#D99048"))+"'></div><div class='field full'><label>Description</label><textarea name='panel_description' maxlength='3500'>"+_esc(p.get("description",""))+"</textarea></div></div>","Save panel settings")+
+        "<div class='actions'><form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_publish'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn'>"+("Update published panel" if p.get("published") else "Publish panel")+"</button></form><form method='post' action='/dashboard/action' onsubmit='return confirm(&quot;Delete this panel configuration?&quot;);'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_delete'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn danger small'>Delete</button></form></div></article>")
+    panel_card="<article class='card full'><h2>Ticket panels</h2>"+("".join(panel_rows) or "<p class='empty'>No panels yet.</p>")+"</article>"
+    active_rows="".join("<tr><td>#"+_esc((guild.get_channel(int(t.get("channel_id",0))) or type("X",(),{"name":"unknown"})()).name)+"</td><td>"+_esc(t.get("category_label","Support"))+"</td><td>"+_esc(str(t.get("creator_id","")))+"</td><td>"+_esc(t.get("status","open"))+"</td><td>"+_esc(str(t.get("claimed_by") or "Unclaimed"))+"</td></tr>" for t in tickets.values() if t.get("status")=="open") or "<tr><td colspan='5'>No active tickets.</td></tr>"
+    active="<article class='card full'><h2>Active tickets ("+str(open_count)+")</h2><div class='tablewrap'><table><thead><tr><th>Channel</th><th>Category</th><th>Creator ID</th><th>Status</th><th>Claimed by</th></tr></thead><tbody>"+active_rows+"</tbody></table></div><p class='muted'>Ticket conversations and staff replies stay inside Discord. Dashboard is for configuration and management.</p></article>"
+    body="<h1>Tickets</h1><p class='muted'>Discord-native private tickets, modal intake, automatic staff routing, transcripts, and durable records.</p><div class='grid'><article class='card third'><div class='statlabel'>Panels</div><div class='stat'>"+str(len(panels))+"</div></article><article class='card third'><div class='statlabel'>Open tickets</div><div class='stat'>"+str(open_count)+"</div></article><article class='card third'><div class='statlabel'>Closed records</div><div class='stat'>"+str(closed_count)+"</div></article>"+settings_card+create_card+panel_card+active+"</div>"
+    return body
+
+
+def _roles_setup(guild,state):
+    gid=guild.id; root=(state.get("advanced_features_data",{}) or {}).get("cinnamon_role_permissions_v1",{}) or {}; config=root.get(str(gid),{}) or {}
+    categories=[("giveaway_creator","Giveaway Creator","Create, edit, end and reroll giveaways."),("hangry_runner","Hangry Games Runner","Start and manage Hangry Games."),("trusted_booster","Trusted Booster","Handle Grow a Garden boosting tickets."),("ticket_staff","Ticket Staff","Claim, assign and resolve support tickets."),("ticket_admin","Ticket Administrator","Manage all ticket settings and tickets."),("shop_manager","Shop Manager","Manage shop support and orders."),("economy_admin","Economy Administrator","Manage economy tools."),("quest_manager","Quest Manager","Manage quests and challenges."),("event_manager","Event Manager","Manage server events."),("moderator","Moderator","Moderation commands.")]
+    cards=[]
+    for key,label,desc in categories:
+        cards.append("<article class='card half'><h3>"+_esc(label)+"</h3><p class='muted'>"+_esc(desc)+"</p>"+_role_multi_select(guild,"role_"+key,config.get(key,[]))+"</article>")
+    content="<p class='muted'>Select one or more roles per permission category. A member with any selected role receives that category's permission. Discord Administrators retain the universal override.</p>"+"".join(cards)
+    return "<h1>Roles Setup</h1><p class='muted'>Central server-side permission mapping for Cinnamon features. Saved role IDs persist in the Upstash snapshot and are logged.</p>"+_form(gid,"roles_setup_save",content,"Save all role permissions")
+
+
+def _category_select(guild,name,selected=None):
+    cats=[c for c in guild.categories]
+    opts=["<option value=''>— Not set —</option>"]
+    for c in cats:
+        sel=" selected" if selected is not None and str(selected)==str(c.id) else ""
+        opts.append(f"<option value='{c.id}'{sel}>📁 {_esc(c.name)}</option>")
+    return "<select name='"+_esc(name)+"'>"+"".join(opts)+"</select>"
+
+
 def _giveaways(guild,state):
     gid=guild.id; active=state.get("active_giveaways",{}) or {}; history=state.get("giveaway_history",{}) or {}
     cards=[]
@@ -1398,10 +1446,10 @@ def dashboard_home():
         return _page("<main class='main'>"+_header()+body+"</main>")
     guild_id=request.args.get("guild_id") or eligible[0]["id"]
     guild,guild_item=_get_access(sid,guilds,guild_id)
-    tab=request.args.get("tab","overview"); allowed={"overview","mind","adventure","automation","moderation","engagement","achievements","quests","friendship","economy","giveaways","hangry","community","message_studio","analytics","activity_logs","system"}
+    tab=request.args.get("tab","overview"); allowed={"overview","mind","adventure","automation","moderation","engagement","achievements","quests","friendship","economy","giveaways","tickets","roles_setup","hangry","community","message_studio","analytics","activity_logs","system"}
     if tab not in allowed: tab="overview"
     state=_state(); notice=session.pop("dashboard_notice",None)
-    pages={"overview":_overview,"mind":_mind,"adventure":_adventure,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
+    pages={"overview":_overview,"mind":_mind,"adventure":_adventure,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"tickets":_tickets,"roles_setup":_roles_setup,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
     return _shell(guild,eligible,tab,pages[tab](guild,state),notice)
 
 
