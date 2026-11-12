@@ -174,7 +174,8 @@ async def _ticket_create_channel(interaction,panel,category,answers):
     if opened>=max(1,min(10,int(settings.get("max_open_per_user",3)))): return await interaction.followup.send("You reached the open-ticket limit.",ephemeral=True)
     cooldown=max(0,min(86400,int(settings.get("cooldown_seconds",60)))); last=int(cfg["cooldowns"].get(str(member.id),0))
     if _time.time()-last<cooldown: return await interaction.followup.send(f"Wait {int(cooldown-(_time.time()-last))} seconds before opening another ticket.",ephemeral=True)
-    staff=set(map(int,settings.get("staff_role_ids",[]))); staff.update(map(int,_role_setup(guild.id).get("ticket_staff",[]))); staff.update(map(int,_role_setup(guild.id).get("ticket_admin",[]))); staff.update(map(int,category.get("staff_role_ids",[]))); route=str(category.get("routing","shop")).lower()
+    role_map=_role_setup(guild.id); staff=set(map(int,settings.get("staff_role_ids",[]))); staff.update(map(int,role_map.get("ticket_staff",[]))); staff.update(map(int,role_map.get("ticket_admin",[]))); staff.update(map(int,category.get("staff_role_ids",[]))); route=str(category.get("routing","shop")).lower()
+    if route=="shop": staff.update(map(int,role_map.get("shop_manager",[])))
     answers_text=" ".join(str(a) for _,a in (answers or [])).lower()
     gag_purchase=any(x in answers_text for x in ("grow a garden","grow-a-garden","gag","garden boosting","garden boost","mutation","pet mutation"))
     if route in {"grow_a_garden","gag","boosting"} or category.get("trusted_booster_routing") or (route=="shop" and gag_purchase):
