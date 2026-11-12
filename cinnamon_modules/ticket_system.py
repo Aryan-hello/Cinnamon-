@@ -183,3 +183,100 @@ async def cinnamon_ticket_restore_views():
             if panel.get("published") and panel.get("message_id"): bot.add_view(TicketPanelView(int(gid),pid,panel),message_id=int(panel["message_id"]))
         for ticket in (cfg.get("tickets",{}) or {}).values():
             if ticket.get("status") in ("open","closed"): bot.add_view(TicketControls(ticket.get("ticket_id")))
+
+
+def _ticket_staff(interaction):
+    member=interaction.user
+    return bool(member.guild_permissions.administrator or cinnamon_role_has(member,"ticket_staff") or cinnamon_role_has(member,"ticket_admin") or any(r.id in set(map(int,_ticket_guild(interaction.guild.id).get("settings",{}).get("staff_role_ids",[]))) for r in member.roles))
+
+ticket_group=app_commands.Group(name="ticket",description="Manage Cinnamon support tickets")
+
+@ticket_group.command(name="assign",description="Assign the current ticket to a staff member")
+@app_commands.guild_only()
+async def ticket_assign(interaction:discord.Interaction,member:discord.Member):
+    if not _ticket_staff(interaction): return await interaction.response.send_message("Ticket staff only.",ephemeral=True)
+    ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
+    if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    ticket["assigned_to"]=member.id; await bd_save_data(); await _ticket_log(interaction.guild,"assigned",interaction.user,ticket,str(member))
+    await interaction.response.send_message(f"Assigned to {member.mention}.",allowed_mentions=discord.AllowedMentions(users=[member]))
+
+@ticket_group.command(name="add-member",description="Give another member access to this ticket")
+@app_commands.guild_only()
+async def ticket_add_member(interaction:discord.Interaction,member:discord.Member):
+    if not _ticket_staff(interaction): return await interaction.response.send_message("Ticket staff only.",ephemeral=True)
+    ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
+    if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    await interaction.channel.set_permissions(member,view_channel=True,send_messages=True,read_message_history=True,attach_files=True,embed_links=True)
+    ticket.setdefault("member_ids",[]).append(member.id); ticket["member_ids"]=list(dict.fromkeys(ticket["member_ids"]))
+    await bd_save_data(); await _ticket_log(interaction.guild,"member added",interaction.user,ticket,str(member))
+    await interaction.response.send_message(f"Added {member.mention}.",allowed_mentions=discord.AllowedMentions(users=[member]))
+
+@ticket_group.command(name="remove-member",description="Remove a member's access to this ticket")
+@app_commands.guild_only()
+async def ticket_remove_member(interaction:discord.Interaction,member:discord.Member):
+    if not _ticket_staff(interaction): return await interaction.response.send_message("Ticket staff only.",ephemeral=True)
+    ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
+    if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    if member.id==int(ticket.get("creator_id",0)): return await interaction.response.send_message("The ticket creator cannot be removed.",ephemeral=True)
+    await interaction.channel.set_permissions(member,overwrite=None); ticket["member_ids"]=[x for x in ticket.get("member_ids",[]) if int(x)!=member.id]
+    await bd_save_data(); await _ticket_log(interaction.guild,"member removed",interaction.user,ticket,str(member))
+    await interaction.response.send_message(f"Removed {member.mention}.",allowed_mentions=discord.AllowedMentions(users=[member]))
+
+@ticket_group.command(name="rename",description="Rename the current ticket channel")
+@app_commands.guild_only()
+async def ticket_rename(interaction:discord.Interaction,name:app_commands.Range[str,1,90]):
+    if not _ticket_staff(interaction): return await interaction.response.send_message("Ticket staff only.",ephemeral=True)
+    ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
+    if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    clean="".join(c for c in name.lower().replace(" ","-") if c.isalnum() or c in "-_")[:90]
+    if not clean: return await interaction.response.send_message("Choose a valid channel name.",ephemeral=True)
+    old=interaction.channel.name; await interaction.channel.edit(name=clean); ticket["channel_name"]=clean
+    await bd_save_data(); await _ticket_log(interaction.guild,"renamed",interaction.user,ticket,f"{old} → {clean}")
+    await interaction.response.send_message(f"Renamed ticket to **{clean}**.",ephemeral=True)
+
+@ticket_group.command(name="priority",description="Set ticket priority")
+@app_commands.choices(level=[app_commands.Choice(name="Low",value="low"),app_commands.Choice(name="Normal",value="normal"),app_commands.Choice(name="High",value="high"),app_commands.Choice(name="Urgent",value="urgent")])
+@app_commands.guild_only()
+async def ticket_priority(interaction:discord.Interaction,level:str):
+    if not _ticket_staff(interaction): return await interaction.response.send_message("Ticket staff only.",ephemeral=True)
+    ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
+    if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    ticket["priority"]=level; await bd_save_data(); await _ticket_log(interaction.guild,"priority changed",interaction.user,ticket,level)
+    await interaction.response.send_message(f"Priority set to **{level.title()}**.")
+
+@ticket_group.command(name="note",description="Save a private staff note (not posted in the ticket)")
+@app_commands.guild_only()
+async def ticket_note(interaction:discord.Interaction,note:app_commands.Range[str,1,1000]):
+    if not _ticket_staff(interaction): return await interaction.response.send_message("Ticket staff only.",ephemeral=True)
+    ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
+    if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    ticket.setdefault("staff_notes",[]).append({"by":interaction.user.id,"at":int(_time.time()),"note":note[:1000]})
+    ticket["staff_notes"]=ticket["staff_notes"][-100:]; await bd_save_data()
+    await _ticket_log(interaction.guild,"staff note saved",interaction.user,ticket,"Private staff note saved (content omitted from logs).")
+    await interaction.response.send_message("Staff note saved privately; its contents are not sent to the ticket or logs.",ephemeral=True)
+
+@ticket_group.command(name="transcript",description="Generate a transcript of this ticket")
+@app_commands.guild_only()
+async def ticket_transcript_command(interaction:discord.Interaction):
+    if not _ticket_staff(interaction): return await interaction.response.send_message("Ticket staff only.",ephemeral=True)
+    ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
+    if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    await interaction.response.defer(ephemeral=True,thinking=True); transcript=await _ticket_transcript(interaction.channel)
+    await interaction.followup.send(file=discord.File(transcript,filename=f"ticket-{interaction.channel.id}.html"),ephemeral=True)
+    await _ticket_log(interaction.guild,"transcript generated",interaction.user,ticket)
+
+@ticket_group.command(name="delete",description="Permanently delete this ticket channel")
+@app_commands.guild_only()
+async def ticket_delete(interaction:discord.Interaction):
+    if not (interaction.user.guild_permissions.administrator or cinnamon_role_has(interaction.user,"ticket_admin")): return await interaction.response.send_message("Ticket administrators only.",ephemeral=True)
+    ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
+    if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    await interaction.response.send_message("Deleting ticket in 5 seconds; transcript is already in logs if configured.")
+    await _ticket_log(interaction.guild,"deleted",interaction.user,ticket)
+    await asyncio.sleep(5); _ticket_guild(interaction.guild.id).get("tickets",{}).pop(str(interaction.channel.id),None); await bd_save_data()
+    await interaction.channel.delete(reason=f"Ticket deleted by {interaction.user}")
+
+try:
+    bot.tree.add_command(ticket_group)
+except app_commands.CommandAlreadyRegistered:
+    pass
