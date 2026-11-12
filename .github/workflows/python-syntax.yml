@@ -1,0 +1,29 @@
+name: Python syntax check
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile every Python file
+        run: python - <<'PY'
+          import pathlib, py_compile, sys
+          files = sorted(pathlib.Path(".").rglob("*.py"))
+          errors = []
+          for path in files:
+              try:
+                  py_compile.compile(str(path), doraise=True)
+              except Exception as exc:
+                  errors.append(f"{path}: {exc}")
+          if errors:
+              print("\n".join(errors))
+              sys.exit(1)
+          print(f"Syntax OK: {len(files)} Python files")
+          PY
