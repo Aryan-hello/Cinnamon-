@@ -947,9 +947,11 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
         "level_roles_restored": 0, "level_roles_removed": 0,
         "level_members_scanned": 0, "level_roles_granted": 0,
         "level_role_sync_errors": [],
-        "shop_item_events": {},
+        "shop_item_events": {}, "income_role_events": {}, "box_reward_events": {},
     }
     seen_shop_items = set()
+    seen_income_roles = set()
+    seen_box_rewards = set()
     events = []
     for channel_id, labels in channel_map.items():
         channel = bot.get_channel(channel_id)
