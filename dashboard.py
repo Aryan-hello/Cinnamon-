@@ -834,7 +834,7 @@ def _giveaways(guild,state):
         f"<div class='field'><label>Reset duration (minutes from save)</label><input name='duration_minutes' type='number' min='1' max='525600' value='{max(1,remain)}' required></div>"
         f"<div class='field'><label>Entry button / reaction emoji</label><input name='entry_emoji' maxlength='40' value='{_esc(gw.get('entry_emoji','🎉'))}'></div>"
         f"<div class='field'><label><input type='checkbox' name='reaction_entries' value='1'{(' checked' if gw.get('reaction_entries') else '')}> Also allow reaction entry</label><small>Bot must have Add Reactions and Manage Messages to remove ineligible entries.</small></div>"
-        f"<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'>{_esc(chr(10).join(f'{rid}:{count}' for rid,count in (gw.get('bonus_roles',{}) or {}).items()))}</textarea><small>Each listed role adds 1–20 entries. A member can receive bonuses from multiple roles.</small></div>"
+        f"<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'>{_esc(chr(10).join(f'{rid}:{count}' for rid,count in (gw.get('bonus_roles',{}) or {}).items()))}</textarea><small>Each listed role adds 1–20 entries. Only the highest bonus among a member's matching roles applies.</small></div>"
         f"<div class='field'><label>Minimum Discord account age (days, 0 = none)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='{int(gw.get('min_account_age_days',0) or 0)}'></div>"
         f"<div class='field'><label>Minimum server membership (days, 0 = none)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='{int(gw.get('min_server_age_days',0) or 0)}'></div>"
         f"<div class='field full'><label>Required roles (member needs at least one)</label>{_role_multi_select(guild,'required_roles',gw.get('required_roles',[]))}</div>"
@@ -843,6 +843,7 @@ def _giveaways(guild,state):
         f"<div class='field'><label>Winner role (optional)</label>{_role_select(guild,'winner_role_id',gw.get('winner_role_id'),True)}</div>"
         f"<div class='field'><label>Remove winner role after (minutes, 0 = keep)</label><input name='winner_role_minutes' type='number' min='0' max='525600' value='{int(gw.get('winner_role_minutes',0) or 0)}'></div>"
         f"<div class='field'><label>Winner thread auto-close (minutes, 0 = off)</label><input name='winner_thread_minutes' type='number' min='0' max='10080' value='{int(gw.get('winner_thread_minutes',0) or 0)}'></div>"
+        f"<div class='field'><label>Claim deadline (minutes, 0 = off)</label><input name='claim_minutes' type='number' min='0' max='10080' value='{int(gw.get('claim_minutes',0) or 0)}'></div>"
         f"<div class='field'><label>Embed colour (hex)</label><input name='embed_color' maxlength='7' value='{_esc(str(gw.get('embed_color','FEE75C')).lstrip('#'))}'></div>"
         f"<div class='field'><label>Embed title (optional)</label><input name='embed_title' maxlength='256' value='{_esc(gw.get('embed_title',''))}'></div>"
         f"<div class='field full'><label>Embed description (optional)</label><textarea name='embed_description' maxlength='3500'>{_esc(gw.get('embed_description',''))}</textarea></div>"
@@ -869,7 +870,32 @@ def _giveaways(guild,state):
     "<div class='field full'><label>Embed description (optional)</label><textarea name='embed_description' maxlength='3500' placeholder='Additional details for your giveaway'></textarea></div>"
     "<div class='field'><label>Entry confirmation</label><input name='entry_message' maxlength='300' value='🎉 You are entered! Tap again to leave.'></div><div class='field'><label>Leave confirmation</label><input name='leave_message' maxlength='300' value='You left the giveaway.'></div>"
     "<div class='field full'><label>Eligibility-denied message</label><input name='denied_message' maxlength='300' value='You do not meet this giveaway\'s entry requirements.'></div></div>")
-    create_card="<article class='card full'><h2>Create giveaway</h2>"+_form(gid,"giveaway_create",create,"Start giveaway")+"<p class='muted'>Features include eligibility rules, bypass/blacklisted roles, bonus entries, custom embeds and messages, timed winner roles, winner threads, reusable templates, recurring schedules, and rerolls.</p></article>"
+    def _giveaway_form_fields(prize,winners,duration,config):
+        c=config or {}
+        bonus="\\n".join(f"{rid}:{count}" for rid,count in (c.get("bonus_roles",{}) or {}).items())
+        roles=lambda key:"\\n".join(str(x) for x in (c.get(key,[]) or []))
+        return ("<div class='formgrid'><div class='field'><label>Prize</label><input name='prize' maxlength='200' required value='"+_esc(prize)+"'></div>"
+        "<div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='"+str(int(winners))+"'></div>"
+        "<div class='field'><label>Duration (minutes)</label><input name='duration_minutes' type='number' min='1' max='525600' value='"+str(int(duration))+"'></div>"
+        "<div class='field'><label>Role bonuses (ROLE_ID:EXTRA per line)</label><textarea name='bonus_roles'>"+_esc(bonus)+"</textarea></div>"
+        "<div class='field'><label>Required roles (IDs/mentions)</label><textarea name='required_roles'>"+_esc(roles('required_roles'))+"</textarea></div>"
+        "<div class='field'><label>Bypass roles</label><textarea name='bypass_roles'>"+_esc(roles('bypass_roles'))+"</textarea></div>"
+        "<div class='field'><label>Blacklisted roles</label><textarea name='blacklisted_roles'>"+_esc(roles('blacklisted_roles'))+"</textarea></div>"
+        "<div class='field'><label>Minimum account age (days)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='"+str(int(c.get('min_account_age_days',0) or 0))+"'></div>"
+        "<div class='field'><label>Minimum server age (days)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='"+str(int(c.get('min_server_age_days',0) or 0))+"'></div>"
+        "<div class='field'><label>Winner role ID</label><input name='winner_role_id' value='"+_esc(c.get('winner_role_id',''))+"'></div>"
+        "<div class='field'><label>Winner role duration (minutes)</label><input name='winner_role_minutes' type='number' min='0' max='525600' value='"+str(int(c.get('winner_role_minutes',0) or 0))+"'></div>"
+        "<div class='field'><label>Winner thread duration (minutes)</label><input name='winner_thread_minutes' type='number' min='0' max='10080' value='"+str(int(c.get('winner_thread_minutes',0) or 0))+"'></div>"
+        "<div class='field'><label>Claim deadline (minutes; 0 = off)</label><input name='claim_minutes' type='number' min='0' max='10080' value='"+str(int(c.get('claim_minutes',0) or 0))+"'></div>"
+        "<div class='field'><label>Embed color (hex)</label><input name='embed_color' value='"+_esc(c.get('embed_color','FEE75C'))+"'></div>"
+        "<div class='field'><label>Entry emoji</label><input name='entry_emoji' value='"+_esc(c.get('entry_emoji','🎉'))+"'></div>"
+        "<div class='field'><label>Entry message</label><input name='entry_message' maxlength='300' value='"+_esc(c.get('entry_message','🎉 You are entered! Tap again to leave.'))+"'></div>"
+        "<div class='field'><label>Leave message</label><input name='leave_message' maxlength='300' value='"+_esc(c.get('leave_message','You left the giveaway.'))+"'></div>"
+        "<div class='field full'><label>Denied message</label><input name='denied_message' maxlength='300' value='"+_esc(c.get('denied_message','You do not meet this giveaway requirements.'))+"'></div>"
+        "<div class='field'><label>Embed title</label><input name='embed_title' maxlength='256' value='"+_esc(c.get('embed_title',''))+"'></div>"
+        "<div class='field full'><label>Embed description</label><textarea name='embed_description' maxlength='3500'>"+_esc(c.get('embed_description',''))+"</textarea></div>"
+        "<div class='field'><label><input type='checkbox' name='reaction_entries' "+("checked" if c.get('reaction_entries') else "")+"> Enable reaction entries</label></div></div>")
+    create_card="<article class='card full'><h2>Build giveaway (save draft first)</h2>"+_form(gid,"giveaway_draft_save",create,"Save draft")+"<p class='muted'>Features include eligibility rules, bypass/blacklisted roles, bonus entries, custom embeds and messages, timed winner roles, winner threads, reusable templates, recurring schedules, and rerolls.</p></article>"
     schedules=state.get("giveaway_schedules",{}) or {}; schedule_rows=[]
     for sid,cfg in schedules.items():
         if int(cfg.get("guild_id",0))!=gid: continue
@@ -885,7 +911,13 @@ def _giveaways(guild,state):
     finished.sort(key=lambda x:float(x[1].get('finished_at',0)),reverse=True)
     hist_rows=''.join(f"<tr><td>{_esc(gw.get('prize','Giveaway'))}</td><td>{len(set(gw.get('eligible_entrants',gw.get('entrants',[]))))}</td><td>{', '.join(str(x) for x in gw.get('winner_ids',[])) or 'No winner'}</td><td><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_reroll'><input type='hidden' name='message_id' value='{_esc(mid)}'><button class='btn secondary small'>Reroll</button></form></td></tr>" for mid,gw in finished[:20]) or "<tr><td colspan='4'>No finished giveaways in history yet.</td></tr>"
     history_card="<article class='card full'><h2>Recent finished giveaways</h2><div class='tablewrap'><table><thead><tr><th>Prize</th><th>Eligible entries</th><th>Winner IDs</th><th>Action</th></tr></thead><tbody>"+hist_rows+"</tbody></table></div><p class='muted'>Reroll selects a different eligible entrant from the saved history. History keeps the latest 250 finished giveaways.</p></article>"
-    body="<h1>Giveaways</h1><p class='muted'>Manage entry rules, schedule recurring events, reuse templates, and handle winners from one place.</p><div class='grid'>"+(''.join(cards) or "<article class='card full'><div class='empty'>No active giveaways in this server.</div></article>")+create_card+repeat_card+template_card+history_card+"</div>"
+    drafts=(state.get("giveaway_drafts",{}) or {}).get(gid,(state.get("giveaway_drafts",{}) or {}).get(str(gid),{})) or {}
+    draft_rows=[]
+    for did,d in drafts.items():
+        draft_form="<input type='hidden' name='draft_id' value='"+_esc(did)+"'><input type='hidden' name='channel_id' value='"+str(int(d.get('channel_id',0)))+"'>"+_giveaway_form_fields(d.get('prize','Giveaway'),d.get('winners',1),d.get('duration_minutes',60),d.get('config',{}))
+        draft_rows.append("<article class='card full'><h3>Draft editor & preview: "+_esc(d.get('prize','Giveaway'))+"</h3><p class='muted'>Edit settings, then save changes to this draft. Publishing is a separate action.</p>"+_form(gid,"giveaway_draft_update",draft_form,"Save draft changes")+"<div class='actions'><form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='giveaway_draft_publish'><input type='hidden' name='draft_id' value='"+_esc(did)+"'><button class='btn'>Publish giveaway</button></form><form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='giveaway_draft_delete'><input type='hidden' name='draft_id' value='"+_esc(did)+"'><button class='btn danger small'>Discard</button></form></div></article>")
+    draft_card="<article class='card full'><h2>Drafts · preview before publishing</h2><div class='grid'>"+(''.join(draft_rows) or "<p class='muted'>No saved drafts.</p>")+"</div></article>"
+    body="<h1>Giveaways</h1><p class='muted'>Configure, save a draft, preview it, then publish. Active giveaway changes take effect only after Save giveaway.</p><div class='grid'>"+(''.join(cards) or "<article class='card full'><div class='empty'>No active giveaways in this server.</div></article>")+create_card+draft_card+repeat_card+template_card+history_card+"</div>"
     return body
 
 
@@ -1487,7 +1519,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","ticket_settings_save","ticket_panel_save","ticket_panel_update","ticket_panel_publish","ticket_panel_delete","roles_setup_save","ticket_dashboard_close","ticket_dashboard_reopen","config_backup_restore","hangry_logs","recall","message_send"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -1750,10 +1782,10 @@ def dashboard_action():
             if removed_income is None: raise ValueError("That role income rule no longer exists.")
             role=guild.get_role(int(role_id))
             _save(); _audit(gid,actor,"Dashboard: role income removed",f"Role ID {role_id}.")
-            send_log=state.get("send_log")
-            if callable(send_log): _run_bot(send_log(gid,title="🗑️ Role income removed",category="economy",fields=[("Action","Removed"),("Admin",str(actor)),("Role",role.name if role else "Deleted role"),("Role ID",role_id),("Amount",str(removed_income.get("amount",0))),("Interval",str(removed_income.get("interval",0))),("Unit",str(removed_income.get("unit","minute"))),("Cooldown seconds",str(removed_income.get("cooldown",0)))]))
+            if not role_id.isdigit() or cfg.pop(int(role_id),None) is None: raise ValueError("That role income rule no longer exists.")
+            _save(); _audit(gid,actor,"Dashboard: role income removed",f"Role ID {role_id}.")
             session["dashboard_notice"]="Role income rule removed."
-        elif action in {"giveaway_create","giveaway_edit"}:
+        elif action in {"giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update"}:
             prize=request.form.get("prize","").strip()
             try: winners=int(request.form.get("winners","1")); duration=int(request.form.get("duration_minutes","60"))
             except ValueError: raise ValueError("Winner count and duration must be whole numbers.")
@@ -1772,18 +1804,28 @@ def dashboard_action():
                 winner_thread_minutes=request.form.get("winner_thread_minutes","0"),
                 embed_color=request.form.get("embed_color","FEE75C"), entry_emoji=request.form.get("entry_emoji","🎉"),
                 reaction_entries="reaction_entries" in request.form)
-            config.update({"entry_message":request.form.get("entry_message","")[:300],
+            config.update({"claim_minutes":int(request.form.get("claim_minutes","0") or 0),"entry_message":request.form.get("entry_message","")[:300],
                 "leave_message":request.form.get("leave_message","")[:300],
                 "denied_message":request.form.get("denied_message","")[:300],
                 "embed_title":request.form.get("embed_title","")[:256],
                 "embed_description":request.form.get("embed_description","")[:3500]})
-            if action=="giveaway_create":
+            if action=="giveaway_draft_update":
+                draft_id=request.form.get("draft_id",""); drafts=state.setdefault("giveaway_drafts",{}).setdefault(gid,{})
+                draft=drafts.get(draft_id)
+                if not draft or int(draft.get("guild_id",0))!=gid: raise ValueError("That giveaway draft was not found.")
+                draft.update({"prize":prize,"winners":winners,"duration_minutes":duration,"config":config,"updated_at":time.time()})
+                _save(); _audit(gid,actor,"Dashboard: giveaway draft edited",f"Draft {draft_id}; prize {prize}; {winners} winner(s).")
+                session["dashboard_notice"]="Draft updated. Discord has not been changed."
+            elif action=="giveaway_draft_save":
                 channel_id=request.form.get("channel_id","").strip(); channel=guild.get_channel(int(channel_id)) if channel_id.isdigit() else None
                 if not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Choose a valid text channel in this server.")
-                mid=_run_bot(state["create_giveaway"](guild_id=gid,channel_id=channel.id,
-                    host_id=int(_tokens[sid]["user"]["id"]),prize=prize,winners=winners,duration_minutes=duration,config=config))
-                _audit(gid,actor,"Dashboard: giveaway created",f"Message {mid}; prize {prize}; {winners} winner(s); {duration} minutes; eligibility rules configured.")
-                session["dashboard_notice"]="Giveaway created in Discord with the selected entry rules."
+                drafts=state.setdefault("giveaway_drafts",{}).setdefault(gid,{})
+                draft_id=secrets.token_urlsafe(8)
+                drafts[draft_id]={"guild_id":gid,"channel_id":channel.id,"host_id":int(_tokens[sid]["user"]["id"]),"prize":prize,"winners":winners,"duration_minutes":duration,"config":config,"created_at":time.time()}
+                _save(); _audit(gid,actor,"Dashboard: giveaway draft saved",f"Draft {draft_id}; prize {prize}; {winners} winner(s); {duration} minutes.")
+                session["dashboard_notice"]="Draft saved; it has not been posted to Discord."
+            elif action=="giveaway_create":
+                raise ValueError("Use Save draft and publish from the saved draft preview.")
             else:
                 raw_mid=request.form.get("message_id","0")
                 if not raw_mid.isdigit(): raise ValueError("Invalid giveaway message ID.")
@@ -1799,6 +1841,21 @@ def dashboard_action():
                 _run_bot(update_giveaway())
                 _audit(gid,actor,"Dashboard: giveaway edited",f"Message {mid}; prize, duration, entry rules and embed settings updated.")
                 session["dashboard_notice"]="Giveaway updated. Existing entrants were retained; entry rules apply to future entries and final eligibility."
+        elif action=="giveaway_draft_publish":
+            draft_id=request.form.get("draft_id",""); drafts=state.setdefault("giveaway_drafts",{}).setdefault(gid,{})
+            draft=drafts.get(draft_id)
+            if not draft or int(draft.get("guild_id",0))!=gid: raise ValueError("That giveaway draft was not found.")
+            channel=guild.get_channel(int(draft.get("channel_id",0)))
+            if not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Draft channel is unavailable.")
+            mid=_run_bot(state["create_giveaway"](guild_id=gid,channel_id=channel.id,host_id=int(draft.get("host_id",_tokens[sid]["user"]["id"])),prize=draft["prize"],winners=int(draft["winners"]),duration_minutes=int(draft["duration_minutes"]),config=draft.get("config",{})))
+            drafts.pop(draft_id,None); _save(); _audit(gid,actor,"Dashboard: giveaway draft published",f"Draft {draft_id}; message {mid}")
+            session["dashboard_notice"]="Draft published; giveaway is live in Discord."
+        elif action=="giveaway_draft_delete":
+            draft_id=request.form.get("draft_id",""); drafts=state.setdefault("giveaway_drafts",{}).setdefault(gid,{})
+            draft=drafts.get(draft_id)
+            if not draft or int(draft.get("guild_id",0))!=gid: raise ValueError("That giveaway draft was not found.")
+            drafts.pop(draft_id,None); _save(); _audit(gid,actor,"Dashboard: giveaway draft discarded",draft_id)
+            session["dashboard_notice"]="Draft discarded."
         elif action=="giveaway_template_save":
             raw_mid=request.form.get("message_id","0"); name=request.form.get("template_name","").strip()
             if not raw_mid.isdigit() or not name or len(name)>40: raise ValueError("Choose an active giveaway and a template name (1–40 characters).")
@@ -2092,7 +2149,7 @@ def dashboard_action():
             session["dashboard_notice"]=f"{mod_action.title()} action completed for {target}."
         else:
             raise ValueError("Unknown dashboard action.")
-        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","ticket_settings_save":"tickets","ticket_panel_save":"tickets","ticket_panel_update":"tickets","ticket_panel_publish":"tickets","ticket_panel_delete":"tickets","roles_setup_save":"roles_setup","ticket_dashboard_close":"tickets","ticket_dashboard_reopen":"tickets","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
+        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_update":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice"]=str(exc)[:300]
