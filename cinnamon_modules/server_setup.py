@@ -599,19 +599,18 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
     else:
         embed.add_field(name="🩹 Automatic recall", value=f"Setup succeeded; recovery failed ({setup_recall_error}). Run /recall and check Render logs.", inline=False)
     embed.add_field(
-        name="Next steps",
+        name="🩹 Automatic recall (same as /recall)",
         value=(
-            name="🩹 Automatic recall (same as /recall)",
-            value=(
-                f"Scanned **{recovery['channels_scanned']}** channels / **{recovery['messages_scanned']}** messages "
-                f"(**{recovery['embeds_scanned']}** log embeds).\n"
-                f"Warnings: **{recovery['warnings']}** · XP users: **{recovery['xp_users_restored']}** · "
-                f"Economy accounts: **{recovery['economy_accounts']}** · Hangry wins seen: **{recovery['hangry_wins_seen']}**.\n"
-                f"Cinnamon people/mood: **{recovery['cinnamon_people_restored']} / {recovery['cinnamon_mood_restored']}**.\n"
-                f"Snapshot: {recovery['economy_snapshot_detail']}"
-            )[:1024],
-            inline=False,
-        )
+            f"Scanned **{recovery['channels_scanned']}** channels / **{recovery['messages_scanned']}** messages "
+            f"(**{recovery['embeds_scanned']}** log embeds).\\n"
+            f"Warnings: **{recovery['warnings']}** · XP users: **{recovery['xp_users_restored']}** · "
+            f"Economy accounts: **{recovery['economy_accounts']}** · Hangry wins seen: **{recovery['hangry_wins_seen']}**.\\n"
+            f"Cinnamon people/mood: **{recovery['cinnamon_people_restored']} / {recovery['cinnamon_mood_restored']}**.\\n"
+            f"Snapshot: {recovery['economy_snapshot_detail']}"
+        )[:1024],
+        inline=False,
+    )
+    embed.add_field(name="Next steps", value="Run /recall if you need another recovery scan.", inline=False)
     else:
         embed.add_field(
             name="🩹 Automatic recall",
