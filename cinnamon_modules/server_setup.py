@@ -522,6 +522,14 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
         await hg_cog._save()
 
     await bd_save_data()
+    # Setup also runs the same safe recovery path as /recall once channels/routes exist.
+    setup_recall_result = None
+    setup_recall_error = None
+    try:
+        setup_recall_result = await recall_guild_data(guild)
+    except Exception as exc:
+        setup_recall_error = type(exc).__name__
+        log.exception("/setup automatic recall failed in guild %s", guild.id)
     await send_log(guild.id, title="⚙️ Cinnamon setup applied", category="setup",
                    fields=[("Main logs", channels["cinnamon-logs"].mention), ("Economy logs", channels["cinnamon-economy"].mention),
                            ("Hangry logs", channels["cinnamon-hangry"].mention), ("AI channel", channels["cinnamon-ai"].mention)])
@@ -566,6 +574,17 @@ async def setup_cmd(interaction: discord.Interaction, hangry_games_channel: disc
     embed.add_field(name="👋 Welcome", value=channels["cinnamon-welcome"].mention, inline=True)
     embed.add_field(name="🚪 Goodbye", value=channels["cinnamon-goodbye"].mention, inline=True)
     embed.add_field(name="🐱 AI chat", value=channels["cinnamon-ai"].mention, inline=True)
+    if setup_recall_result is not None:
+        recovery = setup_recall_result
+        embed.add_field(name="🩹 Automatic recall", value=(
+            f"Scanned {recovery['channels_scanned']} channels / {recovery['messages_scanned']} messages. "
+            f"XP users: {recovery['xp_users_restored']} · level roles restored/removed: "
+            f"{recovery['level_roles_restored']}/{recovery['level_roles_removed']} · "
+            f"members checked: {recovery['level_members_scanned']} · roles granted: {recovery['level_roles_granted']} · "
+            f"economy accounts: {recovery['economy_accounts']} · warnings: {recovery['warnings']}."
+        )[:1024], inline=False)
+    else:
+        embed.add_field(name="🩹 Automatic recall", value=f"Setup succeeded; recovery failed ({setup_recall_error}). Run /recall and check Render logs.", inline=False)
     embed.add_field(
         name="Next steps",
         value=(
