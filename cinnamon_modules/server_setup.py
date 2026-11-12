@@ -903,6 +903,9 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
         "title_counts": defaultdict(int), "category_counts": defaultdict(int),
         "scan_errors": [], "xp_users_restored": 0,
         "economy_users_from_events": 0,
+        "level_roles_restored": 0, "level_roles_removed": 0,
+        "level_members_scanned": 0, "level_roles_granted": 0,
+        "level_role_sync_errors": [],
     }
     events = []
     for channel_id, labels in channel_map.items():
@@ -936,10 +939,34 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
     # latest absolute log value, never by replaying deltas (which double-count).
     events.sort(key=lambda item: item[0], reverse=True)
     seen_xp, seen_balances, seen_inventory = set(), set(), set()
+    seen_level_role_levels = set()
     economy_keys_before = {uid for gid, uid in economy_balances if gid == guild.id}
     for created_at, channel_id, embed in events:
         fields = {str(f.name).strip(): str(f.value).strip() for f in embed.fields}
         title = (embed.title or "").strip()
+
+        # Level-role configuration events are processed newest-first. Each level's
+        # latest logged action wins, so an old "added" event cannot undo a later removal.
+        if title in {"🎖️ Level role added", "🎖️ Level role removed"}:
+            level_match = re.search(r"\\d+", fields.get("Level", ""))
+            role_text = fields.get("Role", "").strip()
+            role_id_match = re.search(r"(\\d{15,20})", fields.get("Role ID", ""))
+            if not role_id_match and role_text:
+                role_match = next((r for r in guild.roles if r.name == role_text), None)
+                if role_match:
+                    role_id_match = re.match(r"(\\d+)", str(role_match.id))
+            if level_match:
+                lvl = int(level_match.group(0))
+                if 1 <= lvl <= 200 and lvl not in seen_level_role_levels:
+                    seen_level_role_levels.add(lvl)
+                    cfg = level_roles.setdefault(guild.id, {})
+                    is_removed = title.endswith("removed") or fields.get("Action", "").lower() == "removed"
+                    if is_removed:
+                        cfg.pop(lvl, None)
+                        result["level_roles_removed"] += 1
+                    elif role_id_match:
+                        cfg[lvl] = int(role_id_match.group(1))
+                        result["level_roles_restored"] += 1
 
         # XP logs contain absolute XP after each award, making safe recovery possible.
         if title == "📈 XP changed":
@@ -1017,6 +1044,32 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
     snapshot_detail = "No economy snapshot restored."
     if economy_log_channels.get(guild.id) or category_log_channels.get(guild.id, {}).get("economy") or log_channels.get(guild.id):
         economy_restored, snapshot_detail = await economy_restore_from_snapshot(guild, merge_only=True)
+    # Re-apply earned level roles after reconstructing the latest role mapping.
+    role_cfg = level_roles.get(guild.id, {})
+    if role_cfg:
+        members = list(guild.members)
+        try:
+            fetched_ids = {m.id for m in members}
+            async for member in guild.fetch_members(limit=None):
+                if member.id not in fetched_ids:
+                    members.append(member); fetched_ids.add(member.id)
+        except (discord.HTTPException, discord.Forbidden) as exc:
+            scan["level_role_sync_errors"].append(f"Member fetch: {type(exc).__name__}; used cached members")
+        scan["level_members_scanned"] = len(members)
+        for member in members:
+            member_level = level_from_xp(int(xp_data.get((guild.id, member.id), 0) or 0))
+            try:
+                granted = await sync_level_roles(member, member_level)
+                scan["level_roles_granted"] += len(granted)
+            except Exception as exc:
+                scan["level_role_sync_errors"].append(f"Member {member.id}: {type(exc).__name__}")
+        await send_log(guild.id, title="🩹 Level role recovery", category="levels", fields=[
+            ("Role mappings restored", str(scan["level_roles_restored"])),
+            ("Role mappings removed", str(scan["level_roles_removed"])),
+            ("Members checked", str(scan["level_members_scanned"])),
+            ("Roles granted", str(scan["level_roles_granted"])),
+            ("Sync issues", str(len(scan["level_role_sync_errors"]))),
+        ])
     await bd_save_data()
     scan.update({
         "warnings": warnings_restored,
