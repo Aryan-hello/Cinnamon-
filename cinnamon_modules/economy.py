@@ -1136,7 +1136,7 @@ async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: s
         return
     ECONOMY_ITEMS[item_id] = {"name": name[:80], "price": int(price), "emoji": emoji[:8], "description": (description or "No description provided.")[:300], "max_per_person": int(per_person_limit or 0)}
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="🛒 Shop item added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{emoji} {name}"), ("ID", item_id), ("Price", f"{price:,} Catnip"), ("Per-person limit", per_person_limit or "Unlimited")])
+    await economy_log(interaction.guild.id, title="🛒 Shop item added", fields=[("Action","Added"),("Admin", f"{interaction.user} ({interaction.user.id})"),("Item ID",item_id),("Name",name[:80]),("Price",str(int(price))),("Emoji",emoji[:8] or "🐾"),("Description",(description or "No description provided.")[:300]),("Per-person limit",str(int(per_person_limit or 0))),("Shop enabled","true")])
     await cinnamon_send(interaction, f"✅ Added **{emoji} {name}** (`{item_id}`) to the shop.", ephemeral=True)
 
 
@@ -1178,7 +1178,7 @@ async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: 
     if per_person_limit is not None: item["max_per_person"] = int(per_person_limit)
     if emoji is not None: item["emoji"] = emoji[:8]
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="✏️ Shop item edited", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Item ID", item_id), ("New name", item["name"]), ("New price", f"{item['price']:,} Catnip"), ("Per-person limit", item.get("max_per_person", 0) or "Unlimited")])
+    await economy_log(interaction.guild.id, title="✏️ Shop item edited", fields=[("Action","Edited"),("Admin", f"{interaction.user} ({interaction.user.id})"),("Item ID",item_id),("Name",item.get("name",item_id)),("Price",str(int(item.get("price",1)))),("Emoji",item.get("emoji","🐾")),("Description",item.get("description","")[:300]),("Per-person limit",str(int(item.get("max_per_person",0)))),("Shop enabled",str(bool(item.get("shop_enabled",True))).lower())])
     await cinnamon_send(interaction, f"✅ Updated **{item['emoji']} {item['name']}** (`{item_id}`).", ephemeral=True)
 
 
@@ -1201,7 +1201,7 @@ async def economy_remove_item_shop_cmd(interaction: discord.Interaction, item_id
                 removed_inventory += int(inv.pop(item_id, 0))
     ECONOMY_ITEMS.pop(item_id, None)
     await bd_save_data()
-    await economy_log(guild_id, title="🗑️ Shop item removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{item['emoji']} {item['name']}"), ("ID", item_id), ("Inventory copies removed", removed_inventory), ("Removed from inventories", remove_from_inventories)])
+    await economy_log(guild_id, title="🗑️ Shop item removed", fields=[("Action","Removed"),("Admin", f"{interaction.user} ({interaction.user.id})"),("Item ID",item_id),("Name",item.get("name",item_id)),("Price",str(int(item.get("price",1)))),("Emoji",item.get("emoji","🐾")),("Description",item.get("description","")[:300]),("Per-person limit",str(int(item.get("max_per_person",0)))),("Inventory copies removed",str(removed_inventory)),("Removed from inventories",str(bool(remove_from_inventories)).lower())])
     await cinnamon_send(interaction, f"🗑️ Removed **{item['name']}** from the shop. " + (f"Also removed **{removed_inventory}** copies from inventories." if remove_from_inventories else "Existing inventory copies were kept."), ephemeral=True)
 
 
