@@ -58,6 +58,8 @@ def xp_allowed_in_channel(guild_id: int, channel_id: int) -> bool:
     return bool(channels) and channel_id in channels
 
 
+level_role_sync_failures = {}
+
 async def sync_level_roles(member: discord.Member, level: int) -> list[str]:
     """Give `member` every level role they've earned but don't have yet. Runs on
     each XP award (not just level-ups), so roles added later still reach people
@@ -77,7 +79,10 @@ async def sync_level_roles(member: discord.Member, level: int) -> list[str]:
         return []
     try:
         await member.add_roles(*to_add, reason=f"Reached level {level}")
-    except discord.HTTPException:
+    except discord.HTTPException as exc:
+        guild_id = member.guild.id
+        level_role_sync_failures[guild_id] = int(level_role_sync_failures.get(guild_id, 0)) + 1
+        log.warning("Could not sync level roles for member %s in guild %s: %s", member.id, guild_id, type(exc).__name__)
         return []
     return [r.name for r in to_add]
 
@@ -403,15 +408,20 @@ async def levelrewards_add(interaction: discord.Interaction, level: app_commands
     level_roles.setdefault(interaction.guild.id,{})[int(level)]=role.id
     await bd_save_data()
     await cinnamon_send(interaction, f"🎖️ **Level {level}** now awards {role.mention}.",allowed_mentions=discord.AllowedMentions.none())
+    await send_log(interaction.guild.id, title="🎖️ Level role added", category="levels", interaction=interaction, fields=[("Action","Added"),("Level",str(level)),("Role",role.name),("Role ID",str(role.id))])
 
 @levelrewards_group.command(name="remove", description="Remove a level role reward")
 @app_commands.describe(level="Level whose reward should be removed")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
 async def levelrewards_remove(interaction: discord.Interaction, level: int):
-    if level_roles.get(interaction.guild.id,{}).pop(int(level),None) is None:
+    cfg=level_roles.get(interaction.guild.id,{})
+    role_id=cfg.pop(int(level),None)
+    if role_id is None:
         return await cinnamon_send(interaction, f"❌ No reward is configured for Level {level}.",ephemeral=True)
+    role=interaction.guild.get_role(int(role_id))
     await bd_save_data(); await cinnamon_send(interaction, f"🧹 Removed the Level {level} role reward. Members keep roles they already earned.",ephemeral=True)
+    await send_log(interaction.guild.id,title="🎖️ Level role removed",category="levels",interaction=interaction,fields=[("Action","Removed"),("Level",str(level)),("Role",role.name if role else "Deleted role"),("Role ID",str(role_id))])
 
 @levelrewards_group.command(name="list", description="List all configured level rewards")
 @app_commands.guild_only()
