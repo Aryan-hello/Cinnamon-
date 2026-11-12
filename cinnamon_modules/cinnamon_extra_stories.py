@@ -86,13 +86,17 @@ class _XSSelect(discord.ui.Select):
   super().__init__(placeholder="Choose a new adventure…",min_values=1,max_values=1,options=[discord.SelectOption(label=s["title"],value=k,description=s["genre"],emoji=s["icon"]) for k,s in _XS_STORIES.items()])
  async def callback(self,i):
   await i.response.defer(ephemeral=True)
-  await _xs_show(i,self.values[0],0,{},False)
+  rec=_xs_record(i.guild.id,i.user.id,self.values[0])
+  if rec.get("complete"): rec.update({"stage":0,"flags":{},"complete":False,"ending":None})
+  stage=min(3,max(0,int(rec.get("stage",0))))
+  await _xs_show(i,self.values[0],stage,dict(rec.get("flags",{})),False)
 class _XSReplay(discord.ui.View):
  def __init__(self,owner,key):
   super().__init__(timeout=240); self.owner=owner; self.key=key
   b=discord.ui.Button(label="Replay this story",style=discord.ButtonStyle.success)
   async def replay(i):
    await i.response.defer(ephemeral=True)
+   rec=_xs_record(i.guild.id,i.user.id,self.key); rec.update({"stage":0,"flags":{},"complete":False,"ending":None})
    await _xs_show(i,self.key,0,{},False)
   b.callback=replay; self.add_item(b)
  async def interaction_check(self,i):
