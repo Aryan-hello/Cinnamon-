@@ -809,6 +809,10 @@ async def economy_snapshot_payload(guild_id: int) -> dict:
         "quests": ECONOMY_QUESTS,
         "level_rewards": ECONOMY_LEVEL_REWARDS,
         "income_roles": economy_income_roles.get(guild_id, {}),
+        "custom_box_rewards": {
+            tier: json.loads(json.dumps(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{guild_id}:{tier}", {"items": [], "materials": []})))
+            for tier in BOX_TIERS
+        },
     }
 
 
@@ -919,7 +923,28 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
             continue
     snapshot_income = latest.get("income_roles")
     if isinstance(snapshot_income, dict):
-        economy_income_roles[guild.id] = {int(r): cfg for r, cfg in snapshot_income.items()}
+        if merge_only:
+            target_income = economy_income_roles.setdefault(guild.id, {})
+            for role_id, cfg in snapshot_income.items():
+                target_income.setdefault(int(role_id), cfg)
+        else:
+            economy_income_roles[guild.id] = {int(r): cfg for r, cfg in snapshot_income.items()}
+    snapshot_custom = latest.get("custom_box_rewards")
+    if isinstance(snapshot_custom, dict):
+        target_custom = ADVANCED_FEATURES.setdefault("custom_box_rewards", {})
+        for tier, pools in snapshot_custom.items():
+            if tier not in BOX_TIERS or not isinstance(pools, dict):
+                continue
+            key = f"{guild.id}:{tier}"
+            clean = {kind: list(dict.fromkeys(str(item) for item in pools.get(kind, []) if str(item) in ECONOMY_ITEMS)) for kind in ("items", "materials")}
+            if merge_only:
+                existing = target_custom.setdefault(key, {"items": [], "materials": []})
+                for kind in ("items", "materials"):
+                    existing.setdefault(kind, [])
+                    for item_id in clean[kind]:
+                        if item_id not in existing[kind]: existing[kind].append(item_id)
+            else:
+                target_custom[key] = clean
     snapshot_items = latest.get("items")
     if isinstance(snapshot_items, dict):
         restored_items = {}
@@ -931,6 +956,7 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
                     "emoji": str(item.get("emoji", "🐾"))[:8],
                     "description": str(item.get("description", ""))[:300],
                     "max_per_person": max(0, int(item.get("max_per_person", 0))),
+                    "shop_enabled": bool(item.get("shop_enabled", True)),
                 }
         if merge_only:
             for item_id, item in restored_items.items():
