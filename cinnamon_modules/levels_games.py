@@ -623,6 +623,8 @@ async def _create_giveaway(*, guild_id: int, channel_id: int, host_id: int, priz
     for key in allowed:
         if key in config:
             gw[key] = config[key]
+    # Explicitly document the ticket policy so dashboards and exports agree.
+    gw["bonus_role_mode"] = "highest_only"
     channel = bot.get_channel(int(channel_id))
     if channel is None or not hasattr(channel, "send"):
         raise ValueError("The giveaway channel is unavailable.")
@@ -659,9 +661,12 @@ async def finish_giveaway(mid: int):
         if not eligible:
             continue
         member_role_ids = {str(role.id) for role in member.roles}
-        extra = sum(max(0, min(20, int(count))) for role_id, count in bonus_roles.items()
-                    if str(role_id) in member_role_ids and str(count).lstrip("-").isdigit())
-        tickets.extend([uid] * (1 + min(extra, 100)))
+        # Bonus entries are highest-role-only: a member receives the largest
+        # matching role bonus, never a sum of bonuses from stacked roles.
+        matching = [max(0, min(20, int(count))) for role_id, count in bonus_roles.items()
+                    if str(role_id) in member_role_ids and str(count).lstrip("-").isdigit()]
+        extra = max(matching, default=0)
+        tickets.extend([uid] * (1 + extra))
     eligible_ids = sorted(set(tickets))
     winner_ids = []
     while tickets and len(winner_ids) < min(int(gw.get("winners", 1)), len(eligible_ids)):
