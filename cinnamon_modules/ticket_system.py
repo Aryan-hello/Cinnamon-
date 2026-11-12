@@ -155,7 +155,10 @@ async def _ticket_create_channel(interaction,panel,category,answers):
     cooldown=max(0,min(86400,int(settings.get("cooldown_seconds",60)))); last=int(cfg["cooldowns"].get(str(member.id),0))
     if _time.time()-last<cooldown: return await interaction.followup.send(f"Wait {int(cooldown-(_time.time()-last))} seconds before opening another ticket.",ephemeral=True)
     staff=set(map(int,settings.get("staff_role_ids",[]))); route=str(category.get("routing","shop")).lower()
-    if route in {"grow_a_garden","gag","boosting"} or category.get("trusted_booster_routing"): staff.update(map(int,settings.get("trusted_booster_role_ids",[]))); staff.update(map(int,_role_setup(guild.id).get("trusted_booster",[])))
+    answers_text=" ".join(str(a) for _,a in (answers or [])).lower()
+    gag_purchase=any(x in answers_text for x in ("grow a garden","grow-a-garden","gag","garden boosting","garden boost","mutation","pet mutation"))
+    if route in {"grow_a_garden","gag","boosting"} or category.get("trusted_booster_routing") or (route=="shop" and gag_purchase):
+        staff.update(map(int,settings.get("trusted_booster_role_ids",[]))); staff.update(map(int,_role_setup(guild.id).get("trusted_booster",[])))
     overwrites={guild.default_role:discord.PermissionOverwrite(view_channel=False),member:discord.PermissionOverwrite(view_channel=True,send_messages=True,read_message_history=True,attach_files=True,embed_links=True)}
     for rid in staff:
         role=guild.get_role(rid)
