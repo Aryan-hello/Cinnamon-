@@ -621,10 +621,13 @@ async def _refresh_giveaway_message(message, gw: dict):
 async def _create_giveaway(*, guild_id: int, channel_id: int, host_id: int, prize: str, winners: int,
                            duration_minutes: int, config: dict | None = None) -> int:
     config = dict(config or {})
+    now=time.time()
+    claim_minutes=max(0,min(10080,int(config.get("claim_minutes",0) or 0)))
     gw = {
         "guild_id": int(guild_id), "channel_id": int(channel_id), "host_id": int(host_id),
         "winners": max(1, min(100, int(winners))), "prize": str(prize)[:200],
-        "ends_at": time.time() + max(1, min(525600, int(duration_minutes))) * 60, "entrants": [],
+        "ends_at": now + max(1, min(525600, int(duration_minutes))) * 60, "entrants": [],
+        "claim_minutes":claim_minutes,"claim_deadline":0,"claimed_winners":[],
     }
     allowed = ("bonus_roles", "required_roles", "bypass_roles", "blacklisted_roles", "min_account_age_days",
                "min_server_age_days", "entry_message", "leave_message", "denied_message", "embed_title",
@@ -633,6 +636,8 @@ async def _create_giveaway(*, guild_id: int, channel_id: int, host_id: int, priz
     for key in allowed:
         if key in config:
             gw[key] = config[key]
+    # Explicitly document the ticket policy so dashboards and exports agree.
+    gw["bonus_role_mode"] = "highest_only"
     channel = bot.get_channel(int(channel_id))
     if channel is None or not hasattr(channel, "send"):
         raise ValueError("The giveaway channel is unavailable.")
@@ -646,7 +651,7 @@ async def _create_giveaway(*, guild_id: int, channel_id: int, host_id: int, priz
     return message.id
 
 
-async def finish_giveaway(mid: int):
+async def finish_giveaway(mid: int, *, exclude_winners: bool = False):
     gw = active_giveaways.pop(int(mid), None)
     if gw is None:
         return
@@ -669,9 +674,15 @@ async def finish_giveaway(mid: int):
         if not eligible:
             continue
         member_role_ids = {str(role.id) for role in member.roles}
-        extra = sum(max(0, min(20, int(count))) for role_id, count in bonus_roles.items()
-                    if str(role_id) in member_role_ids and str(count).lstrip("-").isdigit())
-        tickets.extend([uid] * (1 + min(extra, 100)))
+        # Bonus entries are highest-role-only: a member receives the largest
+        # matching role bonus, never a sum of bonuses from stacked roles.
+        matching = [max(0, min(20, int(count))) for role_id, count in bonus_roles.items()
+                    if str(role_id) in member_role_ids and str(count).lstrip("-").isdigit()]
+        extra = max(matching, default=0)
+        tickets.extend([uid] * (1 + extra))
+    if exclude_winners:
+        previous=set(int(x) for x in gw.get("winner_ids",[]) if str(x).isdigit())
+        tickets=[uid for uid in tickets if uid not in previous]
     eligible_ids = sorted(set(tickets))
     winner_ids = []
     while tickets and len(winner_ids) < min(int(gw.get("winners", 1)), len(eligible_ids)):
@@ -687,6 +698,9 @@ async def finish_giveaway(mid: int):
     # Keep a small persistent history so rerolls are possible after the giveaway ends.
     history = globals().setdefault("giveaway_history", {})
     gw["winner_ids"] = winner_ids
+    claim_minutes=max(0,min(10080,int(gw.get("claim_minutes",0) or 0)))
+    gw["claim_deadline"]=time.time()+claim_minutes*60 if winner_ids and claim_minutes else 0
+    gw["claimed_winners"]=[]
     gw["finished_at"] = time.time()
     gw["eligible_entrants"] = eligible_ids
     history[str(mid)] = gw
@@ -695,7 +709,10 @@ async def finish_giveaway(mid: int):
             history.pop(old_id, None)
     await bd_save_data()
     if winner_ids:
-        text = f"🎉 Congrats {' '.join(f'<@{u}>' for u in winner_ids)}! You won **{gw['prize']}**!"
+        claim_note=f" Winners have {claim_minutes} minutes to claim; unclaimed winners will be rerolled automatically." if claim_minutes else ""
+        prize_text = str(gw.get("prize", "Giveaway"))
+        winner_mentions = " ".join(f"<@{u}>" for u in winner_ids)
+        text = f"🎉 Congrats {winner_mentions}! You won **{prize_text}**!{claim_note}"}
     else:
         text = "🐾 No eligible entries this time — no winners selected."
     if message is not None:
@@ -825,11 +842,11 @@ def _giveaway_role_gate(interaction):
 giveaway_group = app_commands.Group(name="giveaway", description="Manage Cinnamon's server giveaways")
 
 
-@giveaway_group.command(name="start", description="Start a configurable giveaway in this channel")
+@giveaway_group.command(name="create", description="Create a configurable giveaway in this channel")
 @app_commands.describe(duration_minutes="Duration in minutes (up to one year)", winners="Number of unique winners", prize="What's being given away")
-@app_commands.check(_giveaway_role_gate)
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
-async def giveaway_start(interaction: discord.Interaction,
+async def giveaway_create(interaction: discord.Interaction,
                          duration_minutes: app_commands.Range[int, 1, 525600],
                          winners: app_commands.Range[int, 1, 100], prize: app_commands.Range[str, 1, 200]):
     try:
@@ -842,6 +859,21 @@ async def giveaway_start(interaction: discord.Interaction,
     await send_log(interaction.guild.id, title="🎉 Giveaway started", interaction=interaction, category="community",
                    fields=[("Message", str(mid)), ("Prize", prize), ("Duration", f"{duration_minutes} minute(s)"), ("Winners", str(winners))])
 
+
+@giveaway_group.command(name="claim", description="Claim your giveaway prize")
+@app_commands.guild_only()
+async def giveaway_claim(interaction: discord.Interaction, message_id: str):
+    if not message_id.isdigit(): return await cinnamon_send(interaction,"Enter the giveaway message ID.",ephemeral=True)
+    gw=globals().setdefault("giveaway_history",{}).get(message_id)
+    if not gw or int(gw.get("guild_id",0))!=interaction.guild.id or not gw.get("claim_deadline"):
+        return await cinnamon_send(interaction,"That giveaway has no active claim window.",ephemeral=True)
+    uid=interaction.user.id
+    if uid not in [int(x) for x in gw.get("winner_ids",[])]: return await cinnamon_send(interaction,"You aren't listed as a winner for that giveaway.",ephemeral=True)
+    if time.time()>float(gw["claim_deadline"]): return await cinnamon_send(interaction,"The claim window has expired.",ephemeral=True)
+    claimed=gw.setdefault("claimed_winners",[])
+    if uid in claimed: return await cinnamon_send(interaction,"Your prize is already marked claimed.",ephemeral=True)
+    claimed.append(uid); await bd_save_data()
+    await cinnamon_send(interaction,"Prize claim recorded. Contact the giveaway host to arrange delivery.",ephemeral=True)
 
 @giveaway_group.command(name="end", description="End an active giveaway and pick winners now")
 @app_commands.describe(message_id="The ID of the giveaway message")
@@ -1172,6 +1204,28 @@ async def check_timers():
         except Exception as e:
             log.error("Recurring giveaway %s failed: %s", sid, e)
         await bd_save_data()
+    # Auto-reroll unclaimed winners after the configured claim deadline.
+    for hmid,hgw in list(globals().setdefault("giveaway_history",{}).items()):
+        deadline=float(hgw.get("claim_deadline",0) or 0)
+        if not deadline or deadline>now or hgw.get("claim_rerolled"): continue
+        guild=bot.get_guild(int(hgw.get("guild_id",0)))
+        channel=bot.get_channel(int(hgw.get("channel_id",0)))
+        if not guild or not channel: continue
+        winners=list(dict.fromkeys(int(x) for x in hgw.get("winner_ids",[]) if str(x).isdigit()))
+        claimed=set(int(x) for x in hgw.get("claimed_winners",[]) if str(x).isdigit())
+        missing=[x for x in winners if x not in claimed]
+        if not missing:
+            hgw["claim_rerolled"]=True; await bd_save_data(); continue
+        try:
+            await channel.send("⏰ Giveaway claim window ended. Automatically rerolling for unclaimed winner(s).")
+            # Restore the giveaway to active transient state, then finish excluding all prior winners.
+            reroll=dict(hgw); reroll["entrants"]=list(hgw.get("eligible_entrants",hgw.get("entrants",[])))
+            reroll["ends_at"]=now; reroll["winner_ids"]=winners; reroll["claim_minutes"]=0
+            active_giveaways[int(hmid)]=reroll
+            await finish_giveaway(int(hmid),exclude_winners=True)
+            hgw["claim_rerolled"]=True; hgw["claim_deadline"]=0; await bd_save_data()
+        except Exception as e:
+            log.error("Automatic giveaway reroll %s failed: %s",hmid,e)
     # Remove timed winner roles and archive winner threads when their timers expire.
     timed_roles = globals().setdefault("giveaway_timed_roles", [])
     for item in list(timed_roles):
