@@ -2016,13 +2016,14 @@ def dashboard_action():
             elif action=="ticket_panel_save":
                 label=request.form.get("category_label","").strip(); button=request.form.get("button_label","").strip(); routing=request.form.get("routing","support").strip()
                 if not label or len(label)>60 or not button or len(button)>80 or routing not in {"support","shop","grow_a_garden"}: raise ValueError("Ticket category/button/routing is invalid.")
-                questions=[]
-                if routing in {"shop","grow_a_garden"}:
-                    defaults=(["What item or service did you purchase?","Order ID or purchase proof (if available)","What issue are you experiencing?"] if routing=="shop" else ["What Grow a Garden service did you purchase?","Order ID or purchase proof (if available)","What do you need help with?"])
-                    questions=[{"label":label,"required":True,"paragraph":True,"max_length":400} for label in defaults]
+                custom_questions=[]
                 for i in range(1,6):
                     q=request.form.get("question"+str(i),"").strip()
-                    if q: questions.append({"label":q,"required":True,"paragraph":True,"max_length":400})
+                    if q: custom_questions.append({"label":q,"required":True,"paragraph":True,"max_length":400})
+                questions=custom_questions
+                if not questions and routing in {"shop","grow_a_garden"}:
+                    defaults=(["What item or service did you purchase?","Order ID or purchase proof (if available)","What issue are you experiencing?"] if routing=="shop" else ["What Grow a Garden service did you purchase?","Order ID or purchase proof (if available)","What do you need help with?"])
+                    questions=[{"label":label,"required":True,"paragraph":True,"max_length":400} for label in defaults]
                 category={"id":secrets.token_hex(4),"label":label,"button_label":button,"emoji":request.form.get("button_emoji","").strip()[:100],"button_style":"primary","routing":routing,"trusted_booster_routing":routing=="grow_a_garden","welcome_message":request.form.get("welcome_message","").strip()[:1500],"questions":questions}
                 panel["categories"]=[category]
             panel.update({"id":panel_id,"name":name,"channel_id":channel.id,"title":title,"description":description,"color":color,"updated_at":int(time.time())})
