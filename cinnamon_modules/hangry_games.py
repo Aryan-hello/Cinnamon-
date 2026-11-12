@@ -586,6 +586,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
     @app_commands.guild_only()
     async def new(self, interaction: discord.Interaction, host: discord.Member = None,
                   catnip_prize: app_commands.Range[int, 0, 200000] = 0):
+        if not _hangry_runner_allowed(interaction): return await cinnamon_send(interaction,"You need a configured Hangry Games Runner role or the existing game-management permission.",ephemeral=True)
         if self._busy(interaction.channel.id):
             return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
         if catnip_prize and not self._budget_limit(interaction.user) and self._budget_limit(interaction.user) is not None:
@@ -604,6 +605,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
     @app_commands.guild_only()
     async def giveaway(self, interaction: discord.Interaction, prize: str = None, host: discord.Member = None,
                         winner_role: discord.Role = None, catnip_prize: app_commands.Range[int, 0, 200000] = 0):
+        if not _hangry_runner_allowed(interaction): return await cinnamon_send(interaction,"You need a configured Hangry Games Runner role or the existing game-management permission.",ephemeral=True)
         if self._busy(interaction.channel.id):
             return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
         if catnip_prize and self._budget_limit(interaction.user) == 0:
@@ -626,6 +628,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
     async def role_cmd(self, interaction: discord.Interaction, role: discord.Role, prize: str = None,
                         host: discord.Member = None, winner_role: discord.Role = None,
                         catnip_prize: app_commands.Range[int, 0, 200000] = 0):
+        if not _hangry_runner_allowed(interaction): return await cinnamon_send(interaction,"You need a configured Hangry Games Runner role or the existing game-management permission.",ephemeral=True)
         if self._busy(interaction.channel.id):
             return await cinnamon_send(interaction, "A game's already running here!", ephemeral=True)
         players = {m.id: m for m in role.members if not m.bot}
@@ -703,6 +706,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
     @app_commands.command(name="cancel", description="Cancel the Hangry Games running in this channel")
     @app_commands.guild_only()
     async def cancel(self, interaction: discord.Interaction):
+        if not _hangry_runner_allowed(interaction): return await cinnamon_send(interaction,"Only a Hangry Games Runner can cancel a game.",ephemeral=True)
         task = self.active.pop(interaction.channel.id, None)
         if task:
             task.cancel()

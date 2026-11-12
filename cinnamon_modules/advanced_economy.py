@@ -124,7 +124,7 @@ def _set_box_count(guild_id,user_id,count,tier="common"):
     else: ADVANCED_FEATURES["mystery_boxes"].pop(key,None)
 
 
-MYSTERY_DROP_TIER_WEIGHTS = {"common": 70, "rare": 22, "epic": 7, "legendary": 0.9, "mythical": 0.1}
+MYSTERY_DROP_TIER_WEIGHTS = {"common": 70, "rare": 20, "epic": 7, "legendary": 2, "mythical": 1}
 MYSTERY_SOURCE_CHANCES = {"work": 0.08, "daily": 0.12, "weekly": 0.18, "message": 0.002, "default": 0.04}
 
 def _roll_box_tier():

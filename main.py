@@ -454,6 +454,7 @@ _CINNAMON_MODULES = (
     "quests.py",
     "achievements.py",
     "hangry_games.py",
+    "ticket_system.py",
     "cinnamon_adventure_art.py",
     "story_delivery.py",  # Shared story helpers must load before story commands.
     "cinnamon_adventure_fishing.py",

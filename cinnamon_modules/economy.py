@@ -6,6 +6,11 @@ Do not run this file directly.
 """
 
 # Defined in this module because command decorators execute before advanced_economy.py loads.
+# Grow a Garden service products: inventory items are consumed by ticket fulfillment.
+GAG_SERVICE_ITEMS = {"gag_nightmare":{"name":"🎃 Nightmare Service","emoji":"🎃","price":1500,"description":"Put Nightmare mutation on your pet.","category":"grow_a_garden","shop_enabled":true,"max_per_person":0,"service_type":"grow_a_garden"},"gag_everchanted":{"name":"🔰 Everchanted Mutation (GAG1)","emoji":"🔰","price":2500,"description":"Get an EVERCHANTED Pet Mutation on one of your pets.","category":"grow_a_garden","shop_enabled":true,"max_per_person":0,"service_type":"grow_a_garden"},"gag_venom":{"name":"🐍 Venom Service","emoji":"🐍","price":2500,"description":"Put Venom mutation on 3 of your COOLDOWN pets. Non-cooldown pets cannot have Venom mutation.","category":"grow_a_garden","shop_enabled":true,"max_per_person":0,"service_type":"grow_a_garden"},"gag_hiero_venom":{"name":"🐍 HIERO VENOM","emoji":"🐍","price":3000,"description":"Get Hiero Venom on 1 of your pets.","category":"grow_a_garden","shop_enabled":true,"max_per_person":0,"service_type":"grow_a_garden"},"gag_haunted":{"name":"💀 HAUNTED","emoji":"💀","price":3500,"description":"Put the HAUNTED mutation on your pet!","category":"grow_a_garden","shop_enabled":true,"max_per_person":0,"service_type":"grow_a_garden"},"gag_age_500":{"name":"🌎 Age 500","emoji":"🌎","price":5000,"description":"Make your pet age 500.","category":"grow_a_garden","shop_enabled":true,"max_per_person":0,"service_type":"grow_a_garden"},"gag_39kg":{"name":"🐘 39kg Boost","emoji":"🐘","price":10000,"description":"Make your pet 39kg.","category":"grow_a_garden","shop_enabled":true,"max_per_person":0,"service_type":"grow_a_garden"},"gag_100_mutations":{"name":"🧬 100+ Mutations","emoji":"🧬","price":20000,"description":"Put 100+ mutations on 1 fruit in your garden.","category":"grow_a_garden","shop_enabled":true,"max_per_person":0,"service_type":"grow_a_garden"},"gag_ember":{"name":"❤️‍🔥 Ember Service","emoji":"❤️‍🔥","price":20000,"description":"Put the Ember mutation on your pet.","category":"grow_a_garden","shop_enabled":true,"max_per_person":0,"service_type":"grow_a_garden"}}
+for _gag_id, _gag_item in GAG_SERVICE_ITEMS.items():
+    ECONOMY_ITEMS.setdefault(_gag_id, dict(_gag_item))
+
 BOX_TIERS = {
     "common": {"label":"Common", "emoji":"📦", "weight":70, "catnip":(250,900), "items":["treat","tuna","churu","catnip_ball","fish_biscuits"], "materials":["golden_thread","crystal_fishbone"]},
     "rare": {"label":"Rare", "emoji":"🎁", "weight":22, "catnip":(900,2400), "items":["golden_fish","royal_tuna","paw_treasure","golden_bell_collar"], "materials":["moon_fish_scale","star_dust","golden_paw_charm"]},
@@ -184,15 +189,16 @@ _CINNAMON_SHOP_LOCKS = {}  # One purchase at a time per member.
 
 class CinnamonShopView(discord.ui.LayoutView):
     """Components V2 shop: every product has its purchase button attached to it."""
-    def __init__(self, guild_id: int, user_id: int, page: int = 0):
+    def __init__(self, guild_id: int, user_id: int, page: int = 0, section: str = "all"):
         super().__init__(timeout=300)
         self.guild_id = guild_id
         self.user_id = user_id
         self.page = page
+        self.section = section if section in ("all", "grow_a_garden") else "all"
         self._build()
 
     def _build(self):
-        items = [(k, v) for k, v in ECONOMY_ITEMS.items() if v.get("shop_enabled", True)]
+        items = [(k, v) for k, v in ECONOMY_ITEMS.items() if v.get("shop_enabled", True) and ((self.section == "all" and v.get("category") != "grow_a_garden") or (self.section == "grow_a_garden" and v.get("category") == "grow_a_garden"))]
         per_page = 5
         total_pages = max(1, (len(items) + per_page - 1) // per_page)
         self.page = max(0, min(self.page, total_pages - 1))
@@ -202,6 +208,7 @@ class CinnamonShopView(discord.ui.LayoutView):
         container = discord.ui.Container(accent_color=CINNAMON_ORANGE)
         container.add_item(discord.ui.TextDisplay(
             f"# 🛒 Cinnamon's Shop\n"
+            f"**Section: {'🌱 Grow a Garden Services' if self.section == 'grow_a_garden' else '🛍️ General Shop'}**\n"
             f"Spend your Catnip wisely. Each button buys **1 item**.\n\n"
             f"🌿 **{balance:,} Catnip**  •  📦 **{len(items)} items**  •  **Page {self.page + 1}/{total_pages}**"
         ))
@@ -210,13 +217,7 @@ class CinnamonShopView(discord.ui.LayoutView):
         if not visible:
             container.add_item(discord.ui.TextDisplay("The shop is empty right now. Ask an administrator to add some items."))
         else:
-            previous_category = None
             for item_id, item in visible:
-                category = item.get("category")
-                if category == "grow_a_garden" and previous_category != category:
-                    container.add_item(discord.ui.TextDisplay("## 🌱 Grow a Garden Services"))
-                    container.add_item(discord.ui.TextDisplay("Pet boosts & mutation services"))
-                previous_category = category
                 limit = int(item.get("max_per_person", 0))
                 owned = int(economy_inventory_for(self.guild_id, self.user_id).get(item_id, 0))
                 limit_text = f"Limit: {limit}" if limit else "No limit"
@@ -240,6 +241,9 @@ class CinnamonShopView(discord.ui.LayoutView):
                 container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
 
         nav = discord.ui.ActionRow()
+        section_button = discord.ui.Button(label="🌱 GAG Services" if self.section == "all" else "🛍️ General Shop", style=discord.ButtonStyle.success, custom_id=f"cinnamon_v2_shop_section_{self.section}")
+        section_button.callback = self._section_callback
+        nav.add_item(section_button)
         previous = discord.ui.Button(label="Previous", emoji="◀️", style=discord.ButtonStyle.secondary, disabled=self.page <= 0, custom_id=f"cinnamon_v2_shop_prev_{self.page}")
         next_button = discord.ui.Button(label="Next", emoji="▶️", style=discord.ButtonStyle.primary, disabled=self.page >= total_pages - 1, custom_id=f"cinnamon_v2_shop_next_{self.page}")
         inventory = discord.ui.Button(label="Inventory", emoji="🎒", style=discord.ButtonStyle.secondary, custom_id=f"cinnamon_v2_shop_inventory_{self.page}")
@@ -291,7 +295,7 @@ class CinnamonShopView(discord.ui.LayoutView):
                 inv[item_id] = current_qty + 1
                 await bd_save_data()
 
-            fresh = CinnamonShopView(guild_id, user_id, self.page)
+            fresh = CinnamonShopView(guild_id, user_id, self.page, self.section)
             await interaction.edit_original_response(view=fresh)
             await interaction.followup.send(
                 f"Purchased **1 × {cinnamon_ui_literal(data.get('name', item_id), 90)}** "
@@ -312,14 +316,19 @@ class CinnamonShopView(discord.ui.LayoutView):
             except Exception:
                 log.exception("Optional shop purchase activity could not be posted")
         return callback
+    async def _section_callback(self, interaction: discord.Interaction):
+        if not await self._guard(interaction): return
+        target = "grow_a_garden" if self.section == "all" else "all"
+        await interaction.response.edit_message(view=CinnamonShopView(self.guild_id, self.user_id, 0, target))
+
     async def _previous_callback(self, interaction: discord.Interaction):
         if not await self._guard(interaction): return
-        fresh = CinnamonShopView(self.guild_id, self.user_id, self.page - 1)
+        fresh = CinnamonShopView(self.guild_id, self.user_id, self.page - 1, self.section)
         await interaction.response.edit_message(view=fresh)
 
     async def _next_callback(self, interaction: discord.Interaction):
         if not await self._guard(interaction): return
-        fresh = CinnamonShopView(self.guild_id, self.user_id, self.page + 1)
+        fresh = CinnamonShopView(self.guild_id, self.user_id, self.page + 1, self.section)
         await interaction.response.edit_message(view=fresh)
 
     async def _inventory_callback(self, interaction: discord.Interaction):

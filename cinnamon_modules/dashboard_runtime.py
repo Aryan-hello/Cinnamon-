@@ -273,6 +273,10 @@ def dashboard_state_provider() -> dict:
         "wlf_fish": _WLF_FISH,
         "cm_tier": _cm_tier,
         "cp_favourites": _cp_favourites,
+        "ticket_panel_view": globals().get("TicketPanelView"),
+        "ticket_control_view": globals().get("TicketControls"),
+        "ticket_transcript": globals().get("_ticket_transcript"),
+        "ticket_role_has": globals().get("cinnamon_role_has"),
     }
 
 

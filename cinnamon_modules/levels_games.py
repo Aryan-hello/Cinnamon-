@@ -799,12 +799,25 @@ def _validate_giveaway_config(guild, *, bonus_roles="", required_roles="", bypas
             "reaction_entries":bool(reaction_entries)}
 
 
+def _giveaway_role_gate(interaction):
+    """Use Roles Setup when configured; retain Administrator fallback otherwise."""
+    guild=getattr(interaction,"guild",None); user=getattr(interaction,"user",None)
+    if not guild or not user: return False
+    setup=globals().get("_role_setup"); checker=globals().get("cinnamon_role_has")
+    configured=[]
+    if callable(setup):
+        try: configured=setup(guild.id).get("giveaway_creator",[])
+        except Exception: configured=[]
+    if configured and callable(checker): return bool(checker(user,"giveaway_creator"))
+    return bool(getattr(getattr(user,"guild_permissions",None),"administrator",False))
+
+
 giveaway_group = app_commands.Group(name="giveaway", description="Manage Cinnamon's server giveaways")
 
 
 @giveaway_group.command(name="start", description="Start a configurable giveaway in this channel")
 @app_commands.describe(duration_minutes="Duration in minutes (up to one year)", winners="Number of unique winners", prize="What's being given away")
-@app_commands.checks.has_permissions(administrator=True)
+@app_commands.check(_giveaway_role_gate)
 @app_commands.guild_only()
 async def giveaway_start(interaction: discord.Interaction,
                          duration_minutes: app_commands.Range[int, 1, 525600],

@@ -23,6 +23,9 @@ def slash_leaf(name, description, *, parent=None):
 
 
 class LiveDirectoryTests(unittest.TestCase):
+    def read(self, relative_path):
+        return (ROOT / relative_path).read_text(encoding="utf-8")
+
     def test_slash_ping_and_botstatus_exist_in_registry_source(self):
         src = self.read("cinnamon_modules/server_setup.py")
         self.assertIn("async def ping(interaction: discord.Interaction):", src)
