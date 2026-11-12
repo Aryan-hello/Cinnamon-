@@ -91,6 +91,33 @@ class TicketPanelView(discord.ui.View):
         if cat.get("questions"): return await interaction.response.send_modal(TicketQuestionModal(self.gid,self.panel_id,cid,interaction.user.id,cat["questions"]))
         await interaction.response.defer(ephemeral=True,thinking=True); await _ticket_create_channel(interaction,panel,cat,[])
 
+class GAGServiceCompletionView(discord.ui.View):
+    def __init__(self,ticket_id):
+        super().__init__(timeout=None); self.ticket_id=str(ticket_id)
+        b=discord.ui.Button(label="Service Completed",emoji="✅",style=discord.ButtonStyle.success,custom_id=f"ticket:gagcomplete:{self.ticket_id}")
+        b.callback=self._complete; self.add_item(b)
+    async def _complete(self,interaction):
+        ticket=next((t for g in _ticket_root().values() for t in (g.get("tickets",{}) or {}).values() if str(t.get("ticket_id"))==self.ticket_id),None)
+        if not ticket or str(ticket.get("routing"))!="grow_a_garden": return await interaction.response.send_message("GAG service ticket not found.",ephemeral=True)
+        uid=int(ticket.get("creator_id",0)); booster=int(ticket.get("claimed_by") or 0)
+        if interaction.user.id==uid: who="member"
+        elif interaction.user.id==booster: who="booster"
+        else: return await interaction.response.send_message("Only this ticket's member and claimed Trusted Booster can confirm.",ephemeral=True)
+        if not ticket.get("service_consumed") or ticket.get("service_paid"): return await interaction.response.send_message("Service is not claimable or was already paid.",ephemeral=True)
+        confirms=ticket.setdefault("service_confirmations",{"member":False,"booster":False})
+        if confirms.get(who): return await interaction.response.send_message("Your confirmation is already recorded.",ephemeral=True)
+        confirms[who]=True
+        if not await bd_save_data(): confirms[who]=False; return await interaction.response.send_message("Could not save confirmation. Try again.",ephemeral=True)
+        if all(confirms.values()):
+            item=ECONOMY_ITEMS.get(str(ticket.get("service_item_id")),{}); price=int(item.get("price",0)); reward=price//2
+            economy_balances[(interaction.guild.id,booster)]=economy_balance(interaction.guild.id,booster)+reward
+            ticket["service_paid"]=True; ticket["service_completed_at"]=_time.time(); ticket["booster_reward"]=reward
+            if not await bd_save_data(): return await interaction.response.send_message("Payment save failed; alert an administrator.",ephemeral=True)
+            await interaction.channel.send(f"🎉 Service completed! Both confirmations received. <@{booster}> earned **{reward:,} Catnip** (50% commission).")
+            await _ticket_log(interaction.guild,"GAG service paid",interaction.user,ticket,f"Reward {reward} Catnip")
+        else: await interaction.channel.send(f"☑️ {who.title()} confirmed service completion. Waiting for the other participant.")
+        await interaction.response.send_message("Confirmation recorded.",ephemeral=True)
+
 class TicketControls(discord.ui.View):
     def __init__(self,ticket_id):
         super().__init__(timeout=None); self.ticket_id=str(ticket_id)
@@ -103,9 +130,22 @@ class TicketControls(discord.ui.View):
         guild=interaction.guild; cfg=_ticket_guild(guild.id); staff=set(map(int,cfg.get("settings",{}).get("staff_role_ids",[])))
         is_staff=interaction.user.guild_permissions.administrator or any(r.id in staff for r in interaction.user.roles) or cinnamon_role_has(interaction.user,"ticket_staff") or cinnamon_role_has(interaction.user,"ticket_admin")
         if action in ("claim","unclaim"):
-            if not is_staff: return await interaction.response.send_message("Only ticket staff can claim tickets.",ephemeral=True)
+            gag= str(ticket.get("routing","")).lower()=="grow_a_garden"
+            trusted=any(r.id in set(map(int,cfg.get("settings",{}).get("trusted_booster_role_ids",[]))) for r in interaction.user.roles) or cinnamon_role_has(interaction.user,"trusted_booster")
+            if not (is_staff or (gag and trusted)): return await interaction.response.send_message("Only authorized ticket staff can claim tickets.",ephemeral=True)
             if action=="claim" and ticket.get("claimed_by") not in (None,interaction.user.id): return await interaction.response.send_message("Already claimed by another staff member.",ephemeral=True)
-            ticket["claimed_by"]=interaction.user.id if action=="claim" else None; await bd_save_data(); await _ticket_log(guild,action,interaction.user,ticket)
+            if action=="claim" and gag:
+                item_id=str(ticket.get("service_item_id","")); inv=economy_inventory_for(guild.id,int(ticket.get("creator_id",0)))
+                if not item_id or int(inv.get(item_id,0))<1: return await interaction.response.send_message("Member does not own the purchased service item. Claim refused.",ephemeral=True)
+                inv[item_id]=int(inv[item_id])-1
+                if inv[item_id]<=0: inv.pop(item_id,None)
+                ticket["service_consumed"]=True; ticket["service_claimed_at"]=_time.time()
+                ticket["service_confirmations"]={"member":False,"booster":False}
+            ticket["claimed_by"]=interaction.user.id if action=="claim" else None
+            if not await bd_save_data(): return await interaction.response.send_message("Could not save ticket transaction; claim cancelled.",ephemeral=True)
+            await _ticket_log(guild,action,interaction.user,ticket)
+            if action=="claim" and gag:
+                await interaction.channel.send(f"✅ {interaction.user.mention} claimed this Grow a Garden service. The member's service item was verified and removed from inventory. The Trusted Booster can now proceed with the service.",view=GAGServiceCompletionView(ticket["ticket_id"]))
             return await interaction.response.send_message("Ticket "+("claimed." if action=="claim" else "unclaimed."),ephemeral=True)
         if action=="close":
             if not is_staff and interaction.user.id!=int(ticket.get("creator_id",0)): return await interaction.response.send_message("Only creator or staff can close.",ephemeral=True)
@@ -188,7 +228,7 @@ async def _ticket_create_channel(interaction,panel,category,answers):
     if not isinstance(parent,discord.CategoryChannel): parent=None
     base=str(category.get("channel_name_format","ticket-{username}"))[:80].replace("{username}",member.name.lower().replace(" ","-")[:20]).replace("{user_id}",str(member.id)); name="".join(c for c in base.lower() if c.isalnum() or c in "-_")[:90] or "ticket"
     channel=await guild.create_text_channel(name,category=parent,overwrites=overwrites,reason=f"Cinnamon ticket opened by {member}")
-    tid=_secrets.token_hex(8); ticket={"ticket_id":tid,"channel_id":channel.id,"creator_id":member.id,"panel_id":str(panel.get("id")),"panel_name":str(panel.get("name","Ticket panel")),"category_id":str(category.get("id")),"category_label":str(category.get("label","Support")),"created_at":_time.time(),"status":"open","claimed_by":None,"assigned_to":None,"priority":"normal","answers":answers,"close_reason":None}
+    tid=_secrets.token_hex(8); ticket={"ticket_id":tid,"channel_id":channel.id,"creator_id":member.id,"panel_id":str(panel.get("id")),"panel_name":str(panel.get("name","Ticket panel")),"category_id":str(category.get("id")),"category_label":str(category.get("label","Support")),"created_at":_time.time(),"status":"open","claimed_by":None,"assigned_to":None,"priority":"normal","answers":answers,"close_reason":None,"routing":str(category.get("routing","support")),"service_item_id":str(category.get("service_item_id",""))}
     cfg["tickets"][str(channel.id)]=ticket; cfg["cooldowns"][str(member.id)]=int(_time.time())
     pings=" ".join(f"<@&{rid}>" for rid in staff if guild.get_role(rid)); e=discord.Embed(title=str(category.get("welcome_title") or f"{category.get('label','Support')} ticket"),description=str(category.get("welcome_message") or "Thanks for opening a ticket. Staff will assist you here."),color=discord.Color.orange())
     e.add_field(name="Ticket creator",value=member.mention,inline=True); e.add_field(name="Category",value=str(category.get("label","Support")),inline=True)
