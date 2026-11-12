@@ -118,6 +118,22 @@ class TicketControls(discord.ui.View):
             await bd_save_data(); await _ticket_log(guild,"reopened",interaction.user,ticket)
             return await interaction.response.send_message("Ticket reopened.",ephemeral=True)
 
+
+class TicketRatingView(discord.ui.View):
+    def __init__(self,ticket_id):
+        super().__init__(timeout=None); self.ticket_id=str(ticket_id)
+        for score in range(1,6):
+            b=discord.ui.Button(label=str(score),emoji="⭐",style=discord.ButtonStyle.secondary,custom_id=f"ticket:rating:{self.ticket_id}:{score}")
+            b.callback=self._rate; self.add_item(b)
+    async def _rate(self,interaction):
+        score=int(interaction.data.get("custom_id","").rsplit(":",1)[-1])
+        ticket=next((t for g in _ticket_root().values() for t in (g.get("tickets",{}) or {}).values() if str(t.get("ticket_id"))==self.ticket_id),None)
+        if not ticket or interaction.user.id!=int(ticket.get("creator_id",0)): return await interaction.response.send_message("Only the ticket creator can rate this support experience.",ephemeral=True)
+        if ticket.get("rating") is not None: return await interaction.response.send_message("You already rated this ticket.",ephemeral=True)
+        ticket["rating"]=score; ticket["rated_at"]=int(_time.time()); await bd_save_data()
+        await _ticket_log(interaction.guild,"rated",interaction.user,ticket,f"{score}/5 stars")
+        await interaction.response.send_message(f"Thanks for rating support {score}/5.",ephemeral=True)
+
 class TicketCloseModal(discord.ui.Modal):
     def __init__(self,ticket_id,actor_id):
         super().__init__(title="Close ticket",timeout=300); self.ticket_id=str(ticket_id); self.actor_id=int(actor_id)
@@ -136,6 +152,9 @@ class TicketCloseModal(discord.ui.Modal):
             logch=guild.get_channel(int(cfg.get("settings",{}).get("log_channel_id") or 0))
             if logch: await logch.send(content=f"Transcript for {channel.mention} · {ticket.get('category_label','Ticket')}",file=discord.File(transcript,filename=f"ticket-{channel.id}.html"))
         cfg.setdefault("closed",{})[str(channel.id)]=dict(ticket); await bd_save_data(); await _ticket_log(guild,"closed",interaction.user,ticket,reason)
+        if creator and cfg.get("settings",{}).get("rating_enabled",True):
+            try: await creator.send("Your Cinnamon ticket was closed. Rate your support experience (1–5):",view=TicketRatingView(self.ticket_id))
+            except discord.HTTPException: pass
         await interaction.followup.send("Ticket closed and transcript logged.",ephemeral=True)
 
 async def _ticket_transcript(channel):
@@ -178,6 +197,7 @@ async def _ticket_create_channel(interaction,panel,category,answers):
     await interaction.followup.send(f"Your ticket is ready: {channel.mention}",ephemeral=True)
 
 async def cinnamon_ticket_restore_views():
+    if not ticket_auto_close_loop.is_running(): ticket_auto_close_loop.start()
     for gid,cfg in _ticket_root().items():
         for pid,panel in (cfg.get("panels",{}) or {}).items():
             if panel.get("published") and panel.get("message_id"): bot.add_view(TicketPanelView(int(gid),pid,panel),message_id=int(panel["message_id"]))
@@ -280,3 +300,33 @@ try:
     bot.tree.add_command(ticket_group)
 except app_commands.CommandAlreadyRegistered:
     pass
+
+@tasks.loop(minutes=15)
+async def ticket_auto_close_loop():
+    now=_time.time()
+    for gid,root_cfg in list(_ticket_root().items()):
+        guild=bot.get_guild(int(gid)); settings=(root_cfg.get("settings",{}) or {}); hours=int(settings.get("auto_close_hours",0) or 0)
+        if not guild or hours<=0: continue
+        for channel_id,ticket in list((root_cfg.get("tickets",{}) or {}).items()):
+            if ticket.get("status")!="open": continue
+            channel=guild.get_channel(int(channel_id))
+            if not channel: continue
+            try:
+                last=None
+                async for message in channel.history(limit=1):
+                    last=message; break
+                last_at=last.created_at.timestamp() if last else float(ticket.get("created_at",now))
+                if now-last_at<hours*3600: continue
+                creator=guild.get_member(int(ticket.get("creator_id",0)))
+                if creator: await channel.set_permissions(creator,view_channel=True,send_messages=False,read_message_history=True)
+                ticket.update({"status":"closed","closed_at":now,"close_reason":"Automatically closed after inactivity"})
+                await channel.send("This ticket was automatically closed due to inactivity.",view=TicketControls(ticket.get("ticket_id")))
+                transcript=await _ticket_transcript(channel); logch=guild.get_channel(int(settings.get("log_channel_id") or 0))
+                if transcript and settings.get("transcript_on_close",True) and logch: await logch.send(content=f"Auto-close transcript for {channel.mention}",file=discord.File(transcript,filename=f"ticket-{channel.id}.html"))
+                root_cfg.setdefault("closed",{})[str(channel.id)]=dict(ticket); await bd_save_data()
+                await _ticket_log(guild,"auto-closed",None,ticket,"Inactive for "+str(hours)+" hours")
+                if creator and settings.get("rating_enabled",True):
+                    try: await creator.send("Your Cinnamon ticket was automatically closed. Rate support (1–5):",view=TicketRatingView(ticket.get("ticket_id")))
+                    except discord.HTTPException: pass
+            except Exception: log.exception("Ticket auto-close failed for channel %s",channel_id)
+
