@@ -835,6 +835,21 @@ async def giveaway_create(interaction: discord.Interaction,
                    fields=[("Message", str(mid)), ("Prize", prize), ("Duration", f"{duration_minutes} minute(s)"), ("Winners", str(winners))])
 
 
+@giveaway_group.command(name="claim", description="Claim your giveaway prize")
+@app_commands.guild_only()
+async def giveaway_claim(interaction: discord.Interaction, message_id: str):
+    if not message_id.isdigit(): return await cinnamon_send(interaction,"Enter the giveaway message ID.",ephemeral=True)
+    gw=globals().setdefault("giveaway_history",{}).get(message_id)
+    if not gw or int(gw.get("guild_id",0))!=interaction.guild.id or not gw.get("claim_deadline"):
+        return await cinnamon_send(interaction,"That giveaway has no active claim window.",ephemeral=True)
+    uid=interaction.user.id
+    if uid not in [int(x) for x in gw.get("winner_ids",[])]: return await cinnamon_send(interaction,"You aren't listed as a winner for that giveaway.",ephemeral=True)
+    if time.time()>float(gw["claim_deadline"]): return await cinnamon_send(interaction,"The claim window has expired.",ephemeral=True)
+    claimed=gw.setdefault("claimed_winners",[])
+    if uid in claimed: return await cinnamon_send(interaction,"Your prize is already marked claimed.",ephemeral=True)
+    claimed.append(uid); await bd_save_data()
+    await cinnamon_send(interaction,"Prize claim recorded. Contact the giveaway host to arrange delivery.",ephemeral=True)
+
 @giveaway_group.command(name="end", description="End an active giveaway and pick winners now")
 @app_commands.describe(message_id="The ID of the giveaway message")
 @app_commands.checks.has_permissions(administrator=True)
