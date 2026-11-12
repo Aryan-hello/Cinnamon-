@@ -81,6 +81,18 @@ class _XSSelect(discord.ui.Select):
  async def callback(self,i):
   await i.response.defer(ephemeral=True)
   await _xs_show(i,self.values[0],0,{},False)
+class _XSReplay(discord.ui.View):
+ def __init__(self,owner,key):
+  super().__init__(timeout=240); self.owner=owner; self.key=key
+  b=discord.ui.Button(label="Replay this story",style=discord.ButtonStyle.success)
+  async def replay(i):
+   await i.response.defer(ephemeral=True)
+   await _xs_show(i,self.key,0,{},False)
+  b.callback=replay; self.add_item(b)
+ async def interaction_check(self,i):
+  if i.user.id!=self.owner: await i.response.send_message("🐾 Only the original hero can replay this run.",ephemeral=True); return False
+  return True
+
 class _XSChoices(discord.ui.View):
  def __init__(self,owner,key,stage,flags,ending=False):
   super().__init__(timeout=240); self.owner=owner; self.key=key; self.stage=stage; self.flags=flags
@@ -183,7 +195,7 @@ async def _xs_show(i,key,stage,flags,ending,outcome=None):
   embed=discord.Embed(title=("🌟 TRUE ENDING" if outcome==0 else "🎭 ALTERNATE ENDING")+" • "+story["title"],description=ending,color=color)
   embed.add_field(name="Run complete",value=f"Choices made: {len(flags.get('choices',[]))}\nEnding: {'TRUE' if outcome==0 else 'ALTERNATE'}",inline=False)
   embed.set_footer(text="Start another adventure with /cinnamon-adventures")
-  await i.edit_original_response(embed=embed,view=None)
+  await i.edit_original_response(embed=embed,view=_XSReplay(i.user.id,key))
 
 @bot.tree.command(name="cinnamon-adventures",description="Play five new branching Cinnamon stories")
 @app_commands.guild_only()
