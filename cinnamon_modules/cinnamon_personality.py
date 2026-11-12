@@ -215,7 +215,7 @@ async def _cp_recover(guild, limit=1200):
     mood_root = advanced_features_data.setdefault("cinnamon_mood_v1", {})
     missing_mood = str(guild.id) not in mood_root
     seen = set()
-    n = restored = mood = 0
+    n = restored = mood = naughty_restored = 0
     try:
         async for msg in channel.history(limit=limit, oldest_first=False):
             for embed in msg.embeds:
@@ -244,11 +244,12 @@ async def _cp_recover(guild, limit=1200):
                     until = float(f.get("Naughty until", "0"))
                     if until > _cp_time.time() and not _cm_member(guild.id, uid).get("naughty_until"):
                         _cm_member(guild.id, uid)["naughty_until"] = until
+                        naughty_restored += 1
                 except (TypeError, ValueError, KeyError, _cp_json.JSONDecodeError):
                     continue
     except (discord.HTTPException, discord.Forbidden):
         log.warning("Cinnamon could not scan stuff logs for guild %s", guild.id)
-    if restored or mood:
+    if restored or mood or naughty_restored:
         await bd_save_data()
     return {"members": restored, "mood": mood, "scanned": n}
 
