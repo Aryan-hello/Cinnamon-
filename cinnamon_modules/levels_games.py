@@ -843,22 +843,67 @@ giveaway_group = app_commands.Group(name="giveaway", description="Manage Cinnamo
 
 
 @giveaway_group.command(name="create", description="Create a configurable giveaway in this channel")
-@app_commands.describe(duration_minutes="Duration in minutes (up to one year)", winners="Number of unique winners", prize="What's being given away")
+@app_commands.describe(
+    duration="Choose a duration preset",
+    custom_minutes="Optional custom duration in minutes (overrides preset)",
+    winners="Number of unique winners",
+    prize="What's being given away",
+    bonus_roles="One per line: ROLE_ID:EXTRA_ENTRIES (example 123:3)",
+    required_roles="Role IDs allowed to enter, comma-separated (optional)",
+    excluded_roles="Role IDs forbidden from entering, comma-separated (optional)",
+    account_age_days="Minimum Discord account age in days (0 disables)",
+    server_age_days="Minimum time in this server in days (0 disables)",
+)
+@app_commands.choices(duration=[
+    app_commands.Choice(name="1 minute", value=1),
+    app_commands.Choice(name="3 minutes", value=3),
+    app_commands.Choice(name="10 minutes", value=10),
+    app_commands.Choice(name="30 minutes", value=30),
+    app_commands.Choice(name="1 hour", value=60),
+    app_commands.Choice(name="3 hours", value=180),
+    app_commands.Choice(name="6 hours", value=360),
+    app_commands.Choice(name="12 hours", value=720),
+    app_commands.Choice(name="1 day", value=1440),
+    app_commands.Choice(name="3 days", value=4320),
+    app_commands.Choice(name="1 week", value=10080),
+    app_commands.Choice(name="1 month (30 days)", value=43200),
+    app_commands.Choice(name="1 year (365 days)", value=525600),
+])
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
-async def giveaway_create(interaction: discord.Interaction,
-                         duration_minutes: app_commands.Range[int, 1, 525600],
-                         winners: app_commands.Range[int, 1, 100], prize: app_commands.Range[str, 1, 200]):
+async def giveaway_create(
+    interaction: discord.Interaction,
+    duration: app_commands.Choice[int],
+    winners: app_commands.Range[int, 1, 100],
+    prize: app_commands.Range[str, 1, 200],
+    custom_minutes: app_commands.Range[int, 1, 525600] | None = None,
+    bonus_roles: str | None = None,
+    required_roles: str | None = None,
+    excluded_roles: str | None = None,
+    account_age_days: app_commands.Range[int, 0, 3650] = 0,
+    server_age_days: app_commands.Range[int, 0, 3650] = 0,
+):
+    duration_minutes = int(custom_minutes or duration.value)
     try:
-        mid=await _create_giveaway(guild_id=interaction.guild.id, channel_id=interaction.channel.id,
-                                   host_id=interaction.user.id, prize=prize, winners=winners,
-                                   duration_minutes=duration_minutes)
+        config = _validate_giveaway_config(
+            interaction.guild, bonus_roles=bonus_roles or "",
+            required_roles=required_roles or "", blacklisted_roles=excluded_roles or "",
+            min_account_age_days=account_age_days, min_server_age_days=server_age_days,
+        )
+        mid = await _create_giveaway(
+            guild_id=interaction.guild.id, channel_id=interaction.channel.id,
+            host_id=interaction.user.id, prize=prize, winners=winners,
+            duration_minutes=duration_minutes, config=config,
+        )
     except (ValueError, discord.HTTPException) as exc:
         return await cinnamon_send(interaction, f"Couldn't start that giveaway: {exc}", ephemeral=True)
-    await cinnamon_send(interaction, f"🎉 Giveaway started! Message ID: `{mid}` • {winners} winner(s) • {duration_minutes} minute(s).")
+    hours, rem = divmod(duration_minutes, 60)
+    days, hours = divmod(hours, 24)
+    duration_text = (f"{days}d " if days else "") + (f"{hours}h " if hours else "") + (f"{rem}m" if rem or not (days or hours) else "")
+    await cinnamon_send(interaction, f"🎉 Giveaway started! Message ID: `{mid}` • {winners} winner(s) • {duration_text.strip()}.")
     await send_log(interaction.guild.id, title="🎉 Giveaway started", interaction=interaction, category="community",
-                   fields=[("Message", str(mid)), ("Prize", prize), ("Duration", f"{duration_minutes} minute(s)"), ("Winners", str(winners))])
-
+                   fields=[("Message", str(mid)), ("Prize", prize), ("Duration", duration_text.strip()), ("Winners", str(winners)),
+                           ("Bonus roles", str(len(config.get("bonus_roles", {})))), ("Required roles", str(len(config.get("required_roles", []))))])
 
 @giveaway_group.command(name="claim", description="Claim your giveaway prize")
 @app_commands.guild_only()
