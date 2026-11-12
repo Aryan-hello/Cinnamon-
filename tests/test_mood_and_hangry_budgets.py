@@ -135,5 +135,68 @@ class HangryGameBudgetTests(unittest.TestCase):
         self.assertEqual(limit(member()), 0)
 
 
+    def test_log_recovery_never_moves_saved_game_counter_backwards(self):
+        import re
+        from collections import defaultdict
+
+        tree = ast.parse((BASE / "hangry_games.py").read_text(encoding="utf-8"))
+        cog_tree = next(n for n in tree.body
+                        if isinstance(n, ast.ClassDef) and n.name == "HangryGamesCog")
+        method = next(n for n in cog_tree.body
+                      if isinstance(n, ast.AsyncFunctionDef) and n.name == "recover_from_log")
+        fake_class = ast.ClassDef(name="FakeCog", bases=[], keywords=[],
+                                  body=[method], decorator_list=[])
+        ast.fix_missing_locations(fake_class)
+
+        class FakeHTTPException(Exception):
+            pass
+
+        class FakeNotFound(FakeHTTPException):
+            pass
+
+        class FakeForbidden(FakeHTTPException):
+            pass
+
+        ns = {
+            "re": re,
+            "defaultdict": defaultdict,
+            "discord": SimpleNamespace(Guild=object, HTTPException=FakeHTTPException,
+                                       NotFound=FakeNotFound, Forbidden=FakeForbidden),
+            "log": SimpleNamespace(warning=lambda *a, **k: None,
+                                   error=lambda *a, **k: None),
+        }
+        exec(compile(ast.Module(body=[fake_class], type_ignores=[]), "hangry", "exec"), ns)
+        cog = ns["FakeCog"]()
+        saved = []
+        async def save():
+            saved.append(True)
+        cog._save = save
+        cog.hg_log_channels = {55: 99}
+        cog.game_counts = {55: 500}
+        cog.win_counts = {}
+
+        class FakeChannel:
+            title = "Hangry Games #499"
+            async def history(self, limit=2000):
+                yield SimpleNamespace(embeds=[SimpleNamespace(title=self.title, fields=[])])
+
+        channel = FakeChannel()
+        cog.bot = SimpleNamespace(get_channel=lambda channel_id: channel)
+        guild = SimpleNamespace(id=55)
+
+        async def check():
+            recovered, wins = await cog.recover_from_log(guild)
+            self.assertEqual((recovered, wins), (500, 0))
+            self.assertEqual(cog.game_counts[55], 500)
+
+            channel.title = "Hangry Games #505"
+            recovered, wins = await cog.recover_from_log(guild)
+            self.assertEqual((recovered, wins), (505, 0))
+            self.assertEqual(cog.game_counts[55], 505)
+            self.assertEqual(len(saved), 2)
+
+        asyncio.run(check())
+
+
 if __name__ == "__main__":
     unittest.main()
