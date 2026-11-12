@@ -1168,6 +1168,9 @@ async def datastatus_recover(interaction: discord.Interaction):
     await interaction.followup.send(
         f"🩹 Recovery scan complete: **{result['embeds_scanned']}** log embeds across **{result['channels_scanned']}** channels.\n"
         f"Warnings: **{result['warnings']}** · XP users restored/updated: **{result['xp_users_restored']}** · "
+        f"Level-role mappings restored/removed: **{result['level_roles_restored']}/{result['level_roles_removed']}** · "
+        f"Members checked: **{result['level_members_scanned']}** · roles granted: **{result['level_roles_granted']}** · "
+        f"Level-role sync issues: **{len(result['level_role_sync_errors'])}** · "
         f"Economy accounts filled: **{result['economy_accounts']}** · Hangry games: **#{result['hangry_game_count']}**, wins: **{result['hangry_wins_seen']}**.\n"
         f"Snapshot: {result['economy_snapshot_detail']}\n"
         "Only data supported by retained logs or snapshots can be recovered; see `/recall` for the full scan report.",
