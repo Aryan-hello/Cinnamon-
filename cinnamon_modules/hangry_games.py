@@ -706,6 +706,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
     @app_commands.command(name="cancel", description="Cancel the Hangry Games running in this channel")
     @app_commands.guild_only()
     async def cancel(self, interaction: discord.Interaction):
+        if not _hangry_runner_allowed(interaction): return await cinnamon_send(interaction,"Only a Hangry Games Runner can cancel a game.",ephemeral=True)
         task = self.active.pop(interaction.channel.id, None)
         if task:
             task.cancel()
