@@ -1950,7 +1950,25 @@ def dashboard_action():
             raw_channel=request.form.get("channel_id","").strip(); channel=guild.get_channel(int(raw_channel)) if raw_channel.isdigit() else None
             if not name or len(name)>60 or not title or len(title)>256 or len(description)>3500 or not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Panel name, title, description or channel is invalid.")
             if not re.fullmatch(r"#[0-9a-fA-F]{6}",color): raise ValueError("Panel color must be a six-digit hex color.")
-            if action=="ticket_panel_save":
+            raw_categories=request.form.get("categories_json","").strip()
+            if raw_categories:
+                try: categories=json.loads(raw_categories)
+                except json.JSONDecodeError: raise ValueError("Categories must be valid JSON.")
+                if not isinstance(categories,list) or not 1<=len(categories)<=25: raise ValueError("Provide 1–25 ticket categories.")
+                clean_categories=[]
+                for item in categories:
+                    if not isinstance(item,dict): raise ValueError("Each category must be a JSON object.")
+                    label=str(item.get("label","")).strip(); button=str(item.get("button_label",label)).strip(); routing=str(item.get("routing","support")).lower()
+                    if not label or len(label)>60 or not button or len(button)>80 or routing not in {"support","shop","grow_a_garden","gag","boosting"}: raise ValueError("Category label, button or routing is invalid.")
+                    questions=item.get("questions",[])
+                    if not isinstance(questions,list) or len(questions)>5: raise ValueError("Each category supports up to five modal questions.")
+                    clean_questions=[]
+                    for q in questions:
+                        if not isinstance(q,dict) or not str(q.get("label","")).strip() or len(str(q.get("label","")))>45: raise ValueError("Question labels must be 1–45 characters.")
+                        clean_questions.append({"label":str(q["label"]).strip(),"required":bool(q.get("required",True)),"paragraph":bool(q.get("paragraph",True)),"max_length":max(1,min(1000,int(q.get("max_length",400)))),"placeholder":str(q.get("placeholder","Your answer"))[:100]})
+                    clean_categories.append({"id":str(item.get("id") or secrets.token_hex(4))[:40],"label":label,"button_label":button,"emoji":str(item.get("emoji",""))[:100],"button_style":str(item.get("button_style","primary")).lower(),"routing":routing,"trusted_booster_routing":bool(item.get("trusted_booster_routing",routing in {"grow_a_garden","gag","boosting"})),"welcome_title":str(item.get("welcome_title",""))[:256],"welcome_message":str(item.get("welcome_message",""))[:1500],"channel_category_id":int(item.get("channel_category_id",0) or 0),"channel_name_format":str(item.get("channel_name_format","ticket-{username}"))[:80],"questions":clean_questions})
+                panel["categories"]=clean_categories
+            elif action=="ticket_panel_save":
                 label=request.form.get("category_label","").strip(); button=request.form.get("button_label","").strip(); routing=request.form.get("routing","support").strip()
                 if not label or len(label)>60 or not button or len(button)>80 or routing not in {"support","shop","grow_a_garden"}: raise ValueError("Ticket category/button/routing is invalid.")
                 questions=[]
