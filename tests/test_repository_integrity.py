@@ -133,5 +133,42 @@ class RepositoryIntegrityTests(unittest.TestCase):
         self.assertEqual(len(setup_logs), 1, "/setup must log completion exactly once")
 
 
+    def test_recovery_scanner_initializes_seen_sets_and_result_fields(self):
+        tree = ast.parse((MODULE_DIR / "server_setup.py").read_text(encoding="utf-8"))
+        scanner = next(node for node in tree.body
+                       if isinstance(node, ast.AsyncFunctionDef)
+                       and node.name == "_scan_recovery_log_channels")
+        assigned_names = {
+            node.id for node in ast.walk(scanner)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+        }
+        loaded_seen_names = {
+            node.id for node in ast.walk(scanner)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            and node.id.startswith("seen_")
+        }
+        self.assertEqual(loaded_seen_names - assigned_names, set(),
+                         "Recovery scanner reads a seen_* variable before defining it")
+
+        result_assignment = next(
+            node for node in ast.walk(scanner)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "result"
+                    for target in node.targets)
+        )
+        result_keys = {
+            key.value for key in result_assignment.value.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        referenced_result_keys = {
+            node.slice.value for node in ast.walk(scanner)
+            if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+            and node.value.id == "result" and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, str)
+        }
+        self.assertLessEqual(referenced_result_keys, result_keys,
+                             "Recovery scanner reads a result field it never initializes")
+
+
 if __name__ == "__main__":
     unittest.main()
