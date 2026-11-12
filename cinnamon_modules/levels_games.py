@@ -688,6 +688,9 @@ async def finish_giveaway(mid: int, *, exclude_winners: bool = False):
     # Keep a small persistent history so rerolls are possible after the giveaway ends.
     history = globals().setdefault("giveaway_history", {})
     gw["winner_ids"] = winner_ids
+    claim_minutes=max(0,min(10080,int(gw.get("claim_minutes",0) or 0)))
+    gw["claim_deadline"]=time.time()+claim_minutes*60 if winner_ids and claim_minutes else 0
+    gw["claimed_winners"]=[]
     gw["finished_at"] = time.time()
     gw["eligible_entrants"] = eligible_ids
     history[str(mid)] = gw
@@ -696,7 +699,8 @@ async def finish_giveaway(mid: int, *, exclude_winners: bool = False):
             history.pop(old_id, None)
     await bd_save_data()
     if winner_ids:
-        text = f"🎉 Congrats {' '.join(f'<@{u}>' for u in winner_ids)}! You won **{gw['prize']}**!"
+        claim_note=f" Winners have {claim_minutes} minutes to claim; unclaimed winners will be rerolled automatically." if claim_minutes else ""
+        text = f"🎉 Congrats {' '.join(f'<@{u}>' for u in winner_ids)}! You won **{gw['prize']}**!"+claim_note
     else:
         text = "🐾 No eligible entries this time — no winners selected."
     if message is not None:
