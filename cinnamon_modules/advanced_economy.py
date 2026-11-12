@@ -506,7 +506,7 @@ async def economy_do_work(guild_id: int, user):
         await achievement_check_all(guild_id, user.id)
     except Exception:
         pass
-    box = await advanced_maybe_award_box(guild_id, user, "work", chance=0.08)
+    box = await advanced_maybe_award_box(guild_id, user, "work", chance=0.12)
     await bd_save_data()
     await economy_log(guild_id, title="💼 Work completed", fields=[("User", f"{user} ({user.id})"), ("Earned", f"+{amount:,} Catnip"), ("Balance", f"{before+amount:,}"), ("Mystery Box", "Yes" if box else "No")])
     message = random.choice(WORK_MESSAGES).format(amount=amount)
