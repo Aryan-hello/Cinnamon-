@@ -848,9 +848,18 @@ giveaway_group = app_commands.Group(name="giveaway", description="Manage Cinnamo
     custom_minutes="Optional custom duration in minutes (overrides preset)",
     winners="Number of unique winners",
     prize="What's being given away",
-    bonus_roles="One per line: ROLE_ID:EXTRA_ENTRIES (example 123:3)",
-    required_roles="Role IDs allowed to enter, comma-separated (optional)",
-    excluded_roles="Role IDs forbidden from entering, comma-separated (optional)",
+    bonus_role_1="Select a role and its extra entries",
+    bonus_entries_1="Extra entries for bonus role 1",
+    bonus_role_2="Select another bonus role",
+    bonus_entries_2="Extra entries for bonus role 2",
+    bonus_role_3="Select another bonus role",
+    bonus_entries_3="Extra entries for bonus role 3",
+    required_role_1="Role required to enter (optional)",
+    required_role_2="Another required role (optional)",
+    required_role_3="Another required role (optional)",
+    excluded_role_1="Role forbidden from entering (optional)",
+    excluded_role_2="Another excluded role (optional)",
+    excluded_role_3="Another excluded role (optional)",
     account_age_days="Minimum Discord account age in days (0 disables)",
     server_age_days="Minimum time in this server in days (0 disables)",
 )
@@ -877,17 +886,33 @@ async def giveaway_create(
     winners: app_commands.Range[int, 1, 100],
     prize: app_commands.Range[str, 1, 200],
     custom_minutes: app_commands.Range[int, 1, 525600] | None = None,
-    bonus_roles: str | None = None,
-    required_roles: str | None = None,
-    excluded_roles: str | None = None,
+    bonus_role_1: discord.Role | None = None,
+    bonus_entries_1: app_commands.Range[int, 1, 20] = 1,
+    bonus_role_2: discord.Role | None = None,
+    bonus_entries_2: app_commands.Range[int, 1, 20] = 1,
+    bonus_role_3: discord.Role | None = None,
+    bonus_entries_3: app_commands.Range[int, 1, 20] = 1,
+    required_role_1: discord.Role | None = None,
+    required_role_2: discord.Role | None = None,
+    required_role_3: discord.Role | None = None,
+    excluded_role_1: discord.Role | None = None,
+    excluded_role_2: discord.Role | None = None,
+    excluded_role_3: discord.Role | None = None,
     account_age_days: app_commands.Range[int, 0, 3650] = 0,
     server_age_days: app_commands.Range[int, 0, 3650] = 0,
 ):
     duration_minutes = int(custom_minutes or duration.value)
     try:
+        bonus_lines = "\\n".join(
+            f"{role.id}:{entries}" for role, entries in (
+                (bonus_role_1, bonus_entries_1), (bonus_role_2, bonus_entries_2), (bonus_role_3, bonus_entries_3)
+            ) if role
+        )
+        required_lines = "\\n".join(str(role.id) for role in (required_role_1, required_role_2, required_role_3) if role)
+        excluded_lines = "\\n".join(str(role.id) for role in (excluded_role_1, excluded_role_2, excluded_role_3) if role)
         config = _validate_giveaway_config(
-            interaction.guild, bonus_roles=bonus_roles or "",
-            required_roles=required_roles or "", blacklisted_roles=excluded_roles or "",
+            interaction.guild, bonus_roles=bonus_lines,
+            required_roles=required_lines, blacklisted_roles=excluded_lines,
             min_account_age_days=account_age_days, min_server_age_days=server_age_days,
         )
         mid = await _create_giveaway(
