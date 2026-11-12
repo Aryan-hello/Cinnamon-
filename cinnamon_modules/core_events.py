@@ -253,6 +253,7 @@ async def on_ready():
             bot.add_view(ReactionRoleView(role_id))
         bot.add_view(GiveawayView())  # persistent: matched by custom_id, state looked up by message ID
         bot.add_view(PollView())
+        await cinnamon_ticket_restore_views()
         if not check_timers.is_running():
             check_timers.start()
         if not check_tempbans.is_running():
