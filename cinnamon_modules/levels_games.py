@@ -638,7 +638,7 @@ async def _create_giveaway(*, guild_id: int, channel_id: int, host_id: int, priz
     return message.id
 
 
-async def finish_giveaway(mid: int):
+async def finish_giveaway(mid: int, *, exclude_winners: bool = False):
     gw = active_giveaways.pop(int(mid), None)
     if gw is None:
         return
@@ -667,6 +667,9 @@ async def finish_giveaway(mid: int):
                     if str(role_id) in member_role_ids and str(count).lstrip("-").isdigit()]
         extra = max(matching, default=0)
         tickets.extend([uid] * (1 + extra))
+    if exclude_winners:
+        previous=set(int(x) for x in gw.get("winner_ids",[]) if str(x).isdigit())
+        tickets=[uid for uid in tickets if uid not in previous]
     eligible_ids = sorted(set(tickets))
     winner_ids = []
     while tickets and len(winner_ids) < min(int(gw.get("winners", 1)), len(eligible_ids)):
