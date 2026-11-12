@@ -712,7 +712,7 @@ async def finish_giveaway(mid: int, *, exclude_winners: bool = False):
         claim_note=f" Winners have {claim_minutes} minutes to claim; unclaimed winners will be rerolled automatically." if claim_minutes else ""
         prize_text = str(gw.get("prize", "Giveaway"))
         winner_mentions = " ".join(f"<@{u}>" for u in winner_ids)
-        text = f"🎉 Congrats {winner_mentions}! You won **{prize_text}**!{claim_note}"}
+        text = f"🎉 Congrats {winner_mentions}! You won **{prize_text}**!{claim_note}"
     else:
         text = "🐾 No eligible entries this time — no winners selected."
     if message is not None:
