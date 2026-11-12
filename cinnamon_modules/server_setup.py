@@ -1069,6 +1069,7 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
     # Re-apply earned level roles after reconstructing the latest role mapping.
     role_cfg = level_roles.get(guild.id, {})
     if role_cfg:
+        sync_failures_before = int(level_role_sync_failures.get(guild.id, 0))
         members = list(guild.members)
         try:
             fetched_ids = {m.id for m in members}
@@ -1085,6 +1086,10 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
                 scan["level_roles_granted"] += len(granted)
             except Exception as exc:
                 scan["level_role_sync_errors"].append(f"Member {member.id}: {type(exc).__name__}")
+        sync_failures_after = int(level_role_sync_failures.get(guild.id, 0))
+        new_role_sync_failures = max(0, sync_failures_after - sync_failures_before)
+        if new_role_sync_failures:
+            scan["level_role_sync_errors"].append(f"{new_role_sync_failures} Discord role assignment failure(s); see Render logs")
         await send_log(guild.id, title="🩹 Level role recovery", category="levels", fields=[
             ("Role mappings restored", str(scan["level_roles_restored"])),
             ("Role mappings removed", str(scan["level_roles_removed"])),
