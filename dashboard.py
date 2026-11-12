@@ -1728,7 +1728,6 @@ def dashboard_action():
                 winner_role_id=request.form.get("winner_role_id",""),
                 winner_role_minutes=request.form.get("winner_role_minutes","0"),
                 winner_thread_minutes=request.form.get("winner_thread_minutes","0"),
-                claim_minutes=request.form.get("claim_minutes","0"),
                 embed_color=request.form.get("embed_color","FEE75C"), entry_emoji=request.form.get("entry_emoji","🎉"),
                 reaction_entries="reaction_entries" in request.form)
             config.update({"claim_minutes":int(request.form.get("claim_minutes","0") or 0),"entry_message":request.form.get("entry_message","")[:300],
