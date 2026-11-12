@@ -948,13 +948,13 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
         # Level-role configuration events are processed newest-first. Each level's
         # latest logged action wins, so an old "added" event cannot undo a later removal.
         if title in {"🎖️ Level role added", "🎖️ Level role removed"}:
-            level_match = re.search(r"\\d+", fields.get("Level", ""))
+            level_match = re.search(r"\d+", fields.get("Level", ""))
             role_text = fields.get("Role", "").strip()
-            role_id_match = re.search(r"(\\d{15,20})", fields.get("Role ID", ""))
+            role_id_match = re.search(r"(\d{15,20})", fields.get("Role ID", ""))
             if not role_id_match and role_text:
                 role_match = next((r for r in guild.roles if r.name == role_text), None)
                 if role_match:
-                    role_id_match = re.match(r"(\\d+)", str(role_match.id))
+                    role_id_match = re.match(r"(\d+)", str(role_match.id))
             if level_match:
                 lvl = int(level_match.group(0))
                 if 1 <= lvl <= 200 and lvl not in seen_level_role_levels:
