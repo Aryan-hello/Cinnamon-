@@ -1241,7 +1241,7 @@ async def economy_add_role_income_cmd(interaction: discord.Interaction, role: di
     cooldown = int(interval) * multipliers[unit.value]
     economy_income_roles.setdefault(interaction.guild.id, {})[role.id] = {"amount": int(amount), "cooldown": cooldown, "interval": int(interval), "unit": unit.value}
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="💰 Role income added/updated", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Role", f"{role} ({role.id})"), ("Income", f"{amount:,} Catnip / {interval} {unit.name.lower()}")])
+    await economy_log(interaction.guild.id, title="💰 Role income added/updated", fields=[("Action","Added/Updated"),("Admin", f"{interaction.user} ({interaction.user.id})"),("Role", role.name),("Role ID",str(role.id)),("Amount",str(int(amount))),("Interval",str(int(interval))),("Unit",unit.value),("Cooldown seconds",str(cooldown)),("Income", f"{amount:,} Catnip / {interval} {unit.name.lower()}")])
     await cinnamon_send(interaction, f"✅ {role.mention} now provides **{amount:,} Catnip every {interval} {unit.name.lower()}** via `/economy collect`.", ephemeral=True)
 
 
@@ -1253,7 +1253,7 @@ async def economy_remove_role_income_cmd(interaction: discord.Interaction, role:
     cfg = economy_income_roles.setdefault(interaction.guild.id, {})
     removed = cfg.pop(role.id, None)
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="🗑️ Role income removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Role", f"{role} ({role.id})"), ("Was configured", bool(removed))])
+    await economy_log(interaction.guild.id, title="🗑️ Role income removed", fields=[("Action","Removed"),("Admin", f"{interaction.user} ({interaction.user.id})"),("Role",role.name),("Role ID",str(role.id)),("Amount",str(int((removed or {}).get("amount",0)))),("Interval",str(int((removed or {}).get("interval",0)))),("Unit",str((removed or {}).get("unit","minute"))),("Cooldown seconds",str(int((removed or {}).get("cooldown",0)))),("Was configured",str(bool(removed)).lower())])
     await cinnamon_send(interaction, f"🗑️ Removed {role.mention} from recurring Catnip income." if removed else f"ℹ️ {role.mention} wasn't configured for income.", ephemeral=True)
 
 
