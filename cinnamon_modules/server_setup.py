@@ -950,7 +950,6 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
     }
     events = []
     for channel_id, labels in channel_map.items():
-    for channel_id, labels in channel_map.items():
         channel = bot.get_channel(channel_id)
         if channel is None:
             try:
