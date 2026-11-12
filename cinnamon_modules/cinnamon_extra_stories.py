@@ -80,7 +80,7 @@ class _XSSelect(discord.ui.Select):
   super().__init__(placeholder="Choose a new adventure…",min_values=1,max_values=1,options=[discord.SelectOption(label=s["title"],value=k,description=s["genre"],emoji=s["icon"]) for k,s in _XS_STORIES.items()])
  async def callback(self,i):
   await i.response.defer(ephemeral=True)
-  _xs_show(i,self.values[0],0,{},False)
+  await _xs_show(i,self.values[0],0,{},False)
 class _XSChoices(discord.ui.View):
  def __init__(self,owner,key,stage,flags,ending=False):
   super().__init__(timeout=240); self.owner=owner; self.key=key; self.stage=stage; self.flags=flags
@@ -97,11 +97,11 @@ class _XSChoices(discord.ui.View):
  def _callback(self,n):
   async def cb(i):
    await i.response.defer(ephemeral=True)
-   f=dict(self.flags); f.setdefault("choices",[]); f["choices"].append(_XS_STORIES[self.key]["scenes"][self.stage][2][n][1]); f["hero",]=True
+   f=dict(self.flags); f.setdefault("choices",[]); f["choices"].append(_XS_STORIES[self.key]["scenes"][self.stage][2][n][1]); f["hero"]=True
    if self.stage==3:
     outcome=_xs_ending(self.key,f)
-    _xs_show(i,self.key,4,f,True,outcome)
-   else: _xs_show(i,self.key,self.stage+1,f,False)
+    await _xs_show(i,self.key,4,f,True,outcome)
+   else: await _xs_show(i,self.key,self.stage+1,f,False)
   return cb
 
 def _xs_ending(key,flags):
@@ -113,7 +113,7 @@ def _xs_ending(key,flags):
  if key=="delivery" and "sincere" in choices: return 0
  return 1 if len(choices)%2 else 2
 
-def _xs_show(i,key,stage,flags,ending,outcome=None):
+async def _xs_show(i,key,stage,flags,ending,outcome=None):
  story=_XS_STORIES[key]; color=_XS_COLOR
  if stage<4:
   title,text,choices=story["scenes"][stage]
@@ -177,13 +177,13 @@ def _xs_show(i,key,stage,flags,ending,outcome=None):
    }.get(last,"Your decision changes the route; the adventure continues.")
   desc=text+"\n\n"+reaction+"\n\n**Your move, Hero.**"
   view=_XSChoices(i.user.id,key,stage,flags)
-  i.followup.send(embed=discord.Embed(title=title,description=desc[:4000],color=color).set_footer(text="Cinnamon Adventures • Choices matter • Progress is per player"),view=view,ephemeral=True)
+  await i.followup.send(embed=discord.Embed(title=title,description=desc[:4000],color=color).set_footer(text="Cinnamon Adventures • Choices matter • Progress is per player"),view=view,ephemeral=True)
  else:
   endings=[story["true"],*story["alt"]]; ending=endings[outcome or 0]
   embed=discord.Embed(title=("🌟 TRUE ENDING" if outcome==0 else "🎭 ALTERNATE ENDING")+" • "+story["title"],description=ending,color=color)
   embed.add_field(name="Run complete",value=f"Choices made: {len(flags.get('choices',[]))}\nEnding: {'TRUE' if outcome==0 else 'ALTERNATE'}",inline=False)
   embed.set_footer(text="Start another adventure with /cinnamon-adventures")
-  i.followup.send(embed=embed,ephemeral=True)
+  await i.followup.send(embed=embed,ephemeral=True)
 
 @bot.tree.command(name="cinnamon-adventures",description="Play five new branching Cinnamon stories")
 @app_commands.guild_only()
