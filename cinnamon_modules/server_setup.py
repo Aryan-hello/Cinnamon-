@@ -1032,6 +1032,69 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
     })
     return scan
 
+# --- Admin member-data backup export ----------------------------------------
+def _mb_guild_map(mapping, guild_id):
+    """Extract guild member records from tuple-keyed or nested maps."""
+    out = {}
+    for key, value in mapping.items():
+        if isinstance(key, tuple) and len(key) >= 2 and int(key[0]) == int(guild_id):
+            out[str(key[1])] = value
+        elif str(key) == str(guild_id) and isinstance(value, dict):
+            users = value.get("users", value)
+            if isinstance(users, dict):
+                out.update({str(uid): item for uid, item in users.items()})
+    return out
+
+def _mb_json_safe(value):
+    if isinstance(value, dict): return {str(k): _mb_json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)): return [_mb_json_safe(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None: return value
+    return str(value)
+
+@bot.tree.command(name="member-backup", description="Export recoverable member data as a JSON file")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(administrator=True)
+async def member_backup_cmd(interaction: discord.Interaction):
+    guild = interaction.guild
+    if guild is None: return await interaction.response.send_message("🐾 Run this inside a server.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    # Server recovery records only; private preferences, reminders, AI chats and tickets are excluded.
+    sources = {
+        "xp": _mb_guild_map(xp_data, guild.id),
+        "catnip": _mb_guild_map(economy_balances, guild.id),
+        "inventory": _mb_guild_map(economy_inventory, guild.id),
+        "achievements": _mb_guild_map(achievement_data, guild.id),
+        "warnings": _mb_guild_map(warnings_data, guild.id),
+    }
+    members = {}
+    for source, records in sources.items():
+        for uid, value in records.items(): members.setdefault(uid, {})[source] = _mb_json_safe(value)
+    qguild = quest_data.get(guild.id, quest_data.get(str(guild.id), {}))
+    if isinstance(qguild, dict) and isinstance(qguild.get("users", {}), dict):
+        for uid, value in qguild.get("users", {}).items(): members.setdefault(str(uid), {})["quests"] = _mb_json_safe(value)
+    social = advanced_features_data.get("cinnamon_social_v1", {}).get(str(guild.id), {})
+    people = social.get("people", {}) if isinstance(social, dict) else {}
+    if isinstance(people, dict):
+        for uid, value in people.items(): members.setdefault(str(uid), {})["cinnamon_social"] = _mb_json_safe(value)
+    names = {str(m.id): str(m) for m in guild.members}
+    for uid, record in members.items(): record["username_at_export"] = names.get(uid, "not currently cached")
+    payload = {
+        "format": "cinnamon-member-backup", "version": 1, "guild_id": guild.id, "guild_name": guild.name,
+        "exported_at_utc": _mb_datetime.datetime.now(_mb_datetime.timezone.utc).isoformat(),
+        "member_records": members, "member_record_count": len(members),
+        "included": list(sources) + ["quests", "cinnamon_social", "username_at_export"],
+        "excluded_private_data": ["member preference memory", "private reminders", "AI conversations", "private correction tickets"],
+        "note": "Only currently stored values are exported; this is not a guaranteed full restore file.",
+    }
+    raw = _mb_json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    stamp = int(_mb_datetime.datetime.now().timestamp())
+    file = discord.File(_mb_io.BytesIO(raw), filename=f"cinnamon-members-{guild.id}-{stamp}.json")
+    try:
+        await interaction.channel.send(content=f"🧾 **Cinnamon member-data backup** — {len(members)} records. Keep this channel private.", file=file, allowed_mentions=discord.AllowedMentions.none())
+        await send_log(guild.id, title="🧾 Member data backup exported", interaction=interaction, category="setup", fields=[("Records", str(len(members))), ("Channel", interaction.channel.mention)])
+        await interaction.followup.send(f"Backup file sent to {interaction.channel.mention}. **{len(members)}** records exported.", ephemeral=True)
+    except discord.HTTPException:
+        await interaction.followup.send("❌ Discord couldn't upload the backup file. Check channel permissions and file-size limits.", ephemeral=True)
 @bot.tree.command(name="recall", description="Scan configured logs and recover reconstructable Cinnamon data")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
