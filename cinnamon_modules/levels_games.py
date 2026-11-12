@@ -58,6 +58,8 @@ def xp_allowed_in_channel(guild_id: int, channel_id: int) -> bool:
     return bool(channels) and channel_id in channels
 
 
+level_role_sync_failures = {}
+
 async def sync_level_roles(member: discord.Member, level: int) -> list[str]:
     """Give `member` every level role they've earned but don't have yet. Runs on
     each XP award (not just level-ups), so roles added later still reach people
@@ -77,7 +79,10 @@ async def sync_level_roles(member: discord.Member, level: int) -> list[str]:
         return []
     try:
         await member.add_roles(*to_add, reason=f"Reached level {level}")
-    except discord.HTTPException:
+    except discord.HTTPException as exc:
+        guild_id = member.guild.id
+        level_role_sync_failures[guild_id] = int(level_role_sync_failures.get(guild_id, 0)) + 1
+        log.warning("Could not sync level roles for member %s in guild %s: %s", member.id, guild_id, type(exc).__name__)
         return []
     return [r.name for r in to_add]
 
