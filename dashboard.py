@@ -1921,7 +1921,7 @@ def dashboard_action():
             log_channel=guild.get_channel(int(raw_log)) if raw_log.isdigit() else None
             parent=guild.get_channel(int(raw_parent)) if raw_parent.isdigit() else None
             if raw_log and not isinstance(log_channel,__import__("discord").TextChannel): raise ValueError("Choose a valid ticket log text channel.")
-            if raw_parent and not isinstance(parent,__import__("discord").CategoryChannel)): raise ValueError("Choose a valid ticket category.")
+            if raw_parent and not isinstance(parent,__import__("discord").CategoryChannel): raise ValueError("Choose a valid ticket category.")
             try: maximum=int(request.form.get("max_open_per_user","3")); cooldown=int(request.form.get("cooldown_seconds","60")); auto_close=int(request.form.get("auto_close_hours","0"))
             except ValueError: raise ValueError("Ticket limits must be whole numbers.")
             if not 1<=maximum<=10 or not 0<=cooldown<=86400 or not 0<=auto_close<=720: raise ValueError("Ticket limits are outside allowed ranges.")
