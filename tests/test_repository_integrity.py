@@ -114,5 +114,24 @@ class RepositoryIntegrityTests(unittest.TestCase):
         self.assertNotIn("weeklyquests", roots)
 
 
+    def test_setup_runs_recovery_and_setup_log_once(self):
+        tree = ast.parse((MODULE_DIR / "server_setup.py").read_text(encoding="utf-8"))
+        setup = next(node for node in tree.body
+                     if isinstance(node, ast.AsyncFunctionDef) and node.name == "setup_cmd")
+        recall_calls = [
+            node for node in ast.walk(setup)
+            if isinstance(node, ast.Call) and attribute_path(node.func) == "recall_guild_data"
+        ]
+        setup_logs = [
+            node for node in ast.walk(setup)
+            if isinstance(node, ast.Call) and attribute_path(node.func) == "send_log"
+            and any(kw.arg == "title" and isinstance(kw.value, ast.Constant)
+                    and kw.value.value == "⚙️ Cinnamon setup applied"
+                    for kw in node.keywords)
+        ]
+        self.assertEqual(len(recall_calls), 1, "/setup must run recovery exactly once")
+        self.assertEqual(len(setup_logs), 1, "/setup must log completion exactly once")
+
+
 if __name__ == "__main__":
     unittest.main()
