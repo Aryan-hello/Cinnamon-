@@ -1185,6 +1185,8 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
     await bd_save_data()
     scan.update({
         "warnings": warnings_restored,
+    })
+    for item_id, event in scan.get("shop_item_events", {}).items():
         if event.get("action") == "removed":
             ECONOMY_ITEMS.pop(item_id, None)
         elif isinstance(event.get("item"), dict):
