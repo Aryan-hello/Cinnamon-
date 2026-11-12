@@ -48,9 +48,17 @@ def economy_key(guild_id: int, user_id: int) -> tuple[int, int]:
 
 
 def economy_balance(guild_id: int, user_id: int) -> int:
+    """Read a wallet without creating phantom accounts during recovery."""
+    key = economy_key(guild_id, user_id)
+    value = economy_balances.get(key)
+    return int(value) if value is not None else int(ECONOMY_STARTING_BALANCE)
+
+
+def economy_ensure_balance(guild_id: int, user_id: int) -> int:
+    """Create a starting wallet only when a real transaction needs one."""
     key = economy_key(guild_id, user_id)
     if key not in economy_balances:
-        economy_balances[key] = ECONOMY_STARTING_BALANCE
+        economy_balances[key] = int(ECONOMY_STARTING_BALANCE)
     return int(economy_balances[key])
 
 
@@ -973,6 +981,10 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
         else:
             ECONOMY_ITEMS.clear()
             ECONOMY_ITEMS.update(restored_items)
+    # Preserve built-in Grow a Garden services when restoring older snapshots.
+    for gag_id, gag_item in GAG_SERVICE_ITEMS.items():
+        ECONOMY_ITEMS.setdefault(gag_id, dict(gag_item))
+
     snapshot_quests = latest.get("quests")
     if isinstance(snapshot_quests, dict):
         valid_quests = {}
