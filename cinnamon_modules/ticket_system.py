@@ -87,6 +87,7 @@ class TicketPanelView(discord.ui.View):
         cid=interaction.data.get("custom_id","").rsplit(":",1)[-1]; panel=_ticket_guild(self.gid).get("panels",{}).get(self.panel_id,{})
         cat=next((x for x in panel.get("categories",[]) if str(x.get("id"))==cid),None)
         if not cat: return await interaction.response.send_message("Ticket category unavailable.",ephemeral=True)
+        if str(cat.get("routing","")).lower()=="faq": return await interaction.response.send_message(str(cat.get("faq_answer","Please check the server FAQ or contact support."))[:2000],ephemeral=True)
         if cat.get("questions"): return await interaction.response.send_modal(TicketQuestionModal(self.gid,self.panel_id,cid,interaction.user.id,cat["questions"]))
         await interaction.response.defer(ephemeral=True,thinking=True); await _ticket_create_channel(interaction,panel,cat,[])
 
