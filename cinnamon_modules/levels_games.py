@@ -611,10 +611,13 @@ async def _refresh_giveaway_message(message, gw: dict):
 async def _create_giveaway(*, guild_id: int, channel_id: int, host_id: int, prize: str, winners: int,
                            duration_minutes: int, config: dict | None = None) -> int:
     config = dict(config or {})
+    now=time.time()
+    claim_minutes=max(0,min(10080,int(config.get("claim_minutes",0) or 0)))
     gw = {
         "guild_id": int(guild_id), "channel_id": int(channel_id), "host_id": int(host_id),
         "winners": max(1, min(100, int(winners))), "prize": str(prize)[:200],
-        "ends_at": time.time() + max(1, min(525600, int(duration_minutes))) * 60, "entrants": [],
+        "ends_at": now + max(1, min(525600, int(duration_minutes))) * 60, "entrants": [],
+        "claim_minutes":claim_minutes,"claim_deadline":0,"claimed_winners":[],
     }
     allowed = ("bonus_roles", "required_roles", "bypass_roles", "blacklisted_roles", "min_account_age_days",
                "min_server_age_days", "entry_message", "leave_message", "denied_message", "embed_title",
