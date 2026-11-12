@@ -1972,6 +1972,9 @@ def dashboard_action():
                 label=request.form.get("category_label","").strip(); button=request.form.get("button_label","").strip(); routing=request.form.get("routing","support").strip()
                 if not label or len(label)>60 or not button or len(button)>80 or routing not in {"support","shop","grow_a_garden"}: raise ValueError("Ticket category/button/routing is invalid.")
                 questions=[]
+                if routing in {"shop","grow_a_garden"}:
+                    defaults=(["What item or service did you purchase?","Order ID or purchase proof (if available)","What issue are you experiencing?"] if routing=="shop" else ["What Grow a Garden service did you purchase?","Order ID or purchase proof (if available)","What do you need help with?"])
+                    questions=[{"label":label,"required":True,"paragraph":True,"max_length":400} for label in defaults]
                 for i in range(1,6):
                     q=request.form.get("question"+str(i),"").strip()
                     if q: questions.append({"label":q,"required":True,"paragraph":True,"max_length":400})
