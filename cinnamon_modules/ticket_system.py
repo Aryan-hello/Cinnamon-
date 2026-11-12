@@ -203,6 +203,7 @@ async def cinnamon_ticket_restore_views():
             if panel.get("published") and panel.get("message_id"): bot.add_view(TicketPanelView(int(gid),pid,panel),message_id=int(panel["message_id"]))
         for ticket in (cfg.get("tickets",{}) or {}).values():
             if ticket.get("status") in ("open","closed"): bot.add_view(TicketControls(ticket.get("ticket_id")))
+            if ticket.get("status")=="closed" and ticket.get("rating") is None: bot.add_view(TicketRatingView(ticket.get("ticket_id")))
 
 
 def _ticket_staff(interaction):
