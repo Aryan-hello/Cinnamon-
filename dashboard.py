@@ -806,7 +806,7 @@ def _giveaways(guild,state):
     "<div class='field full'><label>Embed description (optional)</label><textarea name='embed_description' maxlength='3500' placeholder='Additional details for your giveaway'></textarea></div>"
     "<div class='field'><label>Entry confirmation</label><input name='entry_message' maxlength='300' value='🎉 You are entered! Tap again to leave.'></div><div class='field'><label>Leave confirmation</label><input name='leave_message' maxlength='300' value='You left the giveaway.'></div>"
     "<div class='field full'><label>Eligibility-denied message</label><input name='denied_message' maxlength='300' value='You do not meet this giveaway\'s entry requirements.'></div></div>")
-    create_card="<article class='card full'><h2>Create giveaway</h2>"+_form(gid,"giveaway_create",create,"Start giveaway")+"<p class='muted'>Features include eligibility rules, bypass/blacklisted roles, bonus entries, custom embeds and messages, timed winner roles, winner threads, reusable templates, recurring schedules, and rerolls.</p></article>"
+    create_card="<article class='card full'><h2>Build giveaway (save draft first)</h2>"+_form(gid,"giveaway_draft_save",create,"Save draft")+"<p class='muted'>Features include eligibility rules, bypass/blacklisted roles, bonus entries, custom embeds and messages, timed winner roles, winner threads, reusable templates, recurring schedules, and rerolls.</p></article>"
     schedules=state.get("giveaway_schedules",{}) or {}; schedule_rows=[]
     for sid,cfg in schedules.items():
         if int(cfg.get("guild_id",0))!=gid: continue
@@ -1424,7 +1424,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -1679,7 +1679,7 @@ def dashboard_action():
             if not role_id.isdigit() or cfg.pop(int(role_id),None) is None: raise ValueError("That role income rule no longer exists.")
             _save(); _audit(gid,actor,"Dashboard: role income removed",f"Role ID {role_id}.")
             session["dashboard_notice"]="Role income rule removed."
-        elif action in {"giveaway_create","giveaway_edit"}:
+        elif action in {"giveaway_create","giveaway_edit","giveaway_draft_save"}:
             prize=request.form.get("prize","").strip()
             try: winners=int(request.form.get("winners","1")); duration=int(request.form.get("duration_minutes","60"))
             except ValueError: raise ValueError("Winner count and duration must be whole numbers.")
@@ -1703,13 +1703,16 @@ def dashboard_action():
                 "denied_message":request.form.get("denied_message","")[:300],
                 "embed_title":request.form.get("embed_title","")[:256],
                 "embed_description":request.form.get("embed_description","")[:3500]})
-            if action=="giveaway_create":
+            if action=="giveaway_draft_save":
                 channel_id=request.form.get("channel_id","").strip(); channel=guild.get_channel(int(channel_id)) if channel_id.isdigit() else None
                 if not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Choose a valid text channel in this server.")
-                mid=_run_bot(state["create_giveaway"](guild_id=gid,channel_id=channel.id,
-                    host_id=int(_tokens[sid]["user"]["id"]),prize=prize,winners=winners,duration_minutes=duration,config=config))
-                _audit(gid,actor,"Dashboard: giveaway created",f"Message {mid}; prize {prize}; {winners} winner(s); {duration} minutes; eligibility rules configured.")
-                session["dashboard_notice"]="Giveaway created in Discord with the selected entry rules."
+                drafts=state.setdefault("giveaway_drafts",{}).setdefault(gid,{})
+                draft_id=secrets.token_urlsafe(8)
+                drafts[draft_id]={"guild_id":gid,"channel_id":channel.id,"host_id":int(_tokens[sid]["user"]["id"]),"prize":prize,"winners":winners,"duration_minutes":duration,"config":config,"created_at":time.time()}
+                _save(); _audit(gid,actor,"Dashboard: giveaway draft saved",f"Draft {draft_id}; prize {prize}; {winners} winner(s); {duration} minutes.")
+                session["dashboard_notice"]="Draft saved; it has not been posted to Discord."
+            elif action=="giveaway_create":
+                raise ValueError("Use Save draft and publish from the saved draft preview.")
             else:
                 raw_mid=request.form.get("message_id","0")
                 if not raw_mid.isdigit(): raise ValueError("Invalid giveaway message ID.")
@@ -1725,6 +1728,21 @@ def dashboard_action():
                 _run_bot(update_giveaway())
                 _audit(gid,actor,"Dashboard: giveaway edited",f"Message {mid}; prize, duration, entry rules and embed settings updated.")
                 session["dashboard_notice"]="Giveaway updated. Existing entrants were retained; entry rules apply to future entries and final eligibility."
+        elif action=="giveaway_draft_publish":
+            draft_id=request.form.get("draft_id",""); drafts=state.setdefault("giveaway_drafts",{}).setdefault(gid,{})
+            draft=drafts.get(draft_id)
+            if not draft or int(draft.get("guild_id",0))!=gid: raise ValueError("That giveaway draft was not found.")
+            channel=guild.get_channel(int(draft.get("channel_id",0)))
+            if not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Draft channel is unavailable.")
+            mid=_run_bot(state["create_giveaway"](guild_id=gid,channel_id=channel.id,host_id=int(draft.get("host_id",_tokens[sid]["user"]["id"])),prize=draft["prize"],winners=int(draft["winners"]),duration_minutes=int(draft["duration_minutes"]),config=draft.get("config",{})))
+            drafts.pop(draft_id,None); _save(); _audit(gid,actor,"Dashboard: giveaway draft published",f"Draft {draft_id}; message {mid}")
+            session["dashboard_notice"]="Draft published; giveaway is live in Discord."
+        elif action=="giveaway_draft_delete":
+            draft_id=request.form.get("draft_id",""); drafts=state.setdefault("giveaway_drafts",{}).setdefault(gid,{})
+            draft=drafts.get(draft_id)
+            if not draft or int(draft.get("guild_id",0))!=gid: raise ValueError("That giveaway draft was not found.")
+            drafts.pop(draft_id,None); _save(); _audit(gid,actor,"Dashboard: giveaway draft discarded",draft_id)
+            session["dashboard_notice"]="Draft discarded."
         elif action=="giveaway_template_save":
             raw_mid=request.form.get("message_id","0"); name=request.form.get("template_name","").strip()
             if not raw_mid.isdigit() or not name or len(name)>40: raise ValueError("Choose an active giveaway and a template name (1–40 characters).")
