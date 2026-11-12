@@ -177,13 +177,13 @@ async def _xs_show(i,key,stage,flags,ending,outcome=None):
    }.get(last,"Your decision changes the route; the adventure continues.")
   desc=text+"\n\n"+reaction+"\n\n**Your move, Hero.**"
   view=_XSChoices(i.user.id,key,stage,flags)
-  await i.followup.send(embed=discord.Embed(title=title,description=desc[:4000],color=color).set_footer(text="Cinnamon Adventures • Choices matter • Progress is per player"),view=view,ephemeral=True)
+  await i.edit_original_response(embed=discord.Embed(title=title,description=desc[:4000],color=color).set_footer(text="Cinnamon Adventures • Choices matter • Progress is per player"),view=view)
  else:
   endings=[story["true"],*story["alt"]]; ending=endings[outcome or 0]
   embed=discord.Embed(title=("🌟 TRUE ENDING" if outcome==0 else "🎭 ALTERNATE ENDING")+" • "+story["title"],description=ending,color=color)
   embed.add_field(name="Run complete",value=f"Choices made: {len(flags.get('choices',[]))}\nEnding: {'TRUE' if outcome==0 else 'ALTERNATE'}",inline=False)
   embed.set_footer(text="Start another adventure with /cinnamon-adventures")
-  await i.followup.send(embed=embed,ephemeral=True)
+  await i.edit_original_response(embed=embed,view=None)
 
 @bot.tree.command(name="cinnamon-adventures",description="Play five new branching Cinnamon stories")
 @app_commands.guild_only()
