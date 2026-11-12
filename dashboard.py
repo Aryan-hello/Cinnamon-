@@ -780,6 +780,7 @@ def _giveaways(guild,state):
         f"<div class='field'><label>Winner role (optional)</label>{_role_select(guild,'winner_role_id',gw.get('winner_role_id'),True)}</div>"
         f"<div class='field'><label>Remove winner role after (minutes, 0 = keep)</label><input name='winner_role_minutes' type='number' min='0' max='525600' value='{int(gw.get('winner_role_minutes',0) or 0)}'></div>"
         f"<div class='field'><label>Winner thread auto-close (minutes, 0 = off)</label><input name='winner_thread_minutes' type='number' min='0' max='10080' value='{int(gw.get('winner_thread_minutes',0) or 0)}'></div>"
+        f"<div class='field'><label>Claim deadline (minutes, 0 = off)</label><input name='claim_minutes' type='number' min='0' max='10080' value='{int(gw.get('claim_minutes',0) or 0)}'></div>"
         f"<div class='field'><label>Embed colour (hex)</label><input name='embed_color' maxlength='7' value='{_esc(str(gw.get('embed_color','FEE75C')).lstrip('#'))}'></div>"
         f"<div class='field'><label>Embed title (optional)</label><input name='embed_title' maxlength='256' value='{_esc(gw.get('embed_title',''))}'></div>"
         f"<div class='field full'><label>Embed description (optional)</label><textarea name='embed_description' maxlength='3500'>{_esc(gw.get('embed_description',''))}</textarea></div>"
