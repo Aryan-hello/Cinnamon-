@@ -325,21 +325,18 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
             log.warning(f"Failed to post Hangry Games log: {e}")
 
     async def recover_from_log(self, guild: discord.Guild, limit: int = 2000) -> tuple[int, int]:
-        """Rebuild this guild's game count and win totals from its Hangry Games
-        log channel's message history — used when the persisted store comes back
-        empty for a guild that has a log channel configured. Best-effort, bounded
-        by `limit` messages and Discord's own retention. Returns
-        (reconstructed_game_count, wins_reconstructed)."""
+        """Merge the highest logged game number and recover any missing win totals."""
+        saved_game_num = max(0, int(self.game_counts.get(guild.id, 0) or 0))
         channel_id = self.hg_log_channels.get(guild.id)
         if channel_id is None:
-            return (0, 0)
+            return (saved_game_num, 0)
         channel = self.bot.get_channel(channel_id)
         if channel is None:
             try:
                 channel = await self.bot.fetch_channel(channel_id)
             except (discord.HTTPException, discord.NotFound, discord.Forbidden) as exc:
                 log.warning(f"Cannot access Hangry Games log channel {channel_id} for recovery: {type(exc).__name__}")
-                return (0, 0)
+                return (saved_game_num, 0)
 
         max_game_num = 0
         wins: list[int] = []  # winner_id per win found
@@ -361,10 +358,11 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
                             wins.append(int(wm.group(1)))
         except discord.HTTPException as e:
             log.error(f"Failed to scan Hangry Games log channel for recovery in guild {guild.id}: {e}")
-            return (0, 0)
+            return (saved_game_num, 0)
 
-        if max_game_num:
-            self.game_counts[guild.id] = max_game_num
+        recovered_game_num = max(saved_game_num, max_game_num)
+        if recovered_game_num > saved_game_num:
+            self.game_counts[guild.id] = recovered_game_num
         wins_by_member = defaultdict(int)
         for winner_id in wins:
             wins_by_member[winner_id] += 1
@@ -373,7 +371,7 @@ class HangryGamesCog(commands.GroupCog, group_name="hangrygames"):
             self.win_counts[key] = max(self.win_counts.get(key, 0), recovered_total)
         if max_game_num or wins:
             await self._save()
-        return (max_game_num, len(wins))
+        return (recovered_game_num, len(wins))
 
     async def launch(self, channel: discord.abc.Messageable, players: dict[int, discord.Member],
                       host: discord.Member, prize: str | None, winner_role: discord.Role | None = None,
