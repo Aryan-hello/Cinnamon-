@@ -818,6 +818,10 @@ async def economy_snapshot_payload(guild_id: int) -> dict:
         "quests": ECONOMY_QUESTS,
         "level_rewards": ECONOMY_LEVEL_REWARDS,
         "income_roles": economy_income_roles.get(guild_id, {}),
+        "custom_box_rewards": {
+            tier: json.loads(json.dumps(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{guild_id}:{tier}", {"items": [], "materials": []})))
+            for tier in BOX_TIERS
+        },
     }
 
 
@@ -928,7 +932,28 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
             continue
     snapshot_income = latest.get("income_roles")
     if isinstance(snapshot_income, dict):
-        economy_income_roles[guild.id] = {int(r): cfg for r, cfg in snapshot_income.items()}
+        if merge_only:
+            target_income = economy_income_roles.setdefault(guild.id, {})
+            for role_id, cfg in snapshot_income.items():
+                target_income.setdefault(int(role_id), cfg)
+        else:
+            economy_income_roles[guild.id] = {int(r): cfg for r, cfg in snapshot_income.items()}
+    snapshot_custom = latest.get("custom_box_rewards")
+    if isinstance(snapshot_custom, dict):
+        target_custom = ADVANCED_FEATURES.setdefault("custom_box_rewards", {})
+        for tier, pools in snapshot_custom.items():
+            if tier not in BOX_TIERS or not isinstance(pools, dict):
+                continue
+            key = f"{guild.id}:{tier}"
+            clean = {kind: list(dict.fromkeys(str(item) for item in pools.get(kind, []) if str(item) in ECONOMY_ITEMS)) for kind in ("items", "materials")}
+            if merge_only:
+                existing = target_custom.setdefault(key, {"items": [], "materials": []})
+                for kind in ("items", "materials"):
+                    existing.setdefault(kind, [])
+                    for item_id in clean[kind]:
+                        if item_id not in existing[kind]: existing[kind].append(item_id)
+            else:
+                target_custom[key] = clean
     snapshot_items = latest.get("items")
     if isinstance(snapshot_items, dict):
         restored_items = {}
@@ -940,6 +965,7 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
                     "emoji": str(item.get("emoji", "🐾"))[:8],
                     "description": str(item.get("description", ""))[:300],
                     "max_per_person": max(0, int(item.get("max_per_person", 0))),
+                    "shop_enabled": bool(item.get("shop_enabled", True)),
                 }
         if merge_only:
             for item_id, item in restored_items.items():
@@ -1145,7 +1171,7 @@ async def economy_add_item_shop_cmd(interaction: discord.Interaction, item_id: s
         return
     ECONOMY_ITEMS[item_id] = {"name": name[:80], "price": int(price), "emoji": emoji[:8], "description": (description or "No description provided.")[:300], "max_per_person": int(per_person_limit or 0)}
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="🛒 Shop item added", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{emoji} {name}"), ("ID", item_id), ("Price", f"{price:,} Catnip"), ("Per-person limit", per_person_limit or "Unlimited")])
+    await economy_log(interaction.guild.id, title="🛒 Shop item added", fields=[("Action","Added"),("Admin", f"{interaction.user} ({interaction.user.id})"),("Item ID",item_id),("Name",name[:80]),("Price",str(int(price))),("Emoji",emoji[:8] or "🐾"),("Description",(description or "No description provided.")[:300]),("Per-person limit",str(int(per_person_limit or 0))),("Shop enabled","true")])
     await cinnamon_send(interaction, f"✅ Added **{emoji} {name}** (`{item_id}`) to the shop.", ephemeral=True)
 
 
@@ -1187,7 +1213,7 @@ async def economy_edit_shop_item_cmd(interaction: discord.Interaction, item_id: 
     if per_person_limit is not None: item["max_per_person"] = int(per_person_limit)
     if emoji is not None: item["emoji"] = emoji[:8]
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="✏️ Shop item edited", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Item ID", item_id), ("New name", item["name"]), ("New price", f"{item['price']:,} Catnip"), ("Per-person limit", item.get("max_per_person", 0) or "Unlimited")])
+    await economy_log(interaction.guild.id, title="✏️ Shop item edited", fields=[("Action","Edited"),("Admin", f"{interaction.user} ({interaction.user.id})"),("Item ID",item_id),("Name",item.get("name",item_id)),("Price",str(int(item.get("price",1)))),("Emoji",item.get("emoji","🐾")),("Description",item.get("description","")[:300]),("Per-person limit",str(int(item.get("max_per_person",0)))),("Shop enabled",str(bool(item.get("shop_enabled",True))).lower())])
     await cinnamon_send(interaction, f"✅ Updated **{item['emoji']} {item['name']}** (`{item_id}`).", ephemeral=True)
 
 
@@ -1210,7 +1236,7 @@ async def economy_remove_item_shop_cmd(interaction: discord.Interaction, item_id
                 removed_inventory += int(inv.pop(item_id, 0))
     ECONOMY_ITEMS.pop(item_id, None)
     await bd_save_data()
-    await economy_log(guild_id, title="🗑️ Shop item removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{item['emoji']} {item['name']}"), ("ID", item_id), ("Inventory copies removed", removed_inventory), ("Removed from inventories", remove_from_inventories)])
+    await economy_log(guild_id, title="🗑️ Shop item removed", fields=[("Action","Removed"),("Admin", f"{interaction.user} ({interaction.user.id})"),("Item ID",item_id),("Name",item.get("name",item_id)),("Price",str(int(item.get("price",1)))),("Emoji",item.get("emoji","🐾")),("Description",item.get("description","")[:300]),("Per-person limit",str(int(item.get("max_per_person",0)))),("Inventory copies removed",str(removed_inventory)),("Removed from inventories",str(bool(remove_from_inventories)).lower())])
     await cinnamon_send(interaction, f"🗑️ Removed **{item['name']}** from the shop. " + (f"Also removed **{removed_inventory}** copies from inventories." if remove_from_inventories else "Existing inventory copies were kept."), ephemeral=True)
 
 
@@ -1224,7 +1250,7 @@ async def economy_add_role_income_cmd(interaction: discord.Interaction, role: di
     cooldown = int(interval) * multipliers[unit.value]
     economy_income_roles.setdefault(interaction.guild.id, {})[role.id] = {"amount": int(amount), "cooldown": cooldown, "interval": int(interval), "unit": unit.value}
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="💰 Role income added/updated", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Role", f"{role} ({role.id})"), ("Income", f"{amount:,} Catnip / {interval} {unit.name.lower()}")])
+    await economy_log(interaction.guild.id, title="💰 Role income added/updated", fields=[("Action","Added/Updated"),("Admin", f"{interaction.user} ({interaction.user.id})"),("Role", role.name),("Role ID",str(role.id)),("Amount",str(int(amount))),("Interval",str(int(interval))),("Unit",unit.value),("Cooldown seconds",str(cooldown)),("Income", f"{amount:,} Catnip / {interval} {unit.name.lower()}")])
     await cinnamon_send(interaction, f"✅ {role.mention} now provides **{amount:,} Catnip every {interval} {unit.name.lower()}** via `/economy collect`.", ephemeral=True)
 
 
@@ -1236,7 +1262,7 @@ async def economy_remove_role_income_cmd(interaction: discord.Interaction, role:
     cfg = economy_income_roles.setdefault(interaction.guild.id, {})
     removed = cfg.pop(role.id, None)
     await bd_save_data()
-    await economy_log(interaction.guild.id, title="🗑️ Role income removed", fields=[("Admin", f"{interaction.user} ({interaction.user.id})"), ("Role", f"{role} ({role.id})"), ("Was configured", bool(removed))])
+    await economy_log(interaction.guild.id, title="🗑️ Role income removed", fields=[("Action","Removed"),("Admin", f"{interaction.user} ({interaction.user.id})"),("Role",role.name),("Role ID",str(role.id)),("Amount",str(int((removed or {}).get("amount",0)))),("Interval",str(int((removed or {}).get("interval",0)))),("Unit",str((removed or {}).get("unit","minute"))),("Cooldown seconds",str(int((removed or {}).get("cooldown",0)))),("Was configured",str(bool(removed)).lower())])
     await cinnamon_send(interaction, f"🗑️ Removed {role.mention} from recurring Catnip income." if removed else f"ℹ️ {role.mention} wasn't configured for income.", ephemeral=True)
 
 

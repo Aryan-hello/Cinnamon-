@@ -936,6 +936,7 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
         "title_counts": defaultdict(int), "category_counts": defaultdict(int),
         "scan_errors": [], "xp_users_restored": 0,
         "economy_users_from_events": 0,
+        "shop_item_events": {}, "income_role_events": {}, "box_reward_events": {},
     }
     events = []
     for channel_id, labels in channel_map.items():
@@ -969,6 +970,7 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
     # latest absolute log value, never by replaying deltas (which double-count).
     events.sort(key=lambda item: item[0], reverse=True)
     seen_xp, seen_balances, seen_inventory = set(), set(), set()
+    seen_shop_items, seen_income_roles, seen_box_rewards = set(), set(), set()
     economy_keys_before = {uid for gid, uid in economy_balances if gid == guild.id}
     for created_at, channel_id, embed in events:
         fields = {str(f.name).strip(): str(f.value).strip() for f in embed.fields}
@@ -988,6 +990,68 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
                     if xp_after > old:
                         xp_data[key] = xp_after
                         result["xp_users_restored"] += 1
+        # Reconstruct the shop catalog from newest-first complete configuration events.
+        if title in {"🛒 Shop item added", "✏️ Shop item edited", "🗑️ Shop item removed"}:
+            item_id = fields.get("Item ID", fields.get("ID", "")).strip().lower()
+            if item_id and item_id not in seen_shop_items:
+                seen_shop_items.add(item_id)
+                removed = title == "🗑️ Shop item removed" or fields.get("Action", "").lower() == "removed"
+                if removed:
+                    result["shop_item_events"][item_id] = {"action":"removed"}
+                else:
+                    try:
+                        price = max(1, int(fields.get("Price", "1").replace(",", "").split()[0]))
+                        limit = max(0, int(fields.get("Per-person limit", "0").replace(",", "").split()[0]))
+                    except (TypeError, ValueError, IndexError):
+                        price, limit = 1, 0
+                    item = {
+                        "name": fields.get("Name", item_id)[:80],
+                        "price": price,
+                        "emoji": fields.get("Emoji", "🐾")[:8] or "🐾",
+                        "description": fields.get("Description", "")[:300],
+                        "max_per_person": limit,
+                        "shop_enabled": fields.get("Shop enabled", "true").lower() != "false",
+                    }
+                    result["shop_item_events"][item_id] = {"action":"upsert","item":item}
+
+        # Role-income logs are absolute configuration events, not Catnip transactions.
+        if title in {"💰 Role income added/updated", "💰 Income role configured", "🗑️ Role income removed"}:
+            role_text = fields.get("Role ID", "") or fields.get("Role", "")
+            role_match = re.search(r"(\d{15,22})", role_text)
+            if role_match:
+                rid = int(role_match.group(1))
+                if rid not in seen_income_roles:
+                    seen_income_roles.add(rid)
+                    if title.endswith("removed") or fields.get("Action", "").lower() == "removed":
+                        result["income_role_events"][rid] = {"action":"removed"}
+                    else:
+                        try:
+                            amount = int(fields.get("Amount", fields.get("Income", "0")).replace(",", "").split()[0])
+                            cooldown = int(fields.get("Cooldown seconds", "0"))
+                            interval = int(fields.get("Interval", "1"))
+                            unit = fields.get("Unit", "minute")
+                            if cooldown <= 0:
+                                income = fields.get("Income", "")
+                                match_income = re.search(r"(\d[\d,]*)\s*Catnip\s*/\s*(\d+)\s*(minute|hour|day|week)", income, re.I)
+                                if match_income:
+                                    amount=int(match_income.group(1).replace(",",""));interval=int(match_income.group(2));unit=match_income.group(3).lower();cooldown=interval*{"minute":60,"hour":3600,"day":86400,"week":604800}[unit]
+                            if amount>0 and cooldown>0:
+                                result["income_role_events"][rid]={"action":"upsert","cfg":{"amount":amount,"cooldown":cooldown,"interval":interval,"unit":unit}}
+                        except (ValueError, TypeError, IndexError):
+                            pass
+
+        # Mystery Box custom pool additions are restored by tier and pool.
+        if title == "🎁 Mystery Box reward pool updated":
+            tier = fields.get("Tier", "").strip().lower()
+            pool = fields.get("Pool", "").strip().lower()
+            item_text = fields.get("Item", "")
+            item_match = re.search(r"\(([^()]+)\)\s*$", item_text)
+            if tier and pool in {"items","materials"} and item_match:
+                key=(tier,pool,item_match.group(1).strip())
+                if key not in seen_box_rewards:
+                    seen_box_rewards.add(key)
+                    result["box_reward_events"][key]=True
+
         # Economy quest/achievement recovery intentionally removed.
 
         # Rebuild missing balances only from absolute post-transaction values.
@@ -1050,6 +1114,38 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
     snapshot_detail = "No economy snapshot restored."
     if economy_log_channels.get(guild.id) or category_log_channels.get(guild.id, {}).get("economy") or log_channels.get(guild.id):
         economy_restored, snapshot_detail = await economy_restore_from_snapshot(guild, merge_only=True)
+    # Apply newest logged shop and role-income configuration after snapshot merge;
+    # event history therefore wins over an older backup, including explicit removals.
+    for item_id, event in scan.get("shop_item_events", {}).items():
+        if event.get("action") == "removed":
+            ECONOMY_ITEMS.pop(item_id, None)
+        elif isinstance(event.get("item"), dict):
+            ECONOMY_ITEMS[item_id] = dict(event["item"])
+    income_cfg = economy_income_roles.setdefault(guild.id, {})
+    for role_id, event in scan.get("income_role_events", {}).items():
+        if event.get("action") == "removed":
+            income_cfg.pop(int(role_id), None)
+        elif isinstance(event.get("cfg"), dict):
+            income_cfg[int(role_id)] = dict(event["cfg"])
+    custom_rewards = ADVANCED_FEATURES.setdefault("custom_box_rewards", {})
+    for (tier, pool, item_id), _ in scan.get("box_reward_events", {}).items():
+        pool_cfg = custom_rewards.setdefault(f"{guild.id}:{tier}", {"items": [], "materials": []})
+        target = pool_cfg.setdefault(pool, [])
+        if item_id not in target:
+            target.append(item_id)
+    scan["shop_items_restored"] = sum(1 for event in scan.get("shop_item_events", {}).values() if event.get("action") == "upsert")
+    scan["shop_items_removed"] = sum(1 for event in scan.get("shop_item_events", {}).values() if event.get("action") == "removed")
+    scan["income_roles_restored"] = sum(1 for event in scan.get("income_role_events", {}).values() if event.get("action") == "upsert")
+    scan["income_roles_removed"] = sum(1 for event in scan.get("income_role_events", {}).values() if event.get("action") == "removed")
+    scan["custom_box_rewards_restored"] = len(scan.get("box_reward_events", {}))
+    await economy_log(guild.id, title="🩹 Economy configuration recovery", fields=[
+        ("Shop items restored", str(scan["shop_items_restored"])),
+        ("Shop items removed", str(scan["shop_items_removed"])),
+        ("Income roles restored", str(scan["income_roles_restored"])),
+        ("Income roles removed", str(scan["income_roles_removed"])),
+        ("Mystery Box rewards restored", str(scan["custom_box_rewards_restored"])),
+        ("Snapshot", snapshot_detail),
+    ])
     await bd_save_data()
     scan.update({
         "warnings": warnings_restored,
@@ -1142,6 +1238,9 @@ async def recall_cmd(interaction: discord.Interaction):
     await send_log(interaction.guild.id, title="🩹 Log recovery completed", interaction=interaction, category="setup",
                    fields=[("Log embeds scanned", str(result["embeds_scanned"])), ("Warnings restored", str(result["warnings"])),
                            ("XP users restored", str(result["xp_users_restored"])), ("Economy accounts restored", str(result["economy_accounts"])),
+                           ("Shop items restored/removed", f"{result.get('shop_items_restored',0)}/{result.get('shop_items_removed',0)}"),
+                           ("Income roles restored/removed", f"{result.get('income_roles_restored',0)}/{result.get('income_roles_removed',0)}"),
+                           ("Mystery Box custom rewards restored", str(result.get('custom_box_rewards_restored',0))),
                            ("Hangry games found", str(result["hangry_game_count"])),
                            ("Cinnamon people restored", str(result["cinnamon_people_restored"])),
                            ("Mood restored", str(result["cinnamon_mood_restored"]))])
@@ -1156,6 +1255,8 @@ async def recall_cmd(interaction: discord.Interaction):
         f"**Data recovered**\n• Warnings reconstructed: **{result['warnings']}**\n"
         f"• XP users restored/updated from absolute XP logs: **{result['xp_users_restored']}**\n"
         f"• Economy accounts filled from events/snapshot: **{result['economy_accounts']}**\n"
+        f"• Shop items restored/removed from logs: **{result.get('shop_items_restored',0)}/{result.get('shop_items_removed',0)}**\n"
+        f"• Income roles restored/removed: **{result.get('income_roles_restored',0)}/{result.get('income_roles_removed',0)}** · custom Mystery Box rewards restored: **{result.get('custom_box_rewards_restored',0)}**\n"
         f"• Economy snapshot: {result['economy_snapshot_detail']}\n"
         f"• Hangry game counter: **#{result['hangry_game_count']}**; wins found: **{result['hangry_wins_seen']}**\n"
         f"• Cinnamon Stuff: **{result['cinnamon_people_restored']}** people and **{result['cinnamon_mood_restored']}** mood snapshots restored from **{result['cinnamon_snapshots_scanned']}** records\n\n"

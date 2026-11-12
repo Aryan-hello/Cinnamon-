@@ -1718,14 +1718,18 @@ def dashboard_action():
             if action=="economy_item_save" and item_id not in items: raise ValueError("That shop item no longer exists.")
             name=request.form.get("name","").strip(); price=int(request.form.get("price","0")); limit=int(request.form.get("max_per_person","0"))
             if not name or len(name)>80 or not 1<=price<=10000000 or not 0<=limit<=999999: raise ValueError("Check item name, price (1–10,000,000) and limit (0–999,999).")
-            items[item_id]={"name":name,"price":price,"emoji":request.form.get("emoji","🐾")[:8] or "🐾","description":request.form.get("description","")[:300],"max_per_person":limit}
+            items[item_id]={"name":name,"price":price,"emoji":request.form.get("emoji","🐾")[:8] or "🐾","description":request.form.get("description","")[:300],"max_per_person":limit,"shop_enabled":True}
             _save(); _audit(gid,actor,"Dashboard: shop item saved",f"{item_id}: {name}, {price} Catnip")
+            send_log=state.get("send_log")
+            if callable(send_log): _run_bot(send_log(gid,title="🛒 Shop item added" if action=="economy_item_add" else "✏️ Shop item edited",category="economy",fields=[("Action","Added" if action=="economy_item_add" else "Edited"),("Admin",str(actor)),("Item ID",item_id),("Name",name),("Price",str(price)),("Emoji",items[item_id]["emoji"]),("Description",items[item_id]["description"]),("Per-person limit",str(limit)),("Shop enabled","true"),("Catalog scope","Global shared shop")]))
             session["dashboard_notice"]="Shop item saved."
         elif action=="economy_item_remove":
             item_id=request.form.get("item_id","").strip()
             if item_id not in state["ECONOMY_ITEMS"]: raise ValueError("That shop item no longer exists.")
-            state["ECONOMY_ITEMS"].pop(item_id)
+            removed_item=state["ECONOMY_ITEMS"].pop(item_id)
             _save(); _audit(gid,actor,"Dashboard: shop item removed",f"Removed catalog item {item_id}; existing member inventories were preserved.")
+            send_log=state.get("send_log")
+            if callable(send_log): _run_bot(send_log(gid,title="🗑️ Shop item removed",category="economy",fields=[("Action","Removed"),("Admin",str(actor)),("Item ID",item_id),("Name",removed_item.get("name",item_id)),("Price",str(removed_item.get("price",1))),("Emoji",removed_item.get("emoji","🐾")),("Description",removed_item.get("description","")[:300]),("Per-person limit",str(removed_item.get("max_per_person",0))),("Catalog scope","Global shared shop")]))
             session["dashboard_notice"]="Shop item removed. Existing inventories were preserved."
         elif action=="economy_income_add":
             role_id=request.form.get("role_id","").strip(); role=guild.get_role(int(role_id)) if role_id.isdigit() else None
@@ -1734,13 +1738,20 @@ def dashboard_action():
             unit=request.form.get("unit","minute"); multipliers={"minute":60,"hour":3600,"day":86400,"week":604800}
             if not role or role.is_default() or role.managed: raise ValueError("Choose a valid, assignable server role.")
             if not 1<=amount<=1000000 or not 1<=interval<=1000 or unit not in multipliers: raise ValueError("Use 1–1,000,000 Catnip and an interval from 1–1,000 minutes/hours/days/weeks.")
-            state.setdefault("economy_income_roles",{}).setdefault(gid,{})[role.id]={"amount":amount,"cooldown":interval*multipliers[unit],"interval":interval,"unit":unit}
+            income_cfg={"amount":amount,"cooldown":interval*multipliers[unit],"interval":interval,"unit":unit}
+            state.setdefault("economy_income_roles",{}).setdefault(gid,{})[role.id]=income_cfg
             _save(); _audit(gid,actor,"Dashboard: role income saved",f"Role {role.name} ({role.id}); {amount} Catnip every {interval} {unit}(s).")
+            send_log=state.get("send_log")
+            if callable(send_log): _run_bot(send_log(gid,title="💰 Role income added/updated",category="economy",fields=[("Action","Added/Updated"),("Admin",str(actor)),("Role",role.name),("Role ID",str(role.id)),("Amount",str(amount)),("Interval",str(interval)),("Unit",unit),("Cooldown seconds",str(income_cfg["cooldown"]))]))
             session["dashboard_notice"]=f"Role income saved for {role.name}."
         elif action=="economy_income_remove":
             role_id=request.form.get("role_id","").strip(); cfg=state.setdefault("economy_income_roles",{}).setdefault(gid,{})
-            if not role_id.isdigit() or cfg.pop(int(role_id),None) is None: raise ValueError("That role income rule no longer exists.")
+            removed_income=cfg.pop(int(role_id),None) if role_id.isdigit() else None
+            if removed_income is None: raise ValueError("That role income rule no longer exists.")
+            role=guild.get_role(int(role_id))
             _save(); _audit(gid,actor,"Dashboard: role income removed",f"Role ID {role_id}.")
+            send_log=state.get("send_log")
+            if callable(send_log): _run_bot(send_log(gid,title="🗑️ Role income removed",category="economy",fields=[("Action","Removed"),("Admin",str(actor)),("Role",role.name if role else "Deleted role"),("Role ID",role_id),("Amount",str(removed_income.get("amount",0))),("Interval",str(removed_income.get("interval",0))),("Unit",str(removed_income.get("unit","minute"))),("Cooldown seconds",str(removed_income.get("cooldown",0)))]))
             session["dashboard_notice"]="Role income rule removed."
         elif action in {"giveaway_create","giveaway_edit"}:
             prize=request.form.get("prize","").strip()
