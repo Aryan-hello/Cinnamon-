@@ -1008,6 +1008,30 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
     return restored, created
 
 
+async def _ca_admin_catnip_command(interaction: discord.Interaction, member: discord.Member, amount: int, adding: bool):
+    """Apply one explicit Catnip adjustment to the member's single wallet."""
+    guild_id, user_id = interaction.guild.id, member.id
+    amount = int(amount)
+    if amount <= 0:
+        return await cinnamon_send(interaction, "Amount must be greater than zero Catnip.", ephemeral=True)
+    key = economy_key(guild_id, user_id)
+    before = economy_ensure_balance(guild_id, user_id)
+    after = before + amount if adding else max(0, before - amount)
+    applied = after - before
+    economy_balances[key] = after
+    await bd_save_data()
+    action = "added" if adding else "removed"
+    await economy_log(guild_id, title="💰 Admin Catnip adjustment", fields=[
+        ("Admin", f"{interaction.user} ({interaction.user.id})"),
+        ("Member", f"{member} ({user_id})"),
+        ("Action", action.title()), ("Requested", f"{amount:,} Catnip"),
+        ("Applied", f"{applied:+,} Catnip"),
+        ("Balance before", f"{before:,} Catnip"),
+        ("Balance after", f"{after:,} Catnip"),
+    ])
+    await cinnamon_send(interaction, f"✅ {amount:,} Catnip {action} {member.mention}.\nBalance: **{before:,} → {after:,} Catnip**.", ephemeral=True)
+
+
 @economy_admin_group.command(name="addcatnip", description="Admin: add Catnip to a member")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
