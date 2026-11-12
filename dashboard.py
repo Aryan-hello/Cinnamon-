@@ -785,9 +785,10 @@ def _tickets(guild,state):
         if t.get("status")!="open": continue
         ch=guild.get_channel(int(t.get("channel_id",0) or 0))
         channel_name=("#"+ch.name) if ch else ("Unknown channel "+str(t.get("channel_id","")))
-        active_parts.append("<tr><td>"+_esc(channel_name)+"</td><td>"+_esc(t.get("category_label","Support"))+"</td><td>"+_esc(str(t.get("creator_id","")))+"</td><td>"+_esc(t.get("status","open"))+"</td><td>"+_esc(str(t.get("claimed_by") or "Unclaimed"))+"</td></tr>")
-    active_rows="".join(active_parts) or "<tr><td colspan='5'>No active tickets.</td></tr>"
-    active="<article class='card full'><h2>Active tickets ("+str(open_count)+")</h2><div class='tablewrap'><table><thead><tr><th>Channel</th><th>Category</th><th>Creator ID</th><th>Status</th><th>Claimed by</th></tr></thead><tbody>"+active_rows+"</tbody></table></div><p class='muted'>Ticket conversations and staff replies stay inside Discord. Dashboard is for configuration and management.</p></article>"
+        actions="<form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_dashboard_close'><input type='hidden' name='channel_id' value='"+str(t.get("channel_id"))+"'><button class='btn danger small'>Close</button></form>"
+        active_parts.append("<tr><td>"+_esc(channel_name)+"</td><td>"+_esc(t.get("category_label","Support"))+"</td><td>"+_esc(str(t.get("creator_id","")))+"</td><td>"+_esc(t.get("status","open"))+"</td><td>"+_esc(str(t.get("claimed_by") or "Unclaimed"))+"</td><td>"+actions+"</td></tr>")
+    active_rows="".join(active_parts) or "<tr><td colspan='6'>No active tickets.</td></tr>"
+    active="<article class='card full'><h2>Active tickets ("+str(open_count)+")</h2><div class='tablewrap'><table><thead><tr><th>Channel</th><th>Category</th><th>Creator ID</th><th>Status</th><th>Claimed by</th><th>Actions</th></tr></thead><tbody>"+active_rows+"</tbody></table></div><p class='muted'>Ticket conversations and staff replies stay inside Discord. Dashboard is for configuration and management.</p></article>"
     body="<h1>Tickets</h1><p class='muted'>Discord-native private tickets, modal intake, automatic staff routing, transcripts, and durable records.</p><div class='grid'><article class='card third'><div class='statlabel'>Panels</div><div class='stat'>"+str(len(panels))+"</div></article><article class='card third'><div class='statlabel'>Open tickets</div><div class='stat'>"+str(open_count)+"</div></article><article class='card third'><div class='statlabel'>Closed records</div><div class='stat'>"+str(closed_count)+"</div></article>"+settings_card+create_card+panel_card+active+"</div>"
     return body
 
