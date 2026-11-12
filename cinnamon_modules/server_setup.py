@@ -984,7 +984,7 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
         # Role-income logs are absolute configuration events, not Catnip transactions.
         if title in {"💰 Role income added/updated", "💰 Income role configured", "🗑️ Role income removed"}:
             role_text = fields.get("Role ID", "") or fields.get("Role", "")
-            role_match = re.search(r"(\\d{15,22})", role_text)
+            role_match = re.search(r"(\d{15,22})", role_text)
             if role_match:
                 rid = int(role_match.group(1))
                 if rid not in seen_income_roles:
@@ -999,7 +999,7 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
                             unit = fields.get("Unit", "minute")
                             if cooldown <= 0:
                                 income = fields.get("Income", "")
-                                match_income = re.search(r"(\\d[\\d,]*)\\s*Catnip\\s*/\\s*(\\d+)\\s*(minute|hour|day|week)", income, re.I)
+                                match_income = re.search(r"(\d[\d,]*)\s*Catnip\s*/\s*(\d+)\s*(minute|hour|day|week)", income, re.I)
                                 if match_income:
                                     amount=int(match_income.group(1).replace(",",""));interval=int(match_income.group(2));unit=match_income.group(3).lower();cooldown=interval*{"minute":60,"hour":3600,"day":86400,"week":604800}[unit]
                             if amount>0 and cooldown>0:
@@ -1012,7 +1012,7 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
             tier = fields.get("Tier", "").strip().lower()
             pool = fields.get("Pool", "").strip().lower()
             item_text = fields.get("Item", "")
-            item_match = re.search(r"\\(([^()]+)\\)\\s*$", item_text)
+            item_match = re.search(r"\(([^()]+)\)\s*$", item_text)
             if tier and pool in {"items","materials"} and item_match:
                 key=(tier,pool,item_match.group(1).strip())
                 if key not in seen_box_rewards:
