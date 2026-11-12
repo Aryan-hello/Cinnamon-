@@ -195,7 +195,13 @@ async def _ticket_create_channel(interaction,panel,category,answers):
     for q,a in answers[:5]: e.add_field(name=str(q)[:256],value=str(a)[:1024] or "—",inline=False)
     e.add_field(name="Priority",value="Normal",inline=True)
     await channel.send(content=(member.mention+" "+pings).strip(),embed=e,view=TicketControls(tid),allowed_mentions=discord.AllowedMentions(users=[member],roles=[guild.get_role(x) for x in staff if guild.get_role(x)]))
-    await bd_save_data(); await _ticket_log(guild,"opened",member,ticket,"Panel "+str(panel.get("name","")))
+    saved=await bd_save_data()
+    if not saved:
+        cfg["tickets"].pop(str(channel.id),None); cfg["cooldowns"].pop(str(member.id),None)
+        try: await channel.delete(reason="Cinnamon ticket metadata could not be saved durably")
+        except discord.HTTPException: pass
+        return await interaction.followup.send("Ticket storage is unavailable, so Cinnamon could not safely open this ticket. Please try again later.",ephemeral=True)
+    await _ticket_log(guild,"opened",member,ticket,"Panel "+str(panel.get("name","")))
     await interaction.followup.send(f"Your ticket is ready: {channel.mention}",ephemeral=True)
 
 async def cinnamon_ticket_restore_views():
