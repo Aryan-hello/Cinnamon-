@@ -5,6 +5,12 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
+def _hangry_runner_allowed(interaction: discord.Interaction) -> bool:
+    """Allow established game managers to run/cancel Hangry Games."""
+    permissions = interaction.user.guild_permissions
+    return bool(permissions.administrator or permissions.manage_messages or permissions.moderate_members)
+
+
 def _hg_decode(raw: dict) -> dict:
     pair = lambda d: {tuple(map(int, k.split(":"))): v for k, v in d.items()}
     return {
