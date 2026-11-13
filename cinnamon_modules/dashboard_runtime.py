@@ -280,14 +280,6 @@ def dashboard_state_provider() -> dict:
     }
 
 
-try:
-    import dashboard as cinnamon_dashboard
-    cinnamon_dashboard.configure_dashboard(bot, dashboard_state_provider)
-    flask_app.register_blueprint(cinnamon_dashboard.dashboard_bp)
-except Exception as dashboard_error:
-    log.exception("Dashboard could not be initialized (%s)", type(dashboard_error).__name__)
-
-
 @tasks.loop(minutes=5)
 async def periodic_save():
     """XP changes on every eligible message, so we batch-save it (and anything
