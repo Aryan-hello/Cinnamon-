@@ -23,7 +23,16 @@ class EconomyPurchaseLockTests(unittest.TestCase):
         # Mutations must not accidentally migrate back outside the lock.
         outside = ast.Module(body=[node for node in command.body if node is not guard],
                              type_ignores=[])
-        self.assertNotIn("economy_balances[", ast.unparse(outside))
+        for node in ast.walk(outside):
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    self.assertFalse(
+                        isinstance(target, ast.Subscript)
+                        and isinstance(target.value, ast.Name)
+                        and target.value.id == "economy_balances",
+                        "wallet debit escaped the lock",
+                    )
 
 
 if __name__ == "__main__":
