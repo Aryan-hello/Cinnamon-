@@ -488,6 +488,11 @@ async def questshop_cmd(interaction, reward:app_commands.Choice[str]):
         result = await bd_save_data()
         if getattr(result, "status", "committed") not in {"committed", None}:
             return await cinnamon_send(interaction, "⚠️ The reward changed locally, but storage did not confirm the save. Please check /datastatus check before retrying.", ephemeral=True)
+        await send_log(guild_id, title="🎁 Quest Shop redemption", category="quests",
+                       interaction=interaction,
+                       fields=[("Member", f"{interaction.user} ({user_id})"),
+                               ("Reward", r["name"]), ("QP spent", str(r["qp"])),
+                               ("QP remaining", str(u["qp"]))])
         await cinnamon_send(interaction, f"✅ Redeemed **{r['name']}** for **{r['qp']:,} QP**. Remaining: **{u['qp']:,} QP**.")
 
 async def _assign_quest_role(g,u,name):
