@@ -24,6 +24,13 @@ def load_dashboard_functions(*names, **namespace):
     return ns
 
 
+class DashboardRegistrationTests(unittest.TestCase):
+    def test_dashboard_blueprint_is_registered_exactly_once(self):
+        runtime = (ROOT / "cinnamon_modules" / "dashboard_runtime.py").read_text(encoding="utf-8")
+        self.assertEqual(runtime.count("flask_app.register_blueprint("), 1)
+        self.assertEqual(runtime.count("configure_dashboard(bot,"), 1)
+
+
 class DashboardCoroutineTests(unittest.TestCase):
     def setUp(self):
         self.loop = asyncio.new_event_loop()
