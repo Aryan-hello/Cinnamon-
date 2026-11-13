@@ -620,23 +620,28 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
     if data is None:
         await cinnamon_send(interaction, "❌ That item isn't in the shop. Use `/economy shop` to see available items.", ephemeral=True)
         return
-    current_qty = int(economy_inventory_for(guild_id, user_id).get(item_id, 0))
-    max_per_person = int(data.get("max_per_person", 0))
-    if max_per_person and current_qty + quantity > max_per_person:
-        await cinnamon_send(interaction, f"❌ This item has a limit of **{max_per_person}** per person. You already have **{current_qty}**.", ephemeral=True)
-        return
     if quantity < 1 or quantity > 99:
         return await cinnamon_send(interaction, "❌ Quantity must be between 1 and 99.", ephemeral=True)
-    unit_price = _cm_price(guild_id, user_id, item_id, data["price"])
-    cost = unit_price * quantity
-    balance = economy_balance(guild_id, user_id)
-    if balance < cost:
-        await cinnamon_send(interaction, f"❌ You need **{cost:,} Catnip**, but you only have **{balance:,}**.", ephemeral=True)
-        return
-    economy_balances[(guild_id, user_id)] = balance - cost
-    inv = economy_inventory_for(guild_id, user_id)
-    inv[item_id] = current_qty + quantity
-    await bd_save_data()
+    # Slash-command purchases and shop-button purchases share this per-member
+    # lock. Check affordability/limits and mutate wallet + inventory together,
+    # so two simultaneous purchases cannot both spend the same balance.
+    lock = _CINNAMON_SHOP_LOCKS.setdefault((guild_id, user_id), asyncio.Lock())
+    async with lock:
+        current_qty = int(economy_inventory_for(guild_id, user_id).get(item_id, 0))
+        max_per_person = int(data.get("max_per_person", 0))
+        if max_per_person and current_qty + quantity > max_per_person:
+            await cinnamon_send(interaction, f"❌ This item has a limit of **{max_per_person}** per person. You already have **{current_qty}**.", ephemeral=True)
+            return
+        unit_price = _cm_price(guild_id, user_id, item_id, data["price"])
+        cost = unit_price * quantity
+        balance = economy_balance(guild_id, user_id)
+        if balance < cost:
+            await cinnamon_send(interaction, f"❌ You need **{cost:,} Catnip**, but you only have **{balance:,}**.", ephemeral=True)
+            return
+        economy_balances[(guild_id, user_id)] = balance - cost
+        inv = economy_inventory_for(guild_id, user_id)
+        inv[item_id] = current_qty + quantity
+        await bd_save_data()
     await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity", quantity), ("Unit price", f"{unit_price:,} Catnip"), ("Deducted", f"-{cost:,} Catnip"), ("Balance before", f"{balance:,} Catnip"), ("Balance after", f"{balance-cost:,} Catnip"), ("Item quantity after", str(inv[item_id]))])
     embed = cinnamon_embed("🛒 Purchase Complete", f"You bought **{quantity:,}× {data['emoji']} {data['name']}**.", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Purchase")
     cinnamon_field(embed, "💸 Cost", f"**{cost:,} Catnip**", True)
