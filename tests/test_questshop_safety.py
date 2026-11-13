@@ -14,7 +14,8 @@ class QuestShopSafetyTests(unittest.TestCase):
         sections = [node for node in command.body if isinstance(node, ast.AsyncWith)]
         self.assertEqual(len(sections), 1)
         section = sections[0]
-        self.assertIn("_QUEST_SHOP_LOCKS.setdefault", ast.unparse(section.items[0].context_expr))
+        self.assertEqual(ast.unparse(section.items[0].context_expr), "lock")
+        self.assertIn("_QUEST_SHOP_LOCKS.setdefault", ast.unparse(command))
         body = ast.unparse(section)
         self.assertLess(body.index("_assign_quest_role"), body.index("u['qp'] -="))
         self.assertIn("bd_save_data", body)
