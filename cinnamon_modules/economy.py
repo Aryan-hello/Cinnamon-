@@ -121,7 +121,9 @@ async def economy_log(guild_id: int, *, title: str, description: str = "", field
     try:
         audit_meta = {str(k)[:48]: str(v)[:200] for k, v in (fields or [])[:20]
                       if str(k).lower() not in {"content", "message", "prompt", "response", "token", "secret"}}
-        audit_writer = globals().get("audit_event")\n        if audit_writer:\n            await audit_writer(guild_id, "economy", title, metadata=audit_meta)
+        audit_writer = globals().get("audit_event")
+        if audit_writer:
+            await audit_writer(guild_id, "economy", title, metadata=audit_meta)
     except Exception:
         log.exception("Failed to write economy event to Upstash audit history")
     channel_id = economy_log_channels.get(guild_id) or category_log_channels.get(guild_id, {}).get("economy")
