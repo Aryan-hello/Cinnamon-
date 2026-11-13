@@ -52,6 +52,7 @@ WEEKLY_QUESTS = {
 QUEST_SHOP={"250_catnip":{"name":"Starter cash-out","qp":250,"catnip":2500},"1000_catnip":{"name":"Bulk tier","qp":1000,"catnip":11500},"2500_catnip":{"name":"Major milestone tier","qp":2500,"catnip":30000},"golden_tuna":{"name":"Golden Tuna","qp":2000,"item":"golden_tuna","item_qty":1},"quest_master":{"name":"Quest Master Role","qp":7500,"role":"Quest Master"}}
 quest_data={} # guild -> {daily_date,daily_ids,weekly_key,weekly_ids,users:{uid:{qp,daily,weekly,week_counters,daily_completed_week}}}
 quest_config={}
+_QUEST_SHOP_LOCKS = {}  # Prevent concurrent redemptions from spending QP twice.
 
 def _today(): return cinnamon_now().date().isoformat()
 def _week():
@@ -461,16 +462,33 @@ bot.tree.add_command(quests_view_group)
 @app_commands.choices(reward=[app_commands.Choice(name=v["name"], value=k) for k,v in QUEST_SHOP.items()])
 async def questshop_cmd(interaction, reward:app_commands.Choice[str]):
     reward = reward.value
-    u=_user(interaction.guild.id,interaction.user.id); key=reward.lower().strip(); match=next((k for k,v in QUEST_SHOP.items() if k==key or v["name"].lower()==key),None)
-    if not match: return await cinnamon_send(interaction, "❌ Unknown reward. Options: 250_catnip, 1000_catnip, 2500_catnip, golden_tuna, quest_master",ephemeral=True)
-    r=QUEST_SHOP[match]
-    if u["qp"]<r["qp"]: return await cinnamon_send(interaction, f"❌ You need **{r['qp']:,} QP** but have **{u['qp']:,} QP**.",ephemeral=True)
-    u["qp"]-=r["qp"]
-    if r.get("catnip"): economy_balances[(interaction.guild.id,interaction.user.id)]=economy_balance(interaction.guild.id,interaction.user.id)+r["catnip"]; await achievement_record(interaction.guild.id,interaction.user.id,"catnip_earned",r["catnip"])
-    if r.get("item"):
-        inv=economy_inventory_for(interaction.guild.id,interaction.user.id); inv[r["item"]]=int(inv.get(r["item"],0))+int(r.get("item_qty",1)); await achievement_record(interaction.guild.id,interaction.user.id,"inventory")
-    if r.get("role"): await _assign_quest_role(interaction.guild.id,interaction.user.id,r["role"])
-    await bd_save_data(); await cinnamon_send(interaction, f"✅ Redeemed **{r['name']}** for **{r['qp']:,} QP**. Remaining: **{u['qp']:,} QP**.")
+    guild_id, user_id = interaction.guild.id, interaction.user.id
+    key = str(reward).lower().strip()
+    match = next((k for k, v in QUEST_SHOP.items()
+                  if k == key or v["name"].lower() == key), None)
+    if not match:
+        return await cinnamon_send(interaction, "❌ Unknown reward. Please select a reward from the Quest Shop.", ephemeral=True)
+    r = QUEST_SHOP[match]
+    lock = _QUEST_SHOP_LOCKS.setdefault((guild_id, user_id), asyncio.Lock())
+    async with lock:
+        u = _user(guild_id, user_id)
+        if int(u.get("qp", 0)) < int(r["qp"]):
+            return await cinnamon_send(interaction, f"❌ You need **{r['qp']:,} QP** but have **{u['qp']:,} QP**.", ephemeral=True)
+        # Never charge QP for a role that does not exist or cannot be granted.
+        if r.get("role") and not await _assign_quest_role(guild_id, user_id, r["role"]):
+            return await cinnamon_send(interaction, f"❌ The **{r['role']}** role is missing or Cinnamon cannot assign it. Your QP was not spent.", ephemeral=True)
+        u["qp"] -= int(r["qp"])
+        if r.get("catnip"):
+            economy_balances[(guild_id, user_id)] = economy_balance(guild_id, user_id) + int(r["catnip"])
+            await achievement_record(guild_id, user_id, "catnip_earned", int(r["catnip"]))
+        if r.get("item"):
+            inv = economy_inventory_for(guild_id, user_id)
+            inv[r["item"]] = int(inv.get(r["item"], 0)) + int(r.get("item_qty", 1))
+            await achievement_record(guild_id, user_id, "inventory")
+        result = await bd_save_data()
+        if getattr(result, "status", "committed") not in {"committed", None}:
+            return await cinnamon_send(interaction, "⚠️ The reward changed locally, but storage did not confirm the save. Please check /datastatus check before retrying.", ephemeral=True)
+        await cinnamon_send(interaction, f"✅ Redeemed **{r['name']}** for **{r['qp']:,} QP**. Remaining: **{u['qp']:,} QP**.")
 
 async def _assign_quest_role(g,u,name):
     guild=bot.get_guild(g); member=guild.get_member(u) if guild else None
