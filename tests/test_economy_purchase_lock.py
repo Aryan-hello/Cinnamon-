@@ -16,7 +16,8 @@ class EconomyPurchaseLockTests(unittest.TestCase):
         self.assertEqual(len(locked), 1, "purchase should have one explicit critical section")
         guard = locked[0]
         source = ast.unparse(guard.items[0].context_expr)
-        self.assertIn("_CINNAMON_SHOP_LOCKS.setdefault", source)
+        self.assertEqual(source, "lock")
+        self.assertIn("_CINNAMON_SHOP_LOCKS.setdefault", ast.unparse(command))
         self.assertIn("economy_balances", ast.unparse(guard))
         self.assertIn("economy_inventory_for", ast.unparse(guard))
         self.assertIn("bd_save_data", ast.unparse(guard))
