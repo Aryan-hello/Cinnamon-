@@ -12,7 +12,9 @@ def load_runner_check():
     tree = ast.parse(source)
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
                 and n.name == "_hangry_runner_allowed")
-    ns = {}
+    # The real helper has a discord.Interaction annotation; supply only the
+    # annotation symbol so this isolated test does not import discord.py.
+    ns = {"discord": SimpleNamespace(Interaction=object)}
     exec(compile(ast.Module(body=[node], type_ignores=[]), "hangry_games.py", "exec"), ns)
     return ns[node.name]
 
