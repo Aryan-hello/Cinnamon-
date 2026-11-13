@@ -18,7 +18,7 @@ class QuestShopSafetyTests(unittest.TestCase):
         body = ast.unparse(section)
         self.assertLess(body.index("_assign_quest_role"), body.index('u["qp"] -='))
         self.assertIn("bd_save_data", body)
-        self.assertIn("result.status", body)
+        self.assertIn("getattr(result", body)
 
 
 if __name__ == "__main__":
