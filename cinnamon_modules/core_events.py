@@ -506,10 +506,12 @@ async def _cinnamon_try_assistance(message, clean_content):
 
     # The richer v2 planner covers private-data and self-service phrasing.
     deterministic = plan_intent(clean_content)
-    request_like = bool(re.match(
-        r"^(?:(?:hey|hi|hello|yo)[,! ]+)?(?:can|could|would|will)\s+you\b|"
-        r"^(?:please|help me|i want you to|i need you to|show me|tell me)\b",
-        clean_content or "", re.IGNORECASE,
+    request_text = (clean_content or "").strip().lower()
+    request_like = request_text.startswith((
+        "can you", "could you", "would you", "will you",
+        "hey can you", "hi can you", "hello can you", "yo can you",
+        "please", "help me", "i want you to", "i need you to",
+        "show me", "tell me",
     ))
     if deterministic.intent == "chat" and request_like:
         plan = await classify_intent_with_fallback(
