@@ -871,10 +871,8 @@ async def on_message(message: discord.Message):
     # The AI channel is a place to FIND Cinnamon, not an invitation to
     # interrupt everyone. Respond only to explicit ping, reply, or direct name.
     is_ai_channel = guild_id is not None and ai_channels.get(guild_id) == channel_id
-    called_by_name = bool(
-        _cp_direct_name(clean_content)
-        and is_directly_addressed(content, bot_user_id=None)
-    )
+    called_by_name = _cp_direct_name(clean_content)
+    called_by_name = bool(called_by_name and is_directly_addressed(content, bot_user_id=None))
     invited = bool(was_mentioned or was_reply_to_bot or called_by_name)
     if not invited:
         if message.guild:
