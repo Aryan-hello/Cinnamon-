@@ -152,5 +152,23 @@ class MemoryChatControlTests(unittest.IsolatedAsyncioTestCase):
         set_enabled.assert_not_awaited()
 
 
+    async def test_negated_memory_instruction_does_not_change_settings(self):
+        set_enabled = AsyncMock()
+        remove = AsyncMock()
+        handler = load_handler({
+            "_cmem_re": re,
+            "_cmem_parse": lambda text: None,
+            "_CMEM_ERROR": ValueError,
+            "_cmem_set_enabled": set_enabled,
+            "_cmem_remove": remove,
+            "discord": SimpleNamespace(AllowedMentions=FakeAllowedMentions),
+        })
+        message = self.make_message()
+        handled = await handler(message, "I don't want you to turn my memory off")
+        self.assertFalse(handled)
+        set_enabled.assert_not_awaited()
+        remove.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()

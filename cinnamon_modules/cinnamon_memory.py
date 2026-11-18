@@ -244,39 +244,60 @@ async def _cmem_maybe_handle(message, clean_content):
     if not message.guild:
         return False
     text = str(clean_content or "").strip()
+    text = _cmem_re.sub(
+        r"^(?:(?:hey|hi|hello|yo)[,! ]+)?cinnamon\s*[,!:.]?\s*(?:please\s+)?",
+        "", text, count=1, flags=_cmem_re.I,
+    )
+    text = _cmem_re.sub(r"^please\s+", "", text, count=1, flags=_cmem_re.I)
     reply = message.reply
     mentions = discord.AllowedMentions.none()
     gid, uid = message.guild.id, message.author.id
 
-    if _cmem_re.search(r"\b(?:turn|switch|disable|stop)\s+(?:my\s+)?memory\s+(?:off|disable)|\bforget\s+everything\s+about\s+me\b", text, _cmem_re.I):
+    # State-changing privacy controls must match the whole request. A sentence
+    # mentioning a control in the negative must never change the member's setting.
+    if _cmem_re.fullmatch(
+            r"(?:(?:turn|switch)\s+(?:my\s+)?memory\s+(?:off|disable)|"
+            r"(?:disable|stop)\s+(?:my\s+)?memory|forget\s+everything\s+about\s+me)[.! ]*",
+            text, _cmem_re.I):
         saved = await _cmem_set_enabled(gid, uid, False)
         await reply(
             "🔒 Your memory was turned off and your saved notes were cleared."
             if saved else "⚠️ Storage didn't confirm the memory change. I haven't claimed it was cleared.",
             mention_author=False, allowed_mentions=mentions)
         return True
-    if _cmem_re.search(r"\b(?:turn|switch|enable|start)\s+(?:my\s+)?memory\s+(?:on|enable)\b", text, _cmem_re.I):
+    if _cmem_re.fullmatch(
+            r"(?:(?:turn|switch)\s+(?:my\s+)?memory\s+(?:on|enable)|"
+            r"(?:enable|start)\s+(?:my\s+)?memory)[.! ]*",
+            text, _cmem_re.I):
         saved = await _cmem_set_enabled(gid, uid, True)
         await reply("🧠 Your personal memory is enabled." if saved else
                     "⚠️ Storage didn't confirm the memory change; please try again.",
                     mention_author=False, allowed_mentions=mentions)
         return True
-    if _cmem_re.search(r"\b(?:clear|delete|erase)\s+my\s+(?:saved\s+)?(?:notes|memories|memory)\b", text, _cmem_re.I):
+    if _cmem_re.fullmatch(
+            r"(?:clear|delete|erase)\s+my\s+(?:saved\s+)?(?:notes|memories|memory)[.! ]*",
+            text, _cmem_re.I):
         success, result = await _cmem_remove(gid, uid)
         await reply(result if success else "⚠️ Storage didn't confirm the deletion. " + str(result),
                     mention_author=False, allowed_mentions=mentions)
         return True
-    if _cmem_re.search(r"\bforget\s+my\s+(?:saved\s+)?(?:preference|note)\b", text, _cmem_re.I):
+    if _cmem_re.fullmatch(
+            r"forget\s+my\s+(?:saved\s+)?(?:preference|note)[.! ]*",
+            text, _cmem_re.I):
         await reply("Which note do you mean? I won't delete everything from an ambiguous request. "
-                    "Use `/cinnamon-memory view` to choose a note or `/cinnamon-memory forget`.",
+                    "Use /cinnamon-memory view to choose a note or /cinnamon-memory forget.",
                     mention_author=False, allowed_mentions=mentions)
         return True
-    if _cmem_re.search(r"\b(?:edit|change|correct|update)\s+my\s+(?:saved\s+)?(?:preferences|notes|memory)\b", text, _cmem_re.I):
-        await reply("Use `/cinnamon-memory edit` to correct a note safely.",
+    if _cmem_re.fullmatch(
+            r"(?:edit|change|correct|update)\s+my\s+(?:saved\s+)?(?:preferences|notes|memory)[.! ]*",
+            text, _cmem_re.I):
+        await reply("Use /cinnamon-memory edit to correct a note safely.",
                     mention_author=False, allowed_mentions=mentions)
         return True
-    if _cmem_re.search(r"\b(?:show|view|list)\s+my\s+(?:saved\s+)?(?:notes|memories|preferences)\b", text, _cmem_re.I):
-        await reply("Your notes are private. Use `/cinnamon-memory view` for an ephemeral list.",
+    if _cmem_re.fullmatch(
+            r"(?:show|view|list)\s+my\s+(?:saved\s+)?(?:notes|memories|preferences)[.! ]*",
+            text, _cmem_re.I):
+        await reply("Your notes are private. Use /cinnamon-memory view for an ephemeral list.",
                     mention_author=False, allowed_mentions=mentions)
         return True
 

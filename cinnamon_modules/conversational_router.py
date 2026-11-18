@@ -52,7 +52,7 @@ def _ccr_command(text):
 async def _ccr_invoke(message, command_line):
     original=message.content
     try:
-        message.content='?'+command_line.strip()
+        message.content='!'+command_line.strip()
         ctx=await bot.get_context(message)
         if not ctx.valid:return False
         await bot.invoke(ctx)
@@ -91,15 +91,6 @@ async def _ccr_maybe_route(message, raw_text):
         return False
     command = _ccr_command(raw_text)
     if not command:
-        return await _ccr_ai_route(message, raw_text)
+        return False
     # Reuse the exact existing command callback, converters, checks and cooldowns.
-    original = message.content
-    try:
-        message.content = "?" + command
-        ctx = await bot.get_context(message)
-        if not ctx.valid:
-            return False
-        await bot.invoke(ctx)
-        return True
-    finally:
-        message.content = original
+    return await _ccr_invoke(message, command)
