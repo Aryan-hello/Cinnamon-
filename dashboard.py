@@ -337,8 +337,22 @@ def _channel_select(guild, name, selected=None, allow_none=True, multiple=False,
         boxes=[]
         for ch in channels:
             checked = " checked" if ch.id in selected_ids else ""
-            boxes.append(f"<label style='display:flex;align-items:center;gap:.65rem;padding:.65rem .75rem;border:1px solid var(--line);border-radius:12px;cursor:pointer;background:var(--surface2)'><input type='checkbox' name='{_esc(name)}' value='{ch.id}'{checked} style='width:18px;height:18px;accent-color:var(--accent)'><span>#{_esc(ch.name)}</span></label>")
-        return "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.55rem;max-height:320px;overflow:auto;padding:.2rem'>"+"".join(boxes)+"</div>"
+            boxes.append(
+                f"<label class='choice-option' data-choice-label='{_esc(ch.name.lower())}'>"
+                f"<input type='checkbox' name='{_esc(name)}' value='{ch.id}'{checked}>"
+                f"<span>#{_esc(ch.name)}</span></label>"
+            )
+        selected_names = ", ".join("#" + ch.name for ch in channels if ch.id in selected_ids)
+        return (
+            "<div class='choice-picker' data-choice-picker>"
+            f"<div class='choice-toolbar'><input class='choice-search' type='search' "
+            f"placeholder='Search channels…' aria-label='Search channels for { _esc(name) }' "
+            "autocomplete='off'><span class='choice-count' aria-live='polite'></span></div>"
+            f"<div class='choice-selected' aria-live='polite'>{_esc(selected_names) if selected_names else 'No channels selected yet'}</div>"
+            "<div class='choice-options'>" + "".join(boxes) + "</div>"
+            "<small class='choice-help'>Search by channel name, then tick the channels you want. Your existing selections stay selected while you search.</small>"
+            "</div>"
+        )
     opts = ["<option value=''>— Not set —</option>"] if allow_none else []
     for ch in channels:
         try:
@@ -381,8 +395,22 @@ def _role_multi_select(guild, name, selected=None):
     boxes=[]
     for role in roles:
         checked=" checked" if role.id in selected_ids else ""
-        boxes.append(f"<label style='display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:9px'><input type='checkbox' name='{_esc(name)}' value='{role.id}'{checked} style='width:17px;height:17px;accent-color:var(--orange)'><span>@{_esc(role.name)}</span></label>")
-    return "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;max-height:230px;overflow:auto;padding:2px'>"+"".join(boxes)+"</div>"
+        boxes.append(
+            f"<label class='choice-option' data-choice-label='{_esc(role.name.lower())}'>"
+            f"<input type='checkbox' name='{_esc(name)}' value='{role.id}'{checked}>"
+            f"<span>@{_esc(role.name)}</span></label>"
+        )
+    selected_names = ", ".join("@" + role.name for role in roles if role.id in selected_ids)
+    return (
+        "<div class='choice-picker' data-choice-picker>"
+        f"<div class='choice-toolbar'><input class='choice-search' type='search' "
+        f"placeholder='Search roles…' aria-label='Search roles for {_esc(name)}' autocomplete='off'>"
+        "<span class='choice-count' aria-live='polite'></span></div>"
+        f"<div class='choice-selected' aria-live='polite'>{_esc(selected_names) if selected_names else 'No roles selected yet'}</div>"
+        "<div class='choice-options'>" + "".join(boxes) + "</div>"
+        "<small class='choice-help'>Search by role name and select one or more. Existing selections are kept while filtering.</small>"
+        "</div>"
+    )
 
 
 def _form(guild_id, action, content, button="Save changes", danger=False):
