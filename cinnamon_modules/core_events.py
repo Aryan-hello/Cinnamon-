@@ -466,14 +466,35 @@ async def _ch_private_data_redirect(message, clean_content):
     return True
 
 async def _cinnamon_try_assistance(message, clean_content):
-    """Trusted, acknowledged personal requests and help precede Gemini."""
+    """Use the deterministic Brain router to select an existing trusted handler.
+
+    The route is a hint only. Each adapter still performs its own parser,
+    identity, permission, confirmation and persistence checks.
+    """
+    from cinnamon_modules.brain_router import classify_intent, Intent
+
+    route = classify_intent(clean_content)
     reminder_handler = globals().get("_cr_maybe_handle")
     memory_handler = globals().get("_cmem_maybe_handle")
+    private_redirect = globals().get("_ch_private_data_redirect")
+
+    if route.intent is Intent.REMINDER:
+        return bool(message.guild and callable(reminder_handler)
+                    and await reminder_handler(message, clean_content))
+    if route.intent is Intent.MEMORY:
+        return bool(message.guild and callable(memory_handler)
+                    and await memory_handler(message, clean_content))
+    if route.intent is Intent.HELP:
+        return await _ch_maybe_handle(message, clean_content)
+    if route.intent is Intent.ACTION:
+        return bool(message.guild and await _ca_maybe_handle(message, clean_content))
+
+    # CHAT has no direct side effects. Keep the safe fallback handlers so
+    # uncommon phrasing and private-data questions still reach their adapters.
     if message.guild and callable(reminder_handler) and await reminder_handler(message, clean_content):
         return True
     if message.guild and callable(memory_handler) and await memory_handler(message, clean_content):
         return True
-    private_redirect = globals().get('_ch_private_data_redirect')
     if message.guild and callable(private_redirect) and await private_redirect(message, clean_content):
         return True
     if await _ch_maybe_handle(message, clean_content):
