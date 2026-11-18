@@ -56,7 +56,7 @@
 
   function initNativeSelectSearch() {
     document.querySelectorAll(".layout select").forEach(function (select) {
-      if (select.options.length < 9 || select.multiple) return;
+      if (select.multiple) return;
       if (select.closest(".searchable-select")) return;
       var box = document.createElement("div");
       box.className = "searchable-select";
