@@ -75,9 +75,40 @@ Cinnamon's **registry-backed help** now recognizes the new commands for timezone
 - No inference of real-world location or sensitive personal details.
 - No new database migrations needed: per-member timezone overrides are optional fields under the existing reminder state.
 
+## Brain v2 Increment B — implemented on main
+
+The following additions are now integrated with the existing trusted handlers.
+They are routing and read-only assistance features; they do not create a second
+action executor or bypass existing permissions and storage checks.
+
+### B1 — Private progress view (implemented)
+
+- `/cinnamon-me progress` returns an ephemeral, read-only summary of the caller's level, total XP, progress to the next level, completed quest history, Quest Points, current daily quest completion when available, and unlocked achievement totals.
+- It reuses the bot's existing level-threshold functions rather than duplicating the XP formula.
+- It does not award XP, rotate quests, unlock achievements, change Catnip, or write state.
+- If saved progress is unavailable, it refuses to guess.
+
+### B2 — Deterministic intent routing and gated fallback (implemented)
+
+- The v3 router classifies the current member-authored message first; the v2 planner adds private-data and self-service routing when the v3 route is ordinary chat.
+- Explicit reminder, memory, help, private-data, and action-like requests select existing trusted Python adapters. The route is not permission, consent, or execution authority.
+- A bounded JSON intent suggestion is used only for ambiguous request-like messages. Ordinary chat does not trigger an extra Gemini classification call.
+- Suggested routes remain untrusted. Existing parsers, requester/guild checks, Discord permissions, confirmations, and storage acknowledgements remain authoritative.
+- Channel history and model output are never re-submitted to the action planner as executable requests.
+
+### B3 — Private grounded Q&A (implemented)
+
+- `/cinnamon-me ask` is an ephemeral private Q&A path for the caller's own current guild-scoped data.
+- It assembles a deterministic, read-only snapshot and includes only the relevant data sections for the question. If storage is unavailable, it refuses to guess.
+- Preference text is not sent through this Q&A snapshot; memory answers are limited to safe status/count/category information.
+- Questions about another member's private data are refused. Public channel history is not a source of account balances or private progress.
+- Prefix-style requests for member-owned private data are redirected to the private path before ordinary public chat can expose those values.
+
+**Integration status:** the progress view, deterministic router, and request-gated intent fallback are merged in PRs #60, #61, and #62. The private Q&A and memory controls were already present in the newer mainline. The full offline Python 3.11/3.12 integrity suite passed for the new integrations.
+
 ## Proposed next increments
 
-### B — Better answers and safe action planning
+### B4 — Better answers and safe action planning
 
 - Route user requests through a **deterministic intent planner** (help, personal lookup, explicit preference save, reminder create, trusted admin proposal, casual chat).
 - Show the member exactly what Cinnamon understood before executing any consequential action.
@@ -105,7 +136,7 @@ Cinnamon's **registry-backed help** now recognizes the new commands for timezone
 - Add observable “why I did/didn't speak” reasons for administrators and avoid interfering with conflict, grief, exams or sensitive questions.
 - Move toward curated application-owned emojis in a staged, validated registry.
 
-## Acceptance tests to complete before merge
+## Live release acceptance checks (still outstanding)
 
 - [ ] Full Python 3.11/3.12 offline suite and compile/startup checks, including duplicate slash command registration.
 - [ ] Private Discord server: personal timezone UTC+05:30 and another member's UTC−04:00; verify isolation and no changes to past reminders.
