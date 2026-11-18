@@ -235,3 +235,34 @@ delivery. Persistent member memory follows separately, including disclosure,
 guild/member isolation, opt-out, access/deletion, private correction tickets, and
 retention. Semantic incident assistance, richer personality/emoji selection, and
 additional authored story content remain later work.
+
+
+## Brain Kernel v3 — unified conversational context
+
+The pure kernel in `cinnamon_modules/brain_kernel.py` builds a bounded context
+object for one Gemini reply: guild/channel/member scope, the current message,
+recent turns, the current member's saved preferences, relevant memories,
+available command capabilities, mood, tone, and the serious-context signal.
+It has no Discord, storage, Gemini, or action-tool access of its own.
+
+The `ask_gemini` adapter now serializes this object into the actual model
+prompt. The context is capped at 6,000 serialized characters, 10 recent turns
+(700 characters per turn), a 1,000-character current message, 12 preferences
+(120 characters each), 5 memory items (180 characters each), and 24 capability
+labels (180 characters each). Member text, history, preferences, and memories
+are explicitly framed as untrusted data, never instructions or authorization.
+Memory retrieval remains scoped to the current member and guild.
+
+This is a context and coordination improvement, not a trained model or
+consciousness. The original character prompt and JSON reply contract remain.
+
+## Brain v4 — deterministic routing and bounded intent fallback
+
+- The pure `brain_router.py` classifies the current human-authored message into reminder, memory, help, trusted-action candidate, or chat.
+- The `core_events.py` dispatcher uses that route to select existing trusted adapters. A route cannot grant permission, consent, or execution authority.
+- When the v3 router returns ordinary chat, the v2 planner adds more specific private-data and self-service routing.
+- The bounded Gemini intent classifier is only used for ambiguous, request-like messages. Ordinary conversation does not trigger an extra classification call. Its suggestion is untrusted and can only select an existing adapter.
+- Reminder, memory, private-data, help, and action adapters retain their own requester, guild, parser, permission, confirmation, and persistence checks.
+- The pure policy/decision modules keep fail-closed defaults; they do not create a parallel scheduler or action executor.
+
+**Runtime integration status:** the structured context, deterministic router, private progress view, and request-gated intent fallback are merged in PRs #60, #61, and #62. The full offline integrity/Wildlands suite passed for each merge. Live Discord/Render/Upstash acceptance still needs to be performed separately.
