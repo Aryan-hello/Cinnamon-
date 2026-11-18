@@ -13,6 +13,10 @@ class BrainRouterRuntimeWiringTests(unittest.TestCase):
         self.assertIn('private_redirect = globals().get("_ch_private_data_redirect")', source)
         self.assertIn("route.intent is Intent.ACTION", source)
         self.assertIn("route.intent is Intent.REMINDER", source)
+        self.assertIn("from cinnamon_modules.brain_intent import plan_intent", source)
+        self.assertIn("from cinnamon_modules.brain_intent_ai import classify_intent_with_fallback", source)
+        self.assertIn("deterministic.intent == \"chat\" and request_like", source)
+        self.assertIn("model_call=_cinnamon_brain_intent_model_call", source)
 
 
 if __name__ == "__main__":
