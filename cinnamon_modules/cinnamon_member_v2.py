@@ -27,49 +27,158 @@ _me_group = app_commands.Group(
 
 
 def _me_private_snapshot(guild_id, user_id, scopes):
-    """Build read-only, requester-only sections; never initialize or mutate state."""
+    """Build bounded, read-only sections from only the requesting member's current-guild state."""
     if not _cb_storage_available():
         return {scope: {"available": False, "reason": "saved storage is not ready"}
                 for scope in scopes}
     gid, uid = int(guild_id), int(user_id)
     result = {}
+
+    def safe_int(value, default=0):
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError, OverflowError):
+            return default
+
     for scope in scopes:
         if scope == "wallet":
             balance = economy_balances.get((gid, uid))
             inventory = economy_inventory.get((gid, uid), {})
+            if not isinstance(inventory, dict):
+                inventory = {}
+            clean_inventory = {}
+            for item_id, quantity in list(inventory.items())[:30]:
+                amount = safe_int(quantity)
+                if amount:
+                    clean_inventory[str(item_id)[:60]] = amount
             result[scope] = {
                 "available": balance is not None,
-                "catnip": int(balance) if balance is not None else None,
-                "inventory": {str(k): int(v) for k, v in inventory.items() if int(v) > 0},
+                "catnip": safe_int(balance) if balance is not None else None,
+                "inventory": clean_inventory,
             }
         elif scope == "progress":
-            xp = int(xp_data.get((gid, uid), 0))
-            member = quest_data.get(gid, {}).get("users", {}).get(str(uid), {})
-            result[scope] = {
-                "available": True, "total_xp": xp,
-                "level": int(level_from_xp(xp)),
-                "quest_points": int(member.get("qp", 0)),
-                "achievements": len(achievement_data.get((gid, uid), []))
-                    if isinstance(achievement_data.get((gid, uid), []), (list, tuple, set)) else None,
+            xp = safe_int(xp_data.get((gid, uid), 0))
+            level = _me_level_progress(
+                xp, level_from_xp=level_from_xp,
+                total_xp_for_level=total_xp_for_level, max_level=MAX_LEVEL,
+            )
+            guild_quests = quest_data.get(gid, {})
+            if not isinstance(guild_quests, dict):
+                guild_quests = {}
+            users = guild_quests.get("users", {})
+            if not isinstance(users, dict):
+                users = {}
+            member_quests = users.get(str(uid), {})
+            if not isinstance(member_quests, dict):
+                member_quests = {}
+            history = member_quests.get("completed_history", [])
+            progress = {
+                "available": True,
+                "level": safe_int(level.get("level", 1), 1),
+                "max_level": safe_int(MAX_LEVEL, 1),
+                "total_xp": safe_int(level.get("total_xp", xp)),
+                "xp_remaining": safe_int(level.get("xp_remaining", 0)),
+                "quest_points": safe_int(member_quests.get("qp", 0)),
+                "quests_completed": len(history) if isinstance(history, list) else 0,
             }
+
+            def quest_rows(board_ids, definitions, member_progress):
+                rows = []
+                if not isinstance(member_progress, dict):
+                    member_progress = {}
+                ids = board_ids if isinstance(board_ids, (list, tuple)) else []
+                for qid in list(ids)[:5]:
+                    if not isinstance(qid, (str, int)):
+                        continue
+                    definition = definitions.get(qid)
+                    if not isinstance(definition, dict):
+                        continue
+                    state = member_progress.get(qid, {})
+                    if not isinstance(state, dict):
+                        state = {}
+                    try:
+                        completed = bool(_completed(definition, state))
+                    except (TypeError, ValueError, KeyError):
+                        completed = False
+                    row = {
+                        "name": str(definition.get("name", qid))[:80],
+                        "completed": completed,
+                    }
+                    target = definition.get("target")
+                    if type(target) is int:
+                        row["target"] = target
+                    current = state.get("count", state.get("value"))
+                    if type(current) is int:
+                        row["current"] = max(0, current)
+                    rows.append(row)
+                return rows
+
+            if guild_quests.get("daily_date") == _today():
+                progress["daily_quests"] = quest_rows(
+                    guild_quests.get("daily_ids", []), DAILY_QUESTS,
+                    member_quests.get("daily", {}),
+                )
+            else:
+                progress["daily_quests"] = "not_current_or_not_initialized"
+            if guild_quests.get("weekly_key") == _week():
+                progress["weekly_quests"] = quest_rows(
+                    guild_quests.get("weekly_ids", []), WEEKLY_QUESTS,
+                    member_quests.get("weekly", {}),
+                )
+            else:
+                progress["weekly_quests"] = "not_current_or_not_initialized"
+
+            achievements = achievement_data.get((gid, uid), {})
+            unlocked = achievements.get("unlocked", []) if isinstance(achievements, dict) else []
+            secret = achievements.get("secret_unlocked", []) if isinstance(achievements, dict) else []
+            progress["achievements_unlocked"] = len(unlocked) if isinstance(unlocked, list) else 0
+            progress["secret_achievements_discovered"] = len(secret) if isinstance(secret, list) else 0
+            result[scope] = progress
         elif scope == "reminders":
-            root = advanced_features_data.get("cinnamon_reminders_v1", {})
-            member = root.get(str(gid), {}).get("members", {}).get(str(uid), {})
-            result[scope] = {"available": True, "items": [
-                {"text": str(v.get("text", ""))[:120], "due_at": int(v.get("due_at", 0)),
-                 "status": str(v.get("status", ""))}
-                for v in member.values() if isinstance(v, dict) and v.get("status") == "scheduled"
-            ]}
+            reminder_store = advanced_features_data.get("cinnamon_reminders_v1", {})
+            if not isinstance(reminder_store, dict):
+                reminder_store = {}
+            reminder_root = reminder_store.get(str(gid), {})
+            if not isinstance(reminder_root, dict):
+                reminder_root = {}
+            reminder_members = reminder_root.get("members", {})
+            if not isinstance(reminder_members, dict):
+                reminder_members = {}
+            reminder_member = reminder_members.get(str(uid), {})
+            if not isinstance(reminder_member, dict):
+                reminder_member = {}
+            items = []
+            for value in list(reminder_member.values())[:30]:
+                if not isinstance(value, dict) or value.get("status") != "scheduled":
+                    continue
+                items.append({
+                    "text": str(value.get("text", ""))[:120],
+                    "due_at": safe_int(value.get("due_at", 0)),
+                    "status": "scheduled",
+                })
+            result[scope] = {"available": True, "items": items}
         elif scope == "memory":
-            root = advanced_features_data.get("cinnamon_memory_v1", {})
-            member = root.get(str(gid), {}).get("members", {}).get(str(uid), {})
+            memory_store = advanced_features_data.get("cinnamon_memory_v1", {})
+            if not isinstance(memory_store, dict):
+                memory_store = {}
+            memory_root = memory_store.get(str(gid), {})
+            if not isinstance(memory_root, dict):
+                memory_root = {}
+            members = memory_root.get("members", {})
+            if not isinstance(members, dict):
+                members = {}
+            member = members.get(str(uid), {})
+            if not isinstance(member, dict):
+                member = {}
             enabled = bool(member.get("enabled", True))
             notes = member.get("notes", []) if enabled else []
-            result[scope] = {"available": True, "enabled": enabled, "note_count": len(notes)}
+            result[scope] = {
+                "available": True, "enabled": enabled,
+                "note_count": len(notes) if isinstance(notes, list) else 0,
+            }
         else:
             result[scope] = {"available": False, "reason": "unsupported scope"}
     return result
-
 
 def _me_generate_private_answer(question, snapshot):
     """Generate a bounded answer from only the selected read-only snapshot."""
