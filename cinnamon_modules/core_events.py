@@ -541,6 +541,12 @@ async def _cinnamon_try_assistance(message, clean_content):
             continue
         if await handler(message, clean_content):
             return True
+    # Narrow, deterministic shortcuts for existing low-risk prefix commands.
+    # No model-generated command selection or multi-command execution is enabled.
+    conversational_router = globals().get("_ccr_maybe_route")
+    if message.guild is not None and callable(conversational_router):
+        if await conversational_router(message, clean_content):
+            return True
     return False
 
 @bot.command(name="userinfo",aliases=["whois"])
