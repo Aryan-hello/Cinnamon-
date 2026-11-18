@@ -507,8 +507,8 @@ async def _cinnamon_try_assistance(message, clean_content):
     # The richer v2 planner covers private-data and self-service phrasing.
     deterministic = plan_intent(clean_content)
     request_like = bool(re.match(
-        r"^(?:(?:hey|hi|hello|yo)[,! ]+)?(?:can|could|would|will)\\s+you\\b|"
-        r"^(?:please|help me|i want you to|i need you to|show me|tell me)\\b",
+        r"^(?:(?:hey|hi|hello|yo)[,! ]+)?(?:can|could|would|will)\s+you\b|"
+        r"^(?:please|help me|i want you to|i need you to|show me|tell me)\b",
         clean_content or "", re.IGNORECASE,
     ))
     if deterministic.intent == "chat" and request_like:
