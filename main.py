@@ -464,6 +464,7 @@ _CINNAMON_MODULES = (
     # economy state/helpers exist when those systems are registered.
     "economy.py",
     "advanced_economy.py",
+    "economy_sell.py",  # Item resale and Mystery Box source-value tracking.
     "quests.py",
     "achievements.py",
     "hangry_games.py",
