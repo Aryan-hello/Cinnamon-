@@ -337,7 +337,7 @@ def ask_gemini(channel_id: int, speaker: str, trigger_text: str, guild: "discord
         "normal": "You are in a NORMAL mood: clever, silly and lightly mischievous.",
         "grumpy": "You are GRUMPY: theatrically annoyed, but playful and never cruel.",
     }[current_mood]
-    personal_notes = (_cmem_context(guild.id, member_id)
+    personal_notes = (_cmem_context(guild.id, member_id, trigger_text)
                       if guild and member_id is not None else "")
     member_style = ""
     if guild and member_id is not None:
