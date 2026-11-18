@@ -5,6 +5,8 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
+from cinnamon_modules.brain_activation import is_directly_addressed
+
 async def _send_admin_error_dm(user, *, command_name: str, error: BaseException, context: str = ""):
     """Privately send useful diagnostics to a server Administrator after a command fails.
 
@@ -761,7 +763,7 @@ async def prefix_botstatus(ctx):
 
 @bot.event
 async def on_message(message: discord.Message):
-    if message.author.bot:
+    if message.author.bot or getattr(message, "webhook_id", None) is not None:
         return
     # Prefix commands are intentionally !-only. The former ? prefix is retired.
     if message.content.startswith("?") and len(message.content) > 1:
@@ -864,6 +866,8 @@ async def on_message(message: discord.Message):
     # interrupt everyone. Respond only to explicit ping, reply, or direct name.
     is_ai_channel = guild_id is not None and ai_channels.get(guild_id) == channel_id
     called_by_name = _cp_direct_name(clean_content)
+    if called_by_name:
+        called_by_name = is_directly_addressed(content, bot_user_id=None)
     invited = bool(was_mentioned or was_reply_to_bot or called_by_name)
     if not invited:
         if message.guild:
