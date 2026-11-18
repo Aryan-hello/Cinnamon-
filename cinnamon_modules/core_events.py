@@ -465,19 +465,34 @@ async def _ch_private_data_redirect(message, clean_content):
             pass
     return True
 
+async def _cinnamon_brain_intent_model_call(prompt: str) -> str:
+    """Bounded Gemini intent suggestion; output is untrusted and never executes."""
+    def _call():
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                max_output_tokens=120,
+                temperature=0.1,
+                response_mime_type="application/json",
+            ),
+        )
+        return response.text or ""
+    return await asyncio.to_thread(_call)
+
+
 async def _cinnamon_try_assistance(message, clean_content):
-    """Use the deterministic Brain router to select an existing trusted handler.
-
-    The route is a hint only. Each adapter still performs its own parser,
-    identity, permission, confirmation and persistence checks.
-    """
+    """Use deterministic routes first and a gated, non-authoritative AI fallback."""
     from cinnamon_modules.brain_router import classify_intent, Intent
+    from cinnamon_modules.brain_intent import plan_intent
+    from cinnamon_modules.brain_intent_ai import classify_intent_with_fallback
 
-    route = classify_intent(clean_content)
     reminder_handler = globals().get("_cr_maybe_handle")
     memory_handler = globals().get("_cmem_maybe_handle")
     private_redirect = globals().get("_ch_private_data_redirect")
+    route = classify_intent(clean_content)
 
+    # The v3 router gets first choice for explicit, high-confidence patterns.
     if route.intent is Intent.REMINDER:
         return bool(message.guild and callable(reminder_handler)
                     and await reminder_handler(message, clean_content))
@@ -489,18 +504,39 @@ async def _cinnamon_try_assistance(message, clean_content):
     if route.intent is Intent.ACTION:
         return bool(message.guild and await _ca_maybe_handle(message, clean_content))
 
-    # CHAT has no direct side effects. Keep the safe fallback handlers so
-    # uncommon phrasing and private-data questions still reach their adapters.
-    if message.guild and callable(reminder_handler) and await reminder_handler(message, clean_content):
-        return True
-    if message.guild and callable(memory_handler) and await memory_handler(message, clean_content):
-        return True
-    if message.guild and callable(private_redirect) and await private_redirect(message, clean_content):
-        return True
-    if await _ch_maybe_handle(message, clean_content):
-        return True
-    if message.guild and await _ca_maybe_handle(message, clean_content):
-        return True
+    # The richer v2 planner covers private-data and self-service phrasing.
+    deterministic = plan_intent(clean_content)
+    request_like = bool(re.match(
+        r"^(?:(?:hey|hi|hello|yo)[,! ]+)?(?:can|could|would|will)\\s+you\\b|"
+        r"^(?:please|help me|i want you to|i need you to|show me|tell me)\\b",
+        clean_content or "", re.IGNORECASE,
+    ))
+    if deterministic.intent == "chat" and request_like:
+        plan = await classify_intent_with_fallback(
+            clean_content,
+            deterministic_plan=deterministic,
+            model_call=_cinnamon_brain_intent_model_call,
+        )
+    else:
+        plan = deterministic
+
+    handlers = {
+        "private_data": private_redirect,
+        "reminder": reminder_handler,
+        "memory": memory_handler,
+        "help": _ch_maybe_handle,
+        "action": _ca_maybe_handle,
+    }
+    for selected in plan.route_order:
+        if selected == "chat":
+            break
+        handler = handlers.get(selected)
+        if not callable(handler):
+            continue
+        if selected in {"private_data", "reminder", "memory", "action"} and message.guild is None:
+            continue
+        if await handler(message, clean_content):
+            return True
     return False
 
 @bot.command(name="userinfo",aliases=["whois"])
