@@ -394,7 +394,7 @@ async def prefix_quest(ctx):
             cur = p.get("count", p.get("value", 0))
             target = q.get("target", "—")
             lines.append(f"{done} **{q['name']}** — {cur}/{target} · {q['qp']} QP + {q['xp']} XP")
-        return "\\n".join(lines) or "None"
+        return "\n".join(lines) or "None"
 
     embed = discord.Embed(title="📜 Cinnamon Quests", color=0xFFB02E)
     embed.add_field(name="☀️ Daily", value=render("daily", DAILY_QUESTS, d.get("daily_ids", []))[:1024], inline=False)
