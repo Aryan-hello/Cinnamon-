@@ -294,6 +294,123 @@ h1,h2,.stat{font-family:"Trebuchet MS",system-ui,-apple-system,Segoe UI,sans-ser
   .nav-backdrop.visible{opacity:1;visibility:visible}
   .mobile-nav-close{display:inline-flex;align-items:center;justify-content:center;align-self:flex-end;border:1px solid var(--line);border-radius:9px;background:var(--white);color:var(--brown);min-height:40px;min-width:44px;font-size:20px;margin-bottom:-4px}
 }
+
+/* Cinnamon dashboard refresh: calmer hierarchy, consistent controls, responsive surfaces. */
+:root{--cream:#f8f5ef;--beige:#f0e8dc;--orange:#a9531a;--orange2:#d18a48;--brown:#30251f;--taupe:#786d63;--white:#fffefa;--line:#e7dfd4;--surface2:#fbf8f2;--shadow:0 8px 24px rgba(48,37,31,.055);--focus:#285f9f;--green:#32744d;--red:#a53f32}
+body{background:#f7f5f1;color:var(--brown);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.55}
+.layout{grid-template-columns:264px minmax(0,1fr);background:transparent}
+.side{background:#fffefa;border-right:1px solid #e9e2d9;box-shadow:2px 0 18px rgba(48,37,31,.025);padding:22px 16px}
+.brand{font-size:18px;letter-spacing:-.025em;padding:5px 7px 12px}
+.mascot{border-radius:14px;border:1px solid #eadfce}
+.serverbox{background:#faf7f1;border-color:#e8e0d5;border-radius:12px}
+.navlabel{font-size:10px;letter-spacing:.12em;color:#8a7c70}
+.nav a{min-height:42px;border-radius:9px;color:#65584d;font-size:13px;transition:background .15s,color .15s}
+.nav a.active{background:#f5e8d8;color:#8d4517;box-shadow:inset 3px 0 #b96b2c}
+.nav a:hover{background:#f8f0e6}
+.main{max-width:1320px;padding:28px clamp(18px,3vw,44px) 48px}
+.top{margin-bottom:28px;padding-bottom:15px;border-bottom:1px solid #eae4db}
+.crumb{font-size:13px;color:#887b70}
+h1{font-size:clamp(27px,3vw,34px);font-weight:780;letter-spacing:-.045em;line-height:1.18;margin-bottom:8px}
+h2{font-size:19px;font-weight:740;letter-spacing:-.025em}
+h3{font-size:15px;font-weight:730}
+.muted{color:#81766c}
+.hero{background:linear-gradient(110deg,#fff5e8 0%,#fffdfa 82%);border:1px solid #eee2d2;border-radius:18px;padding:24px;box-shadow:none}
+.card{background:#fffefa;border:1px solid #e9e2d9;border-radius:15px;padding:20px;box-shadow:0 3px 12px rgba(48,37,31,.035)}
+.card:hover{border-color:#dfd2c2}
+.grid{gap:15px;margin:17px 0 24px}
+.stat{font-size:29px;letter-spacing:-.04em}
+.iconbox{background:#f8eee1;border:1px solid #f0e2d0}
+.btn{background:#a9531a;border-radius:9px;box-shadow:none;transition:background .15s,transform .15s}
+.btn:hover{background:#874313;transform:translateY(-1px)}
+.btn.secondary{background:#fff9f1;border-color:#e9ddce;color:#594333}
+.btn.danger{background:#a53f32}
+.field{gap:7px;margin:12px 0}
+.field label{font-size:12px;color:#55463a;letter-spacing:.01em}
+.field input,.field select,.field textarea,.searchable-select input{background:#fff;border:1px solid #e4dbcf;border-radius:9px;color:#30251f;transition:border-color .15s,box-shadow .15s}
+.field input:focus,.field select:focus,.field textarea:focus,.searchable-select input:focus,.choice-search:focus{border-color:#bd7a42;box-shadow:0 0 0 3px rgba(185,107,44,.12);outline:0}
+.tablewrap{border-color:#e9e2d9;border-radius:11px}
+th{background:#faf7f1;color:#81766c}
+td{border-bottom-color:#f0ebe4}
+.notice{background:#fff5e8;border-color:#edddc9;color:#76502f}
+.pill{background:#f1ece4;color:#67594c}
+.choice-picker{display:grid;gap:10px;padding:12px;border:1px solid #e8e0d5;border-radius:12px;background:#fffefa}
+.choice-toolbar{display:flex;align-items:center;gap:10px;min-width:0}
+.choice-search{width:100%;min-width:0;min-height:43px;padding:10px 12px;border:1px solid #e4dbcf;border-radius:9px;background:#fff;color:var(--brown);font:inherit}
+.choice-count{flex:0 0 auto;color:#83766b;font-size:12px;font-weight:700;white-space:nowrap}
+.choice-selected{display:flex;gap:6px;flex-wrap:wrap;min-height:25px}
+.choice-chip{border:1px solid #ead7c2;background:#fbf0e2;color:#79441f;border-radius:99px;padding:5px 9px;font-size:12px;font-weight:650;cursor:pointer}
+.choice-chip:hover{background:#f5e2cc}
+.choice-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px;max-height:260px;overflow:auto;padding:2px;overscroll-behavior:contain}
+.choice-option{display:flex;align-items:center;gap:9px;min-width:0;padding:10px 11px;border:1px solid #eee7de;border-radius:9px;background:#fff;cursor:pointer;transition:border-color .12s,background .12s}
+.choice-option:hover{border-color:#d6b38f;background:#fffaf3}
+.choice-option[hidden]{display:none!important}
+.choice-option input{width:18px;height:18px;flex:0 0 18px;accent-color:#a9531a}
+.choice-option span{overflow-wrap:anywhere;font-size:13px}
+.choice-help{color:#85796e;font-size:12px;line-height:1.45}
+.searchable-select{margin-bottom:7px}
+.searchable-select input{min-height:42px;padding:10px 12px}
+@media(max-width:900px){.layout{grid-template-columns:220px minmax(0,1fr)}.main{padding:22px 18px 38px}}
+@media(max-width:650px){
+ .main{padding:14px 12px calc(28px + env(safe-area-inset-bottom))}
+ .top{gap:8px;padding-bottom:12px;margin-bottom:18px}
+ .crumb{font-size:12px}.profile{font-size:12px}
+ .hero{padding:17px;border-radius:14px;gap:12px}.heroimg{width:56px;height:56px}
+ .grid{gap:11px;margin:13px 0 19px}
+ .card,.card.half,.card.third{padding:15px;border-radius:13px}
+ .card h2{font-size:18px}.formgrid{grid-template-columns:minmax(0,1fr);gap:8px}
+ .choice-picker{padding:10px}.choice-options{grid-template-columns:minmax(0,1fr);max-height:240px}
+ .choice-toolbar{align-items:stretch;flex-wrap:wrap}.choice-count{padding:2px 1px}
+ .choice-option{min-height:44px}.actions .btn{min-height:44px}
+ .tablewrap{border-radius:9px}.tablewrap table{min-width:520px}
+}
+
+/* Brighter pastel colour pattern — keep the interface light, never dark. */
+:root{
+ --cream:#fffaf2;--beige:#fff0df;--orange:#df8b45;--orange2:#f2b36f;
+ --brown:#51443b;--taupe:#8b7b70;--white:#fffefa;--line:#eee3d7;
+ --surface2:#fff8ee;--focus:#77a9cf;--green:#6b9c78;--red:#cf8178
+}
+body{background:#fffaf4;color:#51443b}
+.side{background:#fffdf9;border-right-color:#f0e5da}
+.serverbox{background:#fff5e9;border-color:#f2dfca}
+.navlabel,.crumb,.muted{color:#928174}
+.nav a{color:#76675c}
+.nav a.active{background:#ffedda;color:#9a5c2d;box-shadow:inset 3px 0 #e9a15f}
+.nav a:hover{background:#fff3e6}
+.hero{background:linear-gradient(115deg,#fff0dc 0%,#fff8eb 52%,#f0f7ee 100%);border-color:#f0dfca}
+.card{background:#fffefa;border-color:#eee4da}
+.card:nth-child(4n+1){border-top:3px solid #efbd83}
+.card:nth-child(4n+2){border-top:3px solid #b9d7c0}
+.card:nth-child(4n+3){border-top:3px solid #b9d6e9}
+.card:nth-child(4n){border-top:3px solid #d8c9e9}
+.iconbox{background:#fff0dc;border-color:#f4dfc4}
+.btn{background:#df914e;color:#fffdf8}
+.btn:hover{background:#cb7b38}
+.btn.secondary{background:#fff4e7;border-color:#efdcc7;color:#72543d}
+.btn.danger{background:#d4867d;color:#fff}
+.field label{color:#6f5e50}
+.field input,.field select,.field textarea,.searchable-select input{border-color:#eee0d1;color:#51443b;background:#fffefa}
+.field input:focus,.field select:focus,.field textarea:focus,.searchable-select input:focus,.choice-search:focus{border-color:#e5a96d;box-shadow:0 0 0 3px rgba(229,169,109,.16)}
+th{background:#fff5e9;color:#837164}
+.notice{background:#fff3df;border-color:#f1dfc5;color:#765b40}
+.pill{background:#f5eee5;color:#776658}
+.choice-picker{background:#fffefa;border-color:#eee1d3}
+.choice-search{border-color:#eee0d1;color:#51443b}
+.choice-count{color:#918072}
+.choice-chip{border-color:#f0d9bf;background:#fff1df;color:#8b572f}
+.choice-chip:hover{background:#ffe8ce}
+.choice-option{border-color:#f0e7dd;background:#fffefa}
+.choice-option:hover{border-color:#e8c69f;background:#fff7ed}
+.choice-option input{accent-color:#df914e}
+.choice-help{color:#928276}
+@media(max-width:650px){
+ body{background:#fffaf4}
+ .hero{background:linear-gradient(140deg,#fff0dc,#fff8ec 62%,#f1f8ef)}
+ .card:nth-child(n){border-top-width:2px}
+}
+
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
+
 """
 
 
@@ -337,8 +454,22 @@ def _channel_select(guild, name, selected=None, allow_none=True, multiple=False,
         boxes=[]
         for ch in channels:
             checked = " checked" if ch.id in selected_ids else ""
-            boxes.append(f"<label style='display:flex;align-items:center;gap:.65rem;padding:.65rem .75rem;border:1px solid var(--line);border-radius:12px;cursor:pointer;background:var(--surface2)'><input type='checkbox' name='{_esc(name)}' value='{ch.id}'{checked} style='width:18px;height:18px;accent-color:var(--accent)'><span>#{_esc(ch.name)}</span></label>")
-        return "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.55rem;max-height:320px;overflow:auto;padding:.2rem'>"+"".join(boxes)+"</div>"
+            boxes.append(
+                f"<label class='choice-option' data-choice-label='{_esc(ch.name.lower())}'>"
+                f"<input type='checkbox' name='{_esc(name)}' value='{ch.id}'{checked}>"
+                f"<span>#{_esc(ch.name)}</span></label>"
+            )
+        selected_names = ", ".join("#" + ch.name for ch in channels if ch.id in selected_ids)
+        return (
+            "<div class='choice-picker' data-choice-picker>"
+            f"<div class='choice-toolbar'><input class='choice-search' type='search' "
+            f"placeholder='Search channels…' aria-label='Search channels for { _esc(name) }' "
+            "autocomplete='off'><span class='choice-count' aria-live='polite'></span></div>"
+            f"<div class='choice-selected' aria-live='polite'>{_esc(selected_names) if selected_names else 'No channels selected yet'}</div>"
+            "<div class='choice-options'>" + "".join(boxes) + "</div>"
+            "<small class='choice-help'>Search by channel name, then tick the channels you want. Your existing selections stay selected while you search.</small>"
+            "</div>"
+        )
     opts = ["<option value=''>— Not set —</option>"] if allow_none else []
     for ch in channels:
         try:
@@ -381,8 +512,22 @@ def _role_multi_select(guild, name, selected=None):
     boxes=[]
     for role in roles:
         checked=" checked" if role.id in selected_ids else ""
-        boxes.append(f"<label style='display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:9px'><input type='checkbox' name='{_esc(name)}' value='{role.id}'{checked} style='width:17px;height:17px;accent-color:var(--orange)'><span>@{_esc(role.name)}</span></label>")
-    return "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;max-height:230px;overflow:auto;padding:2px'>"+"".join(boxes)+"</div>"
+        boxes.append(
+            f"<label class='choice-option' data-choice-label='{_esc(role.name.lower())}'>"
+            f"<input type='checkbox' name='{_esc(name)}' value='{role.id}'{checked}>"
+            f"<span>@{_esc(role.name)}</span></label>"
+        )
+    selected_names = ", ".join("@" + role.name for role in roles if role.id in selected_ids)
+    return (
+        "<div class='choice-picker' data-choice-picker>"
+        f"<div class='choice-toolbar'><input class='choice-search' type='search' "
+        f"placeholder='Search roles…' aria-label='Search roles for {_esc(name)}' autocomplete='off'>"
+        "<span class='choice-count' aria-live='polite'></span></div>"
+        f"<div class='choice-selected' aria-live='polite'>{_esc(selected_names) if selected_names else 'No roles selected yet'}</div>"
+        "<div class='choice-options'>" + "".join(boxes) + "</div>"
+        "<small class='choice-help'>Search by role name and select one or more. Existing selections are kept while filtering.</small>"
+        "</div>"
+    )
 
 
 def _form(guild_id, action, content, button="Save changes", danger=False):
