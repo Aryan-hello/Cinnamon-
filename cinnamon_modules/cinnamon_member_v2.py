@@ -16,6 +16,7 @@ from cinnamon_modules.brain_personalization import (
 from cinnamon_modules.brain_member_v2 import (
     due_today as _me_due_today,
     format_timezone_offset as _me_timezone,
+    level_progress as _me_level_progress,
 )
 
 _me_group = app_commands.Group(
@@ -162,6 +163,61 @@ async def cinnamon_me_today(interaction: discord.Interaction):
         "Use `/cinnamon-memory view` or `/cinnamon-memory edit` to manage notes.",
         "",
         "*Delivery depends on Cinnamon being online and your DMs allowing messages.*",
+    ])
+    await interaction.response.send_message(
+        "\n".join(lines)[:1800], ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
+@_me_group.command(name="progress", description="Privately see your level, XP, quests and achievements")
+@app_commands.guild_only()
+async def cinnamon_me_progress(interaction: discord.Interaction):
+    gid, uid = interaction.guild.id, interaction.user.id
+    if not _cb_storage_available():
+        return await interaction.response.send_message(
+            "⚠️ Your saved progress is unavailable right now, so I won't guess at your totals.",
+            ephemeral=True,
+        )
+    xp = max(0, int(xp_data.get((gid, uid), 0)))
+    summary = _me_level_progress(
+        xp, level_from_xp=level_from_xp,
+        total_xp_for_level=total_xp_for_level, max_level=MAX_LEVEL,
+    )
+    lines = [
+        "📈 **YOUR CINNAMON PROGRESS**",
+        f"⭐ Level: **{summary['level']} / {MAX_LEVEL}**",
+        f"✨ Total XP: **{summary['total_xp']:,}**",
+    ]
+    if summary["max_level"]:
+        lines.append("🏁 **Maximum level reached.**")
+    else:
+        lines.append(
+            f"Progress: **{summary['xp_into_level']:,}/{summary['xp_for_level']:,} XP** "
+            f"· **{summary['xp_remaining']:,} XP** to next level"
+        )
+    guild_quests = quest_data.get(gid, {})
+    member_quests = guild_quests.get("users", {}).get(str(uid), {})
+    history = member_quests.get("completed_history", [])
+    lines.append(f"📜 Quests completed: **{len(history) if isinstance(history, list) else 0}**")
+    lines.append(f"✨ Quest Points: **{max(0, int(member_quests.get('qp', 0))):,}**")
+    if guild_quests.get("daily_date") == _today():
+        daily_ids = guild_quests.get("daily_ids", [])
+        daily_progress = member_quests.get("daily", {})
+        done = sum(
+            1 for qid in daily_ids
+            if qid in DAILY_QUESTS and _completed(DAILY_QUESTS[qid], daily_progress.get(qid, {}))
+        )
+        lines.append(f"☀️ Daily quests: **{done}/{len(daily_ids)}** completed")
+    achievement = achievement_data.get((gid, uid), {})
+    unlocked = achievement.get("unlocked", []) if isinstance(achievement, dict) else []
+    secret = achievement.get("secret_unlocked", []) if isinstance(achievement, dict) else []
+    lines.append(f"🏆 Achievements: **{len(unlocked) if isinstance(unlocked, list) else 0}** unlocked")
+    lines.append(f"🔐 Secret achievements: **{len(secret) if isinstance(secret, list) else 0}** discovered")
+    lines.extend([
+        "",
+        "More detail: /rank, /quests progress, and /achievement list.",
+        "*Private to you. This is read-only; it never grants XP or rewards.*",
     ])
     await interaction.response.send_message(
         "\n".join(lines)[:1800], ephemeral=True,

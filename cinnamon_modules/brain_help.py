@@ -194,10 +194,10 @@ def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_la
                  "/cinnamon-memory edit", "/cinnamon-memory clear",
                  "/cinnamon-memory enable", "/cinnamon-me privacy")
     elif topic == "myday":
-        body = ("Your private daily view shows today's pending reminders in your own fixed "
-                "timezone and the number of preferences you explicitly saved. "
-                "It doesn't read your private messages or schedule anything by itself.")
-        paths = ("/cinnamon-me today", "/cinnamon-me privacy",
+        body = ("Your private daily view shows today's pending reminders, and your private "
+                "progress view summarizes your existing XP, level, quests and achievements. "
+                "These are read-only and do not grant rewards or schedule anything by themselves.")
+        paths = ("/cinnamon-me today", "/cinnamon-me progress", "/cinnamon-me privacy",
                  "/cinnamon-reminder create", "/cinnamon-memory view")
     elif topic == "independence":
         body = ("When allowed by an Administrator, I can choose whether to launch eligible "
