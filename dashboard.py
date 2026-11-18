@@ -363,6 +363,52 @@ td{border-bottom-color:#f0ebe4}
  .choice-option{min-height:44px}.actions .btn{min-height:44px}
  .tablewrap{border-radius:9px}.tablewrap table{min-width:520px}
 }
+
+/* Brighter pastel colour pattern — keep the interface light, never dark. */
+:root{
+ --cream:#fffaf2;--beige:#fff0df;--orange:#df8b45;--orange2:#f2b36f;
+ --brown:#51443b;--taupe:#8b7b70;--white:#fffefa;--line:#eee3d7;
+ --surface2:#fff8ee;--focus:#77a9cf;--green:#6b9c78;--red:#cf8178
+}
+body{background:#fffaf4;color:#51443b}
+.side{background:#fffdf9;border-right-color:#f0e5da}
+.serverbox{background:#fff5e9;border-color:#f2dfca}
+.navlabel,.crumb,.muted{color:#928174}
+.nav a{color:#76675c}
+.nav a.active{background:#ffedda;color:#9a5c2d;box-shadow:inset 3px 0 #e9a15f}
+.nav a:hover{background:#fff3e6}
+.hero{background:linear-gradient(115deg,#fff0dc 0%,#fff8eb 52%,#f0f7ee 100%);border-color:#f0dfca}
+.card{background:#fffefa;border-color:#eee4da}
+.card:nth-child(4n+1){border-top:3px solid #efbd83}
+.card:nth-child(4n+2){border-top:3px solid #b9d7c0}
+.card:nth-child(4n+3){border-top:3px solid #b9d6e9}
+.card:nth-child(4n){border-top:3px solid #d8c9e9}
+.iconbox{background:#fff0dc;border-color:#f4dfc4}
+.btn{background:#df914e;color:#fffdf8}
+.btn:hover{background:#cb7b38}
+.btn.secondary{background:#fff4e7;border-color:#efdcc7;color:#72543d}
+.btn.danger{background:#d4867d;color:#fff}
+.field label{color:#6f5e50}
+.field input,.field select,.field textarea,.searchable-select input{border-color:#eee0d1;color:#51443b;background:#fffefa}
+.field input:focus,.field select:focus,.field textarea:focus,.searchable-select input:focus,.choice-search:focus{border-color:#e5a96d;box-shadow:0 0 0 3px rgba(229,169,109,.16)}
+th{background:#fff5e9;color:#837164}
+.notice{background:#fff3df;border-color:#f1dfc5;color:#765b40}
+.pill{background:#f5eee5;color:#776658}
+.choice-picker{background:#fffefa;border-color:#eee1d3}
+.choice-search{border-color:#eee0d1;color:#51443b}
+.choice-count{color:#918072}
+.choice-chip{border-color:#f0d9bf;background:#fff1df;color:#8b572f}
+.choice-chip:hover{background:#ffe8ce}
+.choice-option{border-color:#f0e7dd;background:#fffefa}
+.choice-option:hover{border-color:#e8c69f;background:#fff7ed}
+.choice-option input{accent-color:#df914e}
+.choice-help{color:#928276}
+@media(max-width:650px){
+ body{background:#fffaf4}
+ .hero{background:linear-gradient(140deg,#fff0dc,#fff8ec 62%,#f1f8ef)}
+ .card:nth-child(n){border-top-width:2px}
+}
+
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
 
 """
