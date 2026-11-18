@@ -192,13 +192,18 @@ def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_la
                 "You can privately edit, delete or disable notes anytime without waiting for staff.")
         paths = ("/cinnamon-memory status", "/cinnamon-memory save", "/cinnamon-memory view",
                  "/cinnamon-memory edit", "/cinnamon-memory clear",
-                 "/cinnamon-memory enable", "/cinnamon-me privacy")
+                 "/cinnamon-memory enable", "/cinnamon-me ask", "/cinnamon-me privacy")
     elif topic == "myday":
         body = ("Your private daily view shows today's pending reminders, and your private "
                 "progress view summarizes your existing XP, level, quests and achievements. "
                 "These are read-only and do not grant rewards or schedule anything by themselves.")
-        paths = ("/cinnamon-me today", "/cinnamon-me progress", "/cinnamon-me privacy",
-                 "/cinnamon-reminder create", "/cinnamon-memory view")
+        paths = ("/cinnamon-me today", "/cinnamon-me progress", "/cinnamon-me ask",
+                 "/cinnamon-me privacy", "/cinnamon-reminder create", "/cinnamon-memory view")
+    elif topic == "progress":
+        body = ("Your private progress view summarizes your existing level, XP, quests, Quest Points, "
+                "and achievements. It is read-only and never grants XP or rewards.")
+        paths = ("/cinnamon-me progress", "/cinnamon-me ask", "/rank",
+                 "/quests progress", "/achievement list")
     elif topic == "independence":
         body = ("When allowed by an Administrator, I can choose whether to launch eligible "
                 "Hangry Games, pose an optional no-ping question, or stay quiet. "
@@ -289,7 +294,7 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
     is_question = overview_request or bool(_QUERY.match(query)) or simple_topic in {
         "quests", "quest", "fishing", "stories", "achievements", "economy", "catnip",
         "help", "reminder", "reminders", "memory", "memories", "independence", "brain",
-        "incident", "incidents", "today", "my day", "myday", "privacy",
+        "incident", "incidents", "today", "my day", "myday", "privacy", "progress", "my progress",
     }
     if not is_question:
         return None
@@ -314,6 +319,8 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
 
     if re.search(r"\b(?:my\s+day|my\s+schedule|today(?:'s)?\s+(?:plan|overview)|personal\s+dashboard|privacy)\b", lower):
         topic = "myday"
+    elif re.search(r"\b(?:my\s+progress|progress|level|xp|quest points|achievements)\b", lower):
+        topic = "progress"
     elif re.search(r"\b(?:reminders?|remind\s+me)\b", lower):
         topic = "reminders"
     elif re.search(r"\b(?:memories|memory|remember\s+(?:things|people))\b", lower):
