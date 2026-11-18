@@ -382,45 +382,56 @@ async def quest_cmd(interaction):
 @bot.group(name="quest", aliases=["quests"], invoke_without_command=True)
 @commands.guild_only()
 async def prefix_quest(ctx):
-    d=_ensure_rolls(ctx.guild.id); u=_user(ctx.guild.id,ctx.author.id)
+    d = _ensure_rolls(ctx.guild.id)
+    u = _user(ctx.guild.id, ctx.author.id)
+
     def render(scope, defs, ids):
-        lines=[]
+        lines = []
         for qid in ids:
-            q=defs[qid]; p=_prog(u,scope,qid); done="✅" if _completed(q,p) else "⬜"; cur=p.get("count",p.get("value",0)); target=q.get("target","—")
+            q = defs[qid]
+            p = _prog(u, scope, qid)
+            done = "✅" if _completed(q, p) else "⬜"
+            cur = p.get("count", p.get("value", 0))
+            target = q.get("target", "—")
             lines.append(f"{done} **{q['name']}** — {cur}/{target} · {q['qp']} QP + {q['xp']} XP")
-        return "\n".join(lines) or "None"
-    embed=discord.Embed(title="📜 Cinnamon Quests",color=0xFFB02E)
-    embed.add_field(name="☀️ Daily",value=render("daily",DAILY_QUESTS,d.get("daily_ids",[]))[:1024],inline=False)
-    embed.add_field(name="📅 Weekly",value=render("weekly",WEEKLY_QUESTS,d.get("weekly_ids",[]))[:1024],inline=False)
-    embed.set_footer(text=f"Quest Points: {u['qp']:,} • Use ?quest daily, ?quest weekly, or ?quest progress")
-    await ctx.reply(embed=embed,mention_author=False)
+        return "\\n".join(lines) or "None"
 
-@prefix_quest.command(name="daily")
-@commands.guild_only()
-async def prefix_quest_daily(ctx):
-    d=_ensure_rolls(ctx.guild.id); u=_user(ctx.guild.id,ctx.author.id)
-    lines=[]
-    for qid in d.get("daily_ids",[]):
-        q=DAILY_QUESTS[qid]; p=_prog(u,"daily",qid); done="✅" if _completed(q,p) else "⬜"; cur=p.get("count",p.get("value",0))
-        lines.append(f"{done} **{q['name']}** — {cur}/{q.get('target','—')} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
-    await ctx.reply("**☀️ Daily Cinnamon Quests**\n\n"+"\n\n".join(lines),mention_author=False)
+    embed = discord.Embed(title="📜 Cinnamon Quests", color=0xFFB02E)
+    embed.add_field(name="☀️ Daily", value=render("daily", DAILY_QUESTS, d.get("daily_ids", []))[:1024], inline=False)
+    embed.add_field(name="📅 Weekly", value=render("weekly", WEEKLY_QUESTS, d.get("weekly_ids", []))[:1024], inline=False)
+    embed.set_footer(text=f"Quest Points: {u['qp']:,} • Choose Daily or Weekly below")
+    await ctx.reply(embed=embed, view=QuestLauncherView(ctx.guild.id, ctx.author.id),
+                    mention_author=False)
 
-@prefix_quest.command(name="weekly")
-@commands.guild_only()
-async def prefix_quest_weekly(ctx):
-    d=_ensure_rolls(ctx.guild.id); u=_user(ctx.guild.id,ctx.author.id)
-    lines=[]
-    for qid in d.get("weekly_ids",[]):
-        q=WEEKLY_QUESTS[qid]; p=_prog(u,"weekly",qid); done="✅" if _completed(q,p) else "⬜"; cur=p.get("count",p.get("value",0))
-        lines.append(f"{done} **{q['name']}** — {cur}/{q.get('target','—')} · **{q['qp']} QP + {q['xp']} XP**\n{q['desc']}")
-    await ctx.reply("**📅 Weekly Cinnamon Quests**\n\n"+"\n\n".join(lines),mention_author=False)
 
-@prefix_quest.command(name="progress")
-@commands.guild_only()
-async def prefix_quest_progress(ctx):
-    d=_ensure_rolls(ctx.guild.id); u=_user(ctx.guild.id,ctx.author.id)
-    completed=len(u.get("completed_history",[]))
-    await ctx.reply(f"📜 **Quest Progress**\n• Quest Points: **{u['qp']:,}**\n• Completed quests: **{completed}**\n• Active daily: **{len(d.get('daily_ids',[]))}/5**\n• Active weekly: **{len(d.get('weekly_ids',[]))}/5**",mention_author=False)
+class QuestLauncherView(discord.ui.View):
+    """Two-button launcher for the prefix !quest / ?quest overview."""
+
+    def __init__(self, guild_id: int, user_id: int):
+        super().__init__(timeout=300)
+        self.guild_id = int(guild_id)
+        self.user_id = int(user_id)
+        daily = discord.ui.Button(label="Daily Quests", emoji="☀️", style=discord.ButtonStyle.success)
+        weekly = discord.ui.Button(label="Weekly Quests", emoji="📅", style=discord.ButtonStyle.primary)
+        daily.callback = self._daily
+        weekly.callback = self._weekly
+        self.add_item(daily)
+        self.add_item(weekly)
+
+    async def _open(self, interaction, scope):
+        if (interaction.user.id != self.user_id or not interaction.guild
+                or interaction.guild.id != self.guild_id):
+            return await interaction.response.send_message(
+                "🐾 This quest panel belongs to the person who opened it.", ephemeral=True)
+        await interaction.response.edit_message(
+            embed=quest_scope_embed(self.guild_id, self.user_id, scope, 0),
+            view=QuestPageView(self.guild_id, self.user_id, scope, 0))
+
+    async def _daily(self, interaction):
+        await self._open(interaction, "daily")
+
+    async def _weekly(self, interaction):
+        await self._open(interaction, "weekly")
 
 
 # Canonical grouped commands; the old redundant /dailyquests and
