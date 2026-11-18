@@ -315,5 +315,85 @@ class MyDayPrivacyTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Another person's task", text)
 
 
+class PrivateSnapshotTests(unittest.TestCase):
+    def test_snapshot_is_read_only_scoped_and_includes_bounded_progress(self):
+        quest_state = {
+            1: {
+                "daily_date": "2026-11-19",
+                "daily_ids": ["daily_one"],
+                "weekly_key": "2026-W47",
+                "weekly_ids": ["weekly_one"],
+                "users": {
+                    "10": {
+                        "qp": 50,
+                        "completed_history": [{"id": "old", "scope": "daily"}],
+                        "daily": {"daily_one": {"count": 2}},
+                        "weekly": {"weekly_one": {"count": 2}},
+                    },
+                    "11": {
+                        "qp": 9999,
+                        "daily": {"daily_one": {"count": 3}},
+                    },
+                },
+            }
+        }
+        balances = {(1, 10): 1000, (1, 11): 999999}
+        inventory = {(1, 10): {"tuna": 2}, (1, 11): {"private_item": 999}}
+        xp = {(1, 10): 120, (1, 11): 999999}
+        achievements = {
+            (1, 10): {"unlocked": ["a", "b"], "secret_unlocked": ["s"]},
+            (1, 11): {"unlocked": ["private"], "secret_unlocked": ["secret"]},
+        }
+        original = copy.deepcopy((quest_state, balances, inventory, xp, achievements))
+        namespace = {
+            "_cb_storage_available": lambda: True,
+            "economy_balances": balances,
+            "economy_inventory": inventory,
+            "xp_data": xp,
+            "_me_level_progress": lambda *args, **kwargs: {
+                "level": 4, "total_xp": 120, "xp_remaining": 30,
+            },
+            "level_from_xp": lambda value: 4,
+            "total_xp_for_level": lambda value: value * 100,
+            "MAX_LEVEL": 200,
+            "quest_data": quest_state,
+            "_today": lambda: "2026-11-19",
+            "_week": lambda: "2026-W47",
+            "DAILY_QUESTS": {"daily_one": {"name": "Daily One", "target": 3}},
+            "WEEKLY_QUESTS": {"weekly_one": {"name": "Weekly One", "target": 2}},
+            "_completed": lambda definition, state: (
+                int(state.get("count", 0)) >= int(definition["target"])
+            ),
+            "achievement_data": achievements,
+            "advanced_features_data": {},
+        }
+        ns = runtime_functions("cinnamon_member_v2.py", {"_me_private_snapshot"}, namespace)
+        snapshot = ns["_me_private_snapshot"](1, 10, ["wallet", "progress"])
+
+        self.assertEqual(snapshot["wallet"]["catnip"], 1000)
+        self.assertEqual(snapshot["wallet"]["inventory"], {"tuna": 2})
+        self.assertEqual(snapshot["progress"]["level"], 4)
+        self.assertEqual(snapshot["progress"]["quest_points"], 50)
+        self.assertEqual(snapshot["progress"]["quests_completed"], 1)
+        self.assertEqual(snapshot["progress"]["daily_quests"][0]["current"], 2)
+        self.assertFalse(snapshot["progress"]["daily_quests"][0]["completed"])
+        self.assertTrue(snapshot["progress"]["weekly_quests"][0]["completed"])
+        self.assertEqual(snapshot["progress"]["achievements_unlocked"], 2)
+        self.assertEqual(snapshot["progress"]["secret_achievements_discovered"], 1)
+        self.assertNotIn("private_item", repr(snapshot))
+        self.assertNotIn("999999", repr(snapshot))
+        self.assertEqual((quest_state, balances, inventory, xp, achievements), original)
+
+    def test_unavailable_storage_returns_no_member_values(self):
+        ns = runtime_functions(
+            "cinnamon_member_v2.py", {"_me_private_snapshot"},
+            {"_cb_storage_available": lambda: False},
+        )
+        snapshot = ns["_me_private_snapshot"](1, 10, ["wallet", "progress"])
+        self.assertFalse(snapshot["wallet"]["available"])
+        self.assertFalse(snapshot["progress"]["available"])
+        self.assertNotIn("catnip", snapshot["wallet"])
+
+
 if __name__ == "__main__":
     unittest.main()
