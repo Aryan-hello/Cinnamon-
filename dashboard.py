@@ -419,7 +419,7 @@ def _header():
 
 
 def _nav(guild_id, tab):
-    items = [("overview", "⌂", "Overview"), ("mind", "🐈", "Cinnamon Mind"), ("adventure", "🎣", "Adventures & Fishing"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
+    items = [("overview", "⌂", "Overview"), ("mind", "🐈", "Cinnamon Mind"), ("adventure", "🎣", "Adventures & Fishing"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("companions", "🐱", "Companions"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
     links = "".join(
         f"<a class='{'active' if tab == key else ''}' href='/dashboard?guild_id={guild_id}&tab={key}'><span>{ico}</span>{label}</a>" for key, ico, label in items
     )
@@ -1077,6 +1077,48 @@ def _hangry(guild,state):
     return body
 
 
+
+def _companions(guild, state):
+    gid = str(guild.id)
+    profiles = (state.get("companion_profiles", {}) or {}).get(gid, {}) or {}
+    records = []
+    total_friendship = total_feeds = total_plays = total_grooms = 0
+    for user_id, profile in profiles.items():
+        if not isinstance(profile, dict):
+            continue
+        stats = profile.get("stats", {}) or {}
+        friendship = int(profile.get("friendship", 0))
+        feeds, plays, grooms = int(stats.get("feeds", 0)), int(stats.get("plays", 0)), int(stats.get("grooms", 0))
+        total_friendship += friendship
+        total_feeds += feeds
+        total_plays += plays
+        total_grooms += grooms
+        member = guild.get_member(int(user_id)) if str(user_id).isdigit() else None
+        records.append((str(profile.get("name", "Mochi")), member.display_name if member else "Member " + str(user_id),
+                        int(profile.get("level", 1)), str(profile.get("mood", "Content")), friendship,
+                        feeds, plays, grooms, len(profile.get("equipped", {}) or {}), len(profile.get("room", []) or [])))
+    records.sort(key=lambda x: (x[2], x[4]), reverse=True)
+    rows = "".join(
+        "<tr><td>" + _esc(member) + "</td><td>" + _esc(name) + "</td><td>" + str(level) +
+        "</td><td>" + _esc(mood) + "</td><td>" + f"{friendship:,}" +
+        "</td><td>" + str(feeds) + " / " + str(plays) + " / " + str(grooms) +
+        "</td><td>" + str(accessories) + "</td><td>" + str(decor) + "</td></tr>"
+        for name, member, level, mood, friendship, feeds, plays, grooms, accessories, decor in records[:100]
+    ) or "<tr><td colspan='8'>No personal companion profiles yet.</td></tr>"
+    return (
+        "<h1>Companions</h1><p class='muted'>Member-owned cats, friendship progression, care activity, accessories and room decorations. Personal memory text is private and is not displayed here.</p>"
+        "<div class='grid'>"
+        "<article class='card third'><div class='statlabel'>Companion profiles</div><div class='stat'>" + f"{len(records):,}" + "</div></article>"
+        "<article class='card third'><div class='statlabel'>Friendship points</div><div class='stat'>" + f"{total_friendship:,}" + "</div></article>"
+        "<article class='card third'><div class='statlabel'>Care actions</div><div class='stat'>" + f"{total_feeds + total_plays + total_grooms:,}" + "</div></article>"
+        "<article class='card full'><h2>Member companion roster</h2><div class='tablewrap'><table><thead><tr><th>Member</th><th>Cat</th><th>Level</th><th>Mood</th><th>Friendship</th><th>Feed / Play / Groom</th><th>Accessories</th><th>Room decor</th></tr></thead><tbody>"
+        + rows + "</tbody></table></div><p class='muted'>Members manage their own cat with /pet, /feed, /play, /groom, /dressup and /room. Shared accessories and furniture are managed through the Catnip economy.</p></article>"
+        "<article class='card half'><h2>Companion care totals</h2><p>Feeds: <b>" + f"{total_feeds:,}" + "</b></p><p>Play sessions: <b>" + f"{total_plays:,}" + "</b></p><p>Grooming sessions: <b>" + f"{total_grooms:,}" + "</b></p></article>"
+        "<article class='card half'><h2>Companion item catalogue</h2><p class='muted'>Accessories and room furniture use the same member inventory as the rest of the economy. Items remain in inventory when equipped; furniture moves between inventory and the room.</p><div class='actions'><a class='btn secondary' href='/dashboard?guild_id=" + str(guild.id) + "&tab=economy'>Open Catnip Economy</a></div></article>"
+        "</div>"
+    )
+
+
 def _community(guild,state):
     gid=guild.id; welcome=state.get("welcome_config",{}).get(gid,{}); goodbye=state.get("goodbye_config",{}).get(gid,{})
     ai=state.get("ai_channels",{}).get(gid); logs=state.get("log_channels",{}).get(gid)
@@ -1638,10 +1680,10 @@ def dashboard_home():
         return _page("<main class='main'>"+_header()+body+"</main>")
     guild_id=request.args.get("guild_id") or eligible[0]["id"]
     guild,guild_item=_get_access(sid,guilds,guild_id)
-    tab=request.args.get("tab","overview"); allowed={"overview","mind","adventure","automation","moderation","engagement","achievements","quests","friendship","economy","giveaways","tickets","roles_setup","hangry","community","message_studio","analytics","activity_logs","system"}
+    tab=request.args.get("tab","overview"); allowed={"overview","mind","adventure","automation","moderation","engagement","achievements","quests","friendship","companions","economy","giveaways","tickets","roles_setup","hangry","community","message_studio","analytics","activity_logs","system"}
     if tab not in allowed: tab="overview"
     state=_state(); notice=session.pop("dashboard_notice",None)
-    pages={"overview":_overview,"mind":_mind,"adventure":_adventure,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"economy":_economy,"giveaways":_giveaways,"tickets":_tickets,"roles_setup":_roles_setup,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
+    pages={"overview":_overview,"mind":_mind,"adventure":_adventure,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"companions":_companions,"economy":_economy,"giveaways":_giveaways,"tickets":_tickets,"roles_setup":_roles_setup,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
     return _shell(guild,eligible,tab,pages[tab](guild,state),notice)
 
 
