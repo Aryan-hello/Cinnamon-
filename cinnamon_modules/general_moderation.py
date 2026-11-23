@@ -5,7 +5,7 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
-@bot.tree.command(name="pet", description="Give Cinnamon some pets")
+@bot.tree.command(name="cinnamon-pet", description="Give Cinnamon the server mascot some pets")
 async def pet(interaction: discord.Interaction):
     mood = await _cm_action(interaction.guild, interaction.user, "pet") if interaction.guild else ""
     await cinnamon_send(interaction, "*melts into a puddle of fluff, purring loudly* Purrrrr... more, please?\n" + mood)
