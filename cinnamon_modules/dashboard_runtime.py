@@ -256,6 +256,7 @@ def dashboard_state_provider() -> dict:
         "companion_profiles": advanced_features_data.get("companion_profiles_v1", {}),
         "marketplace_state": advanced_features_data.get("player_market_v1", {}),
         "auction_state": advanced_features_data.get("player_auctions_v1", {}),
+        "CinnamonVerificationView": globals().get("CinnamonVerificationView"),
         "brain_storage": {"ready": bd_store.ready, "durable": bd_store.durable,
                           "status": bd_store.status, "pending": bool(bd_store.pending_receipt)},
         "cinnamon_brain": advanced_features_data.setdefault("cinnamon_brain_v1", {}),
