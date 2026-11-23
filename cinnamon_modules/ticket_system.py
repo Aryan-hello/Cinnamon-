@@ -165,24 +165,52 @@ class TicketControls(discord.ui.View):
         if not ticket: return await interaction.response.send_message("Ticket record not found.",ephemeral=True)
         guild=interaction.guild; cfg=_ticket_guild(guild.id); staff=set(map(int,cfg.get("settings",{}).get("staff_role_ids",[])))
         is_staff=interaction.user.guild_permissions.administrator or any(r.id in staff for r in interaction.user.roles) or cinnamon_role_has(interaction.user,"ticket_staff") or cinnamon_role_has(interaction.user,"ticket_admin")
-        if action in ("claim","unclaim"):
-            gag= str(ticket.get("routing","")).lower()=="grow_a_garden"
-            trusted=any(r.id in set(map(int,cfg.get("settings",{}).get("trusted_booster_role_ids",[]))) for r in interaction.user.roles) or cinnamon_role_has(interaction.user,"trusted_booster")
-            if not (is_staff or (gag and trusted)): return await interaction.response.send_message("Only authorized ticket staff can claim tickets.",ephemeral=True)
-            if action=="claim" and ticket.get("claimed_by") not in (None,interaction.user.id): return await interaction.response.send_message("Already claimed by another staff member.",ephemeral=True)
-            if action=="claim" and gag:
-                item_id=str(ticket.get("service_item_id","")); inv=economy_inventory_for(guild.id,int(ticket.get("creator_id",0)))
-                if not item_id or int(inv.get(item_id,0))<1: return await interaction.response.send_message("Member does not own the purchased service item. Claim refused.",ephemeral=True)
-                inv[item_id]=int(inv[item_id])-1
-                if inv[item_id]<=0: inv.pop(item_id,None)
-                ticket["service_consumed"]=True; ticket["service_claimed_at"]=_time.time()
-                ticket["service_confirmations"]={"member":False,"booster":False}
-            ticket["claimed_by"]=interaction.user.id if action=="claim" else None
-            if not await bd_save_data(): return await interaction.response.send_message("Could not save ticket transaction; claim cancelled.",ephemeral=True)
-            await _ticket_log(guild,action,interaction.user,ticket)
-            if action=="claim" and gag:
-                await interaction.channel.send(f"✅ {interaction.user.mention} claimed this Grow a Garden service. The member's service item was verified and removed from inventory. The Trusted Booster can now proceed with the service.",view=GAGServiceCompletionView(ticket["ticket_id"]))
-            return await interaction.response.send_message("Ticket "+("claimed." if action=="claim" else "unclaimed."),ephemeral=True)
+        if action in ("claim", "unclaim"):
+            gag = str(ticket.get("routing", "")).lower() == "grow_a_garden"
+            trusted = any(r.id in set(map(int, cfg.get("settings", {}).get("trusted_booster_role_ids", [])))
+                          for r in interaction.user.roles) or cinnamon_role_has(interaction.user, "trusted_booster")
+            if not (is_staff or (gag and trusted)):
+                return await interaction.response.send_message("Only authorized ticket staff can claim tickets.", ephemeral=True)
+            if action == "claim" and ticket.get("claimed_by") not in (None, interaction.user.id):
+                return await interaction.response.send_message("Already claimed by another staff member.", ephemeral=True)
+            if action == "unclaim" and gag and ticket.get("service_consumed"):
+                return await interaction.response.send_message(
+                    "A Grow a Garden service cannot be unclaimed after its voucher has been consumed. Complete the service or ask an administrator to review it.",
+                    ephemeral=True)
+            before_ticket = _copy.deepcopy(ticket)
+            service_inv = None
+            before_inventory = None
+            if action == "claim" and gag:
+                item_id = str(ticket.get("service_item_id", ""))
+                creator_id = int(ticket.get("creator_id", 0))
+                service_inv = economy_inventory_for(guild.id, creator_id)
+                if not item_id or int(service_inv.get(item_id, 0)) < 1:
+                    return await interaction.response.send_message(
+                        "Member does not own the purchased service item. Claim refused.", ephemeral=True)
+                before_inventory = dict(service_inv)
+                service_inv[item_id] = int(service_inv[item_id]) - 1
+                if service_inv[item_id] <= 0:
+                    service_inv.pop(item_id, None)
+                ticket["service_consumed"] = True
+                ticket["service_claimed_at"] = _time.time()
+                ticket["service_confirmations"] = {"member": False, "booster": False}
+            ticket["claimed_by"] = interaction.user.id if action == "claim" else None
+            if not await bd_save_data():
+                ticket.clear()
+                ticket.update(before_ticket)
+                if service_inv is not None and before_inventory is not None:
+                    service_inv.clear()
+                    service_inv.update(before_inventory)
+                return await interaction.response.send_message(
+                    "Could not save the ticket transaction. The claim and inventory change were rolled back.",
+                    ephemeral=True)
+            await _ticket_log(guild, action, interaction.user, ticket)
+            if action == "claim" and gag:
+                await interaction.channel.send(
+                    f"✅ {interaction.user.mention} claimed this Grow a Garden service. The member's unfulfilled service voucher was consumed and saved. The Trusted Booster can now proceed with the service.",
+                    view=GAGServiceCompletionView(ticket["ticket_id"]))
+            return await interaction.response.send_message(
+                "Ticket " + ("claimed." if action == "claim" else "unclaimed."), ephemeral=True)
         if action=="close":
             if not is_staff and interaction.user.id!=int(ticket.get("creator_id",0)): return await interaction.response.send_message("Only creator or staff can close.",ephemeral=True)
             return await interaction.response.send_modal(TicketCloseModal(self.ticket_id,interaction.user.id))
