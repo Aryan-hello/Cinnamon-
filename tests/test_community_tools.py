@@ -30,7 +30,7 @@ class CommunityToolsTests(unittest.TestCase):
                 func = decorator.func
                 if (isinstance(func, ast.Attribute) and func.attr == "command"
                         and isinstance(func.value, ast.Attribute)
-                        and func.value.attr == "tree"):
+                        and func.value.attr == "community_group"):
                     for keyword in decorator.keywords:
                         if keyword.arg == "name" and isinstance(keyword.value, ast.Constant):
                             names.append(keyword.value.value)
