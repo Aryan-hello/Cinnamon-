@@ -651,6 +651,153 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
     await _cp_react(interaction.guild, interaction.user, interaction.channel, "big_purchase", value=cost)
 
 
+
+def economy_sell_value(item_id: str, item: dict) -> int:
+    """Return the configured resale value; services and mystery rewards need provenance."""
+    if item.get("sellable") is False or item.get("service_type") or item.get("category") == "grow_a_garden":
+        return 0
+    # Mystery Box rewards are not sold until their original box tier is recorded.
+    tiers = globals().get("BOX_TIERS", {})
+    if any(item_id in (tier.get("items", []) + tier.get("materials", []))
+           for tier in tiers.values()):
+        return 0
+    configured = item.get("sell_price")
+    if configured is not None:
+        return max(0, int(configured))
+    return max(0, int(item.get("price", 0)) // 2)
+
+
+class EconomySellConfirmView(discord.ui.View):
+    def __init__(self, guild_id: int, user_id: int, item_id: str, quantity: int,
+                 unit_value: int, item_name: str):
+        super().__init__(timeout=60)
+        self.guild_id = int(guild_id)
+        self.user_id = int(user_id)
+        self.item_id = str(item_id)
+        self.quantity = int(quantity)
+        self.unit_value = int(unit_value)
+        self.item_name = str(item_name)
+        self.finished = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "🐾 This sale confirmation belongs to the member who requested it.",
+                ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Confirm sale", emoji="💰", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.finished:
+            return await interaction.response.send_message("This sale is already closed.", ephemeral=True)
+        lock = _CINNAMON_SHOP_LOCKS.setdefault(
+            (self.guild_id, self.user_id), asyncio.Lock())
+        async with lock:
+            inv = economy_inventory_for(self.guild_id, self.user_id)
+            owned = int(inv.get(self.item_id, 0))
+            if owned < self.quantity:
+                self.finished = True
+                for child in self.children:
+                    child.disabled = True
+                return await interaction.response.edit_message(
+                    content="❌ Your inventory changed. You no longer own enough of this item; nothing was sold.",
+                    embed=None, view=self)
+            item = ECONOMY_ITEMS.get(self.item_id, {})
+            unit_value = economy_sell_value(self.item_id, item)
+            if unit_value <= 0:
+                self.finished = True
+                for child in self.children:
+                    child.disabled = True
+                return await interaction.response.edit_message(
+                    content="❌ This item cannot be sold. Service items and Mystery Box rewards need their provenance rules first.",
+                    embed=None, view=self)
+            before = economy_balance(self.guild_id, self.user_id)
+            payout = unit_value * self.quantity
+            inv[self.item_id] = owned - self.quantity
+            if inv[self.item_id] <= 0:
+                inv.pop(self.item_id, None)
+            economy_balances[(self.guild_id, self.user_id)] = before + payout
+            saved = await bd_save_data()
+            if not saved:
+                inv[self.item_id] = owned
+                economy_balances[(self.guild_id, self.user_id)] = before
+                self.finished = True
+                for child in self.children:
+                    child.disabled = True
+                return await interaction.response.edit_message(
+                    content="⚠️ Cinnamon couldn't save this sale. Your item and balance were restored; please try again later.",
+                    embed=None, view=self)
+            after = before + payout
+            remaining = int(inv.get(self.item_id, 0))
+            self.finished = True
+            for child in self.children:
+                child.disabled = True
+        await economy_log(self.guild_id, title="💰 Economy item sold", fields=[
+            ("User", f"{interaction.user} ({self.user_id})"),
+            ("Item", f"{self.item_name} ({self.item_id})"),
+            ("Quantity", self.quantity),
+            ("Unit resale value", f"{unit_value:,} Catnip"),
+            ("Payout", f"+{payout:,} Catnip"),
+            ("Balance before", f"{before:,} Catnip"),
+            ("Balance after", f"{after:,} Catnip"),
+            ("Remaining quantity", remaining),
+        ])
+        await interaction.response.edit_message(
+            content=f"✅ Sold **{self.quantity:,}× {self.item_name}** for **{payout:,} Catnip**. New balance: **{after:,} Catnip**.",
+            embed=None, view=self)
+
+    @discord.ui.button(label="Cancel", emoji="✖️", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.finished:
+            return await interaction.response.send_message("This sale is already closed.", ephemeral=True)
+        self.finished = True
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="Sale cancelled. Your inventory and balance are unchanged.",
+                                                embed=None, view=self)
+
+
+@economy_group.command(name="sell", description="Sell eligible items from your inventory")
+@app_commands.describe(item="Search for an item you own", quantity="How many to sell")
+@app_commands.autocomplete(item=cinnamon_item_autocomplete)
+@app_commands.guild_only()
+async def economy_sell_cmd(interaction: discord.Interaction, item: str, quantity: app_commands.Range[int, 1, 99] = 1):
+    guild_id, user_id = interaction.guild.id, interaction.user.id
+    item_id = str(item).strip().lower()
+    if item_id not in ECONOMY_ITEMS:
+        matches = [key for key, value in ECONOMY_ITEMS.items()
+                   if str(value.get("name", "")).lower() == item_id]
+        if len(matches) == 1:
+            item_id = matches[0]
+    data = ECONOMY_ITEMS.get(item_id)
+    if not data:
+        return await cinnamon_send(interaction, "❌ I couldn't find that item. Search by its catalogue name.", ephemeral=True)
+    owned = int(economy_inventory_for(guild_id, user_id).get(item_id, 0))
+    if owned < 1:
+        return await cinnamon_send(interaction, "❌ You don't own that item.", ephemeral=True)
+    if quantity < 1 or quantity > min(99, owned):
+        return await cinnamon_send(interaction, f"❌ You can sell between 1 and {min(99, owned)} of that item.", ephemeral=True)
+    unit_value = economy_sell_value(item_id, data)
+    if unit_value <= 0:
+        return await cinnamon_send(
+            interaction,
+            "❌ This item isn't currently eligible for resale. Grow a Garden services cannot be resold, and Mystery Box rewards will become sellable once their original box tier is recorded.",
+            ephemeral=True)
+    payout = unit_value * quantity
+    view = EconomySellConfirmView(guild_id, user_id, item_id, quantity,
+                                  unit_value, data.get("name", item_id))
+    embed = cinnamon_embed(
+        "💰 Confirm Item Sale",
+        f"Sell **{quantity:,}× {data.get('emoji', '📦')} {data.get('name', item_id)}** from your inventory?",
+        color=CINNAMON_ORANGE, user=interaction.user, footer="Cinnamon Economy • Sale")
+    cinnamon_field(embed, "Unit resale value", f"**{unit_value:,} Catnip**", True)
+    cinnamon_field(embed, "Total payout", f"**{payout:,} Catnip**", True)
+    cinnamon_field(embed, "Current balance", f"**{economy_balance(guild_id, user_id):,} Catnip**", True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), view=view,
+                                             ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
 @economy_group.command(name="daily", description="Claim your daily Catnip")
 @app_commands.guild_only()
 async def economy_daily_cmd(interaction: discord.Interaction):
