@@ -1199,8 +1199,7 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
                 economy_achievements[key] = sorted(set(economy_achievements.get(key, [])) | set(snap_achievements))
             else:
                 economy_achievements[key] = snap_achievements
-            if not had_balance:
-                restored += 1
+            restored += 1
         except (ValueError, TypeError):
             continue
     snapshot_income = latest.get("income_roles")
@@ -1615,7 +1614,7 @@ async def economy_iteminfo_cmd(interaction: discord.Interaction, item: str):
     await economy_log(interaction.guild.id, title="🔎 Economy item info viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{item['name']} (`{item_id}`)")])
 
 
-@economy_group.command(name="restore-snapshot", description="Restore the latest complete economy snapshot from the economy log channel")
+@economy_group.command(name="restore-snapshot", description="Merge missing economy data without overwriting existing balances")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def economy_restore_cmd(interaction: discord.Interaction):
@@ -1624,8 +1623,8 @@ async def economy_restore_cmd(interaction: discord.Interaction):
     if restored <= 0:
         await interaction.followup.send(f"⚠️ Economy recovery did not restore any users. {detail}", ephemeral=True)
         return
-    await economy_log(interaction.guild.id, title="🩹 Economy restored", description=f"Restored {restored} user account(s) from the latest snapshot.", fields=[("Snapshot", detail), ("Restored users", restored)])
-    await interaction.followup.send(f"🩹 Economy recovery complete. Restored **{restored}** user account(s) from the latest snapshot (**{detail}**).", ephemeral=True)
+    await economy_log(interaction.guild.id, title="🩹 Economy snapshot merged", description=f"Processed {restored} user account(s) from the latest snapshot. Existing wallets and inventory were preserved.", fields=[("Snapshot", detail), ("Processed accounts", restored), ("Mode", "Merge-only; existing balances are never overwritten")])
+    await interaction.followup.send(f"🩹 Economy recovery complete. Processed **{restored}** account(s) from the latest snapshot (**{detail}**). Existing Catnip balances and owned items were preserved; only missing data was added.", ephemeral=True)
 
 
 bot.tree.add_command(economy_group)
