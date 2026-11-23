@@ -7,6 +7,7 @@ import uuid as _ci_uuid
 
 _CI_KEY = "cinnamon_community_interactions_v1"
 _CI_LOCKS = {}
+_CI_VIEWS_READY = False
 
 def _ci_root(gid):
     root = advanced_features_data.setdefault(_CI_KEY, {})
@@ -408,6 +409,10 @@ async def _community_event_reminders():
 
 @bot.listen("on_ready")
 async def _community_interactions_restore():
+    global _CI_VIEWS_READY
+    if _CI_VIEWS_READY:
+        return
+    _CI_VIEWS_READY = True
     if not _community_event_reminders.is_running():
         _community_event_reminders.start()
     try:
