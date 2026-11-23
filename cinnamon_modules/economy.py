@@ -844,6 +844,44 @@ async def economy_sell_cmd(interaction: discord.Interaction, item: str, quantity
                                              ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
+@economy_group.command(name="box-resale-rate", description="Admin: configure Mystery Box reward resale percentages")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.choices(tier=[
+    app_commands.Choice(name="Common", value="common"),
+    app_commands.Choice(name="Rare", value="rare"),
+    app_commands.Choice(name="Epic", value="epic"),
+    app_commands.Choice(name="Legendary", value="legendary"),
+    app_commands.Choice(name="Mythical", value="mythical"),
+])
+async def economy_box_resale_rate_cmd(
+    interaction: discord.Interaction,
+    tier: app_commands.Choice[str],
+    percent: app_commands.Range[int, 1, 100],
+):
+    rates = _economy_box_resale_rates(interaction.guild.id)
+    before = dict(rates)
+    candidate = dict(rates)
+    candidate[tier.value] = int(percent)
+    order = ("common", "rare", "epic", "legendary", "mythical")
+    if any(candidate[order[i]] > candidate[order[i + 1]] for i in range(len(order) - 1)):
+        return await cinnamon_send(
+            interaction,
+            "Each higher Mystery Box tier must have an equal or greater resale percentage than the tier below it.",
+            ephemeral=True,
+        )
+    rates.update(candidate)
+    if not await bd_save_data():
+        rates.clear()
+        rates.update(before)
+        return await cinnamon_send(interaction, "Couldn't save the resale-rate change.", ephemeral=True)
+    await cinnamon_send(
+        interaction,
+        f"{tier.name} Mystery Box rewards now resell for **{percent}%** of their catalogue price. Higher rarity tiers retain higher resale rates.",
+        ephemeral=True,
+    )
+
+
 @economy_group.command(name="daily", description="Claim your daily Catnip")
 @app_commands.guild_only()
 async def economy_daily_cmd(interaction: discord.Interaction):
