@@ -823,13 +823,14 @@ async def economy_sell_cmd(interaction: discord.Interaction, item: str, quantity
         return await cinnamon_send(interaction, "❌ You don't own that item.", ephemeral=True)
     if quantity < 1 or quantity > min(99, owned):
         return await cinnamon_send(interaction, f"❌ You can sell between 1 and {min(99, owned)} of that item.", ephemeral=True)
-    unit_value = economy_sell_value(item_id, data)
-    if unit_value <= 0:
+    quote = economy_sell_quote(guild_id, user_id, item_id, quantity)
+    if quote is None:
         return await cinnamon_send(
             interaction,
-            "❌ This item isn't currently eligible for resale. Grow a Garden services cannot be resold, and Mystery Box rewards will become sellable once their original box tier is recorded.",
+            "❌ This item is not currently eligible for resale. Mystery Box rewards require recorded original-box provenance; delivered services have already been consumed.",
             ephemeral=True)
-    payout = unit_value * quantity
+    payout, _provenance_breakdown = quote
+    unit_value = payout // quantity
     view = EconomySellConfirmView(guild_id, user_id, item_id, quantity,
                                   unit_value, data.get("name", item_id))
     embed = cinnamon_embed(
