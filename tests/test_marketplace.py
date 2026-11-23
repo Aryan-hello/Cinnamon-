@@ -24,7 +24,7 @@ class MarketplaceTests(unittest.TestCase):
         self.assertIn('"status": "active"', self.source)
         self.assertIn("inv[item_id] = owned - quantity", self.source)
         self.assertIn("The listing couldn't be saved. Your item was returned.", self.source)
-        self.assertIn("record[\"status\"] = \"sold\"", self.source)
+        self.assertIn('rec["status"], rec["buyer_id"] = "sold", buyer_id', self.source)
         self.assertIn("_market_persist_or_rollback", self.source)
 
     def test_trade_offer_escrows_and_transfers_both_sides(self):
