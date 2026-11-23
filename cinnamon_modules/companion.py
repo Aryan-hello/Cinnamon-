@@ -9,6 +9,7 @@ import datetime as _companion_dt
 import time as _companion_time
 
 _COMPANION_KEY = "companion_profiles_v1"
+companion_group = app_commands.Group(name="companion", description="Care for and customize your personal Cinnamon cat")
 _COMPANION_LOCKS = {}
 _COMPANION_FOODS = {
     "treat": (12, 8), "tuna": (18, 10), "churu": (20, 12),
@@ -164,7 +165,7 @@ async def companion_pet(interaction: discord.Interaction, name: str | None = Non
         embed = _companion_embed(interaction.guild, interaction.user, profile)
     await interaction.response.send_message(embed=embed, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
-@bot.tree.command(name="feed", description="Feed your personal cat companion with food you own")
+@companion_group.command(name="feed", description="Feed your personal cat companion with food you own")
 @app_commands.guild_only()
 @app_commands.describe(item="Choose food from your inventory")
 @app_commands.autocomplete(item=companion_food_autocomplete)
@@ -191,7 +192,7 @@ async def companion_feed(interaction: discord.Interaction, item: str):
         embed = _companion_embed(interaction.guild, interaction.user, profile)
     await interaction.response.send_message(content=f"🍽️ You fed **{profile['name']}** with **{ECONOMY_ITEMS[item_id]['name']}**.", embed=embed, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
-@bot.tree.command(name="play", description="Play with your personal cat companion")
+@companion_group.command(name="play", description="Play with your personal cat companion")
 @app_commands.guild_only()
 async def companion_play(interaction: discord.Interaction):
     gid, uid = interaction.guild.id, interaction.user.id
@@ -211,7 +212,7 @@ async def companion_play(interaction: discord.Interaction):
         embed = _companion_embed(interaction.guild, interaction.user, profile)
     await interaction.response.send_message(content=f"🧶 You played with **{profile['name']}**!", embed=embed, ephemeral=True)
 
-@bot.tree.command(name="groom", description="Brush and groom your personal cat companion")
+@companion_group.command(name="groom", description="Brush and groom your personal cat companion")
 @app_commands.guild_only()
 async def companion_groom(interaction: discord.Interaction):
     gid, uid = interaction.guild.id, interaction.user.id
@@ -230,7 +231,7 @@ async def companion_groom(interaction: discord.Interaction):
         embed = _companion_embed(interaction.guild, interaction.user, profile)
     await interaction.response.send_message(content=f"🪮 **{profile['name']}** is looking tidy.", embed=embed, ephemeral=True)
 
-@bot.tree.command(name="dressup", description="Equip or remove accessories from your personal cat")
+@companion_group.command(name="dressup", description="Equip or remove accessories from your personal cat")
 @app_commands.guild_only()
 @app_commands.choices(action=[app_commands.Choice(name="Equip", value="equip"), app_commands.Choice(name="Unequip", value="unequip")])
 @app_commands.describe(action="Choose whether to equip or remove an accessory", item="An accessory you own")
@@ -265,7 +266,7 @@ async def companion_dressup(interaction: discord.Interaction, action: app_comman
     e.add_field(name="Accessories", value=", ".join(names) if names else "No accessories equipped", inline=False)
     await interaction.response.send_message(content=message, embed=e, ephemeral=True)
 
-@bot.tree.command(name="room", description="Customize your companion's room with Catnip furniture")
+@companion_group.command(name="room", description="Customize your companion's room with Catnip furniture")
 @app_commands.guild_only()
 @app_commands.choices(action=[
     app_commands.Choice(name="View room", value="view"), app_commands.Choice(name="Buy furniture", value="buy"),
@@ -306,7 +307,7 @@ async def companion_room(interaction: discord.Interaction, action: app_commands.
     e.add_field(name="Furniture placed", value=str(len(rooms)), inline=True)
     await interaction.response.send_message(embed=e, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
-@_mood_group.command(name="companion", description="See your personal cat companion's current mood")
+@companion_group.command(name="mood", description="See your personal cat companion's current mood")
 @app_commands.guild_only()
 async def companion_mood(interaction: discord.Interaction):
     profile = _companion_profile(interaction.guild.id, interaction.user.id, False)
@@ -317,7 +318,7 @@ async def companion_mood(interaction: discord.Interaction):
                     "Lonely":"Spend a little time playing together.", "Content":"Your cat is comfortable and doing well."}
     await cinnamon_send(interaction, f"**{profile['name']} is {mood.lower()}.**\n{descriptions[mood]}", ephemeral=True)
 
-@bot.tree.command(name="catbook", description="View your companion collection and equipped accessories")
+@companion_group.command(name="catbook", description="View your companion collection and equipped accessories")
 @app_commands.guild_only()
 async def companion_catbook(interaction: discord.Interaction):
     gid, uid = interaction.guild.id, interaction.user.id
@@ -334,7 +335,7 @@ async def companion_catbook(interaction: discord.Interaction):
     e.add_field(name="Room", value=f"{len(profile.get('room', []))} decorations placed.", inline=False)
     await interaction.response.send_message(embed=e, ephemeral=True)
 
-@bot.tree.command(name="memories", description="Save and revisit private memories with your companion")
+@companion_group.command(name="memories", description="Save and revisit private memories with your companion")
 @app_commands.guild_only()
 @app_commands.choices(action=[
     app_commands.Choice(name="Add memory", value="add"), app_commands.Choice(name="List memories", value="list"),
@@ -362,7 +363,7 @@ async def companion_memories(interaction: discord.Interaction, action: app_comma
             response = "\n".join(f"**{i}.** {m.get('text', '')}" for i, m in enumerate(memories, 1)) or "No memories saved yet."
     await cinnamon_send(interaction, response[:1800], ephemeral=True)
 
-@bot.tree.command(name="catstats", description="See your companion's progression and care statistics")
+@companion_group.command(name="catstats", description="See your companion's progression and care statistics")
 @app_commands.guild_only()
 async def companion_catstats(interaction: discord.Interaction):
     profile = _companion_profile(interaction.guild.id, interaction.user.id, False)
@@ -371,3 +372,6 @@ async def companion_catstats(interaction: discord.Interaction):
     stats = profile.get("stats", {})
     e.add_field(name="Care history", value=f"Feeds: {int(stats.get('feeds', 0))}\nPlays: {int(stats.get('plays', 0))}\nGrooms: {int(stats.get('grooms', 0))}", inline=False)
     await interaction.response.send_message(embed=e, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+bot.tree.add_command(companion_group)
