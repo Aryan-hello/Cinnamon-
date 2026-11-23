@@ -766,22 +766,58 @@ def _overview(guild, state):
 
 
 def _moderation(guild, state):
-    gid=guild.id
-    automod=state.get("automod_config",{}).get(gid,{})
-    antiraid=state.get("antiraid_config",{}).get(gid,{})
-    warns=state.get("warnings_data",{})
-    warning_count=sum(len(v) for k,v in warns.items() if isinstance(k,tuple) and k[0]==gid)
-    modform="<div class='formgrid'><div class='field'><label>Member</label>"+_member_select(guild,"member_id",allow_none=False)+"<small>Select the Discord name; Cinnamon keeps the user ID internally.</small></div><div class='field'><label>Action</label><select name='mod_action'><option value='timeout'>Timeout</option><option value='kick'>Kick</option><option value='ban'>Ban</option></select></div><div class='field'><label>Timeout duration (minutes)</label><input name='duration' type='number' min='1' max='40320' value='60'></div><div class='field'><label>Reason</label><input name='reason' maxlength='400' placeholder='Reason for moderation action'></div></div><p class='muted'>Actions require the matching Discord permission and bot role hierarchy. Bans and kicks cannot be undone from this page.</p>"
-    modcard="<article class='card half'><h2>Member moderation</h2><p class='muted'>Apply a Discord moderation action by selecting the member name.</p>"+_form(gid,"moderate",modform,"Apply action",True)+"</article>"
-    words="\n".join(str(w) for w in automod.get("words",[]))
-    automodform="<div class='field'><label>Banned words or phrases</label><textarea name='words' maxlength='3000' placeholder='One per line'>"+_esc(words)+"</textarea><small>One phrase per line; maximum 50 entries, each up to 100 characters.</small></div>"
-    for key,label,desc in [("spam","Spam detection","Remove rapid repeated messages."),("mentions","Mass mention protection","Flag messages over the mention threshold."),("invites","Discord invite protection","Remove Discord invite links.")]:
-        automodform+=f"<label class='toggle'><input type='checkbox' name='{key}' {'checked' if automod.get(key) else ''}><span><b>{label}</b><small>{desc}</small></span></label>"
-    automodform+="<div class='field'><label>Mention threshold</label><input name='mention_threshold' type='number' min='2' max='20' value='"+_esc(automod.get("mention_threshold",5))+"'></div>"
-    automodcard="<article class='card half'><h2>AutoMod</h2><p class='muted'>These options map to Cinnamon's existing AutoMod settings.</p>"+_form(gid,"automod",automodform)+"</article>"
-    raidform="<label class='toggle'><input type='checkbox' name='enabled' "+("checked" if antiraid.get("enabled") else "")+"><span><b>Enable join-spike alerts</b><small>Alerts only; does not automatically kick or lock the server.</small></span></label><div class='formgrid'><div class='field'><label>Join threshold</label><input type='number' name='threshold' min='2' max='100' value='"+_esc(antiraid.get("threshold",5))+"'></div><div class='field'><label>Time window (seconds)</label><input type='number' name='window' min='2' max='120' value='"+_esc(antiraid.get("window",10))+"'></div></div>"
-    raidcard="<article class='card full'><h2>Anti-raid alerts</h2>"+_form(gid,"antiraid",raidform)+"</article>"
-    body=f"<h1>Moderation & safety</h1><p class='muted'>Manage member actions, message filters and join-spike alerts.</p><div class='grid'><article class='card third'><div class='statlabel'>Recorded warnings</div><div class='stat'>{warning_count:,}</div></article><article class='card third'><div class='statlabel'>AutoMod</div><div class='stat'><span class='pill {'good' if automod else 'warn'}'>{'Configured' if automod else 'Off'}</span></div></article><article class='card third'><div class='statlabel'>Anti-raid</div><div class='stat'><span class='pill {'good' if antiraid.get('enabled') else 'warn'}'>{'Enabled' if antiraid.get('enabled') else 'Disabled'}</span></div></article>{modcard}{automodcard}{raidcard}</div>"
+    gid = guild.id
+    automod = state.get("automod_config", {}).get(gid, {}) or state.get("automod_config", {}).get(str(gid), {})
+    antiraid = state.get("antiraid_config", {}).get(gid, {}) or state.get("antiraid_config", {}).get(str(gid), {})
+    warns = state.get("warnings_data", {})
+    warning_count = sum(len(v) for k, v in warns.items() if isinstance(k, tuple) and k[0] == gid)
+    advanced = state.get("advanced_features_data", {}) or {}
+    security = (advanced.get("cinnamon_security_guard_v1", {}) or {}).get(str(gid), {}) or {}
+    controls = (advanced.get("cinnamon_moderation_controls_v1", {}) or {}).get(str(gid), {}) or {}
+    onboarding = controls.get("onboarding", {}) or {}
+    verify_channel = guild.get_channel(int(controls.get("verification_channel_id", 0) or 0))
+    verify_role = guild.get_role(int(controls.get("verification_role_id", 0) or 0))
+    autorole = guild.get_role(int(controls.get("autorole_id", 0) or 0))
+    alert_channel = guild.get_channel(int(security.get("alert_channel_id", 0) or 0))
+    welcome_channel = guild.get_channel(int(onboarding.get("welcome_channel_id", 0) or 0))
+    rules_channel = guild.get_channel(int(onboarding.get("rules_channel_id", 0) or 0))
+
+    modform = "<div class='formgrid'><div class='field'><label>Member</label>" + _member_select(guild, "member_id", allow_none=False) + "<small>Select the Discord name; Cinnamon keeps the user ID internally.</small></div><div class='field'><label>Action</label><select name='mod_action'><option value='timeout'>Timeout</option><option value='kick'>Kick</option><option value='ban'>Ban</option></select></div><div class='field'><label>Timeout duration (minutes)</label><input name='duration' type='number' min='1' max='40320' value='60'></div><div class='field'><label>Reason</label><input name='reason' maxlength='400' placeholder='Reason for moderation action'></div></div><p class='muted'>Actions require the matching Discord permission and bot role hierarchy. Bans and kicks cannot be undone from this page.</p>"
+    modcard = "<article class='card half'><h2>Member moderation</h2><p class='muted'>Apply a Discord moderation action by selecting the member name.</p>" + _form(gid, "moderate", modform, "Apply action", True) + "</article>"
+
+    words = "\n".join(str(w) for w in automod.get("words", []))
+    automodform = "<div class='field'><label>Banned words or phrases</label><textarea name='words' maxlength='3000' placeholder='One per line'>" + _esc(words) + "</textarea><small>One phrase per line; maximum 50 entries, each up to 100 characters.</small></div>"
+    for key, label, desc in [("spam", "Spam detection", "Remove rapid repeated messages."), ("mentions", "Mass mention protection", "Flag messages over the mention threshold."), ("invites", "Discord invite protection", "Remove Discord invite links.")]:
+        automodform += f"<label class='toggle'><input type='checkbox' name='{key}' {'checked' if automod.get(key) else ''}><span><b>{label}</b><small>{desc}</small></span></label>"
+    automodform += "<div class='field'><label>Mention threshold</label><input name='mention_threshold' type='number' min='2' max='20' value='" + _esc(automod.get("mention_threshold", 5)) + "'></div>"
+    automodcard = "<article class='card half'><h2>AutoMod</h2><p class='muted'>These options map to Cinnamon's existing AutoMod settings.</p>" + _form(gid, "automod", automodform) + "</article>"
+
+    raidform = "<label class='toggle'><input type='checkbox' name='enabled' " + ("checked" if antiraid.get("enabled") else "") + "><span><b>Enable join-spike alerts</b><small>Alerts only; does not automatically kick or lock the server.</small></span></label><div class='formgrid'><div class='field'><label>Join threshold</label><input type='number' name='threshold' min='2' max='100' value='" + _esc(antiraid.get("threshold", 5)) + "'></div><div class='field'><label>Time window (seconds)</label><input type='number' name='window' min='2' max='120' value='" + _esc(antiraid.get("window", 10)) + "'></div></div>"
+    raidcard = "<article class='card full'><h2>Anti-raid alerts</h2>" + _form(gid, "antiraid", raidform) + "</article>"
+
+    securityform = (
+        "<label class='toggle'><input type='checkbox' name='antispam_enabled' " + ("checked" if security.get("antispam_enabled") else "") + "><span><b>Enable anti-spam timeouts</b><small>Timeouts members who exceed the configured message rate. Disabled by default.</small></span></label>"
+        "<label class='toggle'><input type='checkbox' name='antinuke_enabled' " + ("checked" if security.get("antinuke_enabled") else "") + "><span><b>Enable anti-nuke audit alerts</b><small>Detect bursts of destructive admin actions and alert moderators; no automatic admin punishment.</small></span></label>"
+        "<div class='formgrid'><div class='field'><label>Spam message threshold</label><input name='antispam_threshold' type='number' min='4' max='15' value='" + str(max(4, min(15, int(security.get("antispam_threshold", 6))))) + "'></div>"
+        "<div class='field'><label>Spam time window (seconds)</label><input name='antispam_window' type='number' min='3' max='30' value='" + str(max(3, min(30, int(security.get("antispam_window", 8))))) + "'></div>"
+        "<div class='field'><label>Timeout duration (seconds)</label><input name='antispam_timeout' type='number' min='30' max='3600' value='" + str(max(30, min(3600, int(security.get("antispam_timeout", 60))))) + "'></div>"
+        "<div class='field'><label>Anti-nuke action threshold</label><input name='antinuke_threshold' type='number' min='2' max='8' value='" + str(max(2, min(8, int(security.get("antinuke_threshold", 3))))) + "'></div>"
+        "<div class='field'><label>Private security alert channel</label>" + _channel_select(guild, "alert_channel_id", security.get("alert_channel_id")) + "</div></div>"
+    )
+    securitycard = "<article class='card full'><h2>Anti-spam & anti-nuke</h2><p class='muted'>Anti-spam is opt-in. Anti-nuke monitors the Discord audit log and alerts on rapid destructive actions. Cinnamon does not automatically remove administrator roles or punish server owners.</p><p class='muted'>Current alert channel: " + _esc(alert_channel.mention if alert_channel else "Use the main moderation log") + "</p>" + _form(gid, "security_settings", securityform, "Save security settings") + "</article>"
+
+    onboardingform = (
+        "<div class='formgrid'><div class='field'><label>Automatic role for new members</label>" + _role_select(guild, "autorole_id", controls.get("autorole_id")) + "</div>"
+        "<div class='field'><label>Verification panel channel</label>" + _channel_select(guild, "verification_channel_id", controls.get("verification_channel_id")) + "</div>"
+        "<div class='field'><label>Verified role</label>" + _role_select(guild, "verification_role_id", controls.get("verification_role_id")) + "</div>"
+        "<div class='field'><label>Welcome channel</label>" + _channel_select(guild, "welcome_channel_id", onboarding.get("welcome_channel_id")) + "</div>"
+        "<div class='field'><label>Rules channel</label>" + _channel_select(guild, "rules_channel_id", onboarding.get("rules_channel_id")) + "</div></div>"
+        "<p class='muted'>Verification channel and role must either both be selected or both be blank. The verified role must be below Cinnamon's bot role.</p>"
+    )
+    verify_button = "<form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='verification_publish'><button class='btn secondary' type='submit'>Publish verification panel</button></form>"
+    onboardingcard = "<article class='card full'><h2>Verification & member onboarding</h2><div class='toggle'><span>Verification panel</span><b>" + _esc(verify_channel.mention if verify_channel else "Not configured") + "</b></div><div class='toggle'><span>Verified role</span><b>" + _esc(verify_role.mention if verify_role else "Not configured") + "</b></div><div class='toggle'><span>Autorole</span><b>" + _esc(autorole.mention if autorole else "Disabled") + "</b></div><div class='toggle'><span>Welcome / rules</span><b>" + _esc((welcome_channel.mention if welcome_channel else "No welcome") + " · " + (rules_channel.mention if rules_channel else "No rules")) + "</b></div>" + _form(gid, "moderation_controls_settings", onboardingform, "Save onboarding settings") + verify_button + "</article>"
+
+    body = f"<h1>Moderation & safety</h1><p class='muted'>Manage member actions, message filters, join-spike alerts, anti-spam, anti-nuke, private moderator notes, appeals, verification and onboarding.</p><div class='grid'><article class='card third'><div class='statlabel'>Recorded warnings</div><div class='stat'>{warning_count:,}</div></article><article class='card third'><div class='statlabel'>AutoMod</div><div class='stat'><span class='pill {'good' if automod else 'warn'}'>{'Configured' if automod else 'Off'}</span></div></article><article class='card third'><div class='statlabel'>Anti-raid</div><div class='stat'><span class='pill {'good' if antiraid.get('enabled') else 'warn'}'>{'Enabled' if antiraid.get('enabled') else 'Disabled'}</span></div></article>{modcard}{automodcard}{raidcard}{securitycard}{onboardingcard}</div>"
     return body
 
 
