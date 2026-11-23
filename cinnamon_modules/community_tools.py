@@ -81,7 +81,10 @@ class _CTSuggestionView(discord.ui.View):
 @bot.tree.command(name="suggest", description="Send an idea to this server's suggestion board")
 @app_commands.guild_only()
 @app_commands.describe(suggestion="Describe one clear idea for the server")
-async def _ct_suggest(interaction: discord.Interaction, suggestion: app_commands.Range[str, 1, 1000]):
+async def _ct_suggest(interaction: discord.Interaction, suggestion: str):
+    suggestion = str(suggestion or "").strip()
+    if not 1 <= len(suggestion) <= 1000:
+        return await cinnamon_send(interaction, "A suggestion must contain between 1 and 1,000 characters.", ephemeral=True)
     root = _ct_root(interaction.guild.id)
     channel = interaction.guild.get_channel(int(root.get("suggestion_channel_id", 0) or 0))
     if not isinstance(channel, discord.TextChannel):
@@ -131,7 +134,10 @@ async def _ct_suggestion_settings(interaction: discord.Interaction, channel: dis
 async def _ct_starboard_settings(interaction: discord.Interaction,
         channel: discord.TextChannel | None = None,
         threshold: app_commands.Range[int, 2, 20] = 3,
-        emoji: app_commands.Range[str, 1, 20] = "⭐"):
+        emoji: str = "⭐"):
+    emoji = str(emoji or "⭐").strip()
+    if not 1 <= len(emoji) <= 20:
+        return await cinnamon_send(interaction, "The starboard emoji must be 1–20 characters.", ephemeral=True)
     root = _ct_root(interaction.guild.id)
     old = (root.get("starboard_channel_id", 0), root.get("starboard_threshold", 3), root.get("starboard_emoji", "⭐"))
     root["starboard_channel_id"] = int(channel.id) if channel else 0
