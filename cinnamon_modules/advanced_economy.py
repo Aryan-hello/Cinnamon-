@@ -337,6 +337,61 @@ def _record_mystery_reward_provenance(guild_id, user_id, item_id, tier, quantity
     record[str(tier)] = int(record.get(str(tier), 0)) + int(quantity)
 
 
+async def _open_boxes_atomic(guild_id, user, tier, quantity):
+    uid = int(user.id)
+    key = (int(guild_id), uid)
+    lock = _CINNAMON_SHOP_LOCKS.setdefault(key, asyncio.Lock())
+    async with lock:
+        count = _box_count(guild_id, uid, tier)
+        quantity = max(1, min(int(quantity), count))
+        if count < quantity:
+            return None, count, "You no longer own enough Mystery Boxes."
+        inv_key = key
+        had_inventory = inv_key in economy_inventory
+        inventory = economy_inventory_for(guild_id, uid)
+        before_inventory = __import__("copy").deepcopy(inventory)
+        had_balance = key in economy_balances
+        before_balance = economy_balances.get(key)
+        had_xp = key in xp_data
+        before_xp = xp_data.get(key)
+        root_names = ("mystery_boxes", "mystery_opened", "mystery_reward_provenance_v1")
+        root_before = {name: __import__("copy").deepcopy(ADVANCED_FEATURES.get(name, {})) for name in root_names}
+        root_had = {name: name in ADVANCED_FEATURES for name in root_names}
+
+        def rollback():
+            if had_inventory:
+                inventory.clear()
+                inventory.update(before_inventory)
+            else:
+                economy_inventory.pop(inv_key, None)
+            if had_balance:
+                economy_balances[key] = before_balance
+            else:
+                economy_balances.pop(key, None)
+            if had_xp:
+                xp_data[key] = before_xp
+            else:
+                xp_data.pop(key, None)
+            for name in root_names:
+                if root_had[name]:
+                    ADVANCED_FEATURES[name] = root_before[name]
+                else:
+                    ADVANCED_FEATURES.pop(name, None)
+
+        try:
+            rewards = [await _open_one(guild_id, user, tier) for _ in range(quantity)]
+            _set_box_count(guild_id, uid, count - quantity, tier)
+            opened_key = _af_key(guild_id, uid)
+            ADVANCED_FEATURES["mystery_opened"][opened_key] = int(ADVANCED_FEATURES["mystery_opened"].get(opened_key, 0)) + quantity
+            if not await bd_save_data():
+                rollback()
+                return None, count, "Cinnamon couldn't save the box opening. Your boxes, rewards, provenance and balance were restored."
+            return rewards, _box_count(guild_id, uid, tier), None
+        except Exception:
+            rollback()
+            raise
+
+
 async def _open_one(guild_id, user, tier="common"):
     inv = economy_inventory_for(guild_id, user.id)
     custom = ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:{tier}", {})
@@ -429,16 +484,13 @@ async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Cho
         await interaction.response.send_message("🎁 You don't have any Mystery Boxes yet. Keep using Cinnamon's normal systems to earn one!", ephemeral=True)
         return
     quantity = min(quantity, count)
-    rewards = []
-    for _ in range(quantity):
-        rewards.append(await _open_one(interaction.guild.id, interaction.user, tier_value))
-    _set_box_count(interaction.guild.id, interaction.user.id, count - quantity, tier_value)
-    key = _af_key(interaction.guild.id, interaction.user.id)
-    ADVANCED_FEATURES["mystery_opened"][key] = int(ADVANCED_FEATURES["mystery_opened"].get(key, 0)) + quantity
-    await bd_save_data()
-    await economy_log(interaction.guild.id, title=f"{BOX_TIERS[tier_value]['emoji']} {BOX_TIERS[tier_value]['label']} Mystery Box opened", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Opened", str(quantity)), ("Remaining", str(_box_count(interaction.guild.id, interaction.user.id, tier_value)))])
+    rewards, remaining, error = await _open_boxes_atomic(
+        interaction.guild.id, interaction.user, tier_value, quantity)
+    if error:
+        return await cinnamon_send(interaction, error, ephemeral=True)
+    await economy_log(interaction.guild.id, title=f"{BOX_TIERS[tier_value]['emoji']} {BOX_TIERS[tier_value]['label']} Mystery Box opened", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Opened", str(quantity)), ("Remaining", str(remaining))])
     e = cinnamon_embed("🎁 Mystery Box Results", "Cinnamon shook the box very aggressively.\n\n" + "\n".join(f"• {r}" for r in rewards), color=CINNAMON_GOLD, user=interaction.user, footer="Cinnamon Mystery Boxes")
-    e.add_field(name="Boxes remaining", value=f"**{_box_count(interaction.guild.id, interaction.user.id, tier_value)}**")
+    e.add_field(name="Boxes remaining", value=f"**{remaining}**")
     await interaction.response.send_message(embed=cinnamon_polish_embed(e), allowed_mentions=discord.AllowedMentions.none())
 
 
@@ -459,11 +511,9 @@ async def prefix_mystery(ctx, action: str = "check", quantity: int = 1, tier: st
         quantity = max(1, min(int(quantity), 5, count))
     except (TypeError, ValueError):
         return await ctx.reply("❌ Quantity must be a number from 1 to 5.", mention_author=False)
-    rewards = [await _open_one(ctx.guild.id, ctx.author, tier) for _ in range(quantity)]
-    _set_box_count(ctx.guild.id, ctx.author.id, count - quantity, tier)
-    key = _af_key(ctx.guild.id, ctx.author.id); ADVANCED_FEATURES["mystery_opened"][key] = int(ADVANCED_FEATURES["mystery_opened"].get(key, 0)) + quantity
-    await bd_save_data()
-    remaining = _box_count(ctx.guild.id, ctx.author.id, tier)
+    rewards, remaining, error = await _open_boxes_atomic(ctx.guild.id, ctx.author, tier, quantity)
+    if error:
+        return await ctx.reply("❌ " + error, mention_author=False)
     await economy_log(ctx.guild.id, title=f"{cfg['emoji']} {cfg['label']} box opened", fields=[("User", f"{ctx.author} ({ctx.author.id})"), ("Tier", tier.title()), ("Opened", str(quantity)), ("Remaining", str(remaining)), ("Rewards", "; ".join(rewards)[:900])])
     await ctx.reply(f"{cfg['emoji']} **{cfg['label']} Mystery Box Results**\n" + "\n".join(f"• {r}" for r in rewards) + f"\n\nBoxes remaining: **{remaining}**", mention_author=False)
 
