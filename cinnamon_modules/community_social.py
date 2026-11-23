@@ -56,7 +56,7 @@ async def community_quote_list(interaction: discord.Interaction):
     for quote_id, record in quotes[:10]:
         member = interaction.guild.get_member(int(record.get("submitted_by", 0)))
         by = member.display_name if member else "Former member"
-        lines.append(f"**#{quote_id}** — “{str(record.get('text', ''))[:400]}”\n<text:>{by}")
+        lines.append(f"**#{quote_id}** — “{str(record.get('text', ''))[:400]}”\nSubmitted by {by}")
     e = discord.Embed(title="💬 Server Quote Collection",
                       description="\n\n".join(lines) or "No quotes have been saved yet.",
                       color=0xB8A7D9)
