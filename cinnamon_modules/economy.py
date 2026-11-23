@@ -1113,7 +1113,7 @@ async def economy_snapshot_cmd(interaction: discord.Interaction):
     await interaction.followup.send(f"✅ Snapshot saved to {channel.mention}. **{user_count}** users are included. You can reset the bot and later run `/economy restore-snapshot`.", ephemeral=True)
 
 
-async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000, *, merge_only: bool = False) -> tuple[int, str]:
+async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000, *, merge_only: bool = True) -> tuple[int, str]:
     """Restore a snapshot. merge_only fills missing state without overwriting live accounts."""
     if not merge_only and globals().get("_ca_transactions_pending", lambda: False)():
         return 0, "A currency transaction needs reconciliation; full restoration is temporarily blocked."
@@ -1144,6 +1144,27 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
         return 0, f"Could not read the economy log channel: {e}"
     if latest is None:
         return 0, "No economy snapshot was found in the log channel."
+
+    # Snapshot all affected in-memory maps before applying the backup. By default
+    # this restore is merge-only: existing wallets and inventory are never replaced.
+    _restore_copy = __import__("copy").deepcopy
+    before_balances = {k: _restore_copy(v) for k, v in economy_balances.items()
+                       if isinstance(k, tuple) and k[0] == guild.id}
+    before_inventory = {k: _restore_copy(v) for k, v in economy_inventory.items()
+                        if isinstance(k, tuple) and k[0] == guild.id}
+    before_level_rewards = {k: _restore_copy(v) for k, v in economy_level_rewards_claimed.items()
+                            if isinstance(k, tuple) and k[0] == guild.id}
+    before_achievements = {k: _restore_copy(v) for k, v in economy_achievements.items()
+                           if isinstance(k, tuple) and k[0] == guild.id}
+    had_quest_data = guild.id in quest_data
+    before_quest_data = _restore_copy(quest_data.get(guild.id))
+    had_income = guild.id in economy_income_roles
+    before_income = _restore_copy(economy_income_roles.get(guild.id))
+    custom_root = ADVANCED_FEATURES.setdefault("custom_box_rewards", {})
+    before_custom = {k: _restore_copy(v) for k, v in custom_root.items()
+                     if str(k).startswith(f"{guild.id}:")}
+    before_items = _restore_copy(ECONOMY_ITEMS)
+    before_quests = _restore_copy(ECONOMY_QUESTS)
 
     # Reading Discord attachments awaited I/O; recheck before absolute writes.
     if not merge_only and globals().get("_ca_transactions_pending", lambda: False)():
@@ -1247,7 +1268,33 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
         elif valid_quests:
             ECONOMY_QUESTS.clear()
             ECONOMY_QUESTS.update(valid_quests)
-    await bd_save_data()
+    if not await bd_save_data():
+        def _restore_guild_entries(target, before):
+            for key in list(target):
+                if isinstance(key, tuple) and key[0] == guild.id:
+                    target.pop(key, None)
+            target.update(before)
+        _restore_guild_entries(economy_balances, before_balances)
+        _restore_guild_entries(economy_inventory, before_inventory)
+        _restore_guild_entries(economy_level_rewards_claimed, before_level_rewards)
+        _restore_guild_entries(economy_achievements, before_achievements)
+        if had_quest_data:
+            quest_data[guild.id] = before_quest_data
+        else:
+            quest_data.pop(guild.id, None)
+        if had_income:
+            economy_income_roles[guild.id] = before_income
+        else:
+            economy_income_roles.pop(guild.id, None)
+        for key in list(custom_root):
+            if str(key).startswith(f"{guild.id}:"):
+                custom_root.pop(key, None)
+        custom_root.update(before_custom)
+        ECONOMY_ITEMS.clear()
+        ECONOMY_ITEMS.update(before_items)
+        ECONOMY_QUESTS.clear()
+        ECONOMY_QUESTS.update(before_quests)
+        return 0, "The snapshot merge could not be durably saved. All in-memory changes were rolled back."
     created = latest.get("created_at", "unknown time")
     return restored, created
 
