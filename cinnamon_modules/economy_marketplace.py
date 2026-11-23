@@ -362,6 +362,15 @@ async def trade_cancel(interaction: discord.Interaction, offer_id: str):
 
 bot.tree.add_command(trade_group)
 
+async def _market_catalog_autocomplete(interaction, current):
+    query = str(current or "").lower()
+    return [
+        app_commands.Choice(name=str(item.get("name", item_id))[:100], value=item_id)
+        for item_id, item in ECONOMY_ITEMS.items()
+        if query in item_id.lower() or query in str(item.get("name", "")).lower()
+    ][:25]
+
+
 @bot.tree.command(name="collection", description="View the items you have collected in this server")
 @app_commands.guild_only()
 async def economy_collection(interaction: discord.Interaction, page: app_commands.Range[int, 1, 20] = 1):
@@ -383,6 +392,7 @@ async def economy_collection(interaction: discord.Interaction, page: app_command
 @app_commands.choices(action=[app_commands.Choice(name="View wishlist", value="view"),
     app_commands.Choice(name="Add item", value="add"), app_commands.Choice(name="Remove item", value="remove")])
 @app_commands.describe(action="Choose an action", item="Item to add or remove")
+@app_commands.autocomplete(item=_market_catalog_autocomplete)
 async def economy_wishlist(interaction: discord.Interaction, action: app_commands.Choice[str], item: str | None = None):
     gid, uid = interaction.guild.id, interaction.user.id
     root = _market_root(_WISHLIST_KEY, gid)
