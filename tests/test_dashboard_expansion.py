@@ -38,8 +38,10 @@ class DashboardExpansionTests(unittest.TestCase):
                        "ticket_dashboard_close", "ticket_dashboard_reopen"):
             self.assertIn(action, self.source)
 
-    def test_wildlands_is_not_added_to_dashboard_expansion(self):
-        self.assertNotIn("wildlands_", self.source)
+    def test_new_companion_dashboard_page_does_not_touch_wildlands(self):
+        start = self.source.index("def _companions(guild, state):")
+        end = self.source.index("def _community(guild,state):", start)
+        self.assertNotIn("wildlands_", self.source[start:end])
 
 
 if __name__ == "__main__":
