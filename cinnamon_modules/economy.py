@@ -1113,19 +1113,24 @@ async def economy_snapshot_cmd(interaction: discord.Interaction):
     await interaction.followup.send(f"✅ Snapshot saved to {channel.mention}. **{user_count}** users are included. You can reset the bot and later run `/economy restore-snapshot`.", ephemeral=True)
 
 
-async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000, *, merge_only: bool = True) -> tuple[int, str]:
+async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000, *, merge_only: bool = True, source_channel: discord.TextChannel | None = None) -> tuple[int, str]:
     """Restore a snapshot. merge_only fills missing state without overwriting live accounts."""
     if not merge_only and globals().get("_ca_transactions_pending", lambda: False)():
         return 0, "A currency transaction needs reconciliation; full restoration is temporarily blocked."
-    channel_id = economy_log_channels.get(guild.id) or category_log_channels.get(guild.id, {}).get("economy") or log_channels.get(guild.id)
+    channel_id = int(source_channel.id) if source_channel is not None else (
+        economy_log_channels.get(guild.id) or category_log_channels.get(guild.id, {}).get("economy") or log_channels.get(guild.id))
     if not channel_id:
-        return 0, "No economy log channel is configured."
-    channel = bot.get_channel(channel_id)
+        return 0, "No economy log channel is configured; choose a source channel or configure the economy log."
+    if source_channel is not None and source_channel.guild.id != guild.id:
+        return 0, "The selected snapshot channel must belong to this server."
+    channel = source_channel or bot.get_channel(channel_id)
     if channel is None:
         try:
             channel = await bot.fetch_channel(channel_id)
         except (discord.HTTPException, discord.NotFound, discord.Forbidden) as exc:
             return 0, f"Cannot access the configured economy log channel ({type(exc).__name__})."
+    if not isinstance(channel, discord.TextChannel):
+        return 0, "The selected economy snapshot source must be a text channel."
     latest = None
     try:
         async for message in channel.history(limit=limit):
@@ -1612,6 +1617,28 @@ async def economy_iteminfo_cmd(interaction: discord.Interaction, item: str):
     embed.add_field(name="Per-person limit", value=str(limit) if limit else "Unlimited", inline=True)
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed))
     await economy_log(interaction.guild.id, title="🔎 Economy item info viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{item['name']} (`{item_id}`)")])
+
+
+@bot.tree.command(name="recall", description="Safely recall Catnip and inventory from an economy snapshot")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.describe(channel="Optional text channel containing Cinnamon economy snapshots")
+async def economy_recall_cmd(interaction: discord.Interaction, channel: discord.TextChannel | None = None):
+    if channel is not None and channel.guild.id != interaction.guild.id:
+        return await cinnamon_send(interaction, "Choose a snapshot channel from this server.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    restored, detail = await economy_restore_from_snapshot(
+        interaction.guild, merge_only=True, source_channel=channel)
+    if restored <= 0:
+        return await interaction.followup.send(
+            "No economy accounts were recalled. " + str(detail), ephemeral=True)
+    await economy_log(interaction.guild.id, title="🧾 Economy data recalled",
+        description=f"Safely merged {restored} account(s) from an economy snapshot.",
+        fields=[("Source channel", channel.mention if channel else "Configured economy log"),
+                ("Snapshot", detail), ("Mode", "Merge-only; existing Catnip balances are preserved")])
+    await interaction.followup.send(
+        f"Recall complete. **{restored} account(s)** were processed from the snapshot created at {detail}. Catnip balances, inventory and other missing economy data were restored without overwriting existing wallets.",
+        ephemeral=True)
 
 
 @economy_group.command(name="restore-snapshot", description="Merge missing economy data without overwriting existing balances")
