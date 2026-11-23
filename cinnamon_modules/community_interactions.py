@@ -79,6 +79,7 @@ class CommunityEventView(discord.ui.View):
         return callback
 
 event_group = app_commands.Group(name="event", description="Create and manage server events")
+community_group.add_command(event_group)
 
 @event_group.command(name="create", description="Create a scheduled event with RSVP buttons")
 @app_commands.guild_only()
@@ -163,9 +164,8 @@ async def community_event_cancel(interaction: discord.Interaction, event_id: str
                 pass
     await cinnamon_send(interaction, "Event cancelled.", ephemeral=True)
 
-bot.tree.add_command(event_group)
 
-@bot.tree.command(name="confession-settings", description="Configure or disable anonymous confessions")
+@community_group.command(name="confession-settings", description="Configure or disable anonymous confessions")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(channel="Confession channel; omit to disable")
@@ -219,7 +219,7 @@ class ConfessionModerationView(discord.ui.View):
             log.exception("Confession moderation audit failed")
         await interaction.response.send_message("Confession removed.", ephemeral=True)
 
-@bot.tree.command(name="confess", description="Post an anonymous confession to this server's configured channel")
+@community_group.command(name="confess", description="Post an anonymous confession to this server's configured channel")
 @app_commands.guild_only()
 @app_commands.describe(text="Your confession (do not include private contact details)")
 async def community_confess(interaction: discord.Interaction, text: app_commands.Range[str, 1, 1500]):
