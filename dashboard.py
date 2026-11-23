@@ -781,6 +781,9 @@ def _moderation(guild, state):
     alert_channel = guild.get_channel(int(security.get("alert_channel_id", 0) or 0))
     welcome_channel = guild.get_channel(int(onboarding.get("welcome_channel_id", 0) or 0))
     rules_channel = guild.get_channel(int(onboarding.get("rules_channel_id", 0) or 0))
+    appeal_channel = guild.get_channel(int(controls.get("appeal_channel_id", 0) or 0))
+    appeals = controls.get("appeals", {}) or {}
+    notes = controls.get("notes", {}) or {}
 
     modform = "<div class='formgrid'><div class='field'><label>Member</label>" + _member_select(guild, "member_id", allow_none=False) + "<small>Select the Discord name; Cinnamon keeps the user ID internally.</small></div><div class='field'><label>Action</label><select name='mod_action'><option value='timeout'>Timeout</option><option value='kick'>Kick</option><option value='ban'>Ban</option></select></div><div class='field'><label>Timeout duration (minutes)</label><input name='duration' type='number' min='1' max='40320' value='60'></div><div class='field'><label>Reason</label><input name='reason' maxlength='400' placeholder='Reason for moderation action'></div></div><p class='muted'>Actions require the matching Discord permission and bot role hierarchy. Bans and kicks cannot be undone from this page.</p>"
     modcard = "<article class='card half'><h2>Member moderation</h2><p class='muted'>Apply a Discord moderation action by selecting the member name.</p>" + _form(gid, "moderate", modform, "Apply action", True) + "</article>"
@@ -817,7 +820,26 @@ def _moderation(guild, state):
     verify_button = "<form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='verification_publish'><button class='btn secondary' type='submit'>Publish verification panel</button></form>"
     onboardingcard = "<article class='card full'><h2>Verification & member onboarding</h2><div class='toggle'><span>Verification panel</span><b>" + _esc(verify_channel.mention if verify_channel else "Not configured") + "</b></div><div class='toggle'><span>Verified role</span><b>" + _esc(verify_role.mention if verify_role else "Not configured") + "</b></div><div class='toggle'><span>Autorole</span><b>" + _esc(autorole.mention if autorole else "Disabled") + "</b></div><div class='toggle'><span>Welcome / rules</span><b>" + _esc((welcome_channel.mention if welcome_channel else "No welcome") + " · " + (rules_channel.mention if rules_channel else "No rules")) + "</b></div>" + _form(gid, "moderation_controls_settings", onboardingform, "Save onboarding settings") + verify_button + "</article>"
 
-    body = f"<h1>Moderation & safety</h1><p class='muted'>Manage member actions, message filters, join-spike alerts, anti-spam, anti-nuke, private moderator notes, appeals, verification and onboarding.</p><div class='grid'><article class='card third'><div class='statlabel'>Recorded warnings</div><div class='stat'>{warning_count:,}</div></article><article class='card third'><div class='statlabel'>AutoMod</div><div class='stat'><span class='pill {'good' if automod else 'warn'}'>{'Configured' if automod else 'Off'}</span></div></article><article class='card third'><div class='statlabel'>Anti-raid</div><div class='stat'><span class='pill {'good' if antiraid.get('enabled') else 'warn'}'>{'Enabled' if antiraid.get('enabled') else 'Disabled'}</span></div></article>{modcard}{automodcard}{raidcard}{securitycard}{onboardingcard}</div>"
+    appeal_rows = []
+    for appeal_id, appeal in list(appeals.items())[-15:][::-1]:
+        decision = str(appeal.get("status", "pending"))
+        action_forms = ""
+        if decision == "pending":
+            action_forms = "<div class='actions'>"
+            for label, value in (("Approve", "approved"), ("Decline", "declined")):
+                action_forms += "<form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='dashboard_appeal_review'><input type='hidden' name='appeal_id' value='" + _esc(str(appeal_id)) + "'><input type='hidden' name='decision' value='" + value + "'><button class='btn " + ("secondary" if value == "approved" else "danger") + " small'>" + label + "</button></form>"
+            action_forms += "</div>"
+        appeal_rows.append("<tr><td>" + _esc(str(appeal_id)) + "</td><td>" + _esc(str(appeal.get("user_id", ""))) + "</td><td>" + _esc(str(appeal.get("details", ""))[:180]) + "</td><td>" + _esc(decision.title()) + "</td><td>" + action_forms + "</td></tr>")
+    appeal_rows_html = "".join(appeal_rows) or "<tr><td colspan='5'>No appeals have been submitted.</td></tr>"
+    appeal_form = "<div class='field'><label>Private appeal channel</label>" + _channel_select(guild, "appeal_channel_id", controls.get("appeal_channel_id")) + "</div><p class='muted'>Members submit appeals in a direct message to Cinnamon using /appeal submit. This channel must be private to moderators.</p>"
+    appeal_card = "<article class='card full'><h2>Moderation appeals</h2><p class='muted'>Current channel: " + _esc(appeal_channel.mention if appeal_channel else "Disabled") + " · Pending: " + str(sum(1 for a in appeals.values() if a.get("status") == "pending")) + "</p>" + _form(gid, "appeal_settings", appeal_form, "Save appeal channel") + "<div class='tablewrap'><table><thead><tr><th>Appeal ID</th><th>Member ID</th><th>Details preview</th><th>Status</th><th>Review</th></tr></thead><tbody>" + appeal_rows_html + "</tbody></table></div></article>"
+    note_rows = []
+    for member_id, member_notes in notes.items():
+        for note_id, note in list((member_notes or {}).items())[-10:]:
+            note_rows.append("<tr><td>" + _esc(str(member_id)) + "</td><td>" + _esc(str(note_id)) + "</td><td>" + _esc(str(note.get("text", ""))[:180]) + "</td><td>" + _esc(str(note.get("created_by", ""))) + "</td></tr>")
+    note_rows_html = "".join(note_rows[-30:]) or "<tr><td colspan='4'>No private moderator notes.</td></tr>"
+    notes_card = "<article class='card full'><h2>Private moderator notes</h2><p class='muted'>Only administrators and moderators with the appropriate permissions can view or edit these notes.</p><div class='tablewrap'><table><thead><tr><th>Member ID</th><th>Note ID</th><th>Note preview</th><th>Added by</th></tr></thead><tbody>" + note_rows_html + "</tbody></table></div></article>"
+    body = f"<h1>Moderation & safety</h1><p class='muted'>Manage member actions, message filters, join-spike alerts, anti-spam, anti-nuke, private moderator notes, appeals, verification and onboarding.</p><div class='grid'><article class='card third'><div class='statlabel'>Recorded warnings</div><div class='stat'>{warning_count:,}</div></article><article class='card third'><div class='statlabel'>AutoMod</div><div class='stat'><span class='pill {'good' if automod else 'warn'}'>{'Configured' if automod else 'Off'}</span></div></article><article class='card third'><div class='statlabel'>Anti-raid</div><div class='stat'><span class='pill {'good' if antiraid.get('enabled') else 'warn'}'>{'Enabled' if antiraid.get('enabled') else 'Disabled'}</span></div></article>{modcard}{automodcard}{raidcard}{securitycard}{onboardingcard}{appeal_card}{notes_card}</div>"
     return body
 
 
