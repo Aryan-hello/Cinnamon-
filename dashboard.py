@@ -966,8 +966,13 @@ def _tickets(guild,state):
         if t.get("status")!="open": continue
         ch=guild.get_channel(int(t.get("channel_id",0) or 0))
         channel_name=("#"+ch.name) if ch else ("Unknown channel "+str(t.get("channel_id","")))
-        actions="<form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_dashboard_close'><input type='hidden' name='channel_id' value='"+str(t.get("channel_id"))+"'><button class='btn danger small'>Close</button></form>"
-        active_parts.append("<tr><td>"+_esc(channel_name)+"</td><td>"+_esc(t.get("category_label","Support"))+"</td><td>"+_esc(str(t.get("creator_id","")))+"</td><td>"+_esc(t.get("status","open"))+"</td><td>"+_esc(str(t.get("claimed_by") or "Unclaimed"))+"</td><td>"+actions+"</td></tr>")
+        claimed_member=guild.get_member(int(t.get("claimed_by",0) or 0)) if t.get("claimed_by") else None
+        claim_form="<form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_dashboard_claim'><input type='hidden' name='channel_id' value='"+str(t.get("channel_id"))+"'><button class='btn secondary small'>Claim as me</button></form>"
+        unclaim_form="<form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_dashboard_unclaim'><input type='hidden' name='channel_id' value='"+str(t.get("channel_id"))+"'><button class='btn secondary small'>Unassign</button></form>"
+        close_form="<form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_dashboard_close'><input type='hidden' name='channel_id' value='"+str(t.get("channel_id"))+"'><button class='btn danger small'>Close</button></form>"
+        assigned=_esc(claimed_member.display_name if claimed_member else ("Member "+str(t.get("claimed_by"))) if t.get("claimed_by") else "Unclaimed")
+        actions="<div class='actions'>"+claim_form+unclaim_form+close_form+"</div>"
+        active_parts.append("<tr><td>"+_esc(channel_name)+"</td><td>"+_esc(t.get("category_label","Support"))+"</td><td>"+_esc(str(t.get("creator_id","")))+"</td><td>"+_esc(t.get("status","open"))+"</td><td>"+assigned+"</td><td>"+actions+"</td></tr>")
     active_rows="".join(active_parts) or "<tr><td colspan='6'>No active tickets.</td></tr>"
     closed_parts=[]
     for channel_id,t in list((cfg.get("closed",{}) or {}).items())[-50:]:
@@ -2407,7 +2412,34 @@ def dashboard_action():
             session["dashboard_notice"]=f"Embed sent to #{channel.name}."
 
 
-        elif action in {"ticket_dashboard_close","ticket_dashboard_reopen"}:
+        elif action in {"ticket_dashboard_claim","ticket_dashboard_unclaim"}:
+            raw_channel=request.form.get("channel_id","").strip()
+            if not raw_channel.isdigit(): raise ValueError("Invalid ticket channel.")
+            root=state.setdefault("advanced_features_data",{}).setdefault("cinnamon_tickets_v1",{})
+            cfg=root.get(str(gid),{})
+            ticket=cfg.get("tickets",{}).get(raw_channel)
+            channel=guild.get_channel(int(raw_channel))
+            if not ticket or not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Ticket record/channel not found.")
+            if ticket.get("status")!="open": raise ValueError("Only open tickets can be assigned.")
+            actor_id=int(_tokens[sid]["user"]["id"])
+            before=__import__("copy").deepcopy(ticket)
+            if action=="ticket_dashboard_claim":
+                if ticket.get("claimed_by") not in (None,actor_id): raise ValueError("This ticket is already claimed by another staff member.")
+                ticket["claimed_by"]=actor_id
+            else:
+                ticket["claimed_by"]=None
+            async def save_ticket_assignment():
+                if not await state["bd_save_data"]():
+                    ticket.clear();ticket.update(before)
+                    raise ValueError("Ticket assignment could not be durably saved.")
+            _run_bot(save_ticket_assignment())
+            await_message = "claimed by dashboard staff." if action=="ticket_dashboard_claim" else "unassigned by dashboard staff."
+            async def notify_ticket_assignment():
+                await channel.send("Ticket "+await_message)
+            _run_bot(notify_ticket_assignment())
+            _audit(gid,actor,"Dashboard ticket "+("claimed" if action=="ticket_dashboard_claim" else "unassigned"),f"Channel {channel.id}; assigned staff ID {ticket.get('claimed_by')}.")
+            session["dashboard_notice"]="Ticket "+("claimed" if action=="ticket_dashboard_claim" else "unassigned")+"."
+        elif action in {"ticket_dashboard_close","ticket_dashboard_reopen","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
             raw_channel=request.form.get("channel_id","").strip()
             if not raw_channel.isdigit(): raise ValueError("Invalid ticket channel.")
             root=state.setdefault("advanced_features_data",{}).setdefault("cinnamon_tickets_v1",{}); cfg=root.get(str(gid),{})
@@ -2566,7 +2598,7 @@ def dashboard_action():
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice"]=str(exc)[:300]
-        return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","ticket_settings_save":"tickets","ticket_panel_save":"tickets","ticket_panel_update":"tickets","ticket_panel_publish":"tickets","ticket_panel_delete":"tickets","roles_setup_save":"roles_setup","config_backup_restore":"system","hangry_logs":"hangry","moderate":"moderation","automod":"moderation","antiraid":"moderation","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","message_send":"message_studio"}.get(request.form.get("action"),"community")))
+        return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","ticket_settings_save":"tickets","ticket_panel_save":"tickets","ticket_panel_update":"tickets","ticket_panel_publish":"tickets","ticket_panel_delete":"tickets","ticket_dashboard_claim":"tickets","ticket_dashboard_unclaim":"tickets","roles_setup_save":"roles_setup","config_backup_restore":"system","hangry_logs":"hangry","moderate":"moderation","automod":"moderation","antiraid":"moderation","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","message_send":"message_studio"}.get(request.form.get("action"),"community")))
     except Exception as exc:
         log.exception("Dashboard action failed (%s)",type(exc).__name__)
         session["dashboard_notice"]="The change could not be completed. Check Cinnamon's Render logs and bot permissions."
