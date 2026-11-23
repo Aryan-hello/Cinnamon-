@@ -39,7 +39,7 @@ class CompanionTests(unittest.TestCase):
         for name in ("pet", "feed", "play", "groom", "dressup", "room",
                      "catbook", "memories", "catstats"):
             self.assertIn(f'name="{name}"', source)
-        self.assertIn('@_mood_group.command(name="companion"', source)
+        self.assertIn('@companion_group.command(name="mood"', source)
 
     def test_companion_shares_existing_inventory_and_snapshot(self):
         source = MODULE.read_text(encoding="utf-8")
