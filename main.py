@@ -464,6 +464,7 @@ _CINNAMON_MODULES = (
     # economy state/helpers exist when those systems are registered.
     "economy.py",
     "advanced_economy.py",
+    "economy_marketplace.py",  # Member-to-member escrow trading and marketplace.
     "quests.py",
     "achievements.py",
     "hangry_games.py",
