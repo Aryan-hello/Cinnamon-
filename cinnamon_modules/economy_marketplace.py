@@ -408,3 +408,234 @@ async def economy_wishlist(interaction: discord.Interaction, action: app_command
     else:
         result = "\n".join(f"• {ECONOMY_ITEMS.get(x, {}).get('name', x)}" for x in values) or "Your wishlist is empty."
     await cinnamon_send(interaction, result[:1800], ephemeral=True)
+
+
+# Auctions: bids are reserved in Catnip until the auction resolves.
+_AUCTION_KEY = "player_auctions_v1"
+
+async def _auction_finalize_locked(gid, auction_id):
+    auctions = _market_root(_AUCTION_KEY, gid)
+    rec = auctions.get(str(auction_id))
+    if not isinstance(rec, dict) or rec.get("status") != "active":
+        return False
+    seller_id = int(rec["seller_id"])
+    bidder_id = int(rec.get("highest_bidder_id") or 0)
+    users = [seller_id] + ([bidder_id] if bidder_id else [])
+    locks = _market_member_locks(gid, users)
+    await _market_acquire(locks)
+    try:
+        rec = auctions.get(str(auction_id))
+        if not isinstance(rec, dict) or rec.get("status") != "active":
+            return False
+        old_records = _market_copy.deepcopy(auctions)
+        item_id, qty = str(rec["item_id"]), int(rec["quantity"])
+        seller_inv = economy_inventory_for(gid, seller_id)
+        seller_balance = economy_balance(gid, seller_id)
+        snapshots = {seller_id: (seller_balance, dict(seller_inv))}
+        if bidder_id:
+            bidder_inv = economy_inventory_for(gid, bidder_id)
+            bidder_balance = economy_balance(gid, bidder_id)
+            snapshots[bidder_id] = (bidder_balance, dict(bidder_inv))
+            bidder_inv[item_id] = int(bidder_inv.get(item_id, 0)) + qty
+            economy_balances[(gid, seller_id)] = seller_balance + int(rec.get("highest_bid", 0))
+            rec["winner_id"] = bidder_id
+            rec["status"] = "sold"
+        else:
+            seller_inv[item_id] = int(seller_inv.get(item_id, 0)) + qty
+            rec["status"] = "ended_no_bids"
+        rec["closed_at"] = int(_market_time.time())
+        if not await _market_persist_or_rollback(gid, snapshots, auctions, old_records):
+            return False
+        return True
+    finally:
+        _market_release(locks)
+
+@tasks.loop(minutes=1)
+async def _auction_expiry_loop():
+    now = int(_market_time.time())
+    for guild_key, auctions in list(advanced_features_data.get(_AUCTION_KEY, {}).items()):
+        if not str(guild_key).isdigit() or not isinstance(auctions, dict):
+            continue
+        gid = int(guild_key)
+        due = [aid for aid, rec in auctions.items()
+               if isinstance(rec, dict) and rec.get("status") == "active"
+               and int(rec.get("ends_at", 0)) <= now]
+        for auction_id in due:
+            async with _market_lock(gid):
+                if await _auction_finalize_locked(gid, auction_id):
+                    try:
+                        await economy_log(gid, title="Auction ended", fields=[
+                            ("Auction ID", auction_id),
+                            ("Winner ID", str(auctions.get(auction_id, {}).get("winner_id", "No bids"))),
+                            ("Item", str(auctions.get(auction_id, {}).get("item_id", "unknown"))),
+                        ])
+                    except Exception:
+                        log.exception("Auction completion log failed")
+
+@bot.listen("on_ready")
+async def _auction_start_expiry_loop():
+    if not _auction_expiry_loop.is_running():
+        _auction_expiry_loop.start()
+
+async def _auction_id_autocomplete(interaction, current):
+    if not interaction.guild:
+        return []
+    root = _market_root(_AUCTION_KEY, interaction.guild.id)
+    query, results = str(current or "").lower(), []
+    for aid, rec in root.items():
+        if rec.get("status") != "active":
+            continue
+        item = ECONOMY_ITEMS.get(rec.get("item_id"), {})
+        label = f"{item.get('name', rec.get('item_id'))} • bid {int(rec.get('highest_bid', 0)):,} • #{aid}"
+        if query in label.lower() or query in aid.lower():
+            results.append(app_commands.Choice(name=label[:100], value=aid))
+    return results[:25]
+
+auction_group = app_commands.Group(name="auction", description="Run Catnip auctions for eligible inventory items")
+
+@auction_group.command(name="create", description="Auction an item from your inventory")
+@app_commands.guild_only()
+@app_commands.describe(item="Item to auction", quantity="Quantity to escrow",
+                       starting_bid="Minimum opening bid in Catnip", duration_hours="Auction length, 1–72 hours")
+@app_commands.autocomplete(item=_market_item_autocomplete)
+async def auction_create(interaction: discord.Interaction, item: str,
+                         quantity: app_commands.Range[int, 1, 99],
+                         starting_bid: app_commands.Range[int, 1, 10000000],
+                         duration_hours: app_commands.Range[int, 1, 72] = 24):
+    gid, uid, item_id = interaction.guild.id, interaction.user.id, str(item).strip().lower()
+    if not _market_item_ok(item_id):
+        return await cinnamon_send(interaction, "That item cannot be auctioned.", ephemeral=True)
+    async with _market_lock(gid):
+        locks = _market_member_locks(gid, [uid])
+        await _market_acquire(locks)
+        try:
+            inv = economy_inventory_for(gid, uid)
+            owned = int(inv.get(item_id, 0))
+            if owned < quantity:
+                return await cinnamon_send(interaction, "You don't own enough of that item.", ephemeral=True)
+            auctions = _market_root(_AUCTION_KEY, gid)
+            old_records = _market_copy.deepcopy(auctions)
+            snapshots = {uid: (economy_balance(gid, uid), dict(inv))}
+            inv[item_id] = owned - quantity
+            if inv[item_id] <= 0: inv.pop(item_id, None)
+            auction_id = _market_uuid.uuid4().hex[:8]
+            now = int(_market_time.time())
+            auctions[auction_id] = {
+                "seller_id": uid, "item_id": item_id, "quantity": int(quantity),
+                "starting_bid": int(starting_bid), "highest_bid": 0,
+                "highest_bidder_id": 0, "status": "active",
+                "created_at": now, "ends_at": now + int(duration_hours) * 3600,
+            }
+            if not await _market_persist_or_rollback(gid, snapshots, auctions, old_records):
+                return await cinnamon_send(interaction, "Couldn't save the auction; your item was returned.", ephemeral=True)
+        finally:
+            _market_release(locks)
+    await cinnamon_send(interaction, f"Auction {auction_id} opened for {quantity}× {ECONOMY_ITEMS[item_id]['name']}. Opening bid: {starting_bid:,} Catnip. It ends in {duration_hours} hour(s).", ephemeral=True)
+
+@auction_group.command(name="list", description="View active auctions")
+@app_commands.guild_only()
+async def auction_list(interaction: discord.Interaction):
+    gid = interaction.guild.id
+    async with _market_lock(gid):
+        auctions = _market_root(_AUCTION_KEY, gid)
+        due = [aid for aid, rec in auctions.items()
+               if isinstance(rec, dict) and rec.get("status") == "active"
+               and int(rec.get("ends_at", 0)) <= int(_market_time.time())]
+        for aid in due:
+            await _auction_finalize_locked(gid, aid)
+        active = [(aid, rec) for aid, rec in auctions.items() if rec.get("status") == "active"]
+    lines = []
+    for aid, rec in active[:20]:
+        item = ECONOMY_ITEMS.get(rec.get("item_id"), {})
+        bid = max(int(rec.get("starting_bid", 0)), int(rec.get("highest_bid", 0)) + 1)
+        lines.append(f"#{aid} • {item.get('emoji', '📦')} {item.get('name', rec.get('item_id'))} ×{rec.get('quantity', 0)}\nCurrent bid: {int(rec.get('highest_bid', 0)):,} • Next bid: {bid:,} Catnip")
+    e = discord.Embed(title="🔨 Cinnamon Auctions",
+        description="\n\n".join(lines) or "No active auctions.",
+        color=0xE8A05A)
+    await interaction.response.send_message(embed=e, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+@auction_group.command(name="bid", description="Place a Catnip bid on an active auction")
+@app_commands.guild_only()
+@app_commands.describe(auction_id="Choose an active auction", amount="Your total bid in Catnip")
+@app_commands.autocomplete(auction_id=_auction_id_autocomplete)
+async def auction_bid(interaction: discord.Interaction, auction_id: str,
+                      amount: app_commands.Range[int, 1, 10000000]):
+    gid, bidder_id = interaction.guild.id, interaction.user.id
+    async with _market_lock(gid):
+        auctions = _market_root(_AUCTION_KEY, gid)
+        rec = auctions.get(str(auction_id))
+        if not isinstance(rec, dict) or rec.get("status") != "active":
+            return await cinnamon_send(interaction, "That auction isn't active.", ephemeral=True)
+        seller_id = int(rec["seller_id"])
+        previous_bidder = int(rec.get("highest_bidder_id") or 0)
+        if bidder_id == seller_id:
+            return await cinnamon_send(interaction, "You cannot bid on your own auction.", ephemeral=True)
+        if int(rec.get("ends_at", 0)) <= int(_market_time.time()):
+            await _auction_finalize_locked(gid, str(auction_id))
+            return await cinnamon_send(interaction, "That auction has ended.", ephemeral=True)
+        minimum = max(int(rec.get("starting_bid", 0)), int(rec.get("highest_bid", 0)) + 1)
+        if amount < minimum:
+            return await cinnamon_send(interaction, f"The next bid must be at least {minimum:,} Catnip.", ephemeral=True)
+        users = [bidder_id] + ([previous_bidder] if previous_bidder else [])
+        locks = _market_member_locks(gid, users)
+        await _market_acquire(locks)
+        try:
+            rec = auctions.get(str(auction_id))
+            if not isinstance(rec, dict) or rec.get("status") != "active":
+                return await cinnamon_send(interaction, "That auction has already ended.", ephemeral=True)
+            previous_bidder = int(rec.get("highest_bidder_id") or 0)
+            old_bid = int(rec.get("highest_bid", 0))
+            balance = economy_balance(gid, bidder_id)
+            if balance < amount:
+                return await cinnamon_send(interaction, f"You need {amount:,} Catnip; your balance is {balance:,}.", ephemeral=True)
+            old_records = _market_copy.deepcopy(auctions)
+            bidder_inv = economy_inventory_for(gid, bidder_id)
+            snapshots = {bidder_id: (balance, dict(bidder_inv))}
+            if previous_bidder and previous_bidder != bidder_id:
+                prev_inv = economy_inventory_for(gid, previous_bidder)
+                prev_balance = economy_balance(gid, previous_bidder)
+                snapshots[previous_bidder] = (prev_balance, dict(prev_inv))
+                economy_balances[(gid, previous_bidder)] = prev_balance + old_bid
+            elif previous_bidder == bidder_id:
+                balance += old_bid
+                snapshots[bidder_id] = (balance, dict(bidder_inv))
+            economy_balances[(gid, bidder_id)] = balance - amount
+            rec["highest_bid"], rec["highest_bidder_id"] = int(amount), bidder_id
+            rec["last_bid_at"] = int(_market_time.time())
+            if not await _market_persist_or_rollback(gid, snapshots, auctions, old_records):
+                return await cinnamon_send(interaction, "Couldn't save your bid; all balances were restored.", ephemeral=True)
+        finally:
+            _market_release(locks)
+    await economy_log(gid, title="Auction bid placed", fields=[
+        ("Auction ID", auction_id), ("Bidder", f"{interaction.user} ({bidder_id})"),
+        ("Bid", f"{amount:,} Catnip")])
+    await cinnamon_send(interaction, f"Your bid of {amount:,} Catnip is now leading auction {auction_id}.", ephemeral=True)
+
+@auction_group.command(name="cancel", description="Cancel your auction if nobody has bid")
+@app_commands.guild_only()
+@app_commands.autocomplete(auction_id=_auction_id_autocomplete)
+async def auction_cancel(interaction: discord.Interaction, auction_id: str):
+    gid, uid = interaction.guild.id, interaction.user.id
+    async with _market_lock(gid):
+        auctions = _market_root(_AUCTION_KEY, gid)
+        rec = auctions.get(str(auction_id))
+        if not isinstance(rec, dict) or rec.get("status") != "active" or int(rec.get("seller_id", 0)) != uid:
+            return await cinnamon_send(interaction, "That isn't your active auction.", ephemeral=True)
+        if int(rec.get("highest_bid", 0)) > 0:
+            return await cinnamon_send(interaction, "An auction with bids cannot be cancelled.", ephemeral=True)
+        locks = _market_member_locks(gid, [uid])
+        await _market_acquire(locks)
+        try:
+            old_records = _market_copy.deepcopy(auctions)
+            inv = economy_inventory_for(gid, uid)
+            snapshots = {uid: (economy_balance(gid, uid), dict(inv))}
+            item_id, qty = str(rec["item_id"]), int(rec["quantity"])
+            inv[item_id] = int(inv.get(item_id, 0)) + qty
+            rec["status"] = "cancelled"
+            if not await _market_persist_or_rollback(gid, snapshots, auctions, old_records):
+                return await cinnamon_send(interaction, "Couldn't save cancellation; your auction remains active.", ephemeral=True)
+        finally:
+            _market_release(locks)
+    await cinnamon_send(interaction, f"Auction cancelled. Returned {qty}× {ECONOMY_ITEMS[item_id]['name']}.", ephemeral=True)
+
+bot.tree.add_command(auction_group)
