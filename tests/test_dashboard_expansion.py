@@ -27,7 +27,7 @@ class DashboardExpansionTests(unittest.TestCase):
         self.assertIn("confession_channel_id", self.source)
 
     def test_security_and_onboarding_controls_are_wired(self):
-        for action in ("security_settings", "moderation_controls_settings", "verification_publish"):
+        for action in ("security_settings", "moderation_controls_settings", "verification_publish", "appeal_settings", "dashboard_appeal_review"):
             self.assertIn(action, self.source)
         self.assertIn("CinnamonVerificationView", self.runtime)
         self.assertIn("antispam_enabled", self.source)
