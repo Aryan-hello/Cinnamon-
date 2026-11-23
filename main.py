@@ -466,6 +466,7 @@ _CINNAMON_MODULES = (
     "advanced_economy.py",
     "quests.py",
     "achievements.py",
+    "companion.py",  # Member-owned pet profiles share the existing Catnip inventory.
     "hangry_games.py",
     "ticket_system.py",
     "community_tools.py",  # Suggestions and starboard; shared state uses existing persistence.
