@@ -53,12 +53,61 @@ CRAFTING_RECIPES = {
         "ingredients": {"tuna": 3, "golden_fish": 1, "golden_thread": 1},
         "description": "Only the fanciest tuna survives this recipe.",
     },
+    "honey_fish_treat": {
+        "name": "Honey Fish Treat",
+        "emoji": "🍯",
+        "output": "honey_fish_treat",
+        "ingredients": {"fish_biscuits": 1, "golden_thread": 1},
+        "description": "A sweet, crunchy treat wrapped with golden thread.",
+    },
+    "tuna_stew": {
+        "name": "Tuna Stew",
+        "emoji": "🍲",
+        "output": "tuna_stew",
+        "ingredients": {"royal_tuna": 1, "crystal_fishbone": 1},
+        "description": "A warm premium meal simmered with a crystal fishbone.",
+    },
+    "pawberry_cake": {
+        "name": "Pawberry Cake",
+        "emoji": "🍰",
+        "output": "pawberry_cake",
+        "ingredients": {"dream_petals": 1, "honey_fish_treat": 1},
+        "description": "A celebratory cake with dream petals and honeyed fish.",
+    },
+    "golden_bell_collar": {
+        "name": "Golden Bell Collar",
+        "emoji": "🔔",
+        "output": "golden_bell_collar",
+        "ingredients": {"golden_paw_charm": 1, "golden_thread": 1},
+        "description": "A wearable collar with a tiny golden bell.",
+    },
+    "starlight_hat": {
+        "name": "Starlight Hat",
+        "emoji": "🎩",
+        "output": "starlight_hat",
+        "ingredients": {"moonstone": 1, "star_dust": 1},
+        "description": "A magical hat stitched from moonlight and stardust.",
+    },
+    "dream_wings": {
+        "name": "Dream Wings",
+        "emoji": "🪽",
+        "output": "dream_wings",
+        "ingredients": {"moonstone": 1, "dream_petals": 1},
+        "description": "A mythical pair of wings woven from dream petals.",
+    },
+    "moon_jelly": {
+        "name": "Moon Jelly",
+        "emoji": "🪼",
+        "output": "moon_jelly",
+        "ingredients": {"moon_fish_scale": 1, "dream_petals": 1},
+        "description": "A luminous jelly treat with a soft moonlit glow.",
+    },
 }
 
 BLACK_MARKET_POOL = [
     "tuna", "treat", "churu", "catnip_ball", "fish",
     "moon_fish_scale", "golden_thread", "star_dust", "golden_fish",
-    "fish_biscuits", "cosmic_churu", "catnip_crown", "royal_tuna",
+    "fish_biscuits", "cosmic_churu", "catnip_crown", "royal_tuna", "honey_fish_treat", "tuna_stew", "pawberry_cake", "golden_bell_collar", "starlight_hat", "dream_wings", "moon_jelly",
 ]
 
 MYSTERY_REWARDS = [
