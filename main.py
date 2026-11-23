@@ -468,6 +468,7 @@ _CINNAMON_MODULES = (
     "achievements.py",
     "hangry_games.py",
     "ticket_system.py",
+    "community_tools.py",  # Suggestions and starboard; shared state uses existing persistence.
     "cinnamon_adventure_art.py",
     "story_delivery.py",  # Shared story helpers must load before story commands.
     "cinnamon_adventure_fishing.py",
