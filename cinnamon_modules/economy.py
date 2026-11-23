@@ -695,10 +695,10 @@ def economy_sell_quote(guild_id: int, user_id: int, item_id: str, quantity: int)
     item = ECONOMY_ITEMS.get(str(item_id), {})
     if not item or int(quantity) < 1:
         return None
-    if _economy_is_box_reward(str(item_id)):
-        provenance_root = advanced_features_data.setdefault("mystery_reward_provenance_v1", {})
-        key = _economy_box_provenance_key(guild_id, user_id, item_id)
-        provenance = provenance_root.get(key, {})
+    provenance_root = advanced_features_data.setdefault("mystery_reward_provenance_v1", {})
+    key = _economy_box_provenance_key(guild_id, user_id, item_id)
+    provenance = provenance_root.get(key, {})
+    if _economy_is_box_reward(str(item_id)) or isinstance(provenance, dict) and bool(provenance):
         if not isinstance(provenance, dict):
             return None
         remaining, breakdown, payout = int(quantity), [], 0
