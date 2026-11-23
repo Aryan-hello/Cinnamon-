@@ -1,7 +1,7 @@
 """Cinnamon Discord-native ticket system and central role permissions."""
 import discord
 from discord import app_commands
-import asyncio, datetime as _dt, html as _html, io as _io, secrets as _secrets, time as _time
+import asyncio, copy as _copy, datetime as _dt, html as _html, io as _io, secrets as _secrets, time as _time
 
 _TICKET_KEY = "cinnamon_tickets_v1"
 _ROLE_KEY = "cinnamon_role_permissions_v1"
@@ -92,31 +92,67 @@ class TicketPanelView(discord.ui.View):
         await interaction.response.defer(ephemeral=True,thinking=True); await _ticket_create_channel(interaction,panel,cat,[])
 
 class GAGServiceCompletionView(discord.ui.View):
-    def __init__(self,ticket_id):
-        super().__init__(timeout=None); self.ticket_id=str(ticket_id)
-        b=discord.ui.Button(label="Service Completed",emoji="✅",style=discord.ButtonStyle.success,custom_id=f"ticket:gagcomplete:{self.ticket_id}")
-        b.callback=self._complete; self.add_item(b)
-    async def _complete(self,interaction):
-        ticket=next((t for g in _ticket_root().values() for t in (g.get("tickets",{}) or {}).values() if str(t.get("ticket_id"))==self.ticket_id),None)
-        if not ticket or str(ticket.get("routing"))!="grow_a_garden": return await interaction.response.send_message("GAG service ticket not found.",ephemeral=True)
-        uid=int(ticket.get("creator_id",0)); booster=int(ticket.get("claimed_by") or 0)
-        if interaction.user.id==uid: who="member"
-        elif interaction.user.id==booster: who="booster"
-        else: return await interaction.response.send_message("Only this ticket's member and claimed Trusted Booster can confirm.",ephemeral=True)
-        if not ticket.get("service_consumed") or ticket.get("service_paid"): return await interaction.response.send_message("Service is not claimable or was already paid.",ephemeral=True)
-        confirms=ticket.setdefault("service_confirmations",{"member":False,"booster":False})
-        if confirms.get(who): return await interaction.response.send_message("Your confirmation is already recorded.",ephemeral=True)
-        confirms[who]=True
-        if not await bd_save_data(): confirms[who]=False; return await interaction.response.send_message("Could not save confirmation. Try again.",ephemeral=True)
+    def __init__(self, ticket_id):
+        super().__init__(timeout=None)
+        self.ticket_id = str(ticket_id)
+        button = discord.ui.Button(
+            label="Service Completed", emoji="✅", style=discord.ButtonStyle.success,
+            custom_id=f"ticket:gagcomplete:{self.ticket_id}")
+        button.callback = self._complete
+        self.add_item(button)
+
+    async def _complete(self, interaction):
+        ticket = next((t for g in _ticket_root().values()
+                       for t in (g.get("tickets", {}) or {}).values()
+                       if str(t.get("ticket_id")) == self.ticket_id), None)
+        if not ticket or str(ticket.get("routing")) != "grow_a_garden":
+            return await interaction.response.send_message("GAG service ticket not found.", ephemeral=True)
+        uid = int(ticket.get("creator_id", 0))
+        booster = int(ticket.get("claimed_by") or 0)
+        if interaction.user.id == uid:
+            who = "member"
+        elif interaction.user.id == booster:
+            who = "booster"
+        else:
+            return await interaction.response.send_message(
+                "Only this ticket's member and claimed Trusted Booster can confirm.", ephemeral=True)
+        if not ticket.get("service_consumed") or ticket.get("service_paid"):
+            return await interaction.response.send_message(
+                "Service is not claimable or was already paid.", ephemeral=True)
+        confirms = ticket.setdefault("service_confirmations", {"member": False, "booster": False})
+        if confirms.get(who):
+            return await interaction.response.send_message("Your confirmation is already recorded.", ephemeral=True)
+
+        # The final confirmation and commission payout are one durable mutation.
+        # A failed write restores both the ticket state and the Catnip balance.
+        before_ticket = _copy.deepcopy(ticket)
+        before_balance = economy_balance(interaction.guild.id, booster)
+        confirms[who] = True
         if all(confirms.values()):
-            item=ECONOMY_ITEMS.get(str(ticket.get("service_item_id")),{}); price=int(item.get("price",0)); reward=price//2
-            economy_balances[(interaction.guild.id,booster)]=economy_balance(interaction.guild.id,booster)+reward
-            ticket["service_paid"]=True; ticket["service_completed_at"]=_time.time(); ticket["booster_reward"]=reward
-            if not await bd_save_data(): return await interaction.response.send_message("Payment save failed; alert an administrator.",ephemeral=True)
-            await interaction.channel.send(f"🎉 Service completed! Both confirmations received. <@{booster}> earned **{reward:,} Catnip** (50% commission).")
-            await _ticket_log(interaction.guild,"GAG service paid",interaction.user,ticket,f"Reward {reward} Catnip")
-        else: await interaction.channel.send(f"☑️ {who.title()} confirmed service completion. Waiting for the other participant.")
-        await interaction.response.send_message("Confirmation recorded.",ephemeral=True)
+            item = ECONOMY_ITEMS.get(str(ticket.get("service_item_id")), {})
+            reward = max(0, int(item.get("price", 0)) // 2)
+            economy_balances[(interaction.guild.id, booster)] = before_balance + reward
+            ticket["service_paid"] = True
+            ticket["service_completed_at"] = _time.time()
+            ticket["booster_reward"] = reward
+        if not await bd_save_data():
+            ticket.clear()
+            ticket.update(before_ticket)
+            economy_balances[(interaction.guild.id, booster)] = before_balance
+            return await interaction.response.send_message(
+                "Could not save the confirmation. No commission was paid; please try again.", ephemeral=True)
+
+        if all(ticket.get("service_confirmations", {}).values()):
+            await interaction.channel.send(
+                f"🎉 Service completed! Both confirmations received. <@{booster}> earned **{reward:,} Catnip** (50% commission).")
+            await _ticket_log(interaction.guild, "GAG service paid", interaction.user,
+                              ticket, f"Reward {reward} Catnip")
+            await interaction.response.send_message("Completion confirmed and commission saved.", ephemeral=True)
+        else:
+            await interaction.channel.send(
+                f"☑️ {who.title()} confirmed service completion. Waiting for the other participant.")
+            await interaction.response.send_message("Confirmation recorded.", ephemeral=True)
+
 
 class TicketControls(discord.ui.View):
     def __init__(self,ticket_id):
