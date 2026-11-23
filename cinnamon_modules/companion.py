@@ -306,7 +306,7 @@ async def companion_room(interaction: discord.Interaction, action: app_commands.
     e.add_field(name="Furniture placed", value=str(len(rooms)), inline=True)
     await interaction.response.send_message(embed=e, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
-@bot.tree.command(name="mood", description="See your personal cat companion's current mood")
+@_mood_group.command(name="companion", description="See your personal cat companion's current mood")
 @app_commands.guild_only()
 async def companion_mood(interaction: discord.Interaction):
     profile = _companion_profile(interaction.guild.id, interaction.user.id, False)
