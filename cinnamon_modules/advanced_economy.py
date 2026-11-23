@@ -267,44 +267,82 @@ def _weighted_reward():
     return "catnip_small"
 
 
+def _record_mystery_reward_provenance(guild_id, user_id, item_id, tier, quantity=1):
+    root = ADVANCED_FEATURES.setdefault("mystery_reward_provenance_v1", {})
+    key = f"{int(guild_id)}:{int(user_id)}:{str(item_id)}"
+    record = root.setdefault(key, {})
+    record[str(tier)] = int(record.get(str(tier), 0)) + int(quantity)
+
+
 async def _open_one(guild_id, user, tier="common"):
-    inv=economy_inventory_for(guild_id,user.id)
+    inv = economy_inventory_for(guild_id, user.id)
     custom = ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:{tier}", {})
     tier_items = list(BOX_TIERS[tier]["items"]) + list(custom.get("items", []))
     tier_materials = list(BOX_TIERS[tier]["materials"]) + list(custom.get("materials", []))
     if tier != "common":
-        cfg=BOX_TIERS[tier]
-        roll=random.random()
+        cfg = BOX_TIERS[tier]
+        roll = random.random()
         if roll < .55:
-            amount=random.randint(*cfg["catnip"]); economy_balances[(guild_id,user.id)]=economy_balance(guild_id,user.id)+amount
+            amount = random.randint(*cfg["catnip"])
+            economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
             return f"🌿 **+{amount:,} Catnip**"
         if roll < .90:
-            item_id=random.choice(tier_items); item=ECONOMY_ITEMS[item_id]
-            limit=int(item.get("max_per_person",0))
-            if limit and int(inv.get(item_id,0))>=limit:
-                amount=random.randint(500,1800); economy_balances[(guild_id,user.id)]=economy_balance(guild_id,user.id)+amount
+            item_id = random.choice(tier_items)
+            item = ECONOMY_ITEMS[item_id]
+            limit = int(item.get("max_per_person", 0))
+            if limit and int(inv.get(item_id, 0)) >= limit:
+                amount = random.randint(500, 1800)
+                economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
                 return f"🪙 Duplicate protection: **+{amount:,} Catnip** (already own {item['name']})"
-            inv[item_id]=int(inv.get(item_id,0))+1
+            inv[item_id] = int(inv.get(item_id, 0)) + 1
+            _record_mystery_reward_provenance(guild_id, user.id, item_id, tier, 1)
             return f"{item['emoji']} **1× {item['name']}**"
-        item_id=random.choice(tier_materials); inv[item_id]=int(inv.get(item_id,0))+1; item=ECONOMY_ITEMS[item_id]
+        item_id = random.choice(tier_materials)
+        inv[item_id] = int(inv.get(item_id, 0)) + 1
+        _record_mystery_reward_provenance(guild_id, user.id, item_id, tier, 1)
+        item = ECONOMY_ITEMS[item_id]
         return f"🧪 **1× {item['name']}**"
-    kind=_weighted_reward(); 
-    if kind=="catnip_small":
-        amount=random.randint(250,700); economy_balances[(guild_id,user.id)]=economy_balance(guild_id,user.id)+amount; return f"🌿 **+{amount:,} Catnip**"
-    if kind=="catnip_big":
-        amount=random.randint(1200,3000); economy_balances[(guild_id,user.id)]=economy_balance(guild_id,user.id)+amount; return f"💰 **+{amount:,} Catnip**"
-    if kind=="xp":
-        amount=random.randint(100,500); xp_data[(guild_id,user.id)]=int(xp_data.get((guild_id,user.id),0))+amount; return f"⭐ **+{amount:,} XP**"
-    if kind=="item_common":
-        item_id=random.choice(list(BOX_TIERS["common"]["items"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("items", []))); qty=random.randint(1,3); inv[item_id]=int(inv.get(item_id,0))+qty; item=ECONOMY_ITEMS[item_id]; return f"{item['emoji']} **{qty}× {item['name']}**"
-    if kind=="item_rare":
-        item_id=random.choice(["fish","golden_fish","moon_fish_scale"]); qty=random.randint(1,2); inv[item_id]=int(inv.get(item_id,0))+qty; item=ECONOMY_ITEMS[item_id]; return f"{item['emoji']} **{qty}× {item['name']}**"
-    if kind=="material":
-        item_id=random.choice(list(BOX_TIERS["common"]["materials"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("materials", []))); qty=random.randint(1,2); inv[item_id]=int(inv.get(item_id,0))+qty; item=ECONOMY_ITEMS[item_id]; return f"{item['emoji']} **{qty}× {item['name']}**"
-    if int(inv.get("catnip_crown",0))>=1:
-        inv["golden_fish"]=int(inv.get("golden_fish",0))+1; return "🐠 **1× Golden Fish** — duplicate legendary converted."
-    inv["catnip_crown"]=1; return "👑 **1× Catnip Crown** — legendary!"
-
+    kind = _weighted_reward()
+    if kind == "catnip_small":
+        amount = random.randint(250, 700)
+        economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
+        return f"🌿 **+{amount:,} Catnip**"
+    if kind == "catnip_big":
+        amount = random.randint(1200, 3000)
+        economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
+        return f"💰 **+{amount:,} Catnip**"
+    if kind == "xp":
+        amount = random.randint(100, 500)
+        xp_data[(guild_id, user.id)] = int(xp_data.get((guild_id, user.id), 0)) + amount
+        return f"⭐ **+{amount:,} XP**"
+    if kind == "item_common":
+        item_id = random.choice(list(BOX_TIERS["common"]["items"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("items", [])))
+        qty = random.randint(1, 3)
+        inv[item_id] = int(inv.get(item_id, 0)) + qty
+        _record_mystery_reward_provenance(guild_id, user.id, item_id, "common", qty)
+        item = ECONOMY_ITEMS[item_id]
+        return f"{item['emoji']} **{qty}× {item['name']}**"
+    if kind == "item_rare":
+        item_id = random.choice(["fish", "golden_fish", "moon_fish_scale"])
+        qty = random.randint(1, 2)
+        inv[item_id] = int(inv.get(item_id, 0)) + qty
+        _record_mystery_reward_provenance(guild_id, user.id, item_id, "common", qty)
+        item = ECONOMY_ITEMS[item_id]
+        return f"{item['emoji']} **{qty}× {item['name']}**"
+    if kind == "material":
+        item_id = random.choice(list(BOX_TIERS["common"]["materials"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("materials", [])))
+        qty = random.randint(1, 2)
+        inv[item_id] = int(inv.get(item_id, 0)) + qty
+        _record_mystery_reward_provenance(guild_id, user.id, item_id, "common", qty)
+        item = ECONOMY_ITEMS[item_id]
+        return f"🧪 **{qty}× {item['name']}**"
+    if int(inv.get("catnip_crown", 0)) >= 1:
+        inv["golden_fish"] = int(inv.get("golden_fish", 0)) + 1
+        _record_mystery_reward_provenance(guild_id, user.id, "golden_fish", "common", 1)
+        return "🐠 **1× Golden Fish** — duplicate legendary converted."
+    inv["catnip_crown"] = 1
+    _record_mystery_reward_provenance(guild_id, user.id, "catnip_crown", "common", 1)
+    return "👑 **1× Catnip Crown** — legendary!"
 
 
 # Admin controls for granting Mystery Boxes and extending tier reward pools.
