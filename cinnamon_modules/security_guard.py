@@ -8,6 +8,7 @@ _SG_MESSAGE_TIMES = _sg_collections.defaultdict(list)
 _SG_MESSAGE_COOLDOWNS = {}
 _SG_NUKE_ACTIONS = _sg_collections.defaultdict(list)
 _SG_NUKE_ALERTS = {}
+security_group = app_commands.Group(name="security", description="Anti-spam, anti-nuke and security alerts")
 
 def _sg_root(gid):
     root = advanced_features_data.setdefault(_SG_KEY, {})
@@ -40,7 +41,7 @@ async def _sg_alert(guild, title, description, fields=()):
     except Exception:
         log.exception("Security alert logging failed")
 
-@bot.tree.command(name="security-alerts", description="Configure the private channel for Cinnamon security alerts")
+@security_group.command(name="alerts", description="Configure the private channel for Cinnamon security alerts")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(channel="Private channel for anti-spam and anti-nuke alerts; omit to disable")
@@ -56,6 +57,7 @@ async def security_alert_channel(interaction: discord.Interaction, channel: disc
     await cinnamon_send(interaction, "Security alerts will be sent to " + channel.mention + "." if channel else "Security alert channel disabled; alerts will use the configured moderation log.", ephemeral=True)
 
 antispam_group = app_commands.Group(name="antispam", description="Configure message-rate protection")
+security_group.add_command(antispam_group)
 
 @antispam_group.command(name="enable", description="Enable anti-spam protection")
 @app_commands.guild_only()
@@ -96,9 +98,9 @@ async def security_antispam_configure(interaction: discord.Interaction,
         return await cinnamon_send(interaction, "Couldn't save anti-spam configuration.", ephemeral=True)
     await cinnamon_send(interaction, f"Anti-spam configured: {threshold} messages in {window_seconds}s; timeout {timeout_seconds}s.", ephemeral=True)
 
-bot.tree.add_command(antispam_group)
 
 antinuke_group = app_commands.Group(name="antinuke", description="Detect bursts of destructive server administration actions")
+security_group.add_command(antinuke_group)
 
 @antinuke_group.command(name="enable", description="Enable audit-log-based anti-nuke alerts")
 @app_commands.guild_only()
@@ -138,7 +140,6 @@ async def security_antinuke_threshold(interaction: discord.Interaction, actions:
         return await cinnamon_send(interaction, "Couldn't save anti-nuke threshold.", ephemeral=True)
     await cinnamon_send(interaction, f"Anti-nuke alert threshold set to {actions} destructive actions in 15 seconds.", ephemeral=True)
 
-bot.tree.add_command(antinuke_group)
 
 @bot.listen("on_message")
 async def security_antispam_message(message):
@@ -253,3 +254,6 @@ async def security_webhook_change(channel):
                     break
     except (discord.Forbidden, discord.HTTPException):
         return
+
+
+bot.tree.add_command(security_group)
