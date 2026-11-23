@@ -28,6 +28,7 @@ def _cs_team_slug(name):
     return slug[:24]
 
 quote_group = app_commands.Group(name="quote", description="Save and browse memorable server quotes")
+community_group.add_command(quote_group)
 
 @quote_group.command(name="add", description="Add a quote to the server's collection")
 @app_commands.guild_only()
@@ -78,9 +79,9 @@ async def community_quote_remove(interaction: discord.Interaction, quote_id: str
         return await cinnamon_send(interaction, "Couldn't save quote removal.", ephemeral=True)
     await cinnamon_send(interaction, "Quote removed.", ephemeral=True)
 
-bot.tree.add_command(quote_group)
 
 rep_group = app_commands.Group(name="rep", description="Give and view community reputation")
+community_group.add_command(rep_group)
 
 @rep_group.command(name="give", description="Give one reputation point to another member")
 @app_commands.guild_only()
@@ -126,9 +127,9 @@ async def community_rep_leaderboard(interaction: discord.Interaction):
     e = discord.Embed(title="🏅 Community Reputation", description="\n".join(lines) or "No reputation points yet.", color=0xE8A05A)
     await interaction.response.send_message(embed=e, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
-bot.tree.add_command(rep_group)
 
 team_group = app_commands.Group(name="team", description="Create and manage community teams")
+community_group.add_command(team_group)
 
 async def _team_autocomplete(interaction, current):
     if not interaction.guild:
@@ -264,9 +265,9 @@ async def community_team_disband(interaction: discord.Interaction, team_name: st
             return await cinnamon_send(interaction, "Couldn't save team disbanding.", ephemeral=True)
     await cinnamon_send(interaction, "Team disbanded.", ephemeral=True)
 
-bot.tree.add_command(team_group)
 
 challenge_group = app_commands.Group(name="challenge", description="Join community message challenges and earn Catnip")
+community_group.add_command(challenge_group)
 
 @challenge_group.command(name="create", description="Create a server-wide activity challenge")
 @app_commands.guild_only()
@@ -387,7 +388,6 @@ async def community_challenge_end(interaction: discord.Interaction):
         return await cinnamon_send(interaction, "Couldn't save challenge closure.", ephemeral=True)
     await cinnamon_send(interaction, "Community challenge ended. Members who reached the goal can still claim their rewards.", ephemeral=True)
 
-bot.tree.add_command(challenge_group)
 
 @bot.listen("on_message")
 async def _community_challenge_message(message):
