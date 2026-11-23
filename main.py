@@ -466,7 +466,6 @@ _CINNAMON_MODULES = (
     "advanced_economy.py",
     "quests.py",
     "achievements.py",
-    "companion.py",  # Member-owned pet profiles share the existing Catnip inventory.
     "hangry_games.py",
     "ticket_system.py",
     "community_tools.py",  # Suggestions and starboard; shared state uses existing persistence.
@@ -477,6 +476,7 @@ _CINNAMON_MODULES = (
     "cinnamon_adventure_story.py",
     "cinnamon_extra_stories.py",  # Five new branching player adventures.
     "cinnamon_moods.py",
+    "companion.py",  # Member-owned pet profiles share the existing Catnip inventory.
     "cinnamon_personality.py",
     "cinnamon_actions.py",
     # Deterministic conversational shortcuts into existing prefix command adapters.
