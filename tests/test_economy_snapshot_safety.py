@@ -28,17 +28,20 @@ class EconomySnapshotSafetyTests(unittest.TestCase):
         self.assertIn("Balance map entry", self.economy)
 
     def test_economy_snapshots_include_catnip_and_inventory(self):
-        start = self.economy.index("async def economy_snapshot_payload")
-        end = self.economy.index('@economy_group.command(name="snapshot"', start)
+        start = self.economy.index("def economy_user_snapshot")
+        end = self.economy.index("async def economy_log", start)
         block = self.economy[start:end]
         self.assertIn('"balance": economy_balance', block)
         self.assertIn('"inventory": dict(economy_inventory_for', block)
 
-    def test_recall_is_merge_only_by_default_and_can_select_a_log_channel(self):
-        self.assertIn('name="recall"', self.economy)
+    def test_existing_recall_is_merge_only_and_can_select_a_log_channel(self):
+        setup = (ROOT / "cinnamon_modules" / "server_setup.py").read_text(encoding="utf-8")
+        self.assertIn('name="recall"', setup)
+        self.assertIn("snapshot_channel: discord.TextChannel | None = None", setup)
+        self.assertIn("economy_snapshot_channel=snapshot_channel", setup)
         self.assertIn("source_channel: discord.TextChannel | None = None", self.economy)
         self.assertIn("merge_only: bool = True", self.economy)
-        self.assertIn("merge_only=True, source_channel=channel", self.economy)
+        self.assertIn("merge_only=True, source_channel=economy_snapshot_channel", setup)
         self.assertIn("existing wallets and inventory are never replaced", self.economy)
 
     def test_failed_snapshot_save_rolls_back_every_economy_map(self):
