@@ -1807,7 +1807,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","security_settings","moderation_controls_settings","verification_publish"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","security_settings","moderation_controls_settings","verification_publish","appeal_settings","dashboard_appeal_review"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -1917,6 +1917,60 @@ def dashboard_action():
             _audit(gid,actor,"Dashboard: Catnip gift",
                    f"Sent {amount:,} Catnip to {recipient} ({recipient.id}) from actor's wallet.")
             session["dashboard_notice"]=f"Sent {amount:,} Catnip to {recipient.display_name}."
+        elif action=="appeal_settings":
+            raw=request.form.get("appeal_channel_id","").strip()
+            channel=guild.get_channel(int(raw)) if raw.isdigit() else None
+            if raw and not isinstance(channel,__import__("discord").TextChannel):
+                raise ValueError("Choose a valid appeal text channel.")
+            if channel and channel.permissions_for(guild.default_role).view_channel:
+                raise ValueError("Appeal channels must be private to moderators.")
+            async def save_appeal_channel():
+                root=state["advanced_features_data"].setdefault("cinnamon_moderation_controls_v1",{})
+                cfg=root.setdefault(str(gid),{})
+                before=cfg.get("appeal_channel_id",0)
+                cfg["appeal_channel_id"]=int(channel.id) if channel else 0
+                if not await state["bd_save_data"]():
+                    cfg["appeal_channel_id"]=before
+                    raise ValueError("Couldn't durably save the appeal channel.")
+            _run_bot(save_appeal_channel())
+            _audit(gid,actor,"Dashboard: appeal channel updated",f"Appeal channel={channel.id if channel else 0}.")
+            session["dashboard_notice"]="Private appeal channel saved."
+        elif action=="dashboard_appeal_review":
+            appeal_id=request.form.get("appeal_id","").strip()
+            decision=request.form.get("decision","").strip()
+            if decision not in {"approved","declined"}: raise ValueError("Choose an appeal decision.")
+            async def review_dashboard_appeal():
+                root=state["advanced_features_data"].setdefault("cinnamon_moderation_controls_v1",{})
+                cfg=root.setdefault(str(gid),{})
+                record=cfg.setdefault("appeals",{}).get(appeal_id)
+                if not isinstance(record,dict) or record.get("status")!="pending":
+                    raise ValueError("That appeal is no longer pending.")
+                before=__import__("copy").deepcopy(record)
+                reviewer_id=int(_tokens[sid]["user"]["id"])
+                record["status"],record["reviewed_by"]=decision,reviewer_id
+                record["review_note"]="Reviewed from the dashboard."
+                record["reviewed_at"]=int(time.time())
+                if not await state["bd_save_data"]():
+                    record.clear();record.update(before)
+                    raise ValueError("Could not durably save the appeal decision.")
+                try:
+                    user=await state["bot"].fetch_user(int(record.get("user_id",0)))
+                    await user.send(f"Your moderation appeal for {guild.name} was {decision}.")
+                except Exception:
+                    pass
+                channel=guild.get_channel(int(record.get("channel_id",0) or 0))
+                view_class=state.get("ModerationAppealView")
+                if channel and callable(view_class):
+                    try:
+                        message=await channel.fetch_message(int(record.get("message_id",0)))
+                        embed=__import__("discord").Embed(title="Moderation appeal "+decision.title(),
+                            description="The appeal has been reviewed by server moderation.",color=0x69A982 if decision=="approved" else 0xD97777)
+                        await message.edit(embed=embed,view=view_class(gid,appeal_id,disabled=True))
+                    except __import__("discord").HTTPException:
+                        pass
+            _run_bot(review_dashboard_appeal())
+            _audit(gid,actor,"Dashboard: moderation appeal reviewed",f"Appeal {appeal_id} marked {decision}.")
+            session["dashboard_notice"]="Appeal "+appeal_id+" marked "+decision+"."
         elif action=="security_settings":
             def optional_security_channel():
                 raw=request.form.get("alert_channel_id","").strip()
@@ -2702,7 +2756,7 @@ def dashboard_action():
             session["dashboard_notice"]=f"{mod_action.title()} action completed for {target}."
         else:
             raise ValueError("Unknown dashboard action.")
-        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_update":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","community_features_settings":"community","community_event_create":"community","community_event_cancel":"community","security_settings":"moderation","moderation_controls_settings":"moderation","verification_publish":"moderation","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
+        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_update":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","community_features_settings":"community","community_event_create":"community","community_event_cancel":"community","security_settings":"moderation","moderation_controls_settings":"moderation","verification_publish":"moderation","appeal_settings":"moderation","dashboard_appeal_review":"moderation","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice"]=str(exc)[:300]
