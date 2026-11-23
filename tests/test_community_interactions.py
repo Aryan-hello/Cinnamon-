@@ -13,13 +13,11 @@ class CommunityInteractionTests(unittest.TestCase):
         cls.source = MODULE.read_text(encoding="utf-8")
         cls.main = MAIN.read_text(encoding="utf-8")
 
-    def test_polls_have_persistent_voting_and_close_controls(self):
-        self.assertIn('name="poll"', self.source)
-        self.assertIn('name="poll-close"', self.source)
-        self.assertIn('name="poll-results"', self.source)
-        self.assertIn("class CommunityPollView", self.source)
-        self.assertIn("record.setdefault(\"votes\", {})", self.source)
-        self.assertIn("await bd_save_data()", self.source)
+    def test_existing_poll_system_remains_the_single_poll_command(self):
+        levels = (ROOT / "cinnamon_modules" / "levels_games.py").read_text(encoding="utf-8")
+        self.assertIn('name="poll"', levels)
+        self.assertNotIn('name="poll"', self.source)
+        self.assertIn("active_polls", levels)
 
     def test_events_have_timezone_validation_rsvp_and_reminders(self):
         self.assertIn('name="event"', self.source)
