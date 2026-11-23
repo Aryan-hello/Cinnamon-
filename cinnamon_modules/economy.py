@@ -1619,28 +1619,6 @@ async def economy_iteminfo_cmd(interaction: discord.Interaction, item: str):
     await economy_log(interaction.guild.id, title="🔎 Economy item info viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{item['name']} (`{item_id}`)")])
 
 
-@bot.tree.command(name="recall", description="Safely recall Catnip and inventory from an economy snapshot")
-@app_commands.guild_only()
-@app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.describe(channel="Optional text channel containing Cinnamon economy snapshots")
-async def economy_recall_cmd(interaction: discord.Interaction, channel: discord.TextChannel | None = None):
-    if channel is not None and channel.guild.id != interaction.guild.id:
-        return await cinnamon_send(interaction, "Choose a snapshot channel from this server.", ephemeral=True)
-    await interaction.response.defer(ephemeral=True, thinking=True)
-    restored, detail = await economy_restore_from_snapshot(
-        interaction.guild, merge_only=True, source_channel=channel)
-    if restored <= 0:
-        return await interaction.followup.send(
-            "No economy accounts were recalled. " + str(detail), ephemeral=True)
-    await economy_log(interaction.guild.id, title="🧾 Economy data recalled",
-        description=f"Safely merged {restored} account(s) from an economy snapshot.",
-        fields=[("Source channel", channel.mention if channel else "Configured economy log"),
-                ("Snapshot", detail), ("Mode", "Merge-only; existing Catnip balances are preserved")])
-    await interaction.followup.send(
-        f"Recall complete. **{restored} account(s)** were processed from the snapshot created at {detail}. Catnip balances, inventory and other missing economy data were restored without overwriting existing wallets.",
-        ephemeral=True)
-
-
 @economy_group.command(name="restore-snapshot", description="Merge missing economy data without overwriting existing balances")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
