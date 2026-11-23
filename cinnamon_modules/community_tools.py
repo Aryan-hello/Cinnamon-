@@ -78,7 +78,7 @@ class _CTSuggestionView(discord.ui.View):
                 log.exception("Suggestion audit logging failed")
         return run
 
-@bot.tree.command(name="suggest", description="Send an idea to this server's suggestion board")
+@community_group.command(name="suggest", description="Send an idea to this server's suggestion board")
 @app_commands.guild_only()
 @app_commands.describe(suggestion="Describe one clear idea for the server")
 async def _ct_suggest(interaction: discord.Interaction, suggestion: str):
@@ -112,7 +112,7 @@ async def _ct_suggest(interaction: discord.Interaction, suggestion: str):
         log.exception("Suggestion publish failed")
         await interaction.followup.send("Discord couldn't publish the suggestion. Try again later.", ephemeral=True)
 
-@bot.tree.command(name="suggestion-settings", description="Set or disable the suggestion board")
+@community_group.command(name="suggestion-settings", description="Set or disable the suggestion board")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(channel="Suggestion channel; omit to disable")
@@ -127,7 +127,7 @@ async def _ct_suggestion_settings(interaction: discord.Interaction, channel: dis
         "Suggestion board set to " + channel.mention + "." if channel else "Suggestion board disabled.",
         ephemeral=True)
 
-@bot.tree.command(name="starboard-settings", description="Set or disable the server starboard")
+@community_group.command(name="starboard-settings", description="Set or disable the server starboard")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(channel="Starboard channel; omit to disable", threshold="Required reactions, 2–20", emoji="Reaction to count")
@@ -219,3 +219,6 @@ async def _ct_restore_views():
         log.info("Restored %s suggestion review views", registered)
     except Exception:
         log.exception("Suggestion view restoration failed")
+
+
+bot.tree.add_command(community_group)
