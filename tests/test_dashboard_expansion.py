@@ -1,0 +1,46 @@
+"""Dashboard expansion regression checks."""
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+DASHBOARD = ROOT / "dashboard.py"
+RUNTIME = ROOT / "cinnamon_modules" / "dashboard_runtime.py"
+
+
+class DashboardExpansionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = DASHBOARD.read_text(encoding="utf-8")
+        cls.runtime = RUNTIME.read_text(encoding="utf-8")
+
+    def test_companion_page_is_registered_and_reads_persistent_profiles(self):
+        self.assertIn("def _companions(guild, state):", self.source)
+        self.assertIn('"companions":_companions', self.source)
+        self.assertIn("companion_profiles", self.source)
+        self.assertIn("Companions", self.source)
+
+    def test_community_settings_and_event_controls_are_wired(self):
+        for action in ("community_features_settings", "community_event_create", "community_event_cancel"):
+            self.assertIn(action, self.source)
+        self.assertIn("CommunityEventView", self.runtime)
+        self.assertIn("starboard_threshold", self.source)
+        self.assertIn("confession_channel_id", self.source)
+
+    def test_security_and_onboarding_controls_are_wired(self):
+        for action in ("security_settings", "moderation_controls_settings", "verification_publish"):
+            self.assertIn(action, self.source)
+        self.assertIn("CinnamonVerificationView", self.runtime)
+        self.assertIn("antispam_enabled", self.source)
+        self.assertIn("antinuke_enabled", self.source)
+
+    def test_ticket_dashboard_can_claim_unassign_close_and_reopen(self):
+        for action in ("ticket_dashboard_claim", "ticket_dashboard_unclaim",
+                       "ticket_dashboard_close", "ticket_dashboard_reopen"):
+            self.assertIn(action, self.source)
+
+    def test_wildlands_is_not_added_to_dashboard_expansion(self):
+        self.assertNotIn("wildlands_", self.source)
+
+
+if __name__ == "__main__":
+    unittest.main()
