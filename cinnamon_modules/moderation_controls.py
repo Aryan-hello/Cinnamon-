@@ -5,6 +5,7 @@ import time as _mc_time
 import uuid as _mc_uuid
 
 _MC_KEY = "cinnamon_moderation_controls_v1"
+_MC_VIEWS_READY = False
 
 def _mc_root(gid):
     root = advanced_features_data.setdefault(_MC_KEY, {})
@@ -355,6 +356,10 @@ async def moderation_onboarding_member_join(member):
 
 @bot.listen("on_ready")
 async def moderation_controls_restore_views():
+    global _MC_VIEWS_READY
+    if _MC_VIEWS_READY:
+        return
+    _MC_VIEWS_READY = True
     try:
         for guild_key, cfg in advanced_features_data.get(_MC_KEY, {}).items():
             if not str(guild_key).isdigit() or not isinstance(cfg, dict):
