@@ -1785,7 +1785,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","security_settings","moderation_controls_settings","verification_publish"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","security_settings","moderation_controls_settings","verification_publish"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -2009,6 +2009,84 @@ def dashboard_action():
             channel_mention=_run_bot(publish_verification())
             _audit(gid,actor,"Dashboard: verification panel published",f"Posted in {channel_mention}.")
             session["dashboard_notice"]="Verification panel published in "+channel_mention+"."
+        elif action=="community_event_create":
+            title=request.form.get("title","").strip()
+            start_raw=request.form.get("start_at","").strip()
+            description=request.form.get("description","").strip()[:1500]
+            raw_channel=request.form.get("channel_id","").strip()
+            if not title or len(title)>120 or not raw_channel.isdigit():
+                raise ValueError("Provide an event title and a valid text channel.")
+            try:
+                start=__import__("datetime").datetime.fromisoformat(start_raw.replace("Z","+00:00"))
+            except ValueError:
+                raise ValueError("Use an ISO date/time including a timezone offset.")
+            if start.tzinfo is None:
+                raise ValueError("Event start time must include a timezone offset such as +05:30 or Z.")
+            starts_at=int(start.astimezone(__import__("datetime").timezone.utc).timestamp())
+            if starts_at<=int(time.time()) or starts_at>int(time.time())+366*86400:
+                raise ValueError("Choose a future time within the next 366 days.")
+            channel=guild.get_channel(int(raw_channel))
+            if not isinstance(channel,__import__("discord").TextChannel):
+                raise ValueError("Choose a text channel in this server.")
+            perms=channel.permissions_for(guild.me)
+            if not (perms.view_channel and perms.send_messages and perms.embed_links):
+                raise ValueError("Cinnamon needs View Channel, Send Messages and Embed Links in the event channel.")
+            async def create_dashboard_event():
+                advanced=state["advanced_features_data"]
+                root=advanced.setdefault("cinnamon_community_interactions_v1",{})
+                cfg=root.setdefault(str(gid),{})
+                events=cfg.setdefault("events",{})
+                view_class=state.get("CommunityEventView")
+                if not callable(view_class): raise ValueError("Community event RSVP controls are unavailable.")
+                event_id=__import__("uuid").uuid4().hex[:8]
+                record={"creator_id":int(_tokens[sid]["user"]["id"]),"title":title,
+                        "description":description,"starts_at":starts_at,"channel_id":int(channel.id),
+                        "rsvps":{},"status":"scheduled","created_at":int(time.time()),
+                        "reminders_sent":[]}
+                embed=__import__("discord").Embed(title="📅 "+title,
+                    description=(description+"\\n\\n" if description else "")+f"Starts <t:{starts_at}:F> (<t:{starts_at}:R>)",
+                    color=0x91B5A2)
+                message=await channel.send(embed=embed,view=view_class(gid,event_id),
+                    allowed_mentions=__import__("discord").AllowedMentions.none())
+                record["message_id"]=int(message.id)
+                events[event_id]=record
+                if not await state["bd_save_data"]():
+                    events.pop(event_id,None)
+                    try: await message.delete()
+                    except __import__("discord").HTTPException: pass
+                    raise ValueError("Could not durably save the event. Its post was removed.")
+                return event_id
+            event_id=_run_bot(create_dashboard_event())
+            _audit(gid,actor,"Dashboard: community event created",f"Event {event_id}; channel {channel.id}; starts {starts_at}.")
+            session["dashboard_notice"]="Event created and published. ID: "+event_id
+        elif action=="community_event_cancel":
+            event_id=request.form.get("event_id","").strip()
+            if not event_id: raise ValueError("Choose an event to cancel.")
+            async def cancel_dashboard_event():
+                advanced=state["advanced_features_data"]
+                cfg=(advanced.get("cinnamon_community_interactions_v1",{}) or {}).get(str(gid),{})
+                record=(cfg.get("events",{}) or {}).get(event_id)
+                if not isinstance(record,dict) or record.get("status")!="scheduled":
+                    raise ValueError("That event is no longer scheduled.")
+                before=__import__("copy").deepcopy(record)
+                record["status"]="cancelled"
+                record["cancelled_at"]=int(time.time())
+                if not await state["bd_save_data"]():
+                    record.clear();record.update(before)
+                    raise ValueError("Could not save event cancellation.")
+                channel=guild.get_channel(int(record.get("channel_id",0) or 0))
+                view_class=state.get("CommunityEventView")
+                if channel and callable(view_class):
+                    try:
+                        message=await channel.fetch_message(int(record.get("message_id",0)))
+                        embed=__import__("discord").Embed(title="📅 "+str(record.get("title","Event")),
+                            description="This event has been cancelled.",color=0xD97777)
+                        await message.edit(embed=embed,view=view_class(gid,event_id,disabled=True))
+                    except __import__("discord").HTTPException:
+                        pass
+            _run_bot(cancel_dashboard_event())
+            _audit(gid,actor,"Dashboard: community event cancelled",f"Event {event_id}.")
+            session["dashboard_notice"]="Event cancelled."
         elif action=="community_features_settings":
             def optional_text_channel(field):
                 raw=request.form.get(field,"").strip()
@@ -2602,7 +2680,7 @@ def dashboard_action():
             session["dashboard_notice"]=f"{mod_action.title()} action completed for {target}."
         else:
             raise ValueError("Unknown dashboard action.")
-        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_update":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","community_features_settings":"community","security_settings":"moderation","moderation_controls_settings":"moderation","verification_publish":"moderation","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
+        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_update":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","community_features_settings":"community","community_event_create":"community","community_event_cancel":"community","security_settings":"moderation","moderation_controls_settings":"moderation","verification_publish":"moderation","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice"]=str(exc)[:300]
