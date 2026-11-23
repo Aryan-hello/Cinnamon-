@@ -1192,6 +1192,14 @@ def _community(guild,state):
     suggestion_channel = guild.get_channel(int(board.get("suggestion_channel_id", 0) or 0))
     starboard_channel = guild.get_channel(int(board.get("starboard_channel_id", 0) or 0))
     confession_channel = guild.get_channel(int(social.get("confession_channel_id", 0) or 0))
+    event_rows = []
+    for event_id, event in sorted(events.items(), key=lambda pair: int(pair[1].get("starts_at", 0))):
+        if event.get("status") != "scheduled":
+            continue
+        event_rows.append("<tr><td>" + _esc(event.get("title", "Event")) + "</td><td><t>" + str(int(event.get("starts_at", 0))) + "</t></td><td>" + _esc(str(event_id)) + "</td><td><form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='community_event_cancel'><input type='hidden' name='event_id' value='" + _esc(str(event_id)) + "'><button class='btn danger small'>Cancel</button></form></td></tr>")
+    event_rows_html = "".join(event_rows) or "<tr><td colspan='4'>No scheduled events.</td></tr>"
+    event_form = "<div class='formgrid'><div class='field'><label>Event title</label><input name='title' maxlength='120' required></div><div class='field'><label>Start time (ISO 8601 with timezone)</label><input name='start_at' placeholder='2026-12-01T18:30:00+05:30' required></div><div class='field full'><label>Description</label><textarea name='description' maxlength='1500'></textarea></div><div class='field'><label>Event channel</label>" + _channel_select(guild, "channel_id", None) + "</div></div><p class='muted'>Use an explicit timezone offset, for example +05:30 or Z. Members RSVP on the event post and receive 24-hour and 1-hour reminders.</p>"
+    event_card = "<article class='card full'><h2>Server events</h2><div class='tablewrap'><table><thead><tr><th>Event</th><th>Unix start time</th><th>Event ID</th><th>Action</th></tr></thead><tbody>" + event_rows_html + "</tbody></table></div>" + _form(gid, "community_event_create", event_form, "Create event") + "</article>"
     features = (
         "<div class='formgrid'>"
         "<div class='field'><label>Suggestion board channel</label>" + _channel_select(guild, "suggestion_channel_id", board.get("suggestion_channel_id")) + "</div>"
@@ -1202,7 +1210,7 @@ def _community(guild,state):
         "</div><p class='muted'>Members use /suggest, /poll, /event, /confess and /quote. Confession channels should be moderated; confession submitters are not identified in public posts.</p>"
     )
     feature_card = "<article class='card full'><h2>Community boards and activities</h2><div class='toggle'><span>Suggestions</span><b>" + _esc(suggestion_channel.mention if suggestion_channel else "Disabled") + "</b></div><div class='toggle'><span>Starboard</span><b>" + _esc(starboard_channel.mention if starboard_channel else "Disabled") + "</b></div><div class='toggle'><span>Confessions</span><b>" + _esc(confession_channel.mention if confession_channel else "Disabled") + "</b></div><div class='grid'><article class='card third'><div class='statlabel'>Saved polls</div><div class='stat'>" + str(len(active_polls)) + "</div></article><article class='card third'><div class='statlabel'>Scheduled events</div><div class='stat'>" + str(sum(1 for e in events.values() if e.get("status") == "scheduled")) + "</div></article><article class='card third'><div class='statlabel'>Published confessions</div><div class='stat'>" + str(sum(1 for e in confessions.values() if e.get("status") == "published")) + "</div></article></div>" + _form(gid, "community_features_settings", features, "Save community settings") + "</article>"
-    return "<h1>Community</h1><p class='muted'>Welcome and goodbye messages, Cinnamon's AI channel, suggestions, polls, starboard, events, anonymous confessions and server logging.</p><div class='grid'>" + message_form("Welcome messages", welcome, "welcome") + message_form("Goodbye messages", goodbye, "goodbye") + ai_card + log_card + feature_card + "</div>"
+    return "<h1>Community</h1><p class='muted'>Welcome and goodbye messages, Cinnamon's AI channel, suggestions, polls, starboard, events, anonymous confessions and server logging.</p><div class='grid'>" + message_form("Welcome messages", welcome, "welcome") + message_form("Goodbye messages", goodbye, "goodbye") + ai_card + log_card + feature_card + event_card + "</div>"
 
 
 def _system(guild,state):
