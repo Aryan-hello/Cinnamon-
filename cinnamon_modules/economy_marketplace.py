@@ -371,7 +371,9 @@ async def _market_catalog_autocomplete(interaction, current):
     ][:25]
 
 
-@bot.tree.command(name="collection", description="View the items you have collected in this server")
+inventory_group = app_commands.Group(name="inventory", description="View and manage your item collection and wishlist")
+
+@inventory_group.command(name="collection", description="View the items you have collected in this server")
 @app_commands.guild_only()
 async def economy_collection(interaction: discord.Interaction, page: app_commands.Range[int, 1, 20] = 1):
     inv = economy_inventory_for(interaction.guild.id, interaction.user.id)
@@ -387,7 +389,7 @@ async def economy_collection(interaction: discord.Interaction, page: app_command
     e.set_footer(text=f"Page {page}/{pages} • {len(entries)} owned item types")
     await interaction.response.send_message(embed=e, ephemeral=True)
 
-@bot.tree.command(name="wishlist", description="Manage your personal Cinnamon item wishlist")
+@inventory_group.command(name="wishlist", description="Manage your personal Cinnamon item wishlist")
 @app_commands.guild_only()
 @app_commands.choices(action=[app_commands.Choice(name="View wishlist", value="view"),
     app_commands.Choice(name="Add item", value="add"), app_commands.Choice(name="Remove item", value="remove")])
@@ -651,3 +653,6 @@ async def auction_cancel(interaction: discord.Interaction, auction_id: str):
     await cinnamon_send(interaction, f"Auction cancelled. Returned {qty}× {ECONOMY_ITEMS[item_id]['name']}.", ephemeral=True)
 
 bot.tree.add_command(auction_group)
+
+
+bot.tree.add_command(inventory_group)
