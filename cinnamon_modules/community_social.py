@@ -284,6 +284,12 @@ async def community_challenge_create(interaction: discord.Interaction,
         current = cfg.get("challenge")
         if isinstance(current, dict) and current.get("status") == "active":
             return await cinnamon_send(interaction, "A community challenge is already active. End it before creating another.", ephemeral=True)
+        if isinstance(current, dict) and current.get("status") == "ended":
+            claimed = set(int(x) for x in current.get("claimed", []))
+            pending = [int(uid) for uid, progress in current.get("progress", {}).items()
+                       if int(progress) >= int(current.get("goal", 0)) and int(uid) not in claimed]
+            if pending:
+                return await cinnamon_send(interaction, "Some members still have unclaimed rewards from the previous challenge. Ask them to use /challenge claim before starting another.", ephemeral=True)
         before = _cs_copy.deepcopy(current)
         now = int(_cs_time.time())
         cfg["challenge"] = {
