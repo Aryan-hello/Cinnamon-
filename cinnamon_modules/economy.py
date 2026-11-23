@@ -844,9 +844,9 @@ async def economy_sell_cmd(interaction: discord.Interaction, item: str, quantity
                                              ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
-economy_admin_group = app_commands.Group(name="economy-admin", description="Administrator-only economy configuration")
+economy_config_group = app_commands.Group(name="economy-config", description="Administrator-only economy configuration")
 
-@economy_admin_group.command(name="box-resale-rate", description="Configure Mystery Box reward resale percentages")
+@economy_config_group.command(name="box-resale-rate", description="Configure Mystery Box reward resale percentages")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.choices(tier=[
@@ -884,7 +884,7 @@ async def economy_box_resale_rate_cmd(
     )
 
 
-bot.tree.add_command(economy_admin_group)
+bot.tree.add_command(economy_config_group)
 
 
 @economy_group.command(name="daily", description="Claim your daily Catnip")
