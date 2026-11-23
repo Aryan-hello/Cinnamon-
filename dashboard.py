@@ -1120,18 +1120,48 @@ def _companions(guild, state):
 
 
 def _community(guild,state):
-    gid=guild.id; welcome=state.get("welcome_config",{}).get(gid,{}); goodbye=state.get("goodbye_config",{}).get(gid,{})
-    ai=state.get("ai_channels",{}).get(gid); logs=state.get("log_channels",{}).get(gid)
-    def message_form(kind,cfg,action):
-        ch=_channel_select(guild,"channel_id",cfg.get("channel_id"))
-        msg=_esc(cfg.get("message", ""))
-        fields=f"<div class='field'><label>Post in</label>{ch}</div><div class='field'><label>Message template</label><textarea name='message' maxlength='800' placeholder='Use {{member}} and {{server}}'>{msg}</textarea><small>Supported placeholders: {{member}} and {{server}}.</small></div>"
-        return f"<article class='card half'><h2>{kind}</h2><p class='muted'>Current: {_esc(guild.get_channel(cfg.get('channel_id')).mention if cfg.get('channel_id') and guild.get_channel(cfg.get('channel_id')) else 'Disabled')}</p>"+_form(gid,action,fields)+("<form method='post' action='/dashboard/action'>"+_csrf_input()+f"<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='{action}_disable'><button class='btn secondary small' type='submit'>Disable</button></form>" if cfg else "")+"</article>"
-    ai_form="<div class='field'><label>Cinnamon conversation channel (responds when called)</label>"+_channel_select(guild,"channel_id",ai)+"</div>"
-    log_form="<div class='field'><label>Main moderation and error log channel</label>"+_channel_select(guild,"channel_id",logs)+"</div>"
-    ai_card="<article class='card half'><h2>AI channel</h2><p class='muted'>Current: "+_esc(guild.get_channel(ai).mention if ai and guild.get_channel(ai) else 'Not set')+"</p>"+_form(gid,"ai_channel",ai_form)+"</article>"
-    log_card="<article class='card half'><h2>Main logging</h2><p class='muted'>Current: "+_esc(guild.get_channel(logs).mention if logs and guild.get_channel(logs) else 'Not set')+"</p>"+_form(gid,"log_channel",log_form)+"</article>"
-    return "<h1>Community</h1><p class='muted'>Welcome and goodbye messages, Cinnamon's AI channel and server logging.</p><div class='grid'>"+message_form("Welcome messages",welcome,"welcome")+message_form("Goodbye messages",goodbye,"goodbye")+ai_card+log_card+"</div>"
+    gid = guild.id
+    welcome = state.get("welcome_config", {}).get(gid, {}) or state.get("welcome_config", {}).get(str(gid), {})
+    goodbye = state.get("goodbye_config", {}).get(gid, {}) or state.get("goodbye_config", {}).get(str(gid), {})
+    ai = state.get("ai_channels", {}).get(gid) or state.get("ai_channels", {}).get(str(gid))
+    logs = state.get("log_channels", {}).get(gid) or state.get("log_channels", {}).get(str(gid))
+    advanced = state.get("advanced_features_data", {}) or {}
+    board = (advanced.get("cinnamon_community_tools_v1", {}) or {}).get(str(gid), {}) or {}
+    social = (advanced.get("cinnamon_community_interactions_v1", {}) or {}).get(str(gid), {}) or {}
+    polls = social.get("polls", {}) or {}
+    events = social.get("events", {}) or {}
+    confessions = social.get("confessions", {}) or {}
+
+    def message_form(kind, cfg, action):
+        ch = _channel_select(guild, "channel_id", cfg.get("channel_id"))
+        msg = _esc(cfg.get("message", ""))
+        fields = f"<div class='field'><label>Post in</label>{ch}</div><div class='field'><label>Message template</label><textarea name='message' maxlength='800' placeholder='Use {{member}} and {{server}}'>{msg}</textarea><small>Supported placeholders: {{member}} and {{server}}.</small></div>"
+        current = guild.get_channel(cfg.get("channel_id")) if cfg.get("channel_id") else None
+        disable = ("<form method='post' action='/dashboard/action'>" + _csrf_input() +
+            f"<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='{action}_disable'><button class='btn secondary small' type='submit'>Disable</button></form>") if cfg else ""
+        return f"<article class='card half'><h2>{kind}</h2><p class='muted'>Current: {_esc(current.mention if current else 'Disabled')}</p>" + _form(gid, action, fields) + disable + "</article>"
+
+    ai_channel = guild.get_channel(ai) if ai else None
+    log_channel = guild.get_channel(logs) if logs else None
+    ai_form = "<div class='field'><label>Cinnamon conversation channel (responds when called)</label>" + _channel_select(guild, "channel_id", ai) + "</div>"
+    log_form = "<div class='field'><label>Main moderation and error log channel</label>" + _channel_select(guild, "channel_id", logs) + "</div>"
+    ai_card = "<article class='card half'><h2>AI channel</h2><p class='muted'>Current: " + _esc(ai_channel.mention if ai_channel else "Not set") + "</p>" + _form(gid, "ai_channel", ai_form) + "</article>"
+    log_card = "<article class='card half'><h2>Main logging</h2><p class='muted'>Current: " + _esc(log_channel.mention if log_channel else "Not set") + "</p>" + _form(gid, "log_channel", log_form) + "</article>"
+
+    suggestion_channel = guild.get_channel(int(board.get("suggestion_channel_id", 0) or 0))
+    starboard_channel = guild.get_channel(int(board.get("starboard_channel_id", 0) or 0))
+    confession_channel = guild.get_channel(int(social.get("confession_channel_id", 0) or 0))
+    features = (
+        "<div class='formgrid'>"
+        "<div class='field'><label>Suggestion board channel</label>" + _channel_select(guild, "suggestion_channel_id", board.get("suggestion_channel_id")) + "</div>"
+        "<div class='field'><label>Starboard channel</label>" + _channel_select(guild, "starboard_channel_id", board.get("starboard_channel_id")) + "</div>"
+        "<div class='field'><label>Starboard reaction threshold</label><input name='starboard_threshold' type='number' min='2' max='20' value='" + str(max(2, min(20, int(board.get("starboard_threshold", 3)))) ) + "'></div>"
+        "<div class='field'><label>Starboard emoji</label><input name='starboard_emoji' maxlength='20' value='" + _esc(str(board.get("starboard_emoji", "⭐"))) + "'></div>"
+        "<div class='field'><label>Anonymous confession channel</label>" + _channel_select(guild, "confession_channel_id", social.get("confession_channel_id")) + "</div>"
+        "</div><p class='muted'>Members use /suggest, /poll, /event, /confess and /quote. Confession channels should be moderated; confession submitters are not identified in public posts.</p>"
+    )
+    feature_card = "<article class='card full'><h2>Community boards and activities</h2><div class='toggle'><span>Suggestions</span><b>" + _esc(suggestion_channel.mention if suggestion_channel else "Disabled") + "</b></div><div class='toggle'><span>Starboard</span><b>" + _esc(starboard_channel.mention if starboard_channel else "Disabled") + "</b></div><div class='toggle'><span>Confessions</span><b>" + _esc(confession_channel.mention if confession_channel else "Disabled") + "</b></div><div class='grid'><article class='card third'><div class='statlabel'>Saved polls</div><div class='stat'>" + str(len(polls)) + "</div></article><article class='card third'><div class='statlabel'>Scheduled events</div><div class='stat'>" + str(sum(1 for e in events.values() if e.get("status") == "scheduled")) + "</div></article><article class='card third'><div class='statlabel'>Published confessions</div><div class='stat'>" + str(sum(1 for e in confessions.values() if e.get("status") == "published")) + "</div></article></div>" + _form(gid, "community_features_settings", features, "Save community settings") + "</article>"
+    return "<h1>Community</h1><p class='muted'>Welcome and goodbye messages, Cinnamon's AI channel, suggestions, polls, starboard, events, anonymous confessions and server logging.</p><div class='grid'>" + message_form("Welcome messages", welcome, "welcome") + message_form("Goodbye messages", goodbye, "goodbye") + ai_card + log_card + feature_card + "</div>"
 
 
 def _system(guild,state):
@@ -1706,7 +1736,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
