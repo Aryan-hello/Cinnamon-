@@ -6,6 +6,7 @@ import uuid as _mc_uuid
 
 _MC_KEY = "cinnamon_moderation_controls_v1"
 _MC_VIEWS_READY = False
+moderation_tools_group = app_commands.Group(name="moderation-tools", description="Verification, onboarding, moderator notes and appeals")
 
 def _mc_root(gid):
     root = advanced_features_data.setdefault(_MC_KEY, {})
@@ -59,7 +60,7 @@ class CinnamonVerificationView(discord.ui.View):
             return await interaction.response.send_message("Cinnamon doesn't have permission to assign that role.", ephemeral=True)
         await interaction.response.send_message("Verification complete. Welcome!", ephemeral=True)
 
-@bot.tree.command(name="verification", description="Post or disable a member verification panel")
+@moderation_tools_group.command(name="verification", description="Post or disable a member verification panel")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(channel="Channel for the verification panel", role="Role members receive after verification")
@@ -96,6 +97,7 @@ async def moderation_verification(interaction: discord.Interaction,
     await cinnamon_send(interaction, f"Verification panel posted in {channel.mention}.", ephemeral=True)
 
 autorole_group = app_commands.Group(name="autorole", description="Configure automatic roles for new members")
+moderation_tools_group.add_command(autorole_group)
 
 @autorole_group.command(name="set", description="Set the role automatically assigned to new members")
 @app_commands.guild_only()
@@ -123,9 +125,9 @@ async def moderation_autorole_disable(interaction: discord.Interaction):
         return await cinnamon_send(interaction, "Couldn't disable autorole.", ephemeral=True)
     await cinnamon_send(interaction, "Automatic role assignment disabled.", ephemeral=True)
 
-bot.tree.add_command(autorole_group)
 
 onboarding_group = app_commands.Group(name="onboarding", description="Configure new-member welcome and rules information")
+moderation_tools_group.add_command(onboarding_group)
 
 @onboarding_group.command(name="configure", description="Configure welcome channel and rules link")
 @app_commands.guild_only()
@@ -167,9 +169,9 @@ async def moderation_onboarding_status(interaction: discord.Interaction):
     e.add_field(name="Verification role", value=verify.mention if verify else "Not configured", inline=True)
     await interaction.response.send_message(embed=e, ephemeral=True)
 
-bot.tree.add_command(onboarding_group)
 
 modnote_group = app_commands.Group(name="modnote", description="Private moderator notes about server members")
+moderation_tools_group.add_command(modnote_group)
 
 @modnote_group.command(name="add", description="Add a private moderator note about a member")
 @app_commands.guild_only()
@@ -213,9 +215,9 @@ async def moderation_note_remove(interaction: discord.Interaction, member: disco
         return await cinnamon_send(interaction, "Couldn't save note removal.", ephemeral=True)
     await cinnamon_send(interaction, "Moderator note removed.", ephemeral=True)
 
-bot.tree.add_command(modnote_group)
 
 appeal_group = app_commands.Group(name="appeal", description="Submit and review moderation appeals")
+moderation_tools_group.add_command(appeal_group)
 
 @appeal_group.command(name="settings", description="Set the private channel for moderation appeals")
 @app_commands.guild_only()
@@ -331,7 +333,6 @@ async def moderation_appeal_review(interaction: discord.Interaction, appeal_id: 
         pass
     await cinnamon_send(interaction, f"Appeal {appeal_id} marked {decision.value}.", ephemeral=True)
 
-bot.tree.add_command(appeal_group)
 
 @bot.listen("on_member_join")
 async def moderation_onboarding_member_join(member):
@@ -372,3 +373,6 @@ async def moderation_controls_restore_views():
                     bot.add_view(ModerationAppealView(gid, appeal_id))
     except Exception:
         log.exception("Could not restore moderation verification and appeal views")
+
+
+bot.tree.add_command(moderation_tools_group)
