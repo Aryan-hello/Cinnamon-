@@ -1846,6 +1846,46 @@ def dashboard_action():
             _audit(gid,actor,"Dashboard: Catnip gift",
                    f"Sent {amount:,} Catnip to {recipient} ({recipient.id}) from actor's wallet.")
             session["dashboard_notice"]=f"Sent {amount:,} Catnip to {recipient.display_name}."
+        elif action=="community_features_settings":
+            def optional_text_channel(field):
+                raw=request.form.get(field,"").strip()
+                if not raw: return 0
+                if not raw.isdigit(): raise ValueError("Choose a valid channel.")
+                channel=guild.get_channel(int(raw))
+                if not isinstance(channel,__import__("discord").TextChannel):
+                    raise ValueError("Choose a text channel from this server.")
+                return int(channel.id)
+            suggestion_id=optional_text_channel("suggestion_channel_id")
+            starboard_id=optional_text_channel("starboard_channel_id")
+            confession_id=optional_text_channel("confession_channel_id")
+            try:
+                threshold=int(request.form.get("starboard_threshold","3"))
+            except ValueError:
+                raise ValueError("Starboard threshold must be a whole number.")
+            emoji=request.form.get("starboard_emoji","⭐").strip()
+            if not 2<=threshold<=20 or not 1<=len(emoji)<=20:
+                raise ValueError("Use a starboard threshold from 2–20 and an emoji value of 1–20 characters.")
+            async def apply_community_features():
+                advanced=state["advanced_features_data"]
+                board_root=advanced.setdefault("cinnamon_community_tools_v1",{})
+                social_root=advanced.setdefault("cinnamon_community_interactions_v1",{})
+                board=board_root.setdefault(str(gid),{})
+                social=social_root.setdefault(str(gid),{})
+                before_board=__import__("copy").deepcopy(board)
+                before_social=__import__("copy").deepcopy(social)
+                board.update({"suggestion_channel_id":suggestion_id,
+                              "starboard_channel_id":starboard_id,
+                              "starboard_threshold":threshold,
+                              "starboard_emoji":emoji})
+                social["confession_channel_id"]=confession_id
+                if not await state["bd_save_data"]():
+                    board.clear();board.update(before_board)
+                    social.clear();social.update(before_social)
+                    raise ValueError("The durable community settings save could not be verified. No changes were kept.")
+            _run_bot(apply_community_features())
+            _audit(gid,actor,"Dashboard: community features updated",
+                   f"Suggestions={suggestion_id}; starboard={starboard_id}; threshold={threshold}; confessions={confession_id}.")
+            session["dashboard_notice"]="Community boards and confession settings saved."
         elif action in {"welcome","goodbye"}:
             channel_id=request.form.get("channel_id","").strip(); message=request.form.get("message","")
             config_key="welcome_config" if action=="welcome" else "goodbye_config"
