@@ -5,6 +5,7 @@ import datetime as _ct
 _CT_KEY = "cinnamon_community_tools_v1"
 _CT_LOCKS = {}
 _CT_VIEWS_READY = False
+community_group = app_commands.Group(name="community", description="Cinnamon community boards and suggestions")
 
 def _ct_root(guild_id):
     return advanced_features_data.setdefault(_CT_KEY, {}).setdefault(str(int(guild_id)), {
