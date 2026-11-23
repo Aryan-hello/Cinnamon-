@@ -457,6 +457,8 @@ _CINNAMON_MODULES = (
     "general_moderation.py",
     "dashboard_runtime.py",
     "moderation.py",
+    "moderation_controls.py",  # Private moderator notes, appeals, verification and onboarding.
+    "security_guard.py",  # Configurable anti-spam and audit-log anti-nuke alerts.
     "levels_games.py",
     "server_setup.py",
     "ui_system.py",
