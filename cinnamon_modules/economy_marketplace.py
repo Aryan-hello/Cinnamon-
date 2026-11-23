@@ -597,8 +597,10 @@ async def auction_bid(interaction: discord.Interaction, auction_id: str,
                 snapshots[previous_bidder] = (prev_balance, dict(prev_inv))
                 economy_balances[(gid, previous_bidder)] = prev_balance + old_bid
             elif previous_bidder == bidder_id:
+                # Re-bidding releases the member's previous escrow only for
+                # the new balance calculation. Keep the original snapshot so
+                # a failed save restores the exact pre-click balance.
                 balance += old_bid
-                snapshots[bidder_id] = (balance, dict(bidder_inv))
             economy_balances[(gid, bidder_id)] = balance - amount
             rec["highest_bid"], rec["highest_bidder_id"] = int(amount), bidder_id
             rec["last_bid_at"] = int(_market_time.time())
