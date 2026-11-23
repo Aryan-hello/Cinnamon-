@@ -235,34 +235,48 @@ async def craft_item(guild_id, user, recipe_id, quantity=1):
         return True, '🔧 Fishing rod repaired! You can cast again.'
     recipe = CRAFTING_RECIPES.get(recipe_id)
     if not recipe:
-        return False, "❌ I don't know that recipe. Use `/craft` to see the recipes."
+        return False, "❌ I don't know that recipe. Use /craft to see the recipes."
     quantity = max(1, min(int(quantity), 25))
-    inv = economy_inventory_for(guild_id, user.id)
-    missing = []
-    for item_id, needed in recipe["ingredients"].items():
-        have = int(inv.get(item_id, 0))
-        total = needed * quantity
-        if have < total:
-            item = ECONOMY_ITEMS.get(item_id, {"name": item_id.replace("_", " ").title(), "emoji": "📦"})
-            missing.append(f"{item['emoji']} {item['name']}: need **{total}**, have **{have}**")
-    if missing:
-        return False, "❌ Not enough ingredients:\n" + "\n".join(missing)
-    output = ECONOMY_ITEMS[recipe["output"]]
-    max_owned = int(output.get("max_per_person", 0))
-    if max_owned and int(inv.get(recipe["output"], 0)) + quantity > max_owned:
-        return False, f"❌ You can own at most **{max_owned}× {output['name']}**."
-    for item_id, needed in recipe["ingredients"].items():
-        inv[item_id] = int(inv.get(item_id, 0)) - needed * quantity
-        if inv[item_id] <= 0:
-            inv.pop(item_id, None)
-    inv[recipe["output"]] = int(inv.get(recipe["output"], 0)) + quantity
-    key = _af_key(guild_id, user.id)
-    ADVANCED_FEATURES["crafted_counts"][key] = int(ADVANCED_FEATURES["crafted_counts"].get(key, 0)) + quantity
-    await bd_save_data()
+    lock = _CINNAMON_SHOP_LOCKS.setdefault((int(guild_id), int(user.id)), asyncio.Lock())
+    async with lock:
+        inv = economy_inventory_for(guild_id, user.id)
+        missing = []
+        for item_id, needed in recipe["ingredients"].items():
+            have = int(inv.get(item_id, 0))
+            total = needed * quantity
+            if have < total:
+                item = ECONOMY_ITEMS.get(item_id, {"name": item_id.replace("_", " ").title(), "emoji": "📦"})
+                missing.append(f"{item['emoji']} {item['name']}: need **{total}**, have **{have}**")
+        if missing:
+            return False, "❌ Not enough ingredients:\n" + "\n".join(missing)
+        output = ECONOMY_ITEMS[recipe["output"]]
+        max_owned = int(output.get("max_per_person", 0))
+        if max_owned and int(inv.get(recipe["output"], 0)) + quantity > max_owned:
+            return False, f"❌ You can own at most **{max_owned}× {output['name']}**."
+        before_inventory = dict(inv)
+        crafted_counts = ADVANCED_FEATURES.setdefault("crafted_counts", {})
+        key = _af_key(guild_id, user.id)
+        before_count = int(crafted_counts.get(key, 0))
+        for item_id, needed in recipe["ingredients"].items():
+            inv[item_id] = int(inv.get(item_id, 0)) - needed * quantity
+            if inv[item_id] <= 0:
+                inv.pop(item_id, None)
+        inv[recipe["output"]] = int(inv.get(recipe["output"], 0)) + quantity
+        crafted_counts[key] = before_count + quantity
+        if not await bd_save_data():
+            inv.clear()
+            inv.update(before_inventory)
+            if before_count:
+                crafted_counts[key] = before_count
+            else:
+                crafted_counts.pop(key, None)
+            return False, "⚠️ Cinnamon couldn't save this craft. Your ingredients and inventory were restored."
     await economy_log(guild_id, title="🔨 Item crafted", fields=[
-        ("User", f"{user} ({user.id})"), ("Recipe", recipe["name"]), ("Quantity", str(quantity)), ("Output", f"{output['name']} ×{quantity}")
+        ("User", f"{user} ({user.id})"), ("Recipe", recipe["name"]),
+        ("Quantity", str(quantity)), ("Output", f"{output['name']} ×{quantity}")
     ])
     return True, f"✅ Crafted **{quantity:,}× {output['emoji']} {output['name']}**!"
+
 
 
 @bot.tree.command(name="craft", description="Craft an item from ingredients")
