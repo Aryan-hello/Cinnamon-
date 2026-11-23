@@ -254,6 +254,7 @@ def dashboard_state_provider() -> dict:
         # Guild-scoped Cinnamon Mind, Wildlands, Hangry and merchant state.
         "advanced_features_data": advanced_features_data,
         "bot": bot,
+        "active_polls": globals().get("active_polls", {}),
         "companion_profiles": advanced_features_data.get("companion_profiles_v1", {}),
         "marketplace_state": advanced_features_data.get("player_market_v1", {}),
         "auction_state": advanced_features_data.get("player_auctions_v1", {}),
