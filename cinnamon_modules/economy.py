@@ -652,14 +652,38 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
 
 
 
-def economy_sell_value(item_id: str, item: dict) -> int:
-    """Return the configured resale value; services and mystery rewards need provenance."""
-    if item.get("sellable") is False or item.get("service_type") or item.get("category") == "grow_a_garden":
-        return 0
-    # Mystery Box rewards are not sold until their original box tier is recorded.
+def _economy_is_box_reward(item_id: str) -> bool:
     tiers = globals().get("BOX_TIERS", {})
-    if any(item_id in (tier.get("items", []) + tier.get("materials", []))
-           for tier in tiers.values()):
+    return any(item_id in (tier.get("items", []) + tier.get("materials", [])) for tier in tiers.values())
+
+
+def _economy_box_provenance_key(guild_id: int, user_id: int, item_id: str) -> str:
+    return f"{int(guild_id)}:{int(user_id)}:{str(item_id)}"
+
+
+def _economy_box_resale_rates(guild_id: int) -> dict:
+    defaults = {"common": 20, "rare": 25, "epic": 30, "legendary": 35, "mythical": 40}
+    root = advanced_features_data.setdefault("mystery_box_resale_rates_v1", {})
+    rates = root.setdefault(str(int(guild_id)), dict(defaults))
+    for tier, percent in defaults.items():
+        try:
+            rates[tier] = max(1, min(100, int(rates.get(tier, percent))))
+        except (TypeError, ValueError):
+            rates[tier] = percent
+    return rates
+
+
+def economy_sell_value(item_id: str, item: dict) -> int:
+    if item.get("sellable") is False:
+        return 0
+    # Unfulfilled Grow a Garden service vouchers remain inventory items and may
+    # be resold. Claiming the ticket consumes the voucher before fulfilment.
+    if item.get("service_type") or item.get("category") == "grow_a_garden":
+        if item.get("service_type") != "grow_a_garden":
+            return 0
+        configured = item.get("sell_price")
+        return max(0, int(configured)) if configured is not None else max(0, int(item.get("price", 0)) // 2)
+    if _economy_is_box_reward(item_id):
         return 0
     configured = item.get("sell_price")
     if configured is not None:
@@ -667,23 +691,60 @@ def economy_sell_value(item_id: str, item: dict) -> int:
     return max(0, int(item.get("price", 0)) // 2)
 
 
+def economy_sell_quote(guild_id: int, user_id: int, item_id: str, quantity: int):
+    item = ECONOMY_ITEMS.get(str(item_id), {})
+    if not item or int(quantity) < 1:
+        return None
+    if _economy_is_box_reward(str(item_id)):
+        provenance_root = advanced_features_data.setdefault("mystery_reward_provenance_v1", {})
+        key = _economy_box_provenance_key(guild_id, user_id, item_id)
+        provenance = provenance_root.get(key, {})
+        if not isinstance(provenance, dict):
+            return None
+        remaining, breakdown, payout = int(quantity), [], 0
+        rates = _economy_box_resale_rates(guild_id)
+        for tier in ("common", "rare", "epic", "legendary", "mythical"):
+            used = min(remaining, max(0, int(provenance.get(tier, 0))))
+            if not used:
+                continue
+            unit = max(1, int(item.get("price", 0)) * int(rates.get(tier, 20)) // 100)
+            payout += used * unit
+            breakdown.append((tier, used))
+            remaining -= used
+            if not remaining:
+                break
+        if remaining:
+            return None
+        return payout, breakdown
+    unit = economy_sell_value(str(item_id), item)
+    return (unit * int(quantity), []) if unit > 0 else None
+
+
+def economy_consume_box_provenance(guild_id: int, user_id: int, item_id: str, breakdown):
+    root = advanced_features_data.setdefault("mystery_reward_provenance_v1", {})
+    key = _economy_box_provenance_key(guild_id, user_id, item_id)
+    provenance = root.setdefault(key, {})
+    for tier, quantity in breakdown:
+        left = max(0, int(provenance.get(tier, 0)) - int(quantity))
+        if left:
+            provenance[tier] = left
+        else:
+            provenance.pop(tier, None)
+    if not provenance:
+        root.pop(key, None)
+
+
 class EconomySellConfirmView(discord.ui.View):
-    def __init__(self, guild_id: int, user_id: int, item_id: str, quantity: int,
-                 unit_value: int, item_name: str):
+    def __init__(self, guild_id: int, user_id: int, item_id: str, quantity: int, unit_value: int, item_name: str):
         super().__init__(timeout=60)
-        self.guild_id = int(guild_id)
-        self.user_id = int(user_id)
-        self.item_id = str(item_id)
-        self.quantity = int(quantity)
-        self.unit_value = int(unit_value)
-        self.item_name = str(item_name)
+        self.guild_id, self.user_id = int(guild_id), int(user_id)
+        self.item_id, self.quantity = str(item_id), int(quantity)
+        self.unit_value, self.item_name = int(unit_value), str(item_name)
         self.finished = False
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "🐾 This sale confirmation belongs to the member who requested it.",
-                ephemeral=True)
+            await interaction.response.send_message("🐾 This sale confirmation belongs to the member who requested it.", ephemeral=True)
             return False
         return True
 
@@ -691,71 +752,55 @@ class EconomySellConfirmView(discord.ui.View):
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.finished:
             return await interaction.response.send_message("This sale is already closed.", ephemeral=True)
-        lock = _CINNAMON_SHOP_LOCKS.setdefault(
-            (self.guild_id, self.user_id), asyncio.Lock())
+        lock = _CINNAMON_SHOP_LOCKS.setdefault((self.guild_id, self.user_id), asyncio.Lock())
         async with lock:
             inv = economy_inventory_for(self.guild_id, self.user_id)
             owned = int(inv.get(self.item_id, 0))
             if owned < self.quantity:
                 self.finished = True
-                for child in self.children:
-                    child.disabled = True
-                return await interaction.response.edit_message(
-                    content="❌ Your inventory changed. You no longer own enough of this item; nothing was sold.",
-                    embed=None, view=self)
-            item = ECONOMY_ITEMS.get(self.item_id, {})
-            unit_value = economy_sell_value(self.item_id, item)
-            if unit_value <= 0:
+                for child in self.children: child.disabled = True
+                return await interaction.response.edit_message(content="❌ Your inventory changed. Nothing was sold.", embed=None, view=self)
+            quote = economy_sell_quote(self.guild_id, self.user_id, self.item_id, self.quantity)
+            if quote is None:
                 self.finished = True
-                for child in self.children:
-                    child.disabled = True
-                return await interaction.response.edit_message(
-                    content="❌ This item cannot be sold. Service items and Mystery Box rewards need their provenance rules first.",
-                    embed=None, view=self)
-            before = economy_balance(self.guild_id, self.user_id)
-            payout = unit_value * self.quantity
+                for child in self.children: child.disabled = True
+                return await interaction.response.edit_message(content="❌ The item no longer has enough eligible inventory or Mystery Box provenance to sell.", embed=None, view=self)
+            payout, provenance_breakdown = quote
+            before, before_inventory = economy_balance(self.guild_id, self.user_id), dict(inv)
+            before_provenance = __import__("copy").deepcopy(advanced_features_data.get("mystery_reward_provenance_v1", {}))
             inv[self.item_id] = owned - self.quantity
             if inv[self.item_id] <= 0:
                 inv.pop(self.item_id, None)
             economy_balances[(self.guild_id, self.user_id)] = before + payout
-            saved = await bd_save_data()
-            if not saved:
-                inv[self.item_id] = owned
+            if provenance_breakdown:
+                economy_consume_box_provenance(self.guild_id, self.user_id, self.item_id, provenance_breakdown)
+            if not await bd_save_data():
+                inv.clear()
+                inv.update(before_inventory)
                 economy_balances[(self.guild_id, self.user_id)] = before
+                advanced_features_data["mystery_reward_provenance_v1"] = before_provenance
                 self.finished = True
-                for child in self.children:
-                    child.disabled = True
-                return await interaction.response.edit_message(
-                    content="⚠️ Cinnamon couldn't save this sale. Your item and balance were restored; please try again later.",
-                    embed=None, view=self)
-            after = before + payout
-            remaining = int(inv.get(self.item_id, 0))
+                for child in self.children: child.disabled = True
+                return await interaction.response.edit_message(content="⚠️ Cinnamon couldn't save this sale. Your item, provenance and balance were restored.", embed=None, view=self)
+            after, remaining = before + payout, int(inv.get(self.item_id, 0))
             self.finished = True
-            for child in self.children:
-                child.disabled = True
+            for child in self.children: child.disabled = True
         await economy_log(self.guild_id, title="💰 Economy item sold", fields=[
-            ("User", f"{interaction.user} ({self.user_id})"),
-            ("Item", f"{self.item_name} ({self.item_id})"),
-            ("Quantity", self.quantity),
-            ("Unit resale value", f"{unit_value:,} Catnip"),
-            ("Payout", f"+{payout:,} Catnip"),
-            ("Balance before", f"{before:,} Catnip"),
-            ("Balance after", f"{after:,} Catnip"),
+            ("User", f"{interaction.user} ({self.user_id})"), ("Item", f"{self.item_name} ({self.item_id})"),
+            ("Quantity", self.quantity), ("Payout", f"+{payout:,} Catnip"),
+            ("Balance before", f"{before:,} Catnip"), ("Balance after", f"{after:,} Catnip"),
             ("Remaining quantity", remaining),
+            ("Mystery Box provenance", ", ".join(f"{tier.title()} ×{qty}" for tier, qty in provenance_breakdown) or "Not applicable"),
         ])
-        await interaction.response.edit_message(
-            content=f"✅ Sold **{self.quantity:,}× {self.item_name}** for **{payout:,} Catnip**. New balance: **{after:,} Catnip**.",
-            embed=None, view=self)
+        await interaction.response.edit_message(content=f"✅ Sold {self.quantity:,}× {self.item_name} for {payout:,} Catnip. New balance: {after:,} Catnip.", embed=None, view=self)
 
     @discord.ui.button(label="Cancel", emoji="✖️", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.finished:
             return await interaction.response.send_message("This sale is already closed.", ephemeral=True)
         self.finished = True
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(content="Sale cancelled. Your inventory and balance are unchanged.",
-                                                embed=None, view=self)
+        for child in self.children: child.disabled = True
+        await interaction.response.edit_message(content="Sale cancelled. Your inventory and balance are unchanged.", embed=None, view=self)
 
 
 @economy_group.command(name="sell", description="Sell eligible items from your inventory")
