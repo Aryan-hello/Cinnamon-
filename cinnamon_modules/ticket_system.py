@@ -345,9 +345,13 @@ async def cinnamon_ticket_restore_views():
     for gid,cfg in _ticket_root().items():
         for pid,panel in (cfg.get("panels",{}) or {}).items():
             if panel.get("published") and panel.get("message_id"): bot.add_view(TicketPanelView(int(gid),pid,panel),message_id=int(panel["message_id"]))
-        for ticket in (cfg.get("tickets",{}) or {}).values():
-            if ticket.get("status") in ("open","closed"): bot.add_view(TicketControls(ticket.get("ticket_id")))
-            if ticket.get("status")=="closed" and ticket.get("rating") is None: bot.add_view(TicketRatingView(ticket.get("ticket_id")))
+        for ticket in (cfg.get("tickets", {}) or {}).values():
+            if ticket.get("status") in ("open", "closed"):
+                bot.add_view(TicketControls(ticket.get("ticket_id")))
+            if ticket.get("status") == "closed" and ticket.get("rating") is None:
+                bot.add_view(TicketRatingView(ticket.get("ticket_id")))
+            if ticket.get("service_consumed") and not ticket.get("service_paid"):
+                bot.add_view(GAGServiceCompletionView(ticket.get("ticket_id")))
 
 
 def _ticket_staff(interaction):
@@ -360,8 +364,22 @@ ticket_group=app_commands.Group(name="ticket",description="Manage Cinnamon suppo
 @app_commands.guild_only()
 async def ticket_assign(interaction:discord.Interaction,member:discord.Member):
     if not _ticket_staff(interaction): return await interaction.response.send_message("Ticket staff only.",ephemeral=True)
-    ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
+    ticket = _ticket_guild(interaction.guild.id).get("tickets", {}).get(str(interaction.channel.id))
     if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    cfg = _ticket_guild(interaction.guild.id)
+    allowed = set(map(int, cfg.get("settings", {}).get("staff_role_ids", [])))
+    category = next((p for p in cfg.get("panels", {}).values()
+                     if str(p.get("id")) == str(ticket.get("panel_id"))), None)
+    category_cfg = next((c for c in (category or {}).get("categories", [])
+                         if str(c.get("id")) == str(ticket.get("category_id"))), {})
+    allowed.update(map(int, category_cfg.get("staff_role_ids", [])))
+    allowed.update(map(int, _role_setup(interaction.guild.id).get("ticket_staff", [])))
+    allowed.update(map(int, _role_setup(interaction.guild.id).get("ticket_admin", [])))
+    if str(ticket.get("routing", "")).lower() in {"grow_a_garden", "gag", "boosting"}:
+        allowed.update(map(int, cfg.get("settings", {}).get("trusted_booster_role_ids", [])))
+        allowed.update(map(int, _role_setup(interaction.guild.id).get("trusted_booster", [])))
+    if not (member.guild_permissions.administrator or any(role.id in allowed for role in member.roles)):
+        return await interaction.response.send_message("Assign tickets only to configured ticket staff or trusted boosters.", ephemeral=True)
     before_ticket = _copy.deepcopy(ticket)
     ticket["assigned_to"] = member.id
     if not await bd_save_data():
