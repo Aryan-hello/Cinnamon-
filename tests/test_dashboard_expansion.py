@@ -37,8 +37,8 @@ class DashboardExpansionTests(unittest.TestCase):
     def test_community_dashboard_can_create_and_close_existing_polls(self):
         self.assertIn("community_poll_create", self.source)
         self.assertIn("community_poll_close", self.source)
-        self.assertIn("state.get(\\"PollView\\")", self.source)
-        self.assertIn("state.get(\\"finish_poll\\")", self.source)
+        self.assertIn('state.get("PollView")', self.source)
+        self.assertIn('state.get("finish_poll")', self.source)
 
     def test_ticket_dashboard_can_claim_unassign_close_and_reopen(self):
         for action in ("ticket_dashboard_claim", "ticket_dashboard_unclaim",
