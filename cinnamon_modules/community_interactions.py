@@ -15,7 +15,7 @@ def _ci_root(gid):
         root = advanced_features_data[_CI_KEY] = {}
     cfg = root.setdefault(str(int(gid)), {})
     for key, default in (
-        ("events", {}), ("confessions", {}),
+        ("events", {}), ("confessions", {}), ("polls", {}),
         ("confession_channel_id", 0), ("confession_cooldowns", {}),
     ):
         cfg.setdefault(key, _ci_copy.deepcopy(default))
@@ -311,3 +311,160 @@ async def _community_interactions_restore():
                     bot.add_view(ConfessionModerationView(gid, confession_id))
     except Exception:
         log.exception("Could not restore community interaction views")
+
+
+# Polls are stored beside events/confessions so votes survive process restarts.
+class CommunityPollView(discord.ui.View):
+    def __init__(self, options=None, disabled=False):
+        super().__init__(timeout=None)
+        for index, option in enumerate(list(options or [])[:5]):
+            button = discord.ui.Button(
+                label=str(option)[:80], style=discord.ButtonStyle.secondary,
+                custom_id=f"cinnamon:pollvote:{index}", disabled=disabled)
+            button.callback = self._vote_callback(index)
+            self.add_item(button)
+
+    def _vote_callback(self, index):
+        async def callback(interaction):
+            if not interaction.guild or not interaction.message:
+                return await interaction.response.send_message("This poll is only available in its server.", ephemeral=True)
+            message_id = str(interaction.message.id)
+            cfg = _ci_root(interaction.guild.id)
+            async with _ci_lock(interaction.guild.id, "poll:" + message_id):
+                record = cfg["polls"].get(message_id)
+                if not isinstance(record, dict) or record.get("status") != "active":
+                    return await interaction.response.send_message("This poll is closed or unavailable.", ephemeral=True)
+                if int(record.get("ends_at", 0)) <= int(_ci_time.time()):
+                    before = _ci_copy.deepcopy(record)
+                    record["status"] = "ended"
+                    record["ended_at"] = int(_ci_time.time())
+                    if not await bd_save_data():
+                        cfg["polls"][message_id] = before
+                        return await interaction.response.send_message("Poll closure could not be saved. Please retry.", ephemeral=True)
+                    embed = _ci_poll_embed(record)
+                    view = CommunityPollView(record.get("options", []), disabled=True)
+                else:
+                    options = record.get("options", [])
+                    if index >= len(options):
+                        return await interaction.response.send_message("That option is no longer available.", ephemeral=True)
+                    before = _ci_copy.deepcopy(record.get("votes", {}))
+                    record.setdefault("votes", {})[str(interaction.user.id)] = index
+                    if not await bd_save_data():
+                        record["votes"] = before
+                        return await interaction.response.send_message("Your vote could not be saved. No change was kept.", ephemeral=True)
+                    embed = _ci_poll_embed(record)
+                    view = CommunityPollView(options)
+            await interaction.response.edit_message(embed=embed, view=view)
+        return callback
+
+
+def _ci_poll_embed(record):
+    options = list(record.get("options", []))[:5]
+    votes = record.get("votes", {}) or {}
+    total = len(votes)
+    rows = []
+    for index, option in enumerate(options):
+        count = sum(1 for value in votes.values() if value == index)
+        percent = round(count * 100 / total) if total else 0
+        bar = "▰" * (percent // 10) + "▱" * (10 - percent // 10)
+        rows.append(f"**{index + 1}. {option}**\\n{bar}  {count} vote(s) · {percent}%")
+    active = record.get("status") == "active"
+    embed = discord.Embed(
+        title="📊 " + str(record.get("question", "Community poll"))[:240],
+        description="\\n\\n".join(rows) or "No poll options are available.",
+        color=0x91B5A2 if active else 0xA6A6A6)
+    embed.add_field(name="Total votes", value=str(total), inline=True)
+    embed.add_field(name="Closes", value=(f"<t:{int(record.get('ends_at', 0))}:R>" if active else "Poll closed"), inline=True)
+    embed.set_footer(text="Cinnamon Polls • Your latest vote replaces your previous vote")
+    return embed
+
+
+poll_group = app_commands.Group(name="poll", description="Create and manage server polls")
+
+@poll_group.command(name="create", description="Create a poll with up to five choices")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_messages=True)
+@app_commands.describe(question="Poll question", option_1="First choice", option_2="Second choice",
+                       option_3="Optional third choice", option_4="Optional fourth choice",
+                       option_5="Optional fifth choice", duration_minutes="Voting duration in minutes",
+                       channel="Channel where the poll will be posted")
+async def community_poll_create(interaction: discord.Interaction,
+        question: app_commands.Range[str, 1, 240],
+        option_1: app_commands.Range[str, 1, 80],
+        option_2: app_commands.Range[str, 1, 80],
+        option_3: app_commands.Range[str, 1, 80] | None = None,
+        option_4: app_commands.Range[str, 1, 80] | None = None,
+        option_5: app_commands.Range[str, 1, 80] | None = None,
+        duration_minutes: app_commands.Range[int, 1, 10080] = 1440,
+        channel: discord.TextChannel | None = None):
+    target = channel or interaction.channel
+    if not isinstance(target, discord.TextChannel):
+        return await cinnamon_send(interaction, "Choose a text channel for this poll.", ephemeral=True)
+    permissions = target.permissions_for(interaction.guild.me)
+    if not (permissions.view_channel and permissions.send_messages and permissions.embed_links):
+        return await cinnamon_send(interaction, "Cinnamon needs View Channel, Send Messages and Embed Links in that channel.", ephemeral=True)
+    options = [str(value).strip() for value in (option_1, option_2, option_3, option_4, option_5) if value and str(value).strip()]
+    if len({value.casefold() for value in options}) != len(options):
+        return await cinnamon_send(interaction, "Poll options must be unique.", ephemeral=True)
+    now = int(_ci_time.time())
+    record = {"question": str(question).strip(), "options": options,
+              "creator_id": int(interaction.user.id), "channel_id": int(target.id),
+              "votes": {}, "status": "active", "created_at": now,
+              "ends_at": now + int(duration_minutes) * 60}
+    message = await target.send(embed=_ci_poll_embed(record),
+        view=CommunityPollView(options),
+        allowed_mentions=discord.AllowedMentions.none())
+    message_id = str(message.id)
+    record["message_id"] = int(message.id)
+    cfg = _ci_root(interaction.guild.id)
+    cfg["polls"][message_id] = record
+    if not await bd_save_data():
+        cfg["polls"].pop(message_id, None)
+        try:
+            await message.delete()
+        except discord.HTTPException:
+            pass
+        return await cinnamon_send(interaction, "Couldn't durably save the poll, so its post was removed.", ephemeral=True)
+    await cinnamon_send(interaction, f"Poll posted in {target.mention}. It closes <t:{record['ends_at']}:R>.", ephemeral=True)
+
+
+@poll_group.command(name="list", description="List active server polls")
+@app_commands.guild_only()
+async def community_poll_list(interaction: discord.Interaction):
+    records = [(mid, poll) for mid, poll in _ci_root(interaction.guild.id)["polls"].items()
+               if isinstance(poll, dict) and poll.get("status") == "active"]
+    records.sort(key=lambda pair: int(pair[1].get("ends_at", 0)))
+    lines = [f"**{poll.get('question', 'Poll')}** — <t:{int(poll.get('ends_at', 0))}:R> · message {mid}"
+             for mid, poll in records[:15]]
+    await cinnamon_send(interaction, "\\n".join(lines) or "There are no active polls.", ephemeral=True)
+
+
+@poll_group.command(name="close", description="Close a poll you created")
+@app_commands.guild_only()
+async def community_poll_close(interaction: discord.Interaction, message_id: str):
+    if not str(message_id).isdigit():
+        return await cinnamon_send(interaction, "Enter the numeric message ID of the poll post.", ephemeral=True)
+    cfg = _ci_root(interaction.guild.id)
+    async with _ci_lock(interaction.guild.id, "poll:" + str(message_id)):
+        record = cfg["polls"].get(str(message_id))
+        if not isinstance(record, dict) or record.get("status") != "active":
+            return await cinnamon_send(interaction, "That poll is not active.", ephemeral=True)
+        if int(record.get("creator_id", 0)) != interaction.user.id and not interaction.user.guild_permissions.manage_messages:
+            return await cinnamon_send(interaction, "Only the poll creator or a member with Manage Messages can close it.", ephemeral=True)
+        before = _ci_copy.deepcopy(record)
+        record["status"] = "ended"
+        record["ended_at"] = int(_ci_time.time())
+        if not await bd_save_data():
+            cfg["polls"][str(message_id)] = before
+            return await cinnamon_send(interaction, "Couldn't save poll closure.", ephemeral=True)
+    channel = interaction.guild.get_channel(int(record.get("channel_id", 0)))
+    if channel:
+        try:
+            message = await channel.fetch_message(int(message_id))
+            await message.edit(embed=_ci_poll_embed(record),
+                view=CommunityPollView(record.get("options", []), disabled=True))
+        except discord.HTTPException:
+            pass
+    await cinnamon_send(interaction, "Poll closed.", ephemeral=True)
+
+bot.tree.add_command(poll_group)
