@@ -2103,14 +2103,14 @@ def dashboard_action():
             _audit(gid,actor,"Dashboard: verification panel published",f"Posted in {channel_mention}.")
             session["dashboard_notice"]="Verification panel published in "+channel_mention+"."
         elif action=="community_poll_create":
-            question=request.form.get("question","").strip()[:200]
-            options=[request.form.get("option"+str(i),"").strip()[:60] for i in range(1,5)]
+            question=request.form.get("question","").strip()[:240]
+            options=[request.form.get("option_"+str(i),"").strip()[:80] for i in range(1,6)]
             options=[value for value in options if value]
             raw_channel=request.form.get("channel_id","").strip()
             try: duration=int(request.form.get("duration_minutes","1440"))
             except ValueError: raise ValueError("Poll duration must be a whole number of minutes.")
-            if not question or len(options)<2 or len(options)>4 or not 1<=duration<=10080 or not raw_channel.isdigit():
-                raise ValueError("Provide a question, two to four options, a valid channel and a duration from 1 to 10080 minutes.")
+            if not question or len(options)<2 or not 1<=duration<=10080 or not raw_channel.isdigit():
+                raise ValueError("Provide a question, at least two options, a valid channel and a duration from 1 to 10080 minutes.")
             if len({value.casefold() for value in options})!=len(options):
                 raise ValueError("Poll options must be unique.")
             channel=guild.get_channel(int(raw_channel))
@@ -2120,45 +2120,55 @@ def dashboard_action():
             if not (perms.view_channel and perms.send_messages and perms.embed_links):
                 raise ValueError("Cinnamon needs View Channel, Send Messages and Embed Links in the poll channel.")
             async def create_dashboard_poll():
-                view_class=state.get("PollView")
-                embed_fn=state.get("_poll_embed")
-                polls=state.setdefault("active_polls",{})
+                advanced=state["advanced_features_data"]
+                root=advanced.setdefault("cinnamon_community_interactions_v1",{})
+                cfg=root.setdefault(str(gid),{})
+                polls=cfg.setdefault("polls",{})
+                view_class=state.get("CommunityPollView")
+                embed_fn=state.get("_ci_poll_embed")
                 if not callable(view_class) or not callable(embed_fn):
                     raise ValueError("Poll voting controls are unavailable.")
-                record={"guild_id":int(gid),"channel_id":int(channel.id),
-                        "host_id":int(_tokens[sid]["user"]["id"]),
-                        "host_name":str(_tokens[sid]["user"].get("global_name") or _tokens[sid]["user"].get("username") or "Server staff"),
-                        "question":question,"options":options,"votes":{},
-                        "ends_at":time.time()+duration*60}
-                message=await channel.send(embed=embed_fn(record),view=view_class(options),
-                    allowed_mentions=__import__("discord").AllowedMentions.none())
-                polls[int(message.id)]=record
+                now=int(time.time())
+                record={"question":question,"options":options,"creator_id":int(_tokens[sid]["user"]["id"]),"channel_id":int(channel.id),"votes":{},"status":"active","created_at":now,"ends_at":now+duration*60}
+                message=await channel.send(embed=embed_fn(record),view=view_class(options),allowed_mentions=__import__("discord").AllowedMentions.none())
+                message_id=str(message.id)
+                record["message_id"]=int(message.id)
+                polls[message_id]=record
                 if not await state["bd_save_data"]():
-                    polls.pop(int(message.id),None)
-                    try:
-                        await message.edit(content="This poll was cancelled because durable storage could not confirm it.",embed=None,view=view_class(options,disabled=True))
+                    polls.pop(message_id,None)
+                    try: await message.delete()
                     except __import__("discord").HTTPException: pass
-                    raise ValueError("Could not durably save the poll; the post was disabled.")
-                return message.id
+                    raise ValueError("Could not durably save the poll. Its post was removed.")
+                return message_id
             message_id=_run_bot(create_dashboard_poll())
             _audit(gid,actor,"Dashboard: community poll created",f"Poll message {message_id}; channel {channel.id}.")
             session["dashboard_notice"]="Poll created and published."
         elif action=="community_poll_close":
-            raw_mid=request.form.get("message_id","").strip()
-            if not raw_mid.isdigit(): raise ValueError("Choose a valid poll.")
+            message_id=request.form.get("message_id","").strip()
+            if not message_id.isdigit(): raise ValueError("Choose a valid poll.")
             async def close_dashboard_poll():
-                polls=state.setdefault("active_polls",{})
-                mid=int(raw_mid)
-                record=polls.get(mid)
-                if not isinstance(record,dict) or int(record.get("guild_id",0))!=int(gid):
-                    raise ValueError("That poll is no longer active in this server.")
-                if not callable(state.get("finish_poll")):
-                    raise ValueError("Poll closing controls are unavailable.")
-                await state["finish_poll"](mid)
-                if mid in polls:
-                    raise ValueError("The poll could not be closed. Please retry.")
+                advanced=state["advanced_features_data"]
+                cfg=(advanced.get("cinnamon_community_interactions_v1",{}) or {}).get(str(gid),{})
+                polls=cfg.get("polls",{}) or {}
+                record=polls.get(message_id)
+                if not isinstance(record,dict) or record.get("status")!="active":
+                    raise ValueError("That poll is no longer active.")
+                before=__import__("copy").deepcopy(record)
+                record["status"]="ended"
+                record["ended_at"]=int(time.time())
+                if not await state["bd_save_data"]():
+                    record.clear(); record.update(before)
+                    raise ValueError("Could not save poll closure.")
+                channel=guild.get_channel(int(record.get("channel_id",0) or 0))
+                view_class=state.get("CommunityPollView")
+                embed_fn=state.get("_ci_poll_embed")
+                if channel and callable(view_class) and callable(embed_fn):
+                    try:
+                        message=await channel.fetch_message(int(message_id))
+                        await message.edit(embed=embed_fn(record),view=view_class(record.get("options",[]),disabled=True))
+                    except __import__("discord").HTTPException: pass
             _run_bot(close_dashboard_poll())
-            _audit(gid,actor,"Dashboard: community poll closed",f"Poll message {raw_mid}.")
+            _audit(gid,actor,"Dashboard: community poll closed",f"Poll message {message_id}.")
             session["dashboard_notice"]="Poll closed."
         elif action=="community_event_create":
             title=request.form.get("title","").strip()
