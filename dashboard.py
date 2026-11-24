@@ -419,7 +419,7 @@ def _header():
 
 
 def _nav(guild_id, tab):
-    items = [("overview", "⌂", "Overview"), ("mind", "🐈", "Cinnamon Mind"), ("adventure", "🎣", "Adventures & Fishing"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("companions", "🐱", "Companions"), ("economy", "🌿", "Catnip Economy"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
+    items = [("overview", "⌂", "Overview"), ("mind", "🐈", "Cinnamon Mind"), ("adventure", "🎣", "Adventures & Fishing"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("companions", "🐱", "Companions"), ("economy", "🌿", "Catnip Economy"), ("tickets", "🎫", "Tickets"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
     links = "".join(
         f"<a class='{'active' if tab == key else ''}' href='/dashboard?guild_id={guild_id}&tab={key}'><span>{ico}</span>{label}</a>" for key, ico, label in items
     )
