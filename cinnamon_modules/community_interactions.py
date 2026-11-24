@@ -296,6 +296,8 @@ async def _community_interactions_restore():
     if _CI_VIEWS_READY:
         return
     _CI_VIEWS_READY = True
+    # Register one generic persistent view; callbacks look up the poll by message ID.
+    bot.add_view(CommunityPollView(["Option 1", "Option 2", "Option 3", "Option 4", "Option 5"]))
     if not _community_event_reminders.is_running():
         _community_event_reminders.start()
     try:
