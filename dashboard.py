@@ -1191,7 +1191,8 @@ def _community(guild,state):
     advanced = state.get("advanced_features_data", {}) or {}
     board = (advanced.get("cinnamon_community_tools_v1", {}) or {}).get(str(gid), {}) or {}
     social = (advanced.get("cinnamon_community_interactions_v1", {}) or {}).get(str(gid), {}) or {}
-    active_polls = [p for p in (state.get("active_polls", {}) or {}).values() if int(p.get("guild_id", 0) or 0) == gid]
+    polls = social.get("polls", {}) or {}
+    active_polls = [(mid, p) for mid, p in polls.items() if isinstance(p, dict) and p.get("status") == "active"]
     events = social.get("events", {}) or {}
     confessions = social.get("confessions", {}) or {}
 
@@ -1222,6 +1223,12 @@ def _community(guild,state):
     event_rows_html = "".join(event_rows) or "<tr><td colspan='4'>No scheduled events.</td></tr>"
     event_form = "<div class='formgrid'><div class='field'><label>Event title</label><input name='title' maxlength='120' required></div><div class='field'><label>Start time (ISO 8601 with timezone)</label><input name='start_at' placeholder='2026-12-01T18:30:00+05:30' required></div><div class='field full'><label>Description</label><textarea name='description' maxlength='1500'></textarea></div><div class='field'><label>Event channel</label>" + _channel_select(guild, "channel_id", None) + "</div></div><p class='muted'>Use an explicit timezone offset, for example +05:30 or Z. Members RSVP on the event post and receive 24-hour and 1-hour reminders.</p>"
     event_card = "<article class='card full'><h2>Server events</h2><div class='tablewrap'><table><thead><tr><th>Event</th><th>Unix start time</th><th>Event ID</th><th>Action</th></tr></thead><tbody>" + event_rows_html + "</tbody></table></div>" + _form(gid, "community_event_create", event_form, "Create event") + "</article>"
+    poll_rows = []
+    for message_id, poll in active_polls[:20]:
+        poll_rows.append("<tr><td>" + _esc(poll.get("question", "Poll")) + "</td><td>" + _esc(str(len(poll.get("votes", {}) or {}))) + "</td><td><a href='https://discord.com/channels/" + str(gid) + "/" + str(poll.get("channel_id", 0)) + "/" + str(message_id) + "' target='_blank' rel='noopener'>Open poll</a></td><td><form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='community_poll_close'><input type='hidden' name='message_id' value='" + _esc(str(message_id)) + "'><button class='btn danger small'>Close</button></form></td></tr>")
+    poll_rows_html = "".join(poll_rows) or "<tr><td colspan='4'>No active polls.</td></tr>"
+    poll_form = "<div class='formgrid'><div class='field full'><label>Poll question</label><input name='question' maxlength='240' required></div><div class='field'><label>Option 1</label><input name='option_1' maxlength='80' required></div><div class='field'><label>Option 2</label><input name='option_2' maxlength='80' required></div><div class='field'><label>Option 3 (optional)</label><input name='option_3' maxlength='80'></div><div class='field'><label>Option 4 (optional)</label><input name='option_4' maxlength='80'></div><div class='field'><label>Option 5 (optional)</label><input name='option_5' maxlength='80'></div><div class='field'><label>Duration (minutes)</label><input name='duration_minutes' type='number' min='1' max='10080' value='1440' required></div><div class='field'><label>Post in</label>" + _channel_select(guild, "channel_id", None) + "</div></div><p class='muted'>Members can change their vote until the poll closes. The latest vote is saved; poll results remain visible after closure.</p>"
+    poll_card = "<article class='card full'><h2>Polls</h2><div class='tablewrap'><table><thead><tr><th>Question</th><th>Votes</th><th>Post</th><th>Action</th></tr></thead><tbody>" + poll_rows_html + "</tbody></table></div>" + _form(gid, "community_poll_create", poll_form, "Create poll") + "</article>"
     features = (
         "<div class='formgrid'>"
         "<div class='field'><label>Suggestion board channel</label>" + _channel_select(guild, "suggestion_channel_id", board.get("suggestion_channel_id")) + "</div>"
@@ -1232,7 +1239,7 @@ def _community(guild,state):
         "</div><p class='muted'>Members use /suggest, /poll, /event, /confess and /quote. Confession channels should be moderated; confession submitters are not identified in public posts.</p>"
     )
     feature_card = "<article class='card full'><h2>Community boards and activities</h2><div class='toggle'><span>Suggestions</span><b>" + _esc(suggestion_channel.mention if suggestion_channel else "Disabled") + "</b></div><div class='toggle'><span>Starboard</span><b>" + _esc(starboard_channel.mention if starboard_channel else "Disabled") + "</b></div><div class='toggle'><span>Confessions</span><b>" + _esc(confession_channel.mention if confession_channel else "Disabled") + "</b></div><div class='grid'><article class='card third'><div class='statlabel'>Saved polls</div><div class='stat'>" + str(len(active_polls)) + "</div></article><article class='card third'><div class='statlabel'>Scheduled events</div><div class='stat'>" + str(sum(1 for e in events.values() if e.get("status") == "scheduled")) + "</div></article><article class='card third'><div class='statlabel'>Published confessions</div><div class='stat'>" + str(sum(1 for e in confessions.values() if e.get("status") == "published")) + "</div></article></div>" + _form(gid, "community_features_settings", features, "Save community settings") + "</article>"
-    return "<h1>Community</h1><p class='muted'>Welcome and goodbye messages, Cinnamon's AI channel, suggestions, polls, starboard, events, anonymous confessions and server logging.</p><div class='grid'>" + message_form("Welcome messages", welcome, "welcome") + message_form("Goodbye messages", goodbye, "goodbye") + ai_card + log_card + feature_card + event_card + "</div>"
+    return "<h1>Community</h1><p class='muted'>Welcome and goodbye messages, Cinnamon's AI channel, suggestions, polls, starboard, events, anonymous confessions and server logging.</p><div class='grid'>" + message_form("Welcome messages", welcome, "welcome") + message_form("Goodbye messages", goodbye, "goodbye") + ai_card + log_card + feature_card + poll_card + event_card + "</div>"
 
 
 def _system(guild,state):
@@ -1807,7 +1814,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","security_settings","moderation_controls_settings","verification_publish","appeal_settings","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","community_poll_create","community_poll_close","security_settings","moderation_controls_settings","verification_publish","appeal_settings","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -2085,6 +2092,77 @@ def dashboard_action():
             channel_mention=_run_bot(publish_verification())
             _audit(gid,actor,"Dashboard: verification panel published",f"Posted in {channel_mention}.")
             session["dashboard_notice"]="Verification panel published in "+channel_mention+"."
+        elif action=="community_poll_create":
+            question=request.form.get("question","").strip()[:240]
+            options=[request.form.get("option_"+str(i),"").strip()[:80] for i in range(1,6)]
+            options=[value for value in options if value]
+            raw_channel=request.form.get("channel_id","").strip()
+            try: duration=int(request.form.get("duration_minutes","1440"))
+            except ValueError: raise ValueError("Poll duration must be a whole number of minutes.")
+            if not question or len(options)<2 or not 1<=duration<=10080 or not raw_channel.isdigit():
+                raise ValueError("Provide a question, at least two options, a valid channel and a duration from 1 to 10080 minutes.")
+            if len({value.casefold() for value in options})!=len(options):
+                raise ValueError("Poll options must be unique.")
+            channel=guild.get_channel(int(raw_channel))
+            if not isinstance(channel,__import__("discord").TextChannel):
+                raise ValueError("Choose a text channel in this server.")
+            perms=channel.permissions_for(guild.me)
+            if not (perms.view_channel and perms.send_messages and perms.embed_links):
+                raise ValueError("Cinnamon needs View Channel, Send Messages and Embed Links in the poll channel.")
+            async def create_dashboard_poll():
+                advanced=state["advanced_features_data"]
+                root=advanced.setdefault("cinnamon_community_interactions_v1",{})
+                cfg=root.setdefault(str(gid),{})
+                polls=cfg.setdefault("polls",{})
+                view_class=state.get("PollView")
+                embed_fn=state.get("_ci_poll_embed")
+                if not callable(view_class) or not callable(embed_fn):
+                    raise ValueError("Poll voting controls are unavailable.")
+                now=int(time.time())
+                record={"question":question,"options":options,"creator_id":int(_tokens[sid]["user"]["id"]),
+                        "channel_id":int(channel.id),"votes":{},"status":"active",
+                        "created_at":now,"ends_at":now+duration*60}
+                message=await channel.send(embed=embed_fn(record),view=view_class(options),
+                    allowed_mentions=__import__("discord").AllowedMentions.none())
+                message_id=str(message.id)
+                record["message_id"]=int(message.id)
+                polls[message_id]=record
+                if not await state["bd_save_data"]():
+                    polls.pop(message_id,None)
+                    try: await message.delete()
+                    except __import__("discord").HTTPException: pass
+                    raise ValueError("Could not durably save the poll. Its post was removed.")
+                return message_id
+            message_id=_run_bot(create_dashboard_poll())
+            _audit(gid,actor,"Dashboard: community poll created",f"Poll message {message_id}; channel {channel.id}.")
+            session["dashboard_notice"]="Poll created and published."
+        elif action=="community_poll_close":
+            message_id=request.form.get("message_id","").strip()
+            if not message_id.isdigit(): raise ValueError("Choose a valid poll.")
+            async def close_dashboard_poll():
+                advanced=state["advanced_features_data"]
+                cfg=(advanced.get("cinnamon_community_interactions_v1",{}) or {}).get(str(gid),{})
+                polls=cfg.get("polls",{}) or {}
+                record=polls.get(message_id)
+                if not isinstance(record,dict) or record.get("status")!="active":
+                    raise ValueError("That poll is no longer active.")
+                before=__import__("copy").deepcopy(record)
+                record["status"]="ended"
+                record["ended_at"]=int(time.time())
+                if not await state["bd_save_data"]():
+                    record.clear();record.update(before)
+                    raise ValueError("Could not save poll closure.")
+                channel=guild.get_channel(int(record.get("channel_id",0) or 0))
+                view_class=state.get("PollView")
+                embed_fn=state.get("_ci_poll_embed")
+                if channel and callable(view_class) and callable(embed_fn):
+                    try:
+                        message=await channel.fetch_message(int(message_id))
+                        await message.edit(embed=embed_fn(record),view=view_class(record.get("options",[]),disabled=True))
+                    except __import__("discord").HTTPException: pass
+            _run_bot(close_dashboard_poll())
+            _audit(gid,actor,"Dashboard: community poll closed",f"Poll message {message_id}.")
+            session["dashboard_notice"]="Poll closed."
         elif action=="community_event_create":
             title=request.form.get("title","").strip()
             start_raw=request.form.get("start_at","").strip()
