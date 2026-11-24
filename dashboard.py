@@ -2763,6 +2763,9 @@ def dashboard_action():
                 role_cfg = (state.get("advanced_features_data", {}).get("cinnamon_role_permissions_v1", {}) or {}).get(str(gid), {})
                 allowed_staff.update(map(int, role_cfg.get("ticket_staff", [])))
                 allowed_staff.update(map(int, role_cfg.get("ticket_admin", [])))
+                if str(ticket.get("routing", "")).lower() in {"grow_a_garden", "gag", "boosting"}:
+                    allowed_staff.update(map(int, ticket_cfg.get("trusted_booster_role_ids", [])))
+                    allowed_staff.update(map(int, role_cfg.get("trusted_booster", [])))
                 is_ticket_staff = member.guild_permissions.administrator or any(role.id in allowed_staff for role in member.roles)
                 if not is_ticket_staff:
                     raise ValueError("Assign tickets only to configured ticket staff or administrators.")
