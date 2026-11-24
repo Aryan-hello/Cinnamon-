@@ -68,9 +68,12 @@ def _cr_active(gid, uid):
 
 
 def _cr_format(item):
+    repeat = ""
+    if int(item.get("repeat_seconds", 0)) >= 3600:
+        repeat = f" · repeats every {int(item['repeat_seconds']) // 3600}h ({int(item.get('repeat_remaining', 1))} remaining)"
     return (f"`{item['id']}` — **{discord.utils.escape_markdown(item['text'])}** "
             f"· <t:{int(item['due_at'])}:F> (<t:{int(item['due_at'])}:R>)"
-            f" · {item.get('status', 'unknown')}")
+            f"{repeat} · {item.get('status', 'unknown')}")
 
 
 async def _cr_schedule(gid, uid, spec, *, source_id=None):
