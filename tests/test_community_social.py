@@ -39,6 +39,13 @@ class CommunitySocialTests(unittest.TestCase):
         self.assertIn("economy_balances[(gid, uid)] = balance + reward", self.source)
         self.assertIn("bd_save_data()", self.source)
 
+    def test_activity_tracking_and_weekly_recap_are_persistent_and_bounded(self):
+        self.assertIn('name="recap"', self.source)
+        self.assertIn("cinnamon_community_activity_v1", self.source)
+        self.assertIn("@tasks.loop(minutes=1)", self.source)
+        self.assertIn("_CS_ACTIVITY_DIRTY", self.source)
+        self.assertIn("Activity counts begin when this tracking feature is active", self.source)
+
     def test_module_is_loaded_and_does_not_touch_wildlands(self):
         self.assertIn('"community_social.py"', self.main)
         self.assertNotIn("wildlands_", self.source)
