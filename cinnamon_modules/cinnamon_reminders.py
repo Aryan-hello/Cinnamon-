@@ -1,8 +1,8 @@
 """Persistent, self-addressed reminders with at-most-once delivery semantics.
 
 Loaded into main.py's shared namespace after the Brain and action modules.
-No model output is permitted to schedule reminders. The existing activity
-scheduler calls _cr_tick; no second ticking task or Discord login is created.
+No model output is permitted to schedule reminders. A single guarded task loop
+runs the reminder lifecycle after the Discord gateway is ready.
 """
 import asyncio as _cr_asyncio
 import datetime as _cr_datetime
@@ -276,6 +276,22 @@ async def _cr_tick():
             raise
         except Exception:
             log.exception("Cinnamon reminder delivery failed unexpectedly (id %s)", rid)
+
+
+@tasks.loop(minutes=1)
+async def _cr_reminder_loop():
+    await _cr_tick()
+
+
+@_cr_reminder_loop.before_loop
+async def _cr_reminder_loop_before():
+    await bot.wait_until_ready()
+
+
+@bot.listen("on_ready")
+async def _cr_reminder_loop_start():
+    if not _cr_reminder_loop.is_running():
+        _cr_reminder_loop.start()
 
 
 async def _cr_maybe_handle(message, clean_content):
