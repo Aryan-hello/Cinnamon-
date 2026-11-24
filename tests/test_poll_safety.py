@@ -35,6 +35,11 @@ class PollSafetyTests(unittest.TestCase):
         self.assertLess(finalizer.index("await bd_save_data()"), finalizer.index("await message.edit"))
         self.assertIn("poll remains active", finalizer)
 
+    def test_persistent_poll_view_is_registered_after_reconnect(self):
+        self.assertIn("restore_persistent_poll_view", self.levels)
+        self.assertIn("bot.add_view(PollView())", self.levels)
+        self.assertIn("_POLL_VIEW_REGISTERED", self.levels)
+
     def test_dashboard_can_create_list_and_close_polls(self):
         for action in ("community_poll_create", "community_poll_close"):
             self.assertIn(action, self.dashboard)
