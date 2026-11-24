@@ -84,7 +84,8 @@ async def check_runtime():
         assert slash_pages and len(slash_pages) >= 2
         assert main.bot.get_command("help") is not None
         prefix_entries = main._help_prefix_entries(main.bot.walk_commands())
-        assert any(entry.path == "?quest daily" for entry in prefix_entries)
+        assert any(entry.path == "?quest" for entry in prefix_entries)
+        assert not any(entry.path in {"?quest daily", "?quest weekly", "?quest progress"} for entry in prefix_entries)
         assert any(entry.path == "?work" for entry in prefix_entries)
         assert all(len(page) <= 1024 for page in
                    main._help_command_pages(prefix_entries, max_chars=940))

@@ -457,6 +457,8 @@ _CINNAMON_MODULES = (
     "general_moderation.py",
     "dashboard_runtime.py",
     "moderation.py",
+    "moderation_controls.py",  # Private moderator notes, appeals, verification and onboarding.
+    "security_guard.py",  # Configurable anti-spam and audit-log anti-nuke alerts.
     "levels_games.py",
     "server_setup.py",
     "ui_system.py",
@@ -464,10 +466,14 @@ _CINNAMON_MODULES = (
     # economy state/helpers exist when those systems are registered.
     "economy.py",
     "advanced_economy.py",
+    "economy_marketplace.py",  # Member-to-member escrow trading and marketplace.
     "quests.py",
     "achievements.py",
     "hangry_games.py",
     "ticket_system.py",
+    "community_tools.py",  # Suggestions and starboard; shared state uses existing persistence.
+    "community_interactions.py",  # Polls, events, RSVPs and anonymous confessions.
+    "community_social.py",  # Quotes, reputation, teams and community challenges.
     "cinnamon_adventure_art.py",
     "story_delivery.py",  # Shared story helpers must load before story commands.
     "cinnamon_adventure_fishing.py",
@@ -475,6 +481,7 @@ _CINNAMON_MODULES = (
     "cinnamon_adventure_story.py",
     "cinnamon_extra_stories.py",  # Five new branching player adventures.
     "cinnamon_moods.py",
+    "companion.py",  # Member-owned pet profiles share the existing Catnip inventory.
     "cinnamon_personality.py",
     "cinnamon_actions.py",
     # Deterministic conversational shortcuts into existing prefix command adapters.

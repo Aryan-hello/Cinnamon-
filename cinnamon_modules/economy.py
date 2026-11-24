@@ -651,6 +651,237 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
     await _cp_react(interaction.guild, interaction.user, interaction.channel, "big_purchase", value=cost)
 
 
+
+def _economy_is_box_reward(item_id: str) -> bool:
+    tiers = globals().get("BOX_TIERS", {})
+    return any(item_id in (tier.get("items", []) + tier.get("materials", [])) for tier in tiers.values())
+
+
+def _economy_box_provenance_key(guild_id: int, user_id: int, item_id: str) -> str:
+    return f"{int(guild_id)}:{int(user_id)}:{str(item_id)}"
+
+
+def _economy_box_resale_rates(guild_id: int) -> dict:
+    defaults = {"common": 20, "rare": 25, "epic": 30, "legendary": 35, "mythical": 40}
+    root = advanced_features_data.setdefault("mystery_box_resale_rates_v1", {})
+    rates = root.setdefault(str(int(guild_id)), dict(defaults))
+    for tier, percent in defaults.items():
+        try:
+            rates[tier] = max(1, min(100, int(rates.get(tier, percent))))
+        except (TypeError, ValueError):
+            rates[tier] = percent
+    return rates
+
+
+def economy_sell_value(item_id: str, item: dict) -> int:
+    if item.get("sellable") is False:
+        return 0
+    # Unfulfilled Grow a Garden service vouchers remain inventory items and may
+    # be resold. Claiming the ticket consumes the voucher before fulfilment.
+    if item.get("service_type") or item.get("category") == "grow_a_garden":
+        if item.get("service_type") != "grow_a_garden":
+            return 0
+        configured = item.get("sell_price")
+        return max(0, int(configured)) if configured is not None else max(0, int(item.get("price", 0)) // 2)
+    if _economy_is_box_reward(item_id):
+        return 0
+    configured = item.get("sell_price")
+    if configured is not None:
+        return max(0, int(configured))
+    return max(0, int(item.get("price", 0)) // 2)
+
+
+def economy_sell_quote(guild_id: int, user_id: int, item_id: str, quantity: int):
+    item = ECONOMY_ITEMS.get(str(item_id), {})
+    if not item or int(quantity) < 1:
+        return None
+    provenance_root = advanced_features_data.setdefault("mystery_reward_provenance_v1", {})
+    key = _economy_box_provenance_key(guild_id, user_id, item_id)
+    provenance = provenance_root.get(key, {})
+    if _economy_is_box_reward(str(item_id)) or isinstance(provenance, dict) and bool(provenance):
+        if not isinstance(provenance, dict):
+            return None
+        remaining, breakdown, payout = int(quantity), [], 0
+        rates = _economy_box_resale_rates(guild_id)
+        for tier in ("common", "rare", "epic", "legendary", "mythical"):
+            used = min(remaining, max(0, int(provenance.get(tier, 0))))
+            if not used:
+                continue
+            unit = max(1, int(item.get("price", 0)) * int(rates.get(tier, 20)) // 100)
+            payout += used * unit
+            breakdown.append((tier, used))
+            remaining -= used
+            if not remaining:
+                break
+        if remaining:
+            return None
+        return payout, breakdown
+    unit = economy_sell_value(str(item_id), item)
+    return (unit * int(quantity), []) if unit > 0 else None
+
+
+def economy_consume_box_provenance(guild_id: int, user_id: int, item_id: str, breakdown):
+    root = advanced_features_data.setdefault("mystery_reward_provenance_v1", {})
+    key = _economy_box_provenance_key(guild_id, user_id, item_id)
+    provenance = root.setdefault(key, {})
+    for tier, quantity in breakdown:
+        left = max(0, int(provenance.get(tier, 0)) - int(quantity))
+        if left:
+            provenance[tier] = left
+        else:
+            provenance.pop(tier, None)
+    if not provenance:
+        root.pop(key, None)
+
+
+class EconomySellConfirmView(discord.ui.View):
+    def __init__(self, guild_id: int, user_id: int, item_id: str, quantity: int, unit_value: int, item_name: str):
+        super().__init__(timeout=60)
+        self.guild_id, self.user_id = int(guild_id), int(user_id)
+        self.item_id, self.quantity = str(item_id), int(quantity)
+        self.unit_value, self.item_name = int(unit_value), str(item_name)
+        self.finished = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("🐾 This sale confirmation belongs to the member who requested it.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Confirm sale", emoji="💰", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.finished:
+            return await interaction.response.send_message("This sale is already closed.", ephemeral=True)
+        lock = _CINNAMON_SHOP_LOCKS.setdefault((self.guild_id, self.user_id), asyncio.Lock())
+        async with lock:
+            inv = economy_inventory_for(self.guild_id, self.user_id)
+            owned = int(inv.get(self.item_id, 0))
+            if owned < self.quantity:
+                self.finished = True
+                for child in self.children: child.disabled = True
+                return await interaction.response.edit_message(content="❌ Your inventory changed. Nothing was sold.", embed=None, view=self)
+            quote = economy_sell_quote(self.guild_id, self.user_id, self.item_id, self.quantity)
+            if quote is None:
+                self.finished = True
+                for child in self.children: child.disabled = True
+                return await interaction.response.edit_message(content="❌ The item no longer has enough eligible inventory or Mystery Box provenance to sell.", embed=None, view=self)
+            payout, provenance_breakdown = quote
+            before, before_inventory = economy_balance(self.guild_id, self.user_id), dict(inv)
+            before_provenance = __import__("copy").deepcopy(advanced_features_data.get("mystery_reward_provenance_v1", {}))
+            inv[self.item_id] = owned - self.quantity
+            if inv[self.item_id] <= 0:
+                inv.pop(self.item_id, None)
+            economy_balances[(self.guild_id, self.user_id)] = before + payout
+            if provenance_breakdown:
+                economy_consume_box_provenance(self.guild_id, self.user_id, self.item_id, provenance_breakdown)
+            if not await bd_save_data():
+                inv.clear()
+                inv.update(before_inventory)
+                economy_balances[(self.guild_id, self.user_id)] = before
+                advanced_features_data["mystery_reward_provenance_v1"] = before_provenance
+                self.finished = True
+                for child in self.children: child.disabled = True
+                return await interaction.response.edit_message(content="⚠️ Cinnamon couldn't save this sale. Your item, provenance and balance were restored.", embed=None, view=self)
+            after, remaining = before + payout, int(inv.get(self.item_id, 0))
+            self.finished = True
+            for child in self.children: child.disabled = True
+        await economy_log(self.guild_id, title="💰 Economy item sold", fields=[
+            ("User", f"{interaction.user} ({self.user_id})"), ("Item", f"{self.item_name} ({self.item_id})"),
+            ("Quantity", self.quantity), ("Payout", f"+{payout:,} Catnip"),
+            ("Balance before", f"{before:,} Catnip"), ("Balance after", f"{after:,} Catnip"),
+            ("Remaining quantity", remaining),
+            ("Mystery Box provenance", ", ".join(f"{tier.title()} ×{qty}" for tier, qty in provenance_breakdown) or "Not applicable"),
+        ])
+        await interaction.response.edit_message(content=f"✅ Sold {self.quantity:,}× {self.item_name} for {payout:,} Catnip. New balance: {after:,} Catnip.", embed=None, view=self)
+
+    @discord.ui.button(label="Cancel", emoji="✖️", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.finished:
+            return await interaction.response.send_message("This sale is already closed.", ephemeral=True)
+        self.finished = True
+        for child in self.children: child.disabled = True
+        await interaction.response.edit_message(content="Sale cancelled. Your inventory and balance are unchanged.", embed=None, view=self)
+
+
+@economy_group.command(name="sell", description="Sell eligible items from your inventory")
+@app_commands.describe(item="Search for an item you own", quantity="How many to sell")
+@app_commands.autocomplete(item=cinnamon_item_autocomplete)
+@app_commands.guild_only()
+async def economy_sell_cmd(interaction: discord.Interaction, item: str, quantity: app_commands.Range[int, 1, 99] = 1):
+    guild_id, user_id = interaction.guild.id, interaction.user.id
+    item_id = str(item).strip().lower()
+    if item_id not in ECONOMY_ITEMS:
+        matches = [key for key, value in ECONOMY_ITEMS.items()
+                   if str(value.get("name", "")).lower() == item_id]
+        if len(matches) == 1:
+            item_id = matches[0]
+    data = ECONOMY_ITEMS.get(item_id)
+    if not data:
+        return await cinnamon_send(interaction, "❌ I couldn't find that item. Search by its catalogue name.", ephemeral=True)
+    owned = int(economy_inventory_for(guild_id, user_id).get(item_id, 0))
+    if owned < 1:
+        return await cinnamon_send(interaction, "❌ You don't own that item.", ephemeral=True)
+    if quantity < 1 or quantity > min(99, owned):
+        return await cinnamon_send(interaction, f"❌ You can sell between 1 and {min(99, owned)} of that item.", ephemeral=True)
+    quote = economy_sell_quote(guild_id, user_id, item_id, quantity)
+    if quote is None:
+        return await cinnamon_send(
+            interaction,
+            "❌ This item is not currently eligible for resale. Mystery Box rewards require recorded original-box provenance; delivered services have already been consumed.",
+            ephemeral=True)
+    payout, _provenance_breakdown = quote
+    unit_value = payout // quantity
+    view = EconomySellConfirmView(guild_id, user_id, item_id, quantity,
+                                  unit_value, data.get("name", item_id))
+    embed = cinnamon_embed(
+        "💰 Confirm Item Sale",
+        f"Sell **{quantity:,}× {data.get('emoji', '📦')} {data.get('name', item_id)}** from your inventory?",
+        color=CINNAMON_ORANGE, user=interaction.user, footer="Cinnamon Economy • Sale")
+    cinnamon_field(embed, "Unit resale value", f"**{unit_value:,} Catnip**", True)
+    cinnamon_field(embed, "Total payout", f"**{payout:,} Catnip**", True)
+    cinnamon_field(embed, "Current balance", f"**{economy_balance(guild_id, user_id):,} Catnip**", True)
+    await interaction.response.send_message(embed=cinnamon_polish_embed(embed), view=view,
+                                             ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@economy_admin_group.command(name="box-resale-rate", description="Configure Mystery Box reward resale percentages")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.choices(tier=[
+    app_commands.Choice(name="Common", value="common"),
+    app_commands.Choice(name="Rare", value="rare"),
+    app_commands.Choice(name="Epic", value="epic"),
+    app_commands.Choice(name="Legendary", value="legendary"),
+    app_commands.Choice(name="Mythical", value="mythical"),
+])
+async def economy_box_resale_rate_cmd(
+    interaction: discord.Interaction,
+    tier: app_commands.Choice[str],
+    percent: app_commands.Range[int, 1, 100],
+):
+    rates = _economy_box_resale_rates(interaction.guild.id)
+    before = dict(rates)
+    candidate = dict(rates)
+    candidate[tier.value] = int(percent)
+    order = ("common", "rare", "epic", "legendary", "mythical")
+    if any(candidate[order[i]] > candidate[order[i + 1]] for i in range(len(order) - 1)):
+        return await cinnamon_send(
+            interaction,
+            "Each higher Mystery Box tier must have an equal or greater resale percentage than the tier below it.",
+            ephemeral=True,
+        )
+    rates.update(candidate)
+    if not await bd_save_data():
+        rates.clear()
+        rates.update(before)
+        return await cinnamon_send(interaction, "Couldn't save the resale-rate change.", ephemeral=True)
+    await cinnamon_send(
+        interaction,
+        f"{tier.name} Mystery Box rewards now resell for **{percent}%** of their catalogue price. Higher rarity tiers retain higher resale rates.",
+        ephemeral=True,
+    )
+
+
 @economy_group.command(name="daily", description="Claim your daily Catnip")
 @app_commands.guild_only()
 async def economy_daily_cmd(interaction: discord.Interaction):
@@ -882,19 +1113,24 @@ async def economy_snapshot_cmd(interaction: discord.Interaction):
     await interaction.followup.send(f"✅ Snapshot saved to {channel.mention}. **{user_count}** users are included. You can reset the bot and later run `/economy restore-snapshot`.", ephemeral=True)
 
 
-async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000, *, merge_only: bool = False) -> tuple[int, str]:
+async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000, *, merge_only: bool = True, source_channel: discord.TextChannel | None = None) -> tuple[int, str]:
     """Restore a snapshot. merge_only fills missing state without overwriting live accounts."""
     if not merge_only and globals().get("_ca_transactions_pending", lambda: False)():
         return 0, "A currency transaction needs reconciliation; full restoration is temporarily blocked."
-    channel_id = economy_log_channels.get(guild.id) or category_log_channels.get(guild.id, {}).get("economy") or log_channels.get(guild.id)
+    channel_id = int(source_channel.id) if source_channel is not None else (
+        economy_log_channels.get(guild.id) or category_log_channels.get(guild.id, {}).get("economy") or log_channels.get(guild.id))
     if not channel_id:
-        return 0, "No economy log channel is configured."
-    channel = bot.get_channel(channel_id)
+        return 0, "No economy log channel is configured; choose a source channel or configure the economy log."
+    if source_channel is not None and source_channel.guild.id != guild.id:
+        return 0, "The selected snapshot channel must belong to this server."
+    channel = source_channel or bot.get_channel(channel_id)
     if channel is None:
         try:
             channel = await bot.fetch_channel(channel_id)
         except (discord.HTTPException, discord.NotFound, discord.Forbidden) as exc:
             return 0, f"Cannot access the configured economy log channel ({type(exc).__name__})."
+    if not isinstance(channel, discord.TextChannel):
+        return 0, "The selected economy snapshot source must be a text channel."
     latest = None
     try:
         async for message in channel.history(limit=limit):
@@ -913,6 +1149,27 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
         return 0, f"Could not read the economy log channel: {e}"
     if latest is None:
         return 0, "No economy snapshot was found in the log channel."
+
+    # Snapshot all affected in-memory maps before applying the backup. By default
+    # this restore is merge-only: existing wallets and inventory are never replaced.
+    _restore_copy = __import__("copy").deepcopy
+    before_balances = {k: _restore_copy(v) for k, v in economy_balances.items()
+                       if isinstance(k, tuple) and k[0] == guild.id}
+    before_inventory = {k: _restore_copy(v) for k, v in economy_inventory.items()
+                        if isinstance(k, tuple) and k[0] == guild.id}
+    before_level_rewards = {k: _restore_copy(v) for k, v in economy_level_rewards_claimed.items()
+                            if isinstance(k, tuple) and k[0] == guild.id}
+    before_achievements = {k: _restore_copy(v) for k, v in economy_achievements.items()
+                           if isinstance(k, tuple) and k[0] == guild.id}
+    had_quest_data = guild.id in quest_data
+    before_quest_data = _restore_copy(quest_data.get(guild.id))
+    had_income = guild.id in economy_income_roles
+    before_income = _restore_copy(economy_income_roles.get(guild.id))
+    custom_root = ADVANCED_FEATURES.setdefault("custom_box_rewards", {})
+    before_custom = {k: _restore_copy(v) for k, v in custom_root.items()
+                     if str(k).startswith(f"{guild.id}:")}
+    before_items = _restore_copy(ECONOMY_ITEMS)
+    before_quests = _restore_copy(ECONOMY_QUESTS)
 
     # Reading Discord attachments awaited I/O; recheck before absolute writes.
     if not merge_only and globals().get("_ca_transactions_pending", lambda: False)():
@@ -947,8 +1204,7 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
                 economy_achievements[key] = sorted(set(economy_achievements.get(key, [])) | set(snap_achievements))
             else:
                 economy_achievements[key] = snap_achievements
-            if not had_balance:
-                restored += 1
+            restored += 1
         except (ValueError, TypeError):
             continue
     snapshot_income = latest.get("income_roles")
@@ -1016,7 +1272,33 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
         elif valid_quests:
             ECONOMY_QUESTS.clear()
             ECONOMY_QUESTS.update(valid_quests)
-    await bd_save_data()
+    if not await bd_save_data():
+        def _restore_guild_entries(target, before):
+            for key in list(target):
+                if isinstance(key, tuple) and key[0] == guild.id:
+                    target.pop(key, None)
+            target.update(before)
+        _restore_guild_entries(economy_balances, before_balances)
+        _restore_guild_entries(economy_inventory, before_inventory)
+        _restore_guild_entries(economy_level_rewards_claimed, before_level_rewards)
+        _restore_guild_entries(economy_achievements, before_achievements)
+        if had_quest_data:
+            quest_data[guild.id] = before_quest_data
+        else:
+            quest_data.pop(guild.id, None)
+        if had_income:
+            economy_income_roles[guild.id] = before_income
+        else:
+            economy_income_roles.pop(guild.id, None)
+        for key in list(custom_root):
+            if str(key).startswith(f"{guild.id}:"):
+                custom_root.pop(key, None)
+        custom_root.update(before_custom)
+        ECONOMY_ITEMS.clear()
+        ECONOMY_ITEMS.update(before_items)
+        ECONOMY_QUESTS.clear()
+        ECONOMY_QUESTS.update(before_quests)
+        return 0, "The snapshot merge could not be durably saved. All in-memory changes were rolled back."
     created = latest.get("created_at", "unknown time")
     return restored, created
 
@@ -1337,7 +1619,7 @@ async def economy_iteminfo_cmd(interaction: discord.Interaction, item: str):
     await economy_log(interaction.guild.id, title="🔎 Economy item info viewed", fields=[("Viewer", f"{interaction.user} ({interaction.user.id})"), ("Item", f"{item['name']} (`{item_id}`)")])
 
 
-@economy_group.command(name="restore-snapshot", description="Restore the latest complete economy snapshot from the economy log channel")
+@economy_group.command(name="restore-snapshot", description="Merge missing economy data without overwriting existing balances")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def economy_restore_cmd(interaction: discord.Interaction):
@@ -1346,8 +1628,8 @@ async def economy_restore_cmd(interaction: discord.Interaction):
     if restored <= 0:
         await interaction.followup.send(f"⚠️ Economy recovery did not restore any users. {detail}", ephemeral=True)
         return
-    await economy_log(interaction.guild.id, title="🩹 Economy restored", description=f"Restored {restored} user account(s) from the latest snapshot.", fields=[("Snapshot", detail), ("Restored users", restored)])
-    await interaction.followup.send(f"🩹 Economy recovery complete. Restored **{restored}** user account(s) from the latest snapshot (**{detail}**).", ephemeral=True)
+    await economy_log(interaction.guild.id, title="🩹 Economy snapshot merged", description=f"Processed {restored} user account(s) from the latest snapshot. Existing wallets and inventory were preserved.", fields=[("Snapshot", detail), ("Processed accounts", restored), ("Mode", "Merge-only; existing balances are never overwritten")])
+    await interaction.followup.send(f"🩹 Economy recovery complete. Processed **{restored}** account(s) from the latest snapshot (**{detail}**). Existing Catnip balances and owned items were preserved; only missing data was added.", ephemeral=True)
 
 
 bot.tree.add_command(economy_group)

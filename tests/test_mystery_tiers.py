@@ -28,7 +28,9 @@ class MysteryTierSourceTests(unittest.TestCase):
     def test_prefix_and_slash_commands_accept_tier(self):
         self.assertIn("tier: app_commands.Choice[str] | None", self.source)
         self.assertIn("quantity: int = 1, tier: str = \"common\"", self.source)
-        self.assertIn("_open_one(ctx.guild.id, ctx.author, tier)", self.source)
+        self.assertIn("_open_boxes_atomic(ctx.guild.id, ctx.author, tier, quantity)", self.source)
+        self.assertIn("def _record_mystery_reward_provenance", self.source)
+        self.assertIn("mystery_reward_provenance_v1", self.source)
 
     def test_expansion_items_are_registered_and_unwired_consumables_disabled(self):
         for item_id in ("moonstone", "dream_petals", "captured_star", "dream_wings", "treasure_map", "starry_elixir"):

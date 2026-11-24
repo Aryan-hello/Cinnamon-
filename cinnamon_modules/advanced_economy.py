@@ -53,12 +53,61 @@ CRAFTING_RECIPES = {
         "ingredients": {"tuna": 3, "golden_fish": 1, "golden_thread": 1},
         "description": "Only the fanciest tuna survives this recipe.",
     },
+    "honey_fish_treat": {
+        "name": "Honey Fish Treat",
+        "emoji": "🍯",
+        "output": "honey_fish_treat",
+        "ingredients": {"fish_biscuits": 1, "golden_thread": 1},
+        "description": "A sweet, crunchy treat wrapped with golden thread.",
+    },
+    "tuna_stew": {
+        "name": "Tuna Stew",
+        "emoji": "🍲",
+        "output": "tuna_stew",
+        "ingredients": {"royal_tuna": 1, "crystal_fishbone": 1},
+        "description": "A warm premium meal simmered with a crystal fishbone.",
+    },
+    "pawberry_cake": {
+        "name": "Pawberry Cake",
+        "emoji": "🍰",
+        "output": "pawberry_cake",
+        "ingredients": {"dream_petals": 1, "honey_fish_treat": 1},
+        "description": "A celebratory cake with dream petals and honeyed fish.",
+    },
+    "golden_bell_collar": {
+        "name": "Golden Bell Collar",
+        "emoji": "🔔",
+        "output": "golden_bell_collar",
+        "ingredients": {"golden_paw_charm": 1, "golden_thread": 1},
+        "description": "A wearable collar with a tiny golden bell.",
+    },
+    "starlight_hat": {
+        "name": "Starlight Hat",
+        "emoji": "🎩",
+        "output": "starlight_hat",
+        "ingredients": {"moonstone": 1, "star_dust": 1},
+        "description": "A magical hat stitched from moonlight and stardust.",
+    },
+    "dream_wings": {
+        "name": "Dream Wings",
+        "emoji": "🪽",
+        "output": "dream_wings",
+        "ingredients": {"moonstone": 1, "dream_petals": 1},
+        "description": "A mythical pair of wings woven from dream petals.",
+    },
+    "moon_jelly": {
+        "name": "Moon Jelly",
+        "emoji": "🪼",
+        "output": "moon_jelly",
+        "ingredients": {"moon_fish_scale": 1, "dream_petals": 1},
+        "description": "A luminous jelly treat with a soft moonlit glow.",
+    },
 }
 
 BLACK_MARKET_POOL = [
     "tuna", "treat", "churu", "catnip_ball", "fish",
     "moon_fish_scale", "golden_thread", "star_dust", "golden_fish",
-    "fish_biscuits", "cosmic_churu", "catnip_crown", "royal_tuna",
+    "fish_biscuits", "cosmic_churu", "catnip_crown", "royal_tuna", "honey_fish_treat", "tuna_stew", "pawberry_cake", "golden_bell_collar", "starlight_hat", "dream_wings", "moon_jelly",
 ]
 
 MYSTERY_REWARDS = [
@@ -186,34 +235,48 @@ async def craft_item(guild_id, user, recipe_id, quantity=1):
         return True, '🔧 Fishing rod repaired! You can cast again.'
     recipe = CRAFTING_RECIPES.get(recipe_id)
     if not recipe:
-        return False, "❌ I don't know that recipe. Use `/craft` to see the recipes."
+        return False, "❌ I don't know that recipe. Use /craft to see the recipes."
     quantity = max(1, min(int(quantity), 25))
-    inv = economy_inventory_for(guild_id, user.id)
-    missing = []
-    for item_id, needed in recipe["ingredients"].items():
-        have = int(inv.get(item_id, 0))
-        total = needed * quantity
-        if have < total:
-            item = ECONOMY_ITEMS.get(item_id, {"name": item_id.replace("_", " ").title(), "emoji": "📦"})
-            missing.append(f"{item['emoji']} {item['name']}: need **{total}**, have **{have}**")
-    if missing:
-        return False, "❌ Not enough ingredients:\n" + "\n".join(missing)
-    output = ECONOMY_ITEMS[recipe["output"]]
-    max_owned = int(output.get("max_per_person", 0))
-    if max_owned and int(inv.get(recipe["output"], 0)) + quantity > max_owned:
-        return False, f"❌ You can own at most **{max_owned}× {output['name']}**."
-    for item_id, needed in recipe["ingredients"].items():
-        inv[item_id] = int(inv.get(item_id, 0)) - needed * quantity
-        if inv[item_id] <= 0:
-            inv.pop(item_id, None)
-    inv[recipe["output"]] = int(inv.get(recipe["output"], 0)) + quantity
-    key = _af_key(guild_id, user.id)
-    ADVANCED_FEATURES["crafted_counts"][key] = int(ADVANCED_FEATURES["crafted_counts"].get(key, 0)) + quantity
-    await bd_save_data()
+    lock = _CINNAMON_SHOP_LOCKS.setdefault((int(guild_id), int(user.id)), asyncio.Lock())
+    async with lock:
+        inv = economy_inventory_for(guild_id, user.id)
+        missing = []
+        for item_id, needed in recipe["ingredients"].items():
+            have = int(inv.get(item_id, 0))
+            total = needed * quantity
+            if have < total:
+                item = ECONOMY_ITEMS.get(item_id, {"name": item_id.replace("_", " ").title(), "emoji": "📦"})
+                missing.append(f"{item['emoji']} {item['name']}: need **{total}**, have **{have}**")
+        if missing:
+            return False, "❌ Not enough ingredients:\n" + "\n".join(missing)
+        output = ECONOMY_ITEMS[recipe["output"]]
+        max_owned = int(output.get("max_per_person", 0))
+        if max_owned and int(inv.get(recipe["output"], 0)) + quantity > max_owned:
+            return False, f"❌ You can own at most **{max_owned}× {output['name']}**."
+        before_inventory = dict(inv)
+        crafted_counts = ADVANCED_FEATURES.setdefault("crafted_counts", {})
+        key = _af_key(guild_id, user.id)
+        before_count = int(crafted_counts.get(key, 0))
+        for item_id, needed in recipe["ingredients"].items():
+            inv[item_id] = int(inv.get(item_id, 0)) - needed * quantity
+            if inv[item_id] <= 0:
+                inv.pop(item_id, None)
+        inv[recipe["output"]] = int(inv.get(recipe["output"], 0)) + quantity
+        crafted_counts[key] = before_count + quantity
+        if not await bd_save_data():
+            inv.clear()
+            inv.update(before_inventory)
+            if before_count:
+                crafted_counts[key] = before_count
+            else:
+                crafted_counts.pop(key, None)
+            return False, "⚠️ Cinnamon couldn't save this craft. Your ingredients and inventory were restored."
     await economy_log(guild_id, title="🔨 Item crafted", fields=[
-        ("User", f"{user} ({user.id})"), ("Recipe", recipe["name"]), ("Quantity", str(quantity)), ("Output", f"{output['name']} ×{quantity}")
+        ("User", f"{user} ({user.id})"), ("Recipe", recipe["name"]),
+        ("Quantity", str(quantity)), ("Output", f"{output['name']} ×{quantity}")
     ])
     return True, f"✅ Crafted **{quantity:,}× {output['emoji']} {output['name']}**!"
+
 
 
 @bot.tree.command(name="craft", description="Craft an item from ingredients")
@@ -267,44 +330,137 @@ def _weighted_reward():
     return "catnip_small"
 
 
+def _record_mystery_reward_provenance(guild_id, user_id, item_id, tier, quantity=1):
+    root = ADVANCED_FEATURES.setdefault("mystery_reward_provenance_v1", {})
+    key = f"{int(guild_id)}:{int(user_id)}:{str(item_id)}"
+    record = root.setdefault(key, {})
+    record[str(tier)] = int(record.get(str(tier), 0)) + int(quantity)
+
+
+async def _open_boxes_atomic(guild_id, user, tier, quantity):
+    uid = int(user.id)
+    key = (int(guild_id), uid)
+    lock = _CINNAMON_SHOP_LOCKS.setdefault(key, asyncio.Lock())
+    async with lock:
+        count = _box_count(guild_id, uid, tier)
+        quantity = max(1, min(int(quantity), count))
+        if count < quantity:
+            return None, count, "You no longer own enough Mystery Boxes."
+        inv_key = key
+        had_inventory = inv_key in economy_inventory
+        inventory = economy_inventory_for(guild_id, uid)
+        before_inventory = __import__("copy").deepcopy(inventory)
+        had_balance = key in economy_balances
+        before_balance = economy_balances.get(key)
+        had_xp = key in xp_data
+        before_xp = xp_data.get(key)
+        root_names = ("mystery_boxes", "mystery_opened", "mystery_reward_provenance_v1")
+        root_before = {name: __import__("copy").deepcopy(ADVANCED_FEATURES.get(name, {})) for name in root_names}
+        root_had = {name: name in ADVANCED_FEATURES for name in root_names}
+
+        def rollback():
+            if had_inventory:
+                inventory.clear()
+                inventory.update(before_inventory)
+            else:
+                economy_inventory.pop(inv_key, None)
+            if had_balance:
+                economy_balances[key] = before_balance
+            else:
+                economy_balances.pop(key, None)
+            if had_xp:
+                xp_data[key] = before_xp
+            else:
+                xp_data.pop(key, None)
+            for name in root_names:
+                if root_had[name]:
+                    ADVANCED_FEATURES[name] = root_before[name]
+                else:
+                    ADVANCED_FEATURES.pop(name, None)
+
+        try:
+            rewards = [await _open_one(guild_id, user, tier) for _ in range(quantity)]
+            _set_box_count(guild_id, uid, count - quantity, tier)
+            opened_key = _af_key(guild_id, uid)
+            ADVANCED_FEATURES["mystery_opened"][opened_key] = int(ADVANCED_FEATURES["mystery_opened"].get(opened_key, 0)) + quantity
+            if not await bd_save_data():
+                rollback()
+                return None, count, "Cinnamon couldn't save the box opening. Your boxes, rewards, provenance and balance were restored."
+            return rewards, _box_count(guild_id, uid, tier), None
+        except Exception:
+            rollback()
+            raise
+
+
 async def _open_one(guild_id, user, tier="common"):
-    inv=economy_inventory_for(guild_id,user.id)
+    inv = economy_inventory_for(guild_id, user.id)
     custom = ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:{tier}", {})
     tier_items = list(BOX_TIERS[tier]["items"]) + list(custom.get("items", []))
     tier_materials = list(BOX_TIERS[tier]["materials"]) + list(custom.get("materials", []))
     if tier != "common":
-        cfg=BOX_TIERS[tier]
-        roll=random.random()
+        cfg = BOX_TIERS[tier]
+        roll = random.random()
         if roll < .55:
-            amount=random.randint(*cfg["catnip"]); economy_balances[(guild_id,user.id)]=economy_balance(guild_id,user.id)+amount
+            amount = random.randint(*cfg["catnip"])
+            economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
             return f"🌿 **+{amount:,} Catnip**"
         if roll < .90:
-            item_id=random.choice(tier_items); item=ECONOMY_ITEMS[item_id]
-            limit=int(item.get("max_per_person",0))
-            if limit and int(inv.get(item_id,0))>=limit:
-                amount=random.randint(500,1800); economy_balances[(guild_id,user.id)]=economy_balance(guild_id,user.id)+amount
+            item_id = random.choice(tier_items)
+            item = ECONOMY_ITEMS[item_id]
+            limit = int(item.get("max_per_person", 0))
+            if limit and int(inv.get(item_id, 0)) >= limit:
+                amount = random.randint(500, 1800)
+                economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
                 return f"🪙 Duplicate protection: **+{amount:,} Catnip** (already own {item['name']})"
-            inv[item_id]=int(inv.get(item_id,0))+1
+            inv[item_id] = int(inv.get(item_id, 0)) + 1
+            _record_mystery_reward_provenance(guild_id, user.id, item_id, tier, 1)
             return f"{item['emoji']} **1× {item['name']}**"
-        item_id=random.choice(tier_materials); inv[item_id]=int(inv.get(item_id,0))+1; item=ECONOMY_ITEMS[item_id]
+        item_id = random.choice(tier_materials)
+        inv[item_id] = int(inv.get(item_id, 0)) + 1
+        _record_mystery_reward_provenance(guild_id, user.id, item_id, tier, 1)
+        item = ECONOMY_ITEMS[item_id]
         return f"🧪 **1× {item['name']}**"
-    kind=_weighted_reward(); 
-    if kind=="catnip_small":
-        amount=random.randint(250,700); economy_balances[(guild_id,user.id)]=economy_balance(guild_id,user.id)+amount; return f"🌿 **+{amount:,} Catnip**"
-    if kind=="catnip_big":
-        amount=random.randint(1200,3000); economy_balances[(guild_id,user.id)]=economy_balance(guild_id,user.id)+amount; return f"💰 **+{amount:,} Catnip**"
-    if kind=="xp":
-        amount=random.randint(100,500); xp_data[(guild_id,user.id)]=int(xp_data.get((guild_id,user.id),0))+amount; return f"⭐ **+{amount:,} XP**"
-    if kind=="item_common":
-        item_id=random.choice(list(BOX_TIERS["common"]["items"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("items", []))); qty=random.randint(1,3); inv[item_id]=int(inv.get(item_id,0))+qty; item=ECONOMY_ITEMS[item_id]; return f"{item['emoji']} **{qty}× {item['name']}**"
-    if kind=="item_rare":
-        item_id=random.choice(["fish","golden_fish","moon_fish_scale"]); qty=random.randint(1,2); inv[item_id]=int(inv.get(item_id,0))+qty; item=ECONOMY_ITEMS[item_id]; return f"{item['emoji']} **{qty}× {item['name']}**"
-    if kind=="material":
-        item_id=random.choice(list(BOX_TIERS["common"]["materials"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("materials", []))); qty=random.randint(1,2); inv[item_id]=int(inv.get(item_id,0))+qty; item=ECONOMY_ITEMS[item_id]; return f"{item['emoji']} **{qty}× {item['name']}**"
-    if int(inv.get("catnip_crown",0))>=1:
-        inv["golden_fish"]=int(inv.get("golden_fish",0))+1; return "🐠 **1× Golden Fish** — duplicate legendary converted."
-    inv["catnip_crown"]=1; return "👑 **1× Catnip Crown** — legendary!"
-
+    kind = _weighted_reward()
+    if kind == "catnip_small":
+        amount = random.randint(250, 700)
+        economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
+        return f"🌿 **+{amount:,} Catnip**"
+    if kind == "catnip_big":
+        amount = random.randint(1200, 3000)
+        economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
+        return f"💰 **+{amount:,} Catnip**"
+    if kind == "xp":
+        amount = random.randint(100, 500)
+        xp_data[(guild_id, user.id)] = int(xp_data.get((guild_id, user.id), 0)) + amount
+        return f"⭐ **+{amount:,} XP**"
+    if kind == "item_common":
+        item_id = random.choice(list(BOX_TIERS["common"]["items"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("items", [])))
+        qty = random.randint(1, 3)
+        inv[item_id] = int(inv.get(item_id, 0)) + qty
+        _record_mystery_reward_provenance(guild_id, user.id, item_id, "common", qty)
+        item = ECONOMY_ITEMS[item_id]
+        return f"{item['emoji']} **{qty}× {item['name']}**"
+    if kind == "item_rare":
+        item_id = random.choice(["fish", "golden_fish", "moon_fish_scale"])
+        qty = random.randint(1, 2)
+        inv[item_id] = int(inv.get(item_id, 0)) + qty
+        _record_mystery_reward_provenance(guild_id, user.id, item_id, "common", qty)
+        item = ECONOMY_ITEMS[item_id]
+        return f"{item['emoji']} **{qty}× {item['name']}**"
+    if kind == "material":
+        item_id = random.choice(list(BOX_TIERS["common"]["materials"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("materials", [])))
+        qty = random.randint(1, 2)
+        inv[item_id] = int(inv.get(item_id, 0)) + qty
+        _record_mystery_reward_provenance(guild_id, user.id, item_id, "common", qty)
+        item = ECONOMY_ITEMS[item_id]
+        return f"🧪 **{qty}× {item['name']}**"
+    if int(inv.get("catnip_crown", 0)) >= 1:
+        inv["golden_fish"] = int(inv.get("golden_fish", 0)) + 1
+        _record_mystery_reward_provenance(guild_id, user.id, "golden_fish", "common", 1)
+        return "🐠 **1× Golden Fish** — duplicate legendary converted."
+    inv["catnip_crown"] = 1
+    _record_mystery_reward_provenance(guild_id, user.id, "catnip_crown", "common", 1)
+    return "👑 **1× Catnip Crown** — legendary!"
 
 
 # Admin controls for granting Mystery Boxes and extending tier reward pools.
@@ -328,16 +484,13 @@ async def mystery_cmd(interaction: discord.Interaction, action: app_commands.Cho
         await interaction.response.send_message("🎁 You don't have any Mystery Boxes yet. Keep using Cinnamon's normal systems to earn one!", ephemeral=True)
         return
     quantity = min(quantity, count)
-    rewards = []
-    for _ in range(quantity):
-        rewards.append(await _open_one(interaction.guild.id, interaction.user, tier_value))
-    _set_box_count(interaction.guild.id, interaction.user.id, count - quantity, tier_value)
-    key = _af_key(interaction.guild.id, interaction.user.id)
-    ADVANCED_FEATURES["mystery_opened"][key] = int(ADVANCED_FEATURES["mystery_opened"].get(key, 0)) + quantity
-    await bd_save_data()
-    await economy_log(interaction.guild.id, title=f"{BOX_TIERS[tier_value]['emoji']} {BOX_TIERS[tier_value]['label']} Mystery Box opened", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Opened", str(quantity)), ("Remaining", str(_box_count(interaction.guild.id, interaction.user.id, tier_value)))])
+    rewards, remaining, error = await _open_boxes_atomic(
+        interaction.guild.id, interaction.user, tier_value, quantity)
+    if error:
+        return await cinnamon_send(interaction, error, ephemeral=True)
+    await economy_log(interaction.guild.id, title=f"{BOX_TIERS[tier_value]['emoji']} {BOX_TIERS[tier_value]['label']} Mystery Box opened", fields=[("User", f"{interaction.user} ({interaction.user.id})"), ("Opened", str(quantity)), ("Remaining", str(remaining))])
     e = cinnamon_embed("🎁 Mystery Box Results", "Cinnamon shook the box very aggressively.\n\n" + "\n".join(f"• {r}" for r in rewards), color=CINNAMON_GOLD, user=interaction.user, footer="Cinnamon Mystery Boxes")
-    e.add_field(name="Boxes remaining", value=f"**{_box_count(interaction.guild.id, interaction.user.id, tier_value)}**")
+    e.add_field(name="Boxes remaining", value=f"**{remaining}**")
     await interaction.response.send_message(embed=cinnamon_polish_embed(e), allowed_mentions=discord.AllowedMentions.none())
 
 
@@ -358,11 +511,9 @@ async def prefix_mystery(ctx, action: str = "check", quantity: int = 1, tier: st
         quantity = max(1, min(int(quantity), 5, count))
     except (TypeError, ValueError):
         return await ctx.reply("❌ Quantity must be a number from 1 to 5.", mention_author=False)
-    rewards = [await _open_one(ctx.guild.id, ctx.author, tier) for _ in range(quantity)]
-    _set_box_count(ctx.guild.id, ctx.author.id, count - quantity, tier)
-    key = _af_key(ctx.guild.id, ctx.author.id); ADVANCED_FEATURES["mystery_opened"][key] = int(ADVANCED_FEATURES["mystery_opened"].get(key, 0)) + quantity
-    await bd_save_data()
-    remaining = _box_count(ctx.guild.id, ctx.author.id, tier)
+    rewards, remaining, error = await _open_boxes_atomic(ctx.guild.id, ctx.author, tier, quantity)
+    if error:
+        return await ctx.reply("❌ " + error, mention_author=False)
     await economy_log(ctx.guild.id, title=f"{cfg['emoji']} {cfg['label']} box opened", fields=[("User", f"{ctx.author} ({ctx.author.id})"), ("Tier", tier.title()), ("Opened", str(quantity)), ("Remaining", str(remaining)), ("Rewards", "; ".join(rewards)[:900])])
     await ctx.reply(f"{cfg['emoji']} **{cfg['label']} Mystery Box Results**\n" + "\n".join(f"• {r}" for r in rewards) + f"\n\nBoxes remaining: **{remaining}**", mention_author=False)
 

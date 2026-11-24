@@ -5,6 +5,9 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
+DEFAULT_ANTIRAID = {"enabled": False, "threshold": 5, "window": 10}
+_ANTIRAID_ALERT_COOLDOWN = {}
+
 
 def get_antiraid(guild_id: int) -> dict:
     return antiraid_config.setdefault(guild_id, dict(DEFAULT_ANTIRAID))
@@ -19,9 +22,15 @@ async def check_antiraid(member: discord.Member):
     dq.append(now)
     recent = sum(1 for t in dq if now - t <= cfg.get("window", 10))
     if recent >= cfg.get("threshold", 5):
+        # Avoid flooding moderators while the same join spike remains active.
+        last_alert = _ANTIRAID_ALERT_COOLDOWN.get(member.guild.id, 0)
+        if now - last_alert < 300:
+            return
+        _ANTIRAID_ALERT_COOLDOWN[member.guild.id] = now
+        window = cfg.get("window", 10)
         await send_log(
             member.guild.id, title="🚨 Possible raid detected", color=discord.Color.red(),
-            fields=[("Joins", f"{recent} in {cfg.get('window', 10)}s"), ("Latest member", f"{member} ({member.id})")],
+            fields=[("Joins", f"{recent} in {window}s"), ("Latest member", f"{member} ({member.id})")],
         )
 
 
@@ -1129,7 +1138,7 @@ async def _scan_recovery_log_channels(guild: discord.Guild, limit: int = 2000) -
     return result
 
 
-async def recall_guild_data(guild: discord.Guild) -> dict:
+async def recall_guild_data(guild: discord.Guild, economy_snapshot_channel: discord.TextChannel | None = None) -> dict:
     """Scan all configured log channels, then merge only safely recoverable state."""
     # The new Cinnamon Stuff log is recoverable even when its saved channel mapping vanished.
     social_recovered = await _cp_recover(guild)
@@ -1142,8 +1151,8 @@ async def recall_guild_data(guild: discord.Guild) -> dict:
     # because one live economy account exists. It never overwrites existing accounts.
     economy_restored = 0
     snapshot_detail = "No economy snapshot restored."
-    if economy_log_channels.get(guild.id) or category_log_channels.get(guild.id, {}).get("economy") or log_channels.get(guild.id):
-        economy_restored, snapshot_detail = await economy_restore_from_snapshot(guild, merge_only=True)
+    if economy_snapshot_channel is not None or economy_log_channels.get(guild.id) or category_log_channels.get(guild.id, {}).get("economy") or log_channels.get(guild.id):
+        economy_restored, snapshot_detail = await economy_restore_from_snapshot(guild, merge_only=True, source_channel=economy_snapshot_channel)
     # Re-apply earned level roles after reconstructing the latest role mapping.
     role_cfg = level_roles.get(guild.id, {})
     if role_cfg:
@@ -1288,10 +1297,13 @@ async def member_backup_cmd(interaction: discord.Interaction):
 @bot.tree.command(name="recall", description="Scan configured logs and recover reconstructable Cinnamon data")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.guild_only()
-async def recall_cmd(interaction: discord.Interaction):
+@app_commands.describe(snapshot_channel="Optional text channel containing an economy snapshot; other configured logs are still scanned")
+async def recall_cmd(interaction: discord.Interaction, snapshot_channel: discord.TextChannel | None = None):
     await interaction.response.defer(ephemeral=True, thinking=True)
     try:
-        result = await recall_guild_data(interaction.guild)
+        if snapshot_channel is not None and snapshot_channel.guild.id != interaction.guild.id:
+            return await interaction.followup.send("Choose a snapshot channel from this server.", ephemeral=True)
+        result = await recall_guild_data(interaction.guild, economy_snapshot_channel=snapshot_channel)
     except Exception:
         log.exception("Cinnamon recall failed in guild %s", interaction.guild.id)
         return await interaction.followup.send(
