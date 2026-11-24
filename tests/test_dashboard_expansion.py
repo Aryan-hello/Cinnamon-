@@ -33,6 +33,12 @@ class DashboardExpansionTests(unittest.TestCase):
         self.assertIn("antispam_enabled", self.source)
         self.assertIn("antinuke_enabled", self.source)
 
+    def test_community_dashboard_can_create_and_close_existing_polls(self):
+        self.assertIn("community_poll_create", self.source)
+        self.assertIn("community_poll_close", self.source)
+        self.assertIn("state.get(\\"PollView\\")", self.source)
+        self.assertIn("state.get(\\"finish_poll\\")", self.source)
+
     def test_ticket_dashboard_can_claim_unassign_close_and_reopen(self):
         for action in ("ticket_dashboard_claim", "ticket_dashboard_unclaim",
                        "ticket_dashboard_close", "ticket_dashboard_reopen"):
