@@ -49,6 +49,17 @@ class CompanionTests(unittest.TestCase):
         self.assertIn('"companion_profiles_v1"', source)
         self.assertNotIn("wildlands_", source)
 
+    def test_companion_actions_feed_shared_achievement_and_quest_progress(self):
+        source = MODULE.read_text(encoding="utf-8")
+        achievements = (ROOT / "cinnamon_modules" / "achievements.py").read_text(encoding="utf-8")
+        self.assertIn('name="/companion feed"', source)
+        self.assertIn('name="/companion play"', source)
+        self.assertIn('name="/companion groom"', source)
+        self.assertIn('quest_event(gid, uid, "feed"', source)
+        self.assertIn('quest_event(gid, uid, "pet"', source)
+        for metric in ("companion_care", "companion_feeds", "companion_plays", "companion_grooms"):
+            self.assertIn(metric, achievements)
+
     def test_accessories_and_room_items_are_shared_catalogue_entries(self):
         source = MODULE.read_text(encoding="utf-8")
         self.assertIn("ECONOMY_ITEMS.setdefault(_room_id", source)
