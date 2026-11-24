@@ -98,6 +98,37 @@ async def _cr_schedule(gid, uid, spec, *, source_id=None):
         return item, ""
 
 
+async def _cr_schedule_repeat(gid, uid, text, interval_hours, first_in_minutes, occurrences):
+    """Create a bounded recurring reminder with durable next-occurrence state."""
+    if not 1 <= int(interval_hours) <= 720:
+        return None, "Choose an interval from 1 hour to 30 days."
+    if not 1 <= int(first_in_minutes) <= 43200:
+        return None, "The first reminder must be within the next 30 days."
+    if not 2 <= int(occurrences) <= 100:
+        return None, "Choose between 2 and 100 total reminders."
+    clean = str(text).strip()
+    if not clean or len(clean) > 300:
+        return None, "Reminder text must be 1–300 characters."
+    async with _CR_LOCK:
+        member = _cr_member(gid, uid)
+        if len(_cr_active(gid, uid)) >= _CR_MAX_ACTIVE:
+            return None, "I can keep up to 10 active reminders per member. Cancel an old one first."
+        rid = _cr_uuid.uuid4().hex[:10]
+        while rid in member:
+            rid = _cr_uuid.uuid4().hex[:10]
+        now = int(_cr_time.time())
+        item = {"id": rid, "text": clean, "due_at": now + int(first_in_minutes) * 60,
+                "timezone": _cr_format_timezone(_cr_offset(gid, uid)),
+                "status": "scheduled", "created_at": now,
+                "repeat_seconds": int(interval_hours) * 3600,
+                "repeat_remaining": int(occurrences)}
+        member[rid] = item
+        if not await bd_save_data():
+            member.pop(rid, None)
+            return None, "My reminder storage didn't confirm the save. Nothing is scheduled."
+        return item, ""
+
+
 async def _cr_cancel(gid, uid, rid):
     async with _CR_LOCK:
         member = _cr_member(gid, uid)
@@ -175,11 +206,19 @@ async def _cr_deliver(gid, uid, rid):
         # Never rewrite a concurrently changed or recovered status.
         if item.get("status") != "sending":
             return
-        item["status"] = "sent" if delivered else "failed"
-        item["finished_at"] = int(_cr_time.time())
+        finished_at = int(_cr_time.time())
+        if delivered and int(item.get("repeat_remaining", 1)) > 1 and int(item.get("repeat_seconds", 0)) >= 3600:
+            item["repeat_remaining"] = int(item["repeat_remaining"]) - 1
+            item["due_at"] = max(int(item.get("due_at", finished_at)), finished_at) + int(item["repeat_seconds"])
+            item["status"] = "scheduled"
+            item["last_sent_at"] = finished_at
+        else:
+            item["status"] = "sent" if delivered else "failed"
+            item["finished_at"] = finished_at
         if not await bd_save_data():
             # Durable 'sending' remains a safe, non-retryable uncertain result.
             item["status"] = "uncertain"
+            item["finished_at"] = finished_at
             log.error("Reminder delivery result could not be durably saved: %s", rid)
 
 
@@ -292,6 +331,31 @@ async def cinnamon_reminder_create(interaction: discord.Interaction, text: str, 
         ("🐈 " + error) if error else
         f"🐱 Saved reminder `{item['id']}` for <t:{item['due_at']}:F>. "
         "I'll DM you when it's due!",
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@_cr_group.command(name="repeat", description="Create a recurring reminder with a fixed interval")
+@app_commands.guild_only()
+@app_commands.describe(text="What Cinnamon should remind you about",
+                       interval_hours="Time between reminders (1–720 hours)",
+                       first_in_minutes="How soon the first reminder should arrive (1–43,200 minutes)",
+                       occurrences="Total number of reminders, including the first (2–100)")
+async def cinnamon_reminder_repeat(interaction: discord.Interaction,
+        text: app_commands.Range[str, 1, 300],
+        interval_hours: app_commands.Range[int, 1, 720],
+        first_in_minutes: app_commands.Range[int, 1, 43200] = 60,
+        occurrences: app_commands.Range[int, 2, 100] = 10):
+    await interaction.response.defer(ephemeral=True)
+    item, error = await _cr_schedule_repeat(
+        interaction.guild.id, interaction.user.id, text,
+        int(interval_hours), int(first_in_minutes), int(occurrences))
+    if error:
+        return await interaction.followup.send("🐾 " + error, ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+    await interaction.followup.send(
+        f"🔁 Recurring reminder {item['id']} saved. First delivery: <t:{item['due_at']}:F>. "
+        f"Then every {int(interval_hours)} hour(s), for {int(occurrences)} total reminders. "
+        "Use /cinnamon-reminder cancel to stop the series.",
         ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
