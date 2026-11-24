@@ -1157,19 +1157,32 @@ class PollView(discord.ui.View):
                 return await cinnamon_send(interaction, "This poll has ended.", ephemeral=True)
             if idx >= len(poll["options"]):
                 return await cinnamon_send(interaction, "That option doesn't exist.", ephemeral=True)
+            if float(poll.get("ends_at", 0)) <= time.time():
+                await finish_poll(interaction.message.id)
+                return await cinnamon_send(interaction, "This poll has ended.", ephemeral=True)
             uid = str(interaction.user.id)
+            before_votes = dict(poll.get("votes", {}))
+            before_voters = list(poll.get("achievement_voters", []))
             if poll["votes"].get(uid) == idx:
-                del poll["votes"][uid]  # tapping your current choice again removes your vote
+                del poll["votes"][uid]
             else:
                 poll["votes"][uid] = idx
-            await interaction.response.edit_message(embed=_poll_embed(poll))
-            # Count a distinct vote action once per user per poll; changing a vote
-            # still represents participation in the poll.
             if uid not in poll.setdefault("achievement_voters", []):
                 poll["achievement_voters"].append(uid)
+            await interaction.response.defer()
+            if not await bd_save_data():
+                poll["votes"] = before_votes
+                poll["achievement_voters"] = before_voters
+                return await interaction.followup.send(
+                    "Your vote couldn't be saved, so no change was kept.",
+                    ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+            try:
+                await interaction.edit_original_response(embed=_poll_embed(poll))
+            except discord.HTTPException:
+                log.exception("Saved poll vote but couldn't refresh poll message %s", interaction.message.id)
+            if uid not in before_voters:
                 await achievement_record(int(poll.get("guild_id",0)), interaction.user.id, "poll_vote", 1, poll_id=str(interaction.message.id))
                 await quest_event(int(poll.get("guild_id",0)), interaction.user.id, "poll_vote", 1, poll_id=str(interaction.message.id))
-            await bd_save_data()  # after responding: Discord only gives us 3s to answer
             await send_log(int(poll.get("guild_id", 0)), title="📊 Poll vote changed", category="community",
                            fields=[("User", f"{interaction.user} ({interaction.user.id})"),
                                    ("Poll message", str(interaction.message.id)),
@@ -1178,10 +1191,14 @@ class PollView(discord.ui.View):
 
 
 async def finish_poll(mid: int):
-    poll = active_polls.pop(mid, None)
+    poll = active_polls.get(mid)
     if poll is None:
         return
-    await bd_save_data()
+    active_polls.pop(mid, None)
+    if not await bd_save_data():
+        active_polls[mid] = poll
+        log.error("Could not durably save poll closure for message %s; poll remains active", mid)
+        return
     channel = bot.get_channel(poll["channel_id"])
     if channel is None:
         return
@@ -1222,9 +1239,11 @@ async def finish_poll(mid: int):
 @app_commands.guild_only()
 async def poll(interaction: discord.Interaction, question: app_commands.Range[str, 1, 200],
                option1: app_commands.Range[str, 1, 60], option2: app_commands.Range[str, 1, 60],
-               option3: app_commands.Range[str, 1, 60] = None, option4: app_commands.Range[str, 1, 60] = None,
-               duration_minutes: int = 1440):
-    options = [o for o in (option1, option2, option3, option4) if o]
+               option3: app_commands.Range[str, 1, 60] | None = None, option4: app_commands.Range[str, 1, 60] | None = None,
+               duration_minutes: app_commands.Range[int, 1, 10080] = 1440):
+    options = [str(o).strip() for o in (option1, option2, option3, option4) if o and str(o).strip()]
+    if len({value.casefold() for value in options}) != len(options):
+        return await cinnamon_send(interaction, "Poll options must be unique.", ephemeral=True)
     p = {
         "guild_id": interaction.guild.id, "channel_id": interaction.channel.id,
         "host_id": interaction.user.id, "host_name": interaction.user.display_name,
@@ -1235,7 +1254,14 @@ async def poll(interaction: discord.Interaction, question: app_commands.Range[st
                                             allowed_mentions=discord.AllowedMentions.none())
     msg = await interaction.original_response()
     active_polls[msg.id] = p
-    await bd_save_data()
+    if not await bd_save_data():
+        active_polls.pop(msg.id, None)
+        try:
+            await msg.edit(content="This poll was cancelled because durable storage could not confirm it.",
+                           embed=None, view=PollView(options, disabled=True))
+        except discord.HTTPException:
+            pass
+        return
     await send_log(interaction.guild.id, title="📊 Poll started", interaction=interaction, category="community",
                    fields=[("Message", str(msg.id)), ("Question", question), ("Options", " | ".join(options)),
                            ("Duration", f"{duration_minutes} minute(s)")])
