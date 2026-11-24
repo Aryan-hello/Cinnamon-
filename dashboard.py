@@ -1143,7 +1143,8 @@ def _hangry(guild,state):
 
 def _companions(guild, state):
     gid = str(guild.id)
-    profiles = (state.get("companion_profiles", {}) or {}).get(gid, {}) or {}
+    advanced = state.get("advanced_features_data", {}) or {}
+    profiles = (advanced.get("companion_profiles_v1", {}) or {}).get(gid, {}) or {}
     records = []
     total_friendship = total_feeds = total_plays = total_grooms = 0
     for user_id, profile in profiles.items():
