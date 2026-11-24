@@ -37,6 +37,8 @@ class DashboardExpansionTests(unittest.TestCase):
     def test_community_dashboard_can_create_and_close_existing_polls(self):
         self.assertIn("community_poll_create", self.source)
         self.assertIn("community_poll_close", self.source)
+        self.assertIn("cinnamon_community_activity_v1", self.source)
+        self.assertIn("Seven-day activity", self.source)
         self.assertIn('state.get("PollView")', self.source)
         self.assertIn('state.get("finish_poll")', self.source)
 
