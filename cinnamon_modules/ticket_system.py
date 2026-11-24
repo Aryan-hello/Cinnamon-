@@ -219,9 +219,23 @@ class TicketControls(discord.ui.View):
             channel=interaction.channel; creator=guild.get_member(int(ticket.get("creator_id",0)))
             await channel.set_permissions(guild.default_role,view_channel=False)
             if creator: await channel.set_permissions(creator,view_channel=True,send_messages=True,read_message_history=True)
-            ticket["status"]="open"; ticket["closed_at"]=None; _ticket_guild(guild.id).get("closed",{}).pop(str(channel.id),None)
-            await bd_save_data(); await _ticket_log(guild,"reopened",interaction.user,ticket)
-            return await interaction.response.send_message("Ticket reopened.",ephemeral=True)
+            before_ticket = _copy.deepcopy(ticket)
+            closed_records = _ticket_guild(guild.id).get("closed", {})
+            before_closed = _copy.deepcopy(closed_records.get(str(channel.id)))
+            ticket["status"] = "open"
+            ticket["closed_at"] = None
+            closed_records.pop(str(channel.id), None)
+            if not await bd_save_data():
+                ticket.clear()
+                ticket.update(before_ticket)
+                if before_closed is not None:
+                    closed_records[str(channel.id)] = before_closed
+                await channel.set_permissions(guild.default_role, view_channel=False)
+                if creator:
+                    await channel.set_permissions(creator, view_channel=True, send_messages=False, read_message_history=True)
+                return await interaction.response.send_message("Ticket reopen could not be saved. The ticket remains closed.", ephemeral=True)
+            await _ticket_log(guild, "reopened", interaction.user, ticket)
+            return await interaction.response.send_message("Ticket reopened.", ephemeral=True)
 
 
 class TicketRatingView(discord.ui.View):
@@ -235,9 +249,15 @@ class TicketRatingView(discord.ui.View):
         ticket=next((t for g in _ticket_root().values() for t in (g.get("tickets",{}) or {}).values() if str(t.get("ticket_id"))==self.ticket_id),None)
         if not ticket or interaction.user.id!=int(ticket.get("creator_id",0)): return await interaction.response.send_message("Only the ticket creator can rate this support experience.",ephemeral=True)
         if ticket.get("rating") is not None: return await interaction.response.send_message("You already rated this ticket.",ephemeral=True)
-        ticket["rating"]=score; ticket["rated_at"]=int(_time.time()); await bd_save_data()
-        await _ticket_log(interaction.guild,"rated",interaction.user,ticket,f"{score}/5 stars")
-        await interaction.response.send_message(f"Thanks for rating support {score}/5.",ephemeral=True)
+        before_ticket = _copy.deepcopy(ticket)
+        ticket["rating"] = score
+        ticket["rated_at"] = int(_time.time())
+        if not await bd_save_data():
+            ticket.clear()
+            ticket.update(before_ticket)
+            return await interaction.response.send_message("Your rating could not be saved. Please try again.", ephemeral=True)
+        await _ticket_log(interaction.guild, "rated", interaction.user, ticket, f"{score}/5 stars")
+        await interaction.response.send_message(f"Thanks for rating support {score}/5.", ephemeral=True)
 
 class TicketCloseModal(discord.ui.Modal):
     def __init__(self,ticket_id,actor_id):
@@ -249,14 +269,26 @@ class TicketCloseModal(discord.ui.Modal):
         ticket=next((t for g in _ticket_root().values() for t in (g.get("tickets",{}) or {}).values() if str(t.get("ticket_id"))==self.ticket_id),None)
         if not ticket: return await interaction.followup.send("Ticket not found.",ephemeral=True)
         channel=interaction.channel; guild=interaction.guild; cfg=_ticket_guild(guild.id); reason=str(self.reason.value).strip() or "No reason provided"
-        ticket.update({"status":"closed","closed_at":_time.time(),"close_reason":reason}); creator=guild.get_member(int(ticket.get("creator_id",0)))
-        if creator: await channel.set_permissions(creator,view_channel=True,send_messages=False,read_message_history=True)
-        await channel.send(embed=discord.Embed(title="Ticket closed",description=f"Closed by {interaction.user.mention}.\\nReason: {reason}",color=discord.Color.orange()),view=TicketControls(self.ticket_id))
-        transcript=await _ticket_transcript(channel)
-        if transcript and cfg.get("settings",{}).get("transcript_on_close",True):
-            logch=guild.get_channel(int(cfg.get("settings",{}).get("log_channel_id") or 0))
-            if logch: await logch.send(content=f"Transcript for {channel.mention} · {ticket.get('category_label','Ticket')}",file=discord.File(transcript,filename=f"ticket-{channel.id}.html"))
-        cfg.setdefault("closed",{})[str(channel.id)]=dict(ticket); await bd_save_data(); await _ticket_log(guild,"closed",interaction.user,ticket,reason)
+        before_ticket = _copy.deepcopy(ticket)
+        ticket.update({"status": "closed", "closed_at": _time.time(), "close_reason": reason})
+        cfg.setdefault("closed", {})[str(channel.id)] = dict(ticket)
+        creator = guild.get_member(int(ticket.get("creator_id", 0)))
+        if creator:
+            await channel.set_permissions(creator, view_channel=True, send_messages=False, read_message_history=True)
+        if not await bd_save_data():
+            ticket.clear()
+            ticket.update(before_ticket)
+            cfg.get("closed", {}).pop(str(channel.id), None)
+            if creator:
+                await channel.set_permissions(creator, view_channel=True, send_messages=True, read_message_history=True, attach_files=True, embed_links=True)
+            return await interaction.followup.send("Ticket closure could not be saved. The ticket remains open.", ephemeral=True)
+        await channel.send(embed=discord.Embed(title="Ticket closed", description=f"Closed by {interaction.user.mention}.\\nReason: {reason}", color=discord.Color.orange()), view=TicketControls(self.ticket_id))
+        transcript = await _ticket_transcript(channel)
+        if transcript and cfg.get("settings", {}).get("transcript_on_close", True):
+            logch = guild.get_channel(int(cfg.get("settings", {}).get("log_channel_id") or 0))
+            if logch:
+                await logch.send(content=f"Transcript for {channel.mention} · {ticket.get('category_label', 'Ticket')}", file=discord.File(transcript, filename=f"ticket-{channel.id}.html"))
+        await _ticket_log(guild, "closed", interaction.user, ticket, reason)
         if creator and cfg.get("settings",{}).get("rating_enabled",True):
             try: await creator.send("Your Cinnamon ticket was closed. Rate your support experience (1–5):",view=TicketRatingView(self.ticket_id))
             except discord.HTTPException: pass
@@ -330,8 +362,14 @@ async def ticket_assign(interaction:discord.Interaction,member:discord.Member):
     if not _ticket_staff(interaction): return await interaction.response.send_message("Ticket staff only.",ephemeral=True)
     ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
     if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
-    ticket["assigned_to"]=member.id; await bd_save_data(); await _ticket_log(interaction.guild,"assigned",interaction.user,ticket,str(member))
-    await interaction.response.send_message(f"Assigned to {member.mention}.",allowed_mentions=discord.AllowedMentions(users=[member]))
+    before_ticket = _copy.deepcopy(ticket)
+    ticket["assigned_to"] = member.id
+    if not await bd_save_data():
+        ticket.clear()
+        ticket.update(before_ticket)
+        return await interaction.response.send_message("Assignment could not be saved. No change was kept.", ephemeral=True)
+    await _ticket_log(interaction.guild, "assigned", interaction.user, ticket, str(member))
+    await interaction.response.send_message(f"Assigned to {member.mention}.", allowed_mentions=discord.AllowedMentions(users=[member]))
 
 @ticket_group.command(name="add-member",description="Give another member access to this ticket")
 @app_commands.guild_only()
@@ -374,7 +412,13 @@ async def ticket_priority(interaction:discord.Interaction,level:str):
     if not _ticket_staff(interaction): return await interaction.response.send_message("Ticket staff only.",ephemeral=True)
     ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
     if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
-    ticket["priority"]=level; await bd_save_data(); await _ticket_log(interaction.guild,"priority changed",interaction.user,ticket,level)
+    before_ticket = _copy.deepcopy(ticket)
+    ticket["priority"] = level
+    if not await bd_save_data():
+        ticket.clear()
+        ticket.update(before_ticket)
+        return await interaction.response.send_message("Priority could not be saved. The previous priority remains.", ephemeral=True)
+    await _ticket_log(interaction.guild, "priority changed", interaction.user, ticket, level)
     await interaction.response.send_message(f"Priority set to **{level.title()}**.")
 
 @ticket_group.command(name="note",description="Save a private staff note (not posted in the ticket)")
@@ -383,10 +427,15 @@ async def ticket_note(interaction:discord.Interaction,note:app_commands.Range[st
     if not _ticket_staff(interaction): return await interaction.response.send_message("Ticket staff only.",ephemeral=True)
     ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
     if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
-    ticket.setdefault("staff_notes",[]).append({"by":interaction.user.id,"at":int(_time.time()),"note":note[:1000]})
-    ticket["staff_notes"]=ticket["staff_notes"][-100:]; await bd_save_data()
-    await _ticket_log(interaction.guild,"staff note saved",interaction.user,ticket,"Private staff note saved (content omitted from logs).")
-    await interaction.response.send_message("Staff note saved privately; its contents are not sent to the ticket or logs.",ephemeral=True)
+    before_ticket = _copy.deepcopy(ticket)
+    ticket.setdefault("staff_notes", []).append({"by": interaction.user.id, "at": int(_time.time()), "note": note[:1000]})
+    ticket["staff_notes"] = ticket["staff_notes"][-100:]
+    if not await bd_save_data():
+        ticket.clear()
+        ticket.update(before_ticket)
+        return await interaction.response.send_message("The private note could not be saved. No note was kept.", ephemeral=True)
+    await _ticket_log(interaction.guild, "staff note saved", interaction.user, ticket, "Private staff note saved (content omitted from logs).")
+    await interaction.response.send_message("Staff note saved privately; its contents are not sent to the ticket or logs.", ephemeral=True)
 
 @ticket_group.command(name="transcript",description="Generate a transcript of this ticket")
 @app_commands.guild_only()
