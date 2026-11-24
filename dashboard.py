@@ -1192,7 +1192,8 @@ def _community(guild,state):
     advanced = state.get("advanced_features_data", {}) or {}
     board = (advanced.get("cinnamon_community_tools_v1", {}) or {}).get(str(gid), {}) or {}
     social = (advanced.get("cinnamon_community_interactions_v1", {}) or {}).get(str(gid), {}) or {}
-    active_polls = [(str(mid), p) for mid, p in (state.get("active_polls", {}) or {}).items() if isinstance(p, dict) and int(p.get("guild_id", 0) or 0) == gid]
+    polls = social.get("polls", {}) or {}
+    active_polls = [(str(mid), p) for mid, p in polls.items() if isinstance(p, dict) and p.get("status") == "active"]
     events = social.get("events", {}) or {}
     confessions = social.get("confessions", {}) or {}
     activity_root = (advanced.get("cinnamon_community_activity_v1", {}) or {}).get(str(gid), {}) or {}
