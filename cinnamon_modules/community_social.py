@@ -1,12 +1,14 @@
 """Community social features: quotes, reputation, member teams and challenges."""
 import asyncio as _cs_asyncio
 import copy as _cs_copy
+import datetime as _cs_dt
 import re as _cs_re
 import time as _cs_time
 import uuid as _cs_uuid
 
 _CS_KEY = "cinnamon_community_social_v1"
 _CS_LOCKS = {}
+_CS_ACTIVITY_DIRTY = False
 
 def _cs_root(gid):
     root = advanced_features_data.setdefault(_CS_KEY, {})
@@ -26,6 +28,93 @@ def _cs_lock(gid, key):
 def _cs_team_slug(name):
     slug = _cs_re.sub(r"[^a-z0-9-]+", "-", str(name).strip().lower()).strip("-")
     return slug[:24]
+
+def _cs_activity_days(gid):
+    root = advanced_features_data.setdefault("cinnamon_community_activity_v1", {})
+    cfg = root.setdefault(str(int(gid)), {})
+    cfg.setdefault("days", {})
+    return cfg["days"]
+
+
+@bot.listen("on_message")
+async def _cs_track_activity(message):
+    global _CS_ACTIVITY_DIRTY
+    if not message.guild or message.author.bot or len((message.content or "").strip()) < 2:
+        return
+    today = _cs_dt.datetime.now(_cs_dt.timezone.utc).date()
+    days = _cs_activity_days(message.guild.id)
+    day_key = today.isoformat()
+    record = days.setdefault(day_key, {"messages": 0, "members": {}})
+    record["messages"] = int(record.get("messages", 0)) + 1
+    uid = str(message.author.id)
+    record.setdefault("members", {})[uid] = int(record.get("members", {}).get(uid, 0)) + 1
+    cutoff = (today - _cs_dt.timedelta(days=14)).isoformat()
+    for old_day in list(days):
+        if str(old_day) < cutoff:
+            days.pop(old_day, None)
+    _CS_ACTIVITY_DIRTY = True
+
+
+@tasks.loop(minutes=1)
+async def _cs_activity_flush():
+    global _CS_ACTIVITY_DIRTY
+    if not _CS_ACTIVITY_DIRTY:
+        return
+    _CS_ACTIVITY_DIRTY = False
+    if not await bd_save_data():
+        _CS_ACTIVITY_DIRTY = True
+        log.warning("Community activity snapshot was not confirmed; it will retry next minute.")
+
+
+@_cs_activity_flush.before_loop
+async def _cs_activity_flush_before():
+    await bot.wait_until_ready()
+
+
+@bot.listen("on_ready")
+async def _cs_activity_flush_start():
+    if not _cs_activity_flush.is_running():
+        _cs_activity_flush.start()
+
+
+@community_group.command(name="recap", description="View the server's last-seven-days activity recap")
+@app_commands.guild_only()
+async def community_activity_recap(interaction: discord.Interaction):
+    days = _cs_activity_days(interaction.guild.id)
+    today = _cs_dt.datetime.now(_cs_dt.timezone.utc).date()
+    recent_keys = [(today - _cs_dt.timedelta(days=i)).isoformat() for i in range(7)]
+    previous_keys = [(today - _cs_dt.timedelta(days=i)).isoformat() for i in range(7, 14)]
+    recent = [days.get(key, {}) for key in recent_keys]
+    previous = [days.get(key, {}) for key in previous_keys]
+    total = sum(int(day.get("messages", 0)) for day in recent)
+    prior_total = sum(int(day.get("messages", 0)) for day in previous)
+    member_totals = {}
+    for day in recent:
+        for uid, count in (day.get("members", {}) or {}).items():
+            member_totals[str(uid)] = member_totals.get(str(uid), 0) + int(count)
+    top = sorted(member_totals.items(), key=lambda pair: pair[1], reverse=True)[:5]
+    top_lines = []
+    for rank, (uid, count) in enumerate(top, 1):
+        member = interaction.guild.get_member(int(uid)) if str(uid).isdigit() else None
+        label = member.display_name if member else "Former member"
+        top_lines.append(f"**{rank}.** {discord.utils.escape_markdown(label)} — {count:,} messages")
+    active_days = sum(1 for day in recent if int(day.get("messages", 0)) > 0)
+    if prior_total:
+        change = (total - prior_total) / prior_total * 100
+        comparison = f"{change:+.1f}% vs the previous 7 days"
+    else:
+        comparison = "No previous-week comparison yet"
+    embed = discord.Embed(
+        title="📈 Community activity recap",
+        description=f"Last 7 days • UTC\\n**{total:,}** messages from **{len(member_totals):,}** active members\\n{comparison}",
+        color=0x91B5A2)
+    embed.add_field(name="Active days", value=f"{active_days}/7", inline=True)
+    embed.add_field(name="Daily average", value=f"{total / 7:.1f} messages", inline=True)
+    embed.add_field(name="Previous week", value=f"{prior_total:,} messages", inline=True)
+    embed.add_field(name="Most active members", value="\\n".join(top_lines) or "No activity has been recorded yet.", inline=False)
+    embed.set_footer(text="Activity counts begin when this tracking feature is active; historical messages are not backfilled.")
+    await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
 
 quote_group = app_commands.Group(name="quote", description="Save and browse memorable server quotes")
 community_group.add_command(quote_group)
