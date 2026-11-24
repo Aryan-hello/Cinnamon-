@@ -1195,6 +1195,14 @@ def _community(guild,state):
     active_polls = [(str(mid), p) for mid, p in (state.get("active_polls", {}) or {}).items() if isinstance(p, dict) and int(p.get("guild_id", 0) or 0) == gid]
     events = social.get("events", {}) or {}
     confessions = social.get("confessions", {}) or {}
+    activity_root = (advanced.get("cinnamon_community_activity_v1", {}) or {}).get(str(gid), {}) or {}
+    activity_days = activity_root.get("days", {}) or {}
+    recent_activity_keys = [time.strftime("%Y-%m-%d", time.gmtime(time.time() - day * 86400)) for day in range(7)]
+    recent_activity = [activity_days.get(day_key, {}) for day_key in recent_activity_keys]
+    activity_messages = sum(int(day.get("messages", 0)) for day in recent_activity)
+    activity_members = set()
+    for day in recent_activity:
+        activity_members.update((day.get("members", {}) or {}).keys())
 
     def message_form(kind, cfg, action):
         ch = _channel_select(guild, "channel_id", cfg.get("channel_id"))
@@ -1239,7 +1247,8 @@ def _community(guild,state):
         "</div><p class='muted'>Members use /suggest, /poll, /event, /confess and /quote. Confession channels should be moderated; confession submitters are not identified in public posts.</p>"
     )
     feature_card = "<article class='card full'><h2>Community boards and activities</h2><div class='toggle'><span>Suggestions</span><b>" + _esc(suggestion_channel.mention if suggestion_channel else "Disabled") + "</b></div><div class='toggle'><span>Starboard</span><b>" + _esc(starboard_channel.mention if starboard_channel else "Disabled") + "</b></div><div class='toggle'><span>Confessions</span><b>" + _esc(confession_channel.mention if confession_channel else "Disabled") + "</b></div><div class='grid'><article class='card third'><div class='statlabel'>Saved polls</div><div class='stat'>" + str(len(active_polls)) + "</div></article><article class='card third'><div class='statlabel'>Scheduled events</div><div class='stat'>" + str(sum(1 for e in events.values() if e.get("status") == "scheduled")) + "</div></article><article class='card third'><div class='statlabel'>Published confessions</div><div class='stat'>" + str(sum(1 for e in confessions.values() if e.get("status") == "published")) + "</div></article></div>" + _form(gid, "community_features_settings", features, "Save community settings") + "</article>"
-    return "<h1>Community</h1><p class='muted'>Welcome and goodbye messages, Cinnamon's AI channel, suggestions, polls, starboard, events, anonymous confessions and server logging.</p><div class='grid'>" + message_form("Welcome messages", welcome, "welcome") + message_form("Goodbye messages", goodbye, "goodbye") + ai_card + log_card + feature_card + poll_card + event_card + "</div>"
+    activity_card = "<article class='card full'><h2>Seven-day activity</h2><div class='grid'><article class='card half'><div class='statlabel'>Messages recorded</div><div class='stat'>" + f"{activity_messages:,}" + "</div></article><article class='card half'><div class='statlabel'>Active members</div><div class='stat'>" + f"{len(activity_members):,}" + "</div></article></div><p class='muted'>Use /community recap to share the same rolling seven-day summary. Activity tracking starts with this version; older messages are not backfilled.</p></article>"
+    return "<h1>Community</h1><p class='muted'>Welcome and goodbye messages, Cinnamon's AI channel, suggestions, polls, starboard, events, anonymous confessions and server logging.</p><div class='grid'>" + message_form("Welcome messages", welcome, "welcome") + message_form("Goodbye messages", goodbye, "goodbye") + ai_card + log_card + feature_card + activity_card + poll_card + event_card + "</div>"
 
 
 def _system(guild,state):
