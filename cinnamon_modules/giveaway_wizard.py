@@ -57,7 +57,7 @@ _GW_SECTIONS = {
 }
 
 def _gw_clean_role_id(value):
-    return _gw_re.sub(r"[<@&>\\s]", "", str(value or "")).strip()
+    return _gw_re.sub(r"[<@&#>\s]", "", str(value or "")).strip()
 
 def _gw_duration_label(minutes):
     minutes=int(minutes)
@@ -72,12 +72,12 @@ def _gw_draft_from_existing(gw):
         "duration_minutes":str(max(1,int((float(gw.get("ends_at",_gw_time.time()+3600))-_gw_time.time())/60))),
         "winners":str(gw.get("winners",1)),
         "channel_id":str(gw.get("channel_id","")),
-        "required_roles":"\\n".join(str(x) for x in gw.get("required_roles",[])),
-        "blacklisted_roles":"\\n".join(str(x) for x in gw.get("blacklisted_roles",[])),
-        "bypass_roles":"\\n".join(str(x) for x in gw.get("bypass_roles",[])),
+        "required_roles":"\n".join(str(x) for x in gw.get("required_roles",[])),
+        "blacklisted_roles":"\n".join(str(x) for x in gw.get("blacklisted_roles",[])),
+        "bypass_roles":"\n".join(str(x) for x in gw.get("bypass_roles",[])),
         "min_account_age_days":str(gw.get("min_account_age_days",0)),
         "min_server_age_days":str(gw.get("min_server_age_days",0)),
-        "bonus_roles":"\\n".join(f"{k}:{v}" for k,v in (gw.get("bonus_roles",{}) or {}).items()),
+        "bonus_roles":"\n".join(f"{k}:{v}" for k,v in (gw.get("bonus_roles",{}) or {}).items()),
         "embed_title":str(gw.get("embed_title","")),
         "embed_description":str(gw.get("embed_description","")),
         "embed_color":str(gw.get("embed_color","E89A3C")),
@@ -181,8 +181,8 @@ class GiveawayWizardView(discord.ui.View):
         d=self.draft
         preview=discord.Embed(
             title=str(d.get("embed_title") or "🎉 Giveaway")[:256],
-            description=(str(d.get("embed_description") or "")+"\\n\\n" if d.get("embed_description") else "")+
-                        f"**Prize:** {str(d.get('prize') or 'Not set')[:200]}\\n**Winners:** {d.get('winners','1')}\\n**Duration:** {d.get('duration_minutes','60')} minutes",
+            description=(str(d.get("embed_description") or "")+"\n\n" if d.get("embed_description") else "")+
+                        f"**Prize:** {str(d.get('prize') or 'Not set')[:200]}\n**Winners:** {d.get('winners','1')}\n**Duration:** {d.get('duration_minutes','60')} minutes",
             color=0xE89A3C,
         )
         preview.add_field(name="Entry",value=f"Button emoji: {d.get('entry_emoji') or '🎉'} · Reaction entries: {d.get('reaction_entries','no')}",inline=False)

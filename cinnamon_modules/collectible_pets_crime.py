@@ -72,7 +72,7 @@ def _collectible_pet_perks(guild_id, user_id):
 def _collectible_pet_embed(owner, data):
     pets = data.get("pets", [])
     active = _collectible_pet_active(data)
-    description = f"**{len(pets)}/50 collected**\\n"
+    description = f"**{len(pets)}/50 collected**\n"
     description += (f"Active: {active['emoji']} **{active.get('nickname') or active['species']}** · {active.get('rarity','Common')} · Level {int(active.get('level',1))}"
                     if active else "No active pet yet. Find one with ?work.")
     embed = discord.Embed(title=f"🐾 {owner.display_name}'s Pet Collection",description=description,color=0xE89A3C)
@@ -83,7 +83,7 @@ def _collectible_pet_embed(owner, data):
         for index, pet in enumerate(pets[:20],1):
             active_mark=" ⭐" if active and str(active.get("id"))==str(pet.get("id")) else ""
             lines.append(f"**{index}.** {pet.get('emoji','🐾')} **{pet.get('nickname') or pet.get('species','Unknown')}** · {pet.get('rarity','Common')} · Lv. {int(pet.get('level',1))}{active_mark}")
-        embed.add_field(name="Collection",value="\\n".join(lines),inline=False)
+        embed.add_field(name="Collection",value="\n".join(lines),inline=False)
     return embed
 
 @bot.group(name="pets",aliases=["petcollection","collection"],invoke_without_command=True)

@@ -422,7 +422,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True  # needed for /role add-all and for finding the owner by username
 
-bot = commands.Bot(command_prefix="!", intents=intents, case_insensitive=True, help_command=None,
+bot = commands.Bot(command_prefix=["!","?"], intents=intents, case_insensitive=True, help_command=None,
                    allowed_mentions=discord.AllowedMentions.none())
 
 
@@ -482,7 +482,8 @@ _CINNAMON_MODULES = (
     "cinnamon_adventure_story.py",
     "cinnamon_extra_stories.py",  # Five new branching player adventures.
     "cinnamon_moods.py",
-    "companion.py",  # Member-owned pet profiles share the existing Catnip inventory.
+    "companion.py",  # Member-owned Cinnamon companion.
+    "collectible_pets_crime.py",  # Collectible animal pets and fictional Catnip mini-game.
     "cinnamon_personality.py",
     "cinnamon_actions.py",
     # Deterministic conversational shortcuts into existing prefix command adapters.
