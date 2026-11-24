@@ -983,18 +983,30 @@ def _tickets(guild,state):
         panel_rows.append("<article class='card full'><h3>"+_esc(p.get("name","Ticket panel"))+" <span class='pill'>"+state_label+"</span></h3><p class='muted'>"+_esc("#"+ch.name if ch else "No channel")+" · "+str(len(cats))+" categories · ID "+_esc(pid)+"</p>"+_form(gid,"ticket_panel_update","<input type='hidden' name='panel_id' value='"+_esc(pid)+"'><div class='formgrid'><div class='field'><label>Panel name</label><input name='panel_name' maxlength='60' required value='"+_esc(p.get("name",""))+"'></div><div class='field'><label>Channel</label>"+_channel_select(guild,"channel_id",p.get("channel_id"),allow_none=False)+"</div><div class='field'><label>Title</label><input name='panel_title' maxlength='256' required value='"+_esc(p.get("title","Support Center"))+"'></div><div class='field'><label>Color</label><input name='panel_color' maxlength='7' value='"+_esc(p.get("color","#D99048"))+"'></div><div class='field full'><label>Description</label><textarea name='panel_description' maxlength='3500'>"+_esc(p.get("description",""))+"</textarea></div><div class='field full'><label>Categories & modal questions (JSON)</label><textarea name='categories_json' maxlength='12000'>"+_esc(json.dumps(p.get("categories",[]),ensure_ascii=False,indent=2))+"</textarea><small>Edit all panel buttons/categories here. Each category supports its own questions and staff routing.</small></div></div>","Save panel settings")+
         "<div class='actions'><form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_publish'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn'>"+("Update published panel" if p.get("published") else "Publish panel")+"</button></form><form method='post' action='/dashboard/action' onsubmit='return confirm(&quot;Delete this panel configuration?&quot;);'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_delete'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn danger small'>Delete</button></form></div></article>")
     panel_card="<article class='card full'><h2>Ticket panels</h2>"+("".join(panel_rows) or "<p class='empty'>No panels yet.</p>")+"</article>"
-    active_parts=[]
-    for t in tickets.values():
-        if t.get("status")!="open": continue
-        ch=guild.get_channel(int(t.get("channel_id",0) or 0))
-        channel_name=("#"+ch.name) if ch else ("Unknown channel "+str(t.get("channel_id","")))
-        claimed_member=guild.get_member(int(t.get("claimed_by",0) or 0)) if t.get("claimed_by") else None
-        claim_form="<form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_dashboard_claim'><input type='hidden' name='channel_id' value='"+str(t.get("channel_id"))+"'><button class='btn secondary small'>Claim as me</button></form>"
-        unclaim_form="<form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_dashboard_unclaim'><input type='hidden' name='channel_id' value='"+str(t.get("channel_id"))+"'><button class='btn secondary small'>Unassign</button></form>"
-        close_form="<form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_dashboard_close'><input type='hidden' name='channel_id' value='"+str(t.get("channel_id"))+"'><button class='btn danger small'>Close</button></form>"
-        assigned=_esc(claimed_member.display_name if claimed_member else ("Member "+str(t.get("claimed_by"))) if t.get("claimed_by") else "Unclaimed")
-        actions="<div class='actions'>"+claim_form+unclaim_form+close_form+"</div>"
-        active_parts.append("<tr><td>"+_esc(channel_name)+"</td><td>"+_esc(t.get("category_label","Support"))+"</td><td>"+_esc(str(t.get("creator_id","")))+"</td><td>"+_esc(t.get("status","open"))+"</td><td>"+assigned+"</td><td>"+actions+"</td></tr>")
+    ticket_query = request.args.get("ticket_q", "").strip().casefold()[:100]
+    active_parts = []
+    priority_order = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
+    active_tickets = [t for t in tickets.values() if t.get("status") == "open"]
+    active_tickets.sort(key=lambda t: (priority_order.get(str(t.get("priority", "normal")).lower(), 2), float(t.get("created_at", 0) or 0)))
+    member_options = "".join("<option value='" + str(m.id) + "'>" + _esc(m.display_name) + "</option>" for m in sorted(guild.members, key=lambda m: m.display_name.casefold())[:500] if not m.bot)
+    for t in active_tickets:
+        ch = guild.get_channel(int(t.get("channel_id", 0) or 0))
+        channel_name = ("#" + ch.name) if ch else ("Unknown channel " + str(t.get("channel_id", "")))
+        claimed_member = guild.get_member(int(t.get("claimed_by", 0) or 0)) if t.get("claimed_by") else None
+        assigned_member = guild.get_member(int(t.get("assigned_to", 0) or 0)) if t.get("assigned_to") else None
+        searchable = " ".join([channel_name, str(t.get("category_label", "")), str(t.get("creator_id", "")), str(t.get("priority", "")), str(getattr(claimed_member, "display_name", "")), str(getattr(assigned_member, "display_name", ""))]).casefold()
+        if ticket_query and ticket_query not in searchable:
+            continue
+        channel_id = str(t.get("channel_id"))
+        claim_form = "<form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_claim'><input type='hidden' name='channel_id' value='" + channel_id + "'><button class='btn secondary small'>Claim as me</button></form>"
+        unclaim_form = "<form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_unclaim'><input type='hidden' name='channel_id' value='" + channel_id + "'><button class='btn secondary small'>Unclaim</button></form>"
+        close_form = "<form method='post' action='/dashboard/action' onsubmit='return confirm(&quot;Close this ticket?&quot;);'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_close'><input type='hidden' name='channel_id' value='" + channel_id + "'><button class='btn danger small'>Close</button></form>"
+        assign_form = "<form method='post' action='/dashboard/action' class='actions'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_assign'><input type='hidden' name='channel_id' value='" + channel_id + "'><select name='member_id' aria-label='Assign ticket to member'><option value=''>Assign to member…</option>" + member_options + "</select><button class='btn secondary small'>Assign</button></form>"
+        priority_form = "<form method='post' action='/dashboard/action' class='actions'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_priority'><input type='hidden' name='channel_id' value='" + channel_id + "'><select name='priority' aria-label='Ticket priority'>" + "".join("<option value='" + p + "'" + (" selected" if str(t.get("priority", "normal")) == p else "") + ">" + p.title() + "</option>" for p in ("low", "normal", "high", "urgent")) + "</select><button class='btn secondary small'>Set priority</button></form>"
+        assigned = _esc(getattr(assigned_member, "display_name", "Unassigned"))
+        claimed = _esc(getattr(claimed_member, "display_name", "Unclaimed"))
+        actions = "<div class='actions'>" + claim_form + unclaim_form + close_form + "</div>" + assign_form + priority_form
+        active_parts.append("<tr><td>" + _esc(channel_name) + "</td><td>" + _esc(t.get("category_label", "Support")) + "</td><td>" + _esc(str(t.get("creator_id", ""))) + "</td><td><span class='pill'>" + _esc(str(t.get("priority", "normal")).title()) + "</span></td><td>" + claimed + "</td><td>" + assigned + "</td><td>" + actions + "</td></tr>")
     active_rows="".join(active_parts) or "<tr><td colspan='6'>No active tickets.</td></tr>"
     closed_parts=[]
     for channel_id,t in list((cfg.get("closed",{}) or {}).items())[-50:]:
@@ -1004,7 +1016,8 @@ def _tickets(guild,state):
         closed_parts.append("<tr><td>"+_esc(cname)+"</td><td>"+_esc(t.get("category_label","Support"))+"</td><td>"+_esc(str(t.get("creator_id","")))+"</td><td>"+_esc(t.get("close_reason",""))+"</td><td>"+reopen+"</td></tr>")
     closed_rows="".join(closed_parts) or "<tr><td colspan='5'>No closed tickets.</td></tr>"
     closed_card="<article class='card full'><h2>Recently closed tickets (up to 50)</h2><div class='tablewrap'><table><thead><tr><th>Channel</th><th>Category</th><th>Creator ID</th><th>Close reason</th><th>Action</th></tr></thead><tbody>"+closed_rows+"</tbody></table></div></article>"
-    active="<article class='card full'><h2>Active tickets ("+str(open_count)+")</h2><div class='tablewrap'><table><thead><tr><th>Channel</th><th>Category</th><th>Creator ID</th><th>Status</th><th>Claimed by</th><th>Actions</th></tr></thead><tbody>"+active_rows+"</tbody></table></div><p class='muted'>Ticket conversations and staff replies stay inside Discord. Dashboard is for configuration and management.</p></article>"
+    search_form = "<form method='get' action='/dashboard' class='formgrid'><input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='tab' value='tickets'><div class='field'><label>Search active tickets</label><input name='ticket_q' maxlength='100' value='" + _esc(ticket_query) + "' placeholder='Channel, category, creator ID, priority or staff name'></div><div class='field'><label>&nbsp;</label><div class='actions'><button class='btn' type='submit'>Search</button><a class='btn secondary' href='/dashboard?guild_id=" + str(gid) + "&tab=tickets'>Clear</a></div></div></form>"
+    active="<article class='card full'><h2>Active tickets ("+str(open_count)+")</h2>"+search_form+"<div class='tablewrap'><table><thead><tr><th>Channel</th><th>Category</th><th>Creator ID</th><th>Priority</th><th>Claimed by</th><th>Assigned to</th><th>Actions</th></tr></thead><tbody>"+active_rows+"</tbody></table></div><p class='muted'>Active tickets are ordered by priority. Assigning and changing priority is saved to the same ticket record used by Discord commands. Ticket conversations and staff replies stay inside Discord.</p></article>"
     body="<h1>Tickets</h1><p class='muted'>Discord-native private tickets, modal intake, automatic staff routing, transcripts, and durable records.</p><div class='grid'><article class='card third'><div class='statlabel'>Panels</div><div class='stat'>"+str(len(panels))+"</div></article><article class='card third'><div class='statlabel'>Open tickets</div><div class='stat'>"+str(open_count)+"</div></article><article class='card third'><div class='statlabel'>Closed records</div><div class='stat'>"+str(closed_count)+"</div></article>"+settings_card+create_card+panel_card+active+closed_card+"</div>"
     return body
 
@@ -2698,6 +2711,38 @@ def dashboard_action():
             _audit(gid,actor,"Dashboard ticket "+("closed" if action=="ticket_dashboard_close" else "reopened"),f"Channel {channel.id}; creator {ticket.get('creator_id')}.")
             session["dashboard_notice"]="Ticket "+("closed" if action=="ticket_dashboard_close" else "reopened")+" in Discord."
 
+        elif action in {"ticket_dashboard_assign", "ticket_dashboard_priority"}:
+            raw_channel = request.form.get("channel_id", "").strip()
+            if not raw_channel.isdigit():
+                raise ValueError("Invalid ticket channel.")
+            cfg = (state.get("advanced_features_data", {}).get("cinnamon_tickets_v1", {}) or {}).get(str(gid), {})
+            ticket = (cfg.get("tickets", {}) or {}).get(raw_channel)
+            if not isinstance(ticket, dict) or ticket.get("status") != "open":
+                raise ValueError("Only an active ticket can be updated.")
+            before = __import__("copy").deepcopy(ticket)
+            if action == "ticket_dashboard_assign":
+                raw_member = request.form.get("member_id", "").strip()
+                member = guild.get_member(int(raw_member)) if raw_member.isdigit() else None
+                if not member or member.bot:
+                    raise ValueError("Choose a valid server member.")
+                ticket["assigned_to"] = member.id
+                audit_detail = f"Channel {raw_channel}; assigned to {member.display_name} ({member.id})."
+                notice = f"Ticket assigned to {member.display_name}."
+            else:
+                priority = request.form.get("priority", "").strip().lower()
+                if priority not in {"low", "normal", "high", "urgent"}:
+                    raise ValueError("Choose a valid ticket priority.")
+                ticket["priority"] = priority
+                audit_detail = f"Channel {raw_channel}; priority set to {priority}."
+                notice = f"Ticket priority set to {priority.title()}."
+            async def save_dashboard_ticket_metadata():
+                if not await state["bd_save_data"]():
+                    ticket.clear()
+                    ticket.update(before)
+                    raise ValueError("Ticket update could not be durably saved. The previous values were restored.")
+            _run_bot(save_dashboard_ticket_metadata())
+            _audit(gid, actor, "Dashboard ticket updated", audit_detail)
+            session["dashboard_notice"] = notice
         elif action=="ticket_settings_save":
             raw_log=request.form.get("log_channel_id","").strip(); raw_parent=request.form.get("ticket_category_id","").strip()
             log_channel=guild.get_channel(int(raw_log)) if raw_log.isdigit() else None
