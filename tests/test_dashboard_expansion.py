@@ -16,7 +16,8 @@ class DashboardExpansionTests(unittest.TestCase):
     def test_companion_page_is_registered_and_reads_persistent_profiles(self):
         self.assertIn("def _companions(guild, state):", self.source)
         self.assertIn('"companions":_companions', self.source)
-        self.assertIn("companion_profiles", self.source)
+        self.assertIn("companion_profiles_v1", self.source)
+        self.assertIn('advanced.get("companion_profiles_v1", {})', self.source)
         self.assertIn("Companions", self.source)
 
     def test_community_settings_and_event_controls_are_wired(self):
