@@ -1190,6 +1190,18 @@ class PollView(discord.ui.View):
         return callback
 
 
+_POLL_VIEW_REGISTERED = False
+
+@bot.listen("on_ready")
+async def restore_persistent_poll_view():
+    """Re-register the generic poll controls after every Discord reconnect."""
+    global _POLL_VIEW_REGISTERED
+    if _POLL_VIEW_REGISTERED:
+        return
+    bot.add_view(PollView())
+    _POLL_VIEW_REGISTERED = True
+
+
 async def finish_poll(mid: int):
     poll = active_polls.get(mid)
     if poll is None:
