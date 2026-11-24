@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTROLS = ROOT / "cinnamon_modules" / "moderation_controls.py"
 SECURITY = ROOT / "cinnamon_modules" / "security_guard.py"
 GENERAL = ROOT / "cinnamon_modules" / "general_moderation.py"
+SETUP = ROOT / "cinnamon_modules" / "server_setup.py"
 MAIN = ROOT / "main.py"
 
 
@@ -15,6 +16,7 @@ class ModerationExpansionTests(unittest.TestCase):
         cls.controls = CONTROLS.read_text(encoding="utf-8")
         cls.security = SECURITY.read_text(encoding="utf-8")
         cls.general = GENERAL.read_text(encoding="utf-8")
+        cls.setup = SETUP.read_text(encoding="utf-8")
         cls.main = MAIN.read_text(encoding="utf-8")
 
     def test_private_mod_notes_and_appeals_are_persistent(self):
@@ -53,6 +55,10 @@ class ModerationExpansionTests(unittest.TestCase):
         self.assertIn("expires_at", self.general)
         self.assertIn("role >= me.top_role", self.general)
         self.assertIn("await bd_save_data()", self.general)
+    def test_antiraid_has_defaults_and_burst_alert_cooldown(self):
+        self.assertIn('DEFAULT_ANTIRAID = {"enabled": False', self.setup)
+        self.assertIn("_ANTIRAID_ALERT_COOLDOWN", self.setup)
+        self.assertIn("now - last_alert < 300", self.setup)
     def test_modules_are_loaded_and_wildlands_is_not_referenced(self):
         self.assertIn('"moderation_controls.py"', self.main)
         self.assertIn('"security_guard.py"', self.main)
