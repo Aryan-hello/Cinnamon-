@@ -2691,22 +2691,52 @@ def dashboard_action():
             if not ticket or not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Ticket record/channel not found.")
             creator=guild.get_member(int(ticket.get("creator_id",0)))
             async def dashboard_ticket_change():
-                if action=="ticket_dashboard_close":
-                    if ticket.get("status")!="open": raise ValueError("Ticket is already closed.")
-                    ticket.update({"status":"closed","closed_at":time.time(),"close_reason":"Closed by dashboard administrator"})
-                    if creator: await channel.set_permissions(creator,view_channel=True,send_messages=False,read_message_history=True)
-                    await channel.send("Ticket closed by a dashboard administrator.",view=state["ticket_control_view"](ticket.get("ticket_id")))
-                    transcript=await state["ticket_transcript"](channel)
-                    logch=guild.get_channel(int(cfg.get("settings",{}).get("log_channel_id") or 0))
-                    if transcript and cfg.get("settings",{}).get("transcript_on_close",True) and logch: await logch.send(content=f"Dashboard close transcript for {channel.mention}",file=__import__("discord").File(transcript,filename=f"ticket-{channel.id}.html"))
-                    cfg.setdefault("closed",{})[raw_channel]=dict(ticket)
+                before_ticket = __import__("copy").deepcopy(ticket)
+                closed_records = cfg.setdefault("closed", {})
+                before_closed = __import__("copy").deepcopy(closed_records.get(raw_channel))
+                closing = action == "ticket_dashboard_close"
+                if closing:
+                    if ticket.get("status") != "open":
+                        raise ValueError("Ticket is already closed.")
+                    ticket.update({"status": "closed", "closed_at": time.time(),
+                                   "close_reason": "Closed by dashboard administrator"})
+                    closed_records[raw_channel] = dict(ticket)
+                    if creator:
+                        await channel.set_permissions(creator, view_channel=True, send_messages=False,
+                                                       read_message_history=True)
                 else:
-                    if ticket.get("status")!="closed": raise ValueError("Ticket is not closed.")
-                    ticket.update({"status":"open","closed_at":None})
-                    cfg.setdefault("closed",{}).pop(raw_channel,None)
-                    if creator: await channel.set_permissions(creator,view_channel=True,send_messages=True,read_message_history=True,attach_files=True,embed_links=True)
-                    await channel.send("Ticket reopened by a dashboard administrator.",view=state["ticket_control_view"](ticket.get("ticket_id")))
-                if not await state["bd_save_data"](): raise ValueError("Ticket change could not be durably saved.")
+                    if ticket.get("status") != "closed":
+                        raise ValueError("Ticket is not closed.")
+                    ticket.update({"status": "open", "closed_at": None})
+                    closed_records.pop(raw_channel, None)
+                    if creator:
+                        await channel.set_permissions(creator, view_channel=True, send_messages=True,
+                                                       read_message_history=True, attach_files=True,
+                                                       embed_links=True)
+                if not await state["bd_save_data"]():
+                    ticket.clear()
+                    ticket.update(before_ticket)
+                    if before_closed is None:
+                        closed_records.pop(raw_channel, None)
+                    else:
+                        closed_records[raw_channel] = before_closed
+                    if creator:
+                        await channel.set_permissions(
+                            creator, view_channel=True,
+                            send_messages=before_ticket.get("status") == "open",
+                            read_message_history=True, attach_files=True, embed_links=True)
+                    raise ValueError("Ticket change could not be durably saved. The previous status was restored.")
+                if closing:
+                    await channel.send("Ticket closed by a dashboard administrator.",
+                                       view=state["ticket_control_view"](ticket.get("ticket_id")))
+                    transcript = await state["ticket_transcript"](channel)
+                    logch = guild.get_channel(int(cfg.get("settings", {}).get("log_channel_id") or 0))
+                    if transcript and cfg.get("settings", {}).get("transcript_on_close", True) and logch:
+                        await logch.send(content=f"Dashboard close transcript for {channel.mention}",
+                                         file=__import__("discord").File(transcript, filename=f"ticket-{channel.id}.html"))
+                else:
+                    await channel.send("Ticket reopened by a dashboard administrator.",
+                                       view=state["ticket_control_view"](ticket.get("ticket_id")))
             _run_bot(dashboard_ticket_change(),timeout=40)
             _audit(gid,actor,"Dashboard ticket "+("closed" if action=="ticket_dashboard_close" else "reopened"),f"Channel {channel.id}; creator {ticket.get('creator_id')}.")
             session["dashboard_notice"]="Ticket "+("closed" if action=="ticket_dashboard_close" else "reopened")+" in Discord."
