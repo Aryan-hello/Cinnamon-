@@ -52,6 +52,10 @@ ACHIEVEMENTS = {
     "feeling_lucky": {"name":"Feeling Lucky","description":"Enter 10 giveaways.","metric":"giveaways_entered","target":10,"catnip":2000,"xp":1000,"points":0},
     "generous_paws": {"name":"Generous Paws","description":"Transfer a cumulative 10,000 Catnip to other members.","metric":"transferred","target":10000,"catnip":0,"xp":4000,"role":"Benefactor","points":0},
     "clocking_in": {"name":"Clocking In","description":"Collect Catnip from an income role 25 times.","metric":"income_collects","target":25,"catnip":5000,"xp":2500,"points":0},
+    "first_companion_care": {"name":"A Purrfect Start","description":"Care for your personal Cinnamon companion for the first time.","metric":"companion_care","target":1,"catnip":0,"xp":0,"points":0},
+    "companion_feeder": {"name":"Personal Snack Supplier","description":"Feed your personal companion 25 times.","metric":"companion_feeds","target":25,"catnip":0,"xp":0,"points":0},
+    "playful_pal": {"name":"Playtime Pal","description":"Play with your personal companion 25 times.","metric":"companion_plays","target":25,"catnip":0,"xp":0,"points":0},
+    "well_groomed": {"name":"Fresh Paws","description":"Groom your personal companion 25 times.","metric":"companion_grooms","target":25,"catnip":0,"xp":0,"points":0},
 }
 
 ADMIN_ACHIEVEMENT = {"name":"Cinnamon's Favourite Human","description":"Manually awarded by an Administrator.","metric":"manual","target":1,"catnip":100000,"xp":50000,"role":"Cinnamon's Favourite Human","points":0}
@@ -240,6 +244,12 @@ async def achievement_record(g,u,event,value=1,**kw):
         await friendship_add(g,u,5,"Cinnamon interaction")
         name=str(kw.get("name","interaction")); st["interactions"]=int(st.get("interactions",0))+int(value); st.setdefault("distinct_interactions",[])
         if name not in st["distinct_interactions"]: st["distinct_interactions"].append(name)
+        if name.startswith("/companion "):
+            st["companion_care"] = int(st.get("companion_care", 0)) + int(value)
+            action = name.rsplit(" ", 1)[-1]
+            metric = {"feed": "companion_feeds", "play": "companion_plays", "groom": "companion_grooms"}.get(action)
+            if metric:
+                st[metric] = int(st.get(metric, 0)) + int(value)
         today=cinnamon_now().date().isoformat(); st.setdefault("interaction_days",[])
         if today not in st["interaction_days"]: st["interaction_days"].append(today)
         if not first_interaction_claimed:
@@ -279,6 +289,8 @@ async def achievement_record(g,u,event,value=1,**kw):
     elif event=="pet":
         await friendship_add(g,u,8,"Pet Cinnamon")
         st["pet_count"]=int(st.get("pet_count",0))+int(value)
+        if kw.get("companion"):
+            st["companion_care"] = int(st.get("companion_care", 0)) + int(value)
     elif event=="level": st["level"]=max(int(st.get("level",0)),int(value))
     elif event=="hangry":
         for k in ("hangry_kills","hangry_wins","hangry_played"): st.setdefault(k,0)
