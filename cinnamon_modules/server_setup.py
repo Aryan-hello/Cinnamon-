@@ -5,6 +5,9 @@ one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
 """
 
+DEFAULT_ANTIRAID = {"enabled": False, "threshold": 5, "window": 10}
+_ANTIRAID_ALERT_COOLDOWN = {}
+
 
 def get_antiraid(guild_id: int) -> dict:
     return antiraid_config.setdefault(guild_id, dict(DEFAULT_ANTIRAID))
@@ -19,9 +22,15 @@ async def check_antiraid(member: discord.Member):
     dq.append(now)
     recent = sum(1 for t in dq if now - t <= cfg.get("window", 10))
     if recent >= cfg.get("threshold", 5):
+        # Avoid flooding moderators while the same join spike remains active.
+        last_alert = _ANTIRAID_ALERT_COOLDOWN.get(member.guild.id, 0)
+        if now - last_alert < 300:
+            return
+        _ANTIRAID_ALERT_COOLDOWN[member.guild.id] = now
+        window = cfg.get("window", 10)
         await send_log(
             member.guild.id, title="🚨 Possible raid detected", color=discord.Color.red(),
-            fields=[("Joins", f"{recent} in {cfg.get('window', 10)}s"), ("Latest member", f"{member} ({member.id})")],
+            fields=[("Joins", f"{recent} in {window}s"), ("Latest member", f"{member} ({member.id})")],
         )
 
 
