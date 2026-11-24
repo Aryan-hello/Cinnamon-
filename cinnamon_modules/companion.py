@@ -163,6 +163,9 @@ async def companion_pet(interaction: discord.Interaction, name: str | None = Non
             if not await _companion_save_or_restore(gid, uid, old):
                 return await cinnamon_send(interaction, "I couldn't save your companion profile. No changes were kept.", ephemeral=True)
         embed = _companion_embed(interaction.guild, interaction.user, profile)
+    await achievement_record(gid, uid, "pet", 1, companion=True)
+    await achievement_record(gid, uid, "interaction", 1, name="/pet")
+    await quest_event(gid, uid, "pet", 1)
     await interaction.response.send_message(embed=embed, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 @companion_group.command(name="feed", description="Feed your personal cat companion with food you own")
@@ -190,6 +193,8 @@ async def companion_feed(interaction: discord.Interaction, item: str):
         if not await _companion_save_or_restore(gid, uid, before, before_inv):
             return await cinnamon_send(interaction, "The feed couldn't be saved. Your food and companion stats were restored.", ephemeral=True)
         embed = _companion_embed(interaction.guild, interaction.user, profile)
+    await achievement_record(gid, uid, "interaction", 1, name="/companion feed")
+    await quest_event(gid, uid, "feed", 1, item=item_id)
     await interaction.response.send_message(content=f"🍽️ You fed **{profile['name']}** with **{ECONOMY_ITEMS[item_id]['name']}**.", embed=embed, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 @companion_group.command(name="play", description="Play with your personal cat companion")
@@ -210,6 +215,7 @@ async def companion_play(interaction: discord.Interaction):
         if not await _companion_save_or_restore(gid, uid, before):
             return await cinnamon_send(interaction, "Couldn't save playtime; your companion's stats were restored.", ephemeral=True)
         embed = _companion_embed(interaction.guild, interaction.user, profile)
+    await achievement_record(gid, uid, "interaction", 1, name="/companion play")
     await interaction.response.send_message(content=f"🧶 You played with **{profile['name']}**!", embed=embed, ephemeral=True)
 
 @companion_group.command(name="groom", description="Brush and groom your personal cat companion")
@@ -229,6 +235,7 @@ async def companion_groom(interaction: discord.Interaction):
         if not await _companion_save_or_restore(gid, uid, before):
             return await cinnamon_send(interaction, "Couldn't save grooming; your companion's stats were restored.", ephemeral=True)
         embed = _companion_embed(interaction.guild, interaction.user, profile)
+    await achievement_record(gid, uid, "interaction", 1, name="/companion groom")
     await interaction.response.send_message(content=f"🪮 **{profile['name']}** is looking tidy.", embed=embed, ephemeral=True)
 
 @companion_group.command(name="dressup", description="Equip or remove accessories from your personal cat")
