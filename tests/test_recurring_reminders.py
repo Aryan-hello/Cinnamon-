@@ -27,6 +27,9 @@ class RecurringReminderTests(unittest.TestCase):
         self.assertIn('item["status"] = "scheduled"', delivery)
         self.assertIn('item["due_at"]', delivery)
         self.assertIn("repeat_remaining", delivery)
+        self.assertIn("@tasks.loop(minutes=1)", self.source)
+        self.assertIn("async def _cr_reminder_loop_start", self.source)
+        self.assertIn("_cr_reminder_loop.start()", self.source)
         self.assertIn('"uncertain"', delivery)
 
     def test_cancel_and_list_cover_recurring_reminders(self):
