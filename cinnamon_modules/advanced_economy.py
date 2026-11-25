@@ -104,6 +104,48 @@ CRAFTING_RECIPES = {
     },
 }
 
+
+# Apply administrator-managed recipes after built-in recipes are registered.
+# The definitions live inside advanced_features_data and therefore travel in
+# the same validated Upstash snapshot as the rest of Cinnamon's economy.
+CUSTOM_RECIPE_KEY = "custom_crafting_recipes_v1"
+DISABLED_RECIPE_KEY = "disabled_crafting_recipes_v1"
+for _disabled_recipe_id in ADVANCED_FEATURES.get(DISABLED_RECIPE_KEY, []):
+    CRAFTING_RECIPES.pop(str(_disabled_recipe_id), None)
+for _custom_recipe_id, _custom_recipe in ADVANCED_FEATURES.get(CUSTOM_RECIPE_KEY, {}).items():
+    if isinstance(_custom_recipe, dict):
+        CRAFTING_RECIPES[str(_custom_recipe_id)] = dict(_custom_recipe)
+
+
+def _box_reward_pool(guild_id: int, tier: str, pool_kind: str) -> list[str]:
+    """Return the active base + custom reward pool after administrator exclusions."""
+    if tier not in BOX_TIERS or pool_kind not in ("items", "materials"):
+        return []
+    cfg = ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:{tier}", {})
+    disabled = set(str(x) for x in cfg.get(f"disabled_{pool_kind}", []))
+    base = [str(x) for x in BOX_TIERS[tier].get(pool_kind, []) if str(x) not in disabled]
+    extra = [str(x) for x in cfg.get(pool_kind, []) if str(x) not in disabled]
+    return list(dict.fromkeys(x for x in base + extra if x in ECONOMY_ITEMS))
+
+
+def _weighted_box_choice(item_ids: list[str], weights: dict) -> str | None:
+    """Pick from a box pool using positive per-item weights; defaults to 1."""
+    if not item_ids:
+        return None
+    usable = []
+    values = []
+    for item_id in item_ids:
+        try:
+            weight = int(weights.get(item_id, 1))
+        except (TypeError, ValueError):
+            weight = 1
+        if weight > 0:
+            usable.append(item_id)
+            values.append(min(weight, 1000000))
+    if not usable:
+        return None
+    return random.choices(usable, weights=values, k=1)[0]
+
 BLACK_MARKET_POOL = [
     "tuna", "treat", "churu", "catnip_ball", "fish",
     "moon_fish_scale", "golden_thread", "star_dust", "golden_fish",
@@ -395,8 +437,9 @@ async def _open_boxes_atomic(guild_id, user, tier, quantity):
 async def _open_one(guild_id, user, tier="common"):
     inv = economy_inventory_for(guild_id, user.id)
     custom = ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:{tier}", {})
-    tier_items = list(BOX_TIERS[tier]["items"]) + list(custom.get("items", []))
-    tier_materials = list(BOX_TIERS[tier]["materials"]) + list(custom.get("materials", []))
+    tier_items = _box_reward_pool(guild_id, tier, "items")
+    tier_materials = _box_reward_pool(guild_id, tier, "materials")
+    reward_weights = custom.get("weights", {}) if isinstance(custom.get("weights", {}), dict) else {}
     if tier != "common":
         cfg = BOX_TIERS[tier]
         roll = random.random()
@@ -405,7 +448,11 @@ async def _open_one(guild_id, user, tier="common"):
             economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
             return f"🌿 **+{amount:,} Catnip**"
         if roll < .90:
-            item_id = random.choice(tier_items)
+            item_id = _weighted_box_choice(tier_items, reward_weights)
+            if item_id is None:
+                amount = random.randint(*cfg["catnip"])
+                economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
+                return f"🌿 **+{amount:,} Catnip**"
             item = ECONOMY_ITEMS[item_id]
             limit = int(item.get("max_per_person", 0))
             if limit and int(inv.get(item_id, 0)) >= limit:
@@ -415,7 +462,11 @@ async def _open_one(guild_id, user, tier="common"):
             inv[item_id] = int(inv.get(item_id, 0)) + 1
             _record_mystery_reward_provenance(guild_id, user.id, item_id, tier, 1)
             return f"{item['emoji']} **1× {item['name']}**"
-        item_id = random.choice(tier_materials)
+        item_id = _weighted_box_choice(tier_materials, reward_weights)
+        if item_id is None:
+            amount = random.randint(*cfg["catnip"])
+            economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
+            return f"🌿 **+{amount:,} Catnip**"
         inv[item_id] = int(inv.get(item_id, 0)) + 1
         _record_mystery_reward_provenance(guild_id, user.id, item_id, tier, 1)
         item = ECONOMY_ITEMS[item_id]
@@ -434,7 +485,11 @@ async def _open_one(guild_id, user, tier="common"):
         xp_data[(guild_id, user.id)] = int(xp_data.get((guild_id, user.id), 0)) + amount
         return f"⭐ **+{amount:,} XP**"
     if kind == "item_common":
-        item_id = random.choice(list(BOX_TIERS["common"]["items"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("items", [])))
+        item_id = _weighted_box_choice(_box_reward_pool(guild_id, "common", "items"), ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("weights", {}))
+        if item_id is None:
+            amount = random.randint(250, 700)
+            economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
+            return f"🌿 **+{amount:,} Catnip**"
         qty = random.randint(1, 3)
         inv[item_id] = int(inv.get(item_id, 0)) + qty
         _record_mystery_reward_provenance(guild_id, user.id, item_id, "common", qty)
@@ -448,7 +503,11 @@ async def _open_one(guild_id, user, tier="common"):
         item = ECONOMY_ITEMS[item_id]
         return f"{item['emoji']} **{qty}× {item['name']}**"
     if kind == "material":
-        item_id = random.choice(list(BOX_TIERS["common"]["materials"]) + list(ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("materials", [])))
+        item_id = _weighted_box_choice(_box_reward_pool(guild_id, "common", "materials"), ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("weights", {}))
+        if item_id is None:
+            amount = random.randint(250, 700)
+            economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
+            return f"🌿 **+{amount:,} Catnip**"
         qty = random.randint(1, 2)
         inv[item_id] = int(inv.get(item_id, 0)) + qty
         _record_mystery_reward_provenance(guild_id, user.id, item_id, "common", qty)
