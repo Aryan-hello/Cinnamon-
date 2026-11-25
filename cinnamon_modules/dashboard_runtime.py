@@ -134,30 +134,27 @@ def _bd_decode(raw: dict):
         if len(parts) == 2:
             economy_level_rewards_claimed[(int(parts[0]), int(parts[1]))] = [int(x) for x in levels]
     economy_income_roles = {int(g): {int(r): cfg for r, cfg in roles.items()} for g, roles in raw.get("economy_income_roles", {}).items()}
-    # Restore saved values, then migrate every missing built-in from the
-    # complete catalogue registered by the feature modules. Preserve custom
-    # entries and administrator-edited values; never replace an existing ID.
-    # Update in place because shop views and modules share this dictionary.
+    # Saved catalogs are authoritative: administrators may intentionally
+    # remove built-ins, and an explicitly empty catalog must remain empty.
     saved_items = raw.get("economy_items")
-    current_defaults = {
-        key: dict(value) for key, value in ECONOMY_ITEMS.items()
-        if isinstance(value, dict)
-    }
     if isinstance(saved_items, dict):
         ECONOMY_ITEMS.clear()
         ECONOMY_ITEMS.update(saved_items)
+        # GAG services were added after some older snapshots. For non-empty
+        # legacy catalogs, restore missing service entries and repair only
+        # missing metadata on existing ones; preserve explicit shop_enabled,
+        # prices, descriptions and all other administrator choices.
         gag_defaults = globals().get("GAG_SERVICE_ITEMS", {})
-        for item_id, default_item in current_defaults.items():
-            if item_id not in ECONOMY_ITEMS:
-                ECONOMY_ITEMS[item_id] = dict(default_item)
-            elif item_id in gag_defaults and isinstance(ECONOMY_ITEMS.get(item_id), dict):
-                # Older snapshots may contain a GAG item but omit its category
-                # metadata, causing it to vanish from the dedicated shop tab.
-                current_item = ECONOMY_ITEMS[item_id]
-                for field, value in default_item.items():
-                    current_item.setdefault(field, value)
-                current_item["category"] = "grow_a_garden"
-                current_item.setdefault("service_type", "grow_a_garden")
+        if saved_items and isinstance(gag_defaults, dict):
+            for gag_id, gag_item in gag_defaults.items():
+                current = ECONOMY_ITEMS.get(gag_id)
+                if current is None:
+                    ECONOMY_ITEMS[gag_id] = dict(gag_item)
+                elif isinstance(current, dict):
+                    for field, value in gag_item.items():
+                        current.setdefault(field, value)
+                    current["category"] = "grow_a_garden"
+                    current.setdefault("service_type", "grow_a_garden")
     else:
         # Migrate only legacy/default catalogs. Explicitly saved prices are
         # administrator choices and may validly be below these default floors.
