@@ -56,6 +56,12 @@ class ShopItemRuntimeTests(unittest.TestCase):
         buy = self.economy[self.economy.index("async def economy_buy_cmd"):self.economy.index("def _economy_is_box_reward")]
         self.assertLess(buy.index("interaction.response.send_message"), buy.index('_shop_item_run_actions(interaction, item_id, "bought")'))
 
+    def test_shop_transactions_check_commit_result_truthiness(self):
+        self.assertNotIn("saved is False", self.economy)
+        self.assertNotIn("saved is False", self.runtime)
+        self.assertIn("if not saved:", self.economy)
+        self.assertIn("if not saved:", self.runtime)
+
     def test_runtime_source_parses(self):
         ast.parse(self.runtime)
         ast.parse(self.economy)
