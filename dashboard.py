@@ -3161,9 +3161,9 @@ def dashboard_action():
             box_root = advanced.setdefault("custom_box_rewards", {})
             key = f"{gid}:{tier}"
             before = copy.deepcopy(box_root)
-            cfg = box_root.setdefault(key, {"items": [], "materials": [], "weights": {}, "disabled_items": [], "disabled_materials": []})
+            cfg = box_root.setdefault(key, {"items": [], "materials": [], "weights": {}, "disabled_items": [], "disabled_materials": [], "disabled_rare_items": []})
             cfg.setdefault("items", []); cfg.setdefault("materials", []); cfg.setdefault("weights", {})
-            cfg.setdefault("disabled_items", []); cfg.setdefault("disabled_materials", [])
+            cfg.setdefault("disabled_items", []); cfg.setdefault("disabled_materials", []); cfg.setdefault("disabled_rare_items", [])
             base_source = state.get("BOX_RARE_ITEM_POOL", []) if pool_kind == "rare_items" else tiers[tier].get(pool_kind, [])
             base_ids = [str(x) for x in base_source]
             custom_ids = cfg[pool_kind]
