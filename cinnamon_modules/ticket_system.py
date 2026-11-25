@@ -98,8 +98,8 @@ class TicketPanelView(discord.ui.View):
         cat=next((x for x in panel.get("categories",[]) if str(x.get("id"))==cid),None)
         if not cat: return await interaction.response.send_message("Ticket category unavailable.",ephemeral=True)
         if str(cat.get("routing","")).lower()=="faq": return await interaction.response.send_message(str(cat.get("faq_answer","Please check the server FAQ or contact support."))[:2000],ephemeral=True)
-        if str(cat.get("routing","")).lower()=="shop":
-            return await interaction.response.send_message("Choose the item from your inventory for this ticket:",view=TicketInventorySelectView(self.gid,self.panel_id,cid,interaction.user.id,cat),ephemeral=True)
+        if str(cat.get("routing","")).lower() in {"shop","grow_a_garden","gag","boosting"}:
+            return await interaction.response.send_message("Choose the service item(s) from your inventory for this ticket:",view=TicketInventorySelectView(self.gid,self.panel_id,cid,interaction.user.id,cat),ephemeral=True)
         if cat.get("questions"): return await interaction.response.send_modal(TicketQuestionModal(self.gid,self.panel_id,cid,interaction.user.id,cat["questions"]))
         await interaction.response.defer(ephemeral=True,thinking=True); await _ticket_create_channel(interaction,panel,cat,[])
 
@@ -113,6 +113,7 @@ class TicketInventorySelectView(discord.ui.View):
         for item_id,quantity in sorted(inventory.items(),key=lambda pair:str((ECONOMY_ITEMS.get(str(pair[0]),{}) or {}).get("name",pair[0])).casefold()):
             item_id=str(item_id); item=ECONOMY_ITEMS.get(item_id,{})
             if int(quantity or 0)<1 or not item or (allowed and item_id not in allowed): continue
+            if str(category.get("routing","")).lower() in {"grow_a_garden","gag","boosting"} and item.get("category")!="grow_a_garden": continue
             name=str(item.get("name",item_id))[:100]
             options.append(discord.SelectOption(label=name,value=item_id,description=("Owned: "+str(int(quantity)))[:100]))
         if not options:
