@@ -339,19 +339,19 @@ def _shop_items(guild, state):
     )
     shop_editor_ui = (
         "<style>"
-        ".shop-catalog-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:18px 0 14px}"
-        ".shop-product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:14px}"
-        ".shop-product-tile{appearance:none;border:1px solid var(--line);background:var(--surface-2);color:var(--text);border-radius:16px;min-height:174px;padding:18px 12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;cursor:pointer;transition:transform .16s,border-color .16s,box-shadow .16s}"
+        ".shop-catalog-toolbar{display:flex;grid-column:1/-1;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:18px 0 14px;min-width:0}"
+        ".shop-product-grid{display:grid;grid-column:1/-1;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:14px;width:100%;min-width:0;box-sizing:border-box}"
+        ".shop-product-tile{appearance:none;width:100%;min-width:0;box-sizing:border-box;border:1px solid var(--line);background:var(--surface-2);color:var(--text);border-radius:16px;min-height:174px;padding:18px 12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;cursor:pointer;transition:transform .16s,border-color .16s,box-shadow .16s}"
         ".shop-product-tile:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:0 8px 24px #0002}"
         ".shop-create-tile{border:2px dashed var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface-2))}"
         ".shop-product-icon{font-size:42px;line-height:1.2;min-height:52px;display:grid;place-items:center}.shop-product-name{font-weight:750;line-height:1.25;overflow-wrap:anywhere}"
         ".shop-product-price{font-size:18px;font-weight:800;color:var(--accent)}.shop-product-price small{font-size:11px;font-weight:600;color:var(--muted)}.shop-product-edit{font-size:12px;color:var(--muted)}"
-        ".shop-item-dialog{border:1px solid var(--line);border-radius:18px;padding:0;width:min(680px,calc(100vw - 24px));max-height:min(88dvh,900px);background:var(--surface);color:var(--text);box-shadow:0 24px 80px #0008}"
+        ".shop-recipe-grid{display:grid;grid-column:1/-1;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px;width:100%;min-width:0;box-sizing:border-box}.shop-recipe-card{min-width:0;width:100%;box-sizing:border-box;overflow-wrap:anywhere}.shop-recipe-card form{min-width:0}.shop-recipe-card input,.shop-recipe-card select,.shop-recipe-card textarea{max-width:100%;box-sizing:border-box}.shop-item-dialog{border:1px solid var(--line);border-radius:18px;padding:0;width:min(680px,calc(100vw - 24px));max-height:min(88dvh,900px);background:var(--surface);color:var(--text);box-shadow:0 24px 80px #0008}"
         ".shop-item-dialog::backdrop{background:#09070bd9;backdrop-filter:blur(4px)}.shop-dialog-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:18px 22px;background:var(--surface);border-bottom:1px solid var(--line)}"
         ".shop-dialog-head h2{margin:4px 0 0}.shop-dialog-close{border:0;background:var(--surface-2);color:var(--text);width:40px;height:40px;border-radius:12px;font-size:26px;cursor:pointer}"
         ".shop-dialog-body{padding:18px 22px 24px;overflow:auto;max-height:calc(88dvh - 82px)}.shop-editor-section{border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}.shop-editor-section h3{margin:0 0 12px}"
         ".shop-editor-section textarea{width:100%;resize:vertical}.shop-builder-field{display:flex;flex-direction:column;gap:6px;margin:10px 0;font-size:13px;font-weight:650}.shop-builder-field input,.shop-builder-field select,.shop-builder-field textarea,.shop-builder-inline select,.shop-builder-inline input{width:100%;min-height:40px;border:1px solid var(--line-strong);border-radius:9px;background:var(--surface-2);padding:8px 10px;color:var(--ink)}.shop-builder-field select[multiple]{min-height:96px}.shop-builder-list{display:grid;gap:10px;margin:10px 0}.shop-builder-row,.shop-builder-outcome{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:12px;margin:8px 0}.shop-builder-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.shop-builder-inline{display:grid;grid-template-columns:minmax(0,1fr) 100px 42px;gap:8px;margin:8px 0}.shop-builder-button,.shop-builder-remove{border:1px solid var(--line-strong);border-radius:9px;padding:9px 12px;background:var(--surface-3);font-weight:650;cursor:pointer}.shop-builder-remove{color:var(--red)}.shop-builder-outcome h4{margin:8px 0}.shop-dialog-danger{border-top:1px solid var(--line);margin-top:18px;padding-top:14px}.shop-dialog-body .actions{position:sticky;bottom:-24px;background:var(--surface);padding:12px 0 2px}"
-        "@media(max-width:520px){.shop-product-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.shop-product-tile{min-height:150px;padding:14px 8px}.shop-product-icon{font-size:36px}.shop-dialog-head{padding:14px 16px}.shop-dialog-body{padding:14px 16px 20px}}"
+        "@media(max-width:520px){.shop-product-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr));gap:10px}.shop-recipe-grid{grid-template-columns:minmax(0,1fr);gap:10px}.shop-product-tile{min-height:150px;padding:14px 8px}.shop-product-icon{font-size:36px}.shop-dialog-head{padding:14px 16px}.shop-dialog-body{padding:14px 16px 20px}}"
         "</style><div class='shop-catalog-toolbar'><div><h2>Shop catalogue</h2><p class='muted'>Tap an item card to edit it.</p></div><span class='pill'>" + str(len(shop)) + " items</span></div>"
         "<div class='shop-product-grid'><button type='button' class='shop-product-tile shop-create-tile' data-shop-open='shop-create-dialog'><span class='shop-product-icon'>＋</span><span class='shop-product-name'>CREATE ITEM</span><span class='shop-product-edit'>Add to catalogue</span></button>"
         + item_grid + "</div>" + "".join(item_dialogs) + create_dialog
@@ -391,7 +391,7 @@ def _shop_items(guild, state):
             f"<div class='field' style='grid-column:1/-1'><label>Ingredients (one item_id:quantity per line)</label><textarea name='ingredients' rows='4' required>{_esc(ingredients_text)}</textarea></div>"
             f"<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(recipe.get('description',''))}'></div>"
         )
-        recipe_rows.append("<article class='card half'><h3>" + _esc(recipe.get("emoji","🧪")) + " " + _esc(recipe.get("name",recipe_id)) + "</h3>" +
+        recipe_rows.append("<article class='card shop-recipe-card'><h3>" + _esc(recipe.get("emoji","🧪")) + " " + _esc(recipe.get("name",recipe_id)) + "</h3>" +
             _form(gid, "shop_recipe_save", recipe_fields, "Save recipe") +
             _form(gid, "shop_recipe_remove", f"<input type='hidden' name='recipe_id' value='{_esc(recipe_id)}'>", "Disable recipe", danger=True) +
             "</article>")
@@ -404,7 +404,7 @@ def _shop_items(guild, state):
         "<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300'></div></div>"
     )
     recipe_card = "<article class='card full'><h2>Create or edit a crafting recipe</h2><p class='muted'>Every ingredient must already exist in the item catalogue. Recipe output items are automatically marked craftable.</p>" + _form(gid, "shop_recipe_save", recipe_add, "Save recipe") + "</article>"
-    recipe_grid = "".join(recipe_rows) or "<article class='card full'><p class='muted'>No active recipes.</p></article>"
+    recipe_grid = "<div class='shop-recipe-grid'>" + ("".join(recipe_rows) or "<article class='card shop-recipe-card'><p class='muted'>No active recipes.</p></article>") + "</div>"
 
     box_cards = []
     for tier, cfg in tiers.items():
@@ -1664,7 +1664,7 @@ def _tickets(guild,state):
         panel_service_options="".join("<option value='"+_esc(item_id)+"'"+(" selected" if str(first_cat.get("service_item_id",""))==str(item_id) else "")+">"+_esc(item.get("name",item_id))+"</option>" for item_id,item in gag_items.items() if isinstance(item,dict) and item.get("category")=="grow_a_garden")
         panel_category_editor="<div class='formgrid'><div class='field'><label>Category name</label><input name='category_label' maxlength='60' required value='"+_esc(first_cat.get("label","Support"))+"'></div><div class='field'><label>Ticket button label</label><input name='button_label' maxlength='80' required value='"+_esc(first_cat.get("button_label",first_cat.get("label","Open ticket")))+"'></div><div class='field'><label>Button emoji</label><input name='button_emoji' maxlength='100' value='"+_esc(first_cat.get("emoji",""))+"'></div><div class='field'><label>Routing</label><select name='routing'>"+routing_options+"</select></div><div class='field'><label>Linked GAG service item</label><select name='service_item_id'><option value=''>No linked service</option>"+panel_service_options+"</select></div><div class='field full'><label>Welcome message / Cinnamon's first reply</label><textarea name='welcome_message' maxlength='1500'>"+_esc(first_cat.get("welcome_message",""))+"</textarea></div><div class='field full'><label>Eligible inventory items</label><select name='inventory_item_ids' multiple size='6'>"+panel_inventory_options+"</select><small>For Shop routing, leave empty to allow all items members own.</small></div><div class='field full'><label>Additional ticket ping roles</label>"+_role_multi_select(guild,"category_staff_role_ids",first_cat.get("staff_role_ids",[]))+"</div>"+question_fields+"<div class='field'><label>Persistent button label</label><input name='persistent_button_label' maxlength='80' value='"+_esc(first_cat.get("persistent_button_label",""))+"'></div><div class='field full'><label>Persistent button reply</label><textarea name='persistent_button_reply' maxlength='1800'>"+_esc(first_cat.get("persistent_button_reply",""))+"</textarea></div></div>"
         panel_rows.append("<article class='card full'><h3>"+_esc(p.get("name","Ticket panel"))+" <span class='pill'>"+state_label+"</span></h3><p class='muted'>"+_esc("#"+ch.name if ch else "No channel")+" · "+str(len(cats))+" categories · ID "+_esc(pid)+"</p>"+_form(gid,"ticket_panel_update","<input type='hidden' name='panel_id' value='"+_esc(pid)+"'><div class='formgrid'><div class='field'><label>Panel name</label><input name='panel_name' maxlength='60' required value='"+_esc(p.get("name",""))+"'></div><div class='field'><label>Channel</label>"+_channel_select(guild,"channel_id",p.get("channel_id"),allow_none=False)+"</div><div class='field'><label>Title</label><input name='panel_title' maxlength='256' required value='"+_esc(p.get("title","Support Center"))+"'></div><div class='field'><label>Color</label><input name='panel_color' maxlength='7' value='"+_esc(p.get("color","#D99048"))+"'></div><div class='field full'><label>Description</label><textarea name='panel_description' maxlength='3500'>"+_esc(p.get("description",""))+"</textarea></div>"+panel_category_editor+"<div class='field full'><details><summary>Advanced multi-category editor (JSON)</summary><textarea name='categories_json' maxlength='12000' placeholder='Paste a JSON category list only to replace the categories above'></textarea><small>Optional advanced override. Leave blank to save the no-code editor above.</small></details></div></div>","Save panel settings")+
-        "<div class='actions'><form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_publish'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn'>"+("Update published panel" if p.get("published") else "Publish panel")+"</button></form><form method='post' action='/dashboard/action' data-confirm='Delete this panel configuration?'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_delete'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn danger small'>Delete</button></form></div></article>")
+        "<div class='actions'><form method='post' action='/dashboard/action' class='actions'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_publish'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><label class='field'><span>Send panel to channel</span>"+_channel_select(guild,'publish_channel_id',p.get('channel_id'),allow_none=False)+"</label><button class='btn'>"+("Update published panel" if p.get("published") else "Publish panel")+"</button></form><form method='post' action='/dashboard/action' data-confirm='Delete this panel configuration?'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_delete'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn danger small'>Delete</button></form></div></article>")
     panel_card="<article class='card full'><h2>Ticket panels</h2>"+("".join(panel_rows) or "<p class='empty'>No panels yet.</p>")+"</article>"
     ticket_query = request.args.get("ticket_q", "").strip().casefold()[:100]
     active_parts = []
@@ -3964,19 +3964,29 @@ def dashboard_action():
         elif action=="ticket_panel_publish":
             panel_id=request.form.get("panel_id","").strip(); cfg=state.setdefault("advanced_features_data",{}).setdefault("cinnamon_tickets_v1",{}).setdefault(str(gid),{}); panel=cfg.setdefault("panels",{}).get(panel_id)
             if not panel or not panel.get("categories"): raise ValueError("Save a panel with at least one category before publishing.")
-            channel=guild.get_channel(int(panel.get("channel_id",0)))
+            publish_channel_id=request.form.get("publish_channel_id") or panel.get("channel_id")
+            channel=guild.get_channel(int(publish_channel_id or 0))
             if not isinstance(channel,__import__("discord").TextChannel): raise ValueError("Panel channel is unavailable.")
             embed=__import__("discord").Embed(title=panel.get("title","Support Center"),description=panel.get("description","Choose a category below."),color=int(panel.get("color","#D99048")[1:],16))
             embed.set_footer(text="Cinnamon Tickets")
             async def publish_panel():
                 view=state["ticket_panel_view"](gid,panel_id,panel)
                 message=None
-                if panel.get("message_id"):
-                    try: message=await channel.fetch_message(int(panel["message_id"]))
+                old_channel_id=int(panel.get("channel_id",0) or 0)
+                old_message_id=int(panel.get("message_id",0) or 0)
+                if old_message_id and old_channel_id==channel.id:
+                    try: message=await channel.fetch_message(old_message_id)
                     except Exception: message=None
+                elif old_message_id and old_channel_id!=channel.id:
+                    old_channel=guild.get_channel(old_channel_id)
+                    if old_channel:
+                        try:
+                            old_message=await old_channel.fetch_message(old_message_id)
+                            await old_message.edit(view=None)
+                        except Exception: pass
                 if message: await message.edit(embed=embed,view=view)
                 else: message=await channel.send(embed=embed,view=view)
-                panel["message_id"]=message.id; panel["published"]=True; panel["published_at"]=int(time.time())
+                panel["channel_id"]=channel.id; panel["message_id"]=message.id; panel["published"]=True; panel["published_at"]=int(time.time())
                 if not await state["bd_save_data"](): raise ValueError("Could not verify durable panel publish.")
                 return message.id
             mid=_run_bot(publish_panel(),timeout=40); _audit(gid,actor,"Ticket panel published",f"{panel.get('name')} in #{channel.name}; message {mid}.")

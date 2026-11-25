@@ -32,6 +32,14 @@ class TicketInventoryWorkflowTests(unittest.TestCase):
         self.assertIn("Ticket claim transaction save failed", self.tickets)
         self.assertIn("The claim and inventory change were rolled back", self.tickets)
 
+    def test_multi_item_gag_tickets_select_and_consume_each_item(self):
+        self.assertIn("max_values=len(options[:25])", self.tickets)
+        self.assertIn('in {"shop","grow_a_garden","gag","boosting"}', self.tickets)
+        self.assertIn('item.get("category")!="grow_a_garden"', self.tickets)
+        self.assertIn("selected_item_ids", self.tickets)
+        self.assertIn("for item_id in item_ids:", self.tickets)
+        self.assertIn("consumed_item_ids", self.tickets)
+
     def test_claim_permissions_and_notifications_are_item_specific(self):
         self.assertIn("Only a configured Trusted Booster can claim this GAG service.", self.tickets)
         self.assertIn("Only a configured Moderator can claim this shop ticket.", self.tickets)
@@ -50,6 +58,10 @@ class TicketInventoryWorkflowTests(unittest.TestCase):
         self.assertIn('await channel.send("Please wait, a moderator will be with you soon.")', self.tickets)
         self.assertIn('actions=[] if support else', self.tickets)
         self.assertIn('async def ticket_close(interaction:discord.Interaction):', self.tickets)
+
+    def test_dashboard_can_publish_a_panel_to_a_selected_channel(self):
+        self.assertIn("publish_channel_id", self.dashboard)
+        self.assertIn("Send panel to channel", self.dashboard)
 
     def test_dashboard_has_no_code_item_role_question_and_reply_controls(self):
         for field in (
