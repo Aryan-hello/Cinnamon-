@@ -119,11 +119,14 @@ for _custom_recipe_id, _custom_recipe in ADVANCED_FEATURES.get(CUSTOM_RECIPE_KEY
 
 def _box_reward_pool(guild_id: int, tier: str, pool_kind: str) -> list[str]:
     """Return the active base + custom reward pool after administrator exclusions."""
-    if tier not in BOX_TIERS or pool_kind not in ("items", "materials"):
+    if tier not in BOX_TIERS or pool_kind not in ("items", "materials", "rare_items"):
+        return []
+    if pool_kind == "rare_items" and tier != "common":
         return []
     cfg = ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:{tier}", {})
     disabled = set(str(x) for x in cfg.get(f"disabled_{pool_kind}", []))
-    base = [str(x) for x in BOX_TIERS[tier].get(pool_kind, []) if str(x) not in disabled]
+    defaults = BOX_RARE_ITEM_POOL if pool_kind == "rare_items" else BOX_TIERS[tier].get(pool_kind, [])
+    base = [str(x) for x in defaults if str(x) not in disabled]
     extra = [str(x) for x in cfg.get(pool_kind, []) if str(x) not in disabled]
     return list(dict.fromkeys(x for x in base + extra if x in ECONOMY_ITEMS))
 
@@ -178,6 +181,8 @@ BOX_TIERS = {
     "legendary": {"label":"Legendary", "emoji":"🌠", "weight":0.9, "catnip":(5000,10000), "items":["catnip_crown","dream_wings","moon_jelly"], "materials":["captured_star"]},
     "mythical": {"label":"Mythical", "emoji":"✨", "weight":0.1, "catnip":(10000,25000), "items":["captured_star","dream_wings"], "materials":["dream_petals","moonstone"]},
 }
+# Original Common-box rare-item pool; admins can now extend, weight or exclude it.
+BOX_RARE_ITEM_POOL = ["fish", "golden_fish", "moon_fish_scale"]
 EXPANSION_ITEMS = {
     "moonstone": ("Moonstone", "💎", "Epic", 7000, "A moonlit crafting gem.", 0),
     "crystal_fishbone": ("Crystal Fishbone", "🦴", "Uncommon", 1800, "A shimmering crafting ingredient.", 0),
@@ -510,7 +515,7 @@ async def _open_one(guild_id, user, tier="common"):
         item = ECONOMY_ITEMS[item_id]
         return f"{item['emoji']} **{qty}× {item['name']}**"
     if kind == "item_rare":
-        item_id = _weighted_box_choice(_box_reward_pool(guild_id, "rare", "items"), ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:rare", {}).get("weights", {}))
+        item_id = _weighted_box_choice(_box_reward_pool(guild_id, "common", "rare_items"), ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {}).get("weights", {}))
         if item_id is None:
             amount = random.randint(1200, 3000)
             economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
