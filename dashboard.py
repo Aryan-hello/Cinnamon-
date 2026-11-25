@@ -3065,12 +3065,64 @@ def dashboard_action():
                 limit = int(request.form.get("max_per_person", "0"))
                 sell_raw = request.form.get("sell_price", "").strip()
                 sell_price = int(sell_raw) if sell_raw else None
-            except ValueError:
-                raise ValueError("Prices and per-member limit must be whole numbers.")
+                stock_quantity = int(request.form.get("stock_quantity", "0"))
+                use_cooldown_seconds = int(request.form.get("use_cooldown_seconds", "0"))
+                purchase_requirements = json.loads(request.form.get("purchase_requirements", "{}") or "{}")
+                use_requirements = json.loads(request.form.get("use_requirements", "{}") or "{}")
+                item_actions = json.loads(request.form.get("item_actions", "[]") or "[]")
+                random_outcomes = json.loads(request.form.get("random_outcomes", "[]") or "[]")
+            except (ValueError, TypeError):
+                raise ValueError("Check numeric values and make sure the requirements/actions/outcomes fields contain valid JSON.")
             if (not name or len(name) > 80 or not 1 <= price <= 10000000
                     or not 0 <= limit <= 999999
-                    or (sell_price is not None and not 0 <= sell_price <= 10000000)):
-                raise ValueError("Check the name, buy price (1–10,000,000), sell price (0–10,000,000) and limit (0–999,999).")
+                    or (sell_price is not None and not 0 <= sell_price <= 10000000)
+                    or not 0 <= stock_quantity <= 100000000
+                    or not 0 <= use_cooldown_seconds <= 31536000):
+                raise ValueError("Check the name, prices, per-member limit, stock (0–100,000,000) and cooldown (0–31,536,000 seconds).")
+            if not isinstance(purchase_requirements, dict) or not isinstance(use_requirements, dict):
+                raise ValueError("Purchase and use requirements must each be a JSON object.")
+            if not isinstance(item_actions, list) or not isinstance(random_outcomes, list):
+                raise ValueError("Actions and random outcomes must each be JSON arrays.")
+            allowed_triggers = {"bought", "used", "both", "bought_or_used"}
+            allowed_action_types = {"give_catnip", "give_item", "send_message", "reply"}
+            for action_config in item_actions:
+                if (not isinstance(action_config, dict)
+                        or str(action_config.get("trigger", "both")).lower() not in allowed_triggers
+                        or str(action_config.get("type", "")).lower() not in allowed_action_types):
+                    raise ValueError("Each action needs a supported type and trigger (bought, used or both).")
+            trigger_totals = {"bought": 0.0, "used": 0.0}
+            for outcome in random_outcomes:
+                if (not isinstance(outcome, dict)
+                        or str(outcome.get("trigger", "both")).lower() not in allowed_triggers
+                        or not isinstance(outcome.get("actions", []), list)):
+                    raise ValueError("Each random outcome needs a supported trigger and an actions array.")
+                try:
+                    weight = float(outcome.get("weight", 0))
+                except (TypeError, ValueError):
+                    raise ValueError("Random outcome weights must be numeric.")
+                if not 0 < weight <= 100:
+                    raise ValueError("Each random outcome weight must be above 0 and at most 100.")
+                trigger = str(outcome.get("trigger", "both")).lower()
+                if trigger in {"bought", "both", "bought_or_used"}:
+                    trigger_totals["bought"] += weight
+                if trigger in {"used", "both", "bought_or_used"}:
+                    trigger_totals["used"] += weight
+                for action_config in outcome.get("actions", []):
+                    if (not isinstance(action_config, dict)
+                            or str(action_config.get("type", "")).lower() not in allowed_action_types):
+                        raise ValueError("Random outcome actions must use a supported action type.")
+            for trigger, total in trigger_totals.items():
+                if total and abs(total - 100.0) > 0.001:
+                    raise ValueError(f"Random outcome weights for {trigger} must total 100%.")
+            expires_at = request.form.get("expires_at", "").strip()
+            if expires_at:
+                try:
+                    parsed_expiry = dt.datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                    if parsed_expiry.tzinfo is None:
+                        parsed_expiry = parsed_expiry.replace(tzinfo=dt.timezone.utc)
+                    expires_at = parsed_expiry.astimezone(dt.timezone.utc).isoformat()
+                except ValueError:
+                    raise ValueError("Expiry must be a valid ISO date/time, for example 2026-12-31T23:59:00+00:00.")
             before = copy.deepcopy(items)
             updated = dict(items.get(item_id, {}))
             updated.update({
@@ -3083,6 +3135,16 @@ def dashboard_action():
                 "max_per_person": limit,
                 "shop_enabled": "shop_enabled" in request.form,
                 "craftable": "craftable" in request.form,
+                "stock_unlimited": "stock_unlimited" in request.form,
+                "stock_quantity": stock_quantity,
+                "expires_at": expires_at,
+                "usable": "usable" in request.form,
+                "reusable": "reusable" in request.form,
+                "use_cooldown_seconds": use_cooldown_seconds,
+                "purchase_requirements": purchase_requirements,
+                "use_requirements": use_requirements,
+                "actions": item_actions,
+                "random_outcomes": random_outcomes,
             })
             items[item_id] = updated
             def rollback_shop_item():
