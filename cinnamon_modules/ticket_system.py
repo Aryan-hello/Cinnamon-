@@ -185,7 +185,8 @@ class GAGServiceCompletionView(discord.ui.View):
 
         if all(ticket.get("service_confirmations", {}).values()):
             await interaction.channel.send(
-                f"🎉 Service completed! Both confirmations received. <@{booster}> earned **{reward:,} Catnip** (50% commission).")
+                f"🎉 Service completed! Both confirmations received. <@{booster}> earned **{reward:,} Catnip** (50% commission).",
+                view=TicketControls(ticket["ticket_id"]))
             await _ticket_log(interaction.guild, "GAG service paid", interaction.user,
                               ticket, f"Reward {reward} Catnip")
             await interaction.response.send_message("Completion confirmed and commission saved.", ephemeral=True)
