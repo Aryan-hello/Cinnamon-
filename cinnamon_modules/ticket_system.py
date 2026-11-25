@@ -310,11 +310,16 @@ class TicketControls(discord.ui.View):
                         except discord.HTTPException: service_message=None
                     notice=f"✅ {interaction.user.mention} claimed this Grow a Garden service. **{item_name}** has been removed from <@{creator_id}>'s inventory. Both the member and this Trusted Booster must confirm completion."
                     if service_message:
-                        await service_message.edit(content=notice,view=GAGServiceCompletionView(ticket["ticket_id"]),allowed_mentions=discord.AllowedMentions(users=True))
-                    else:
-                        service_message=await interaction.channel.send(notice,view=GAGServiceCompletionView(ticket["ticket_id"]),allowed_mentions=discord.AllowedMentions(users=True))
-                        ticket["service_message_id"]=service_message.id
+                        try:
+                            await service_message.edit(content="This service has been claimed. Use the latest completion button below.",view=None,allowed_mentions=discord.AllowedMentions.none())
+                        except discord.HTTPException:
+                            pass
+                    service_message=await interaction.channel.send(notice,view=GAGServiceCompletionView(ticket["ticket_id"]),allowed_mentions=discord.AllowedMentions(users=True))
+                    ticket["service_message_id"]=service_message.id
+                    try:
                         await bd_save_data()
+                    except Exception:
+                        log.exception("Could not persist the latest GAG completion message ID")
                 else:
                     await interaction.channel.send(f"✅ {interaction.user.mention} claimed this shop ticket. **{item_name}** has been removed from <@{creator_id}>'s inventory. The item was consumed by the moderator handling this ticket.",allowed_mentions=discord.AllowedMentions(users=True))
             return await interaction.response.send_message(
