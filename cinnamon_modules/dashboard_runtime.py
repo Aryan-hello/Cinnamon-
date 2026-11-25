@@ -177,6 +177,18 @@ def _bd_decode(raw: dict):
     advanced_features_data.update(_af_raw if isinstance(_af_raw, dict) else {})
     for _af_key_name in ("mystery_boxes", "crafted_counts", "mystery_opened", "black_market_purchases"):
         advanced_features_data.setdefault(_af_key_name, {})
+    # Reapply administrator-managed recipes after restoring the Upstash snapshot.
+    # Module imports happen before bd_load_data, so doing this here is essential
+    # for custom recipes to survive a restart/redeploy.
+    _recipes = globals().get("CRAFTING_RECIPES")
+    if isinstance(_recipes, dict):
+        for _recipe_id in advanced_features_data.get("disabled_crafting_recipes_v1", []):
+            _recipes.pop(str(_recipe_id), None)
+        _custom_recipes = advanced_features_data.get("custom_crafting_recipes_v1", {})
+        if isinstance(_custom_recipes, dict):
+            for _recipe_id, _recipe in _custom_recipes.items():
+                if isinstance(_recipe, dict):
+                    _recipes[str(_recipe_id)] = dict(_recipe)
 async def bd_load_data():
     """Load only a validated snapshot; an unavailable store never means fresh data."""
     result = await bd_store.load()
