@@ -33,7 +33,8 @@ class TicketInventoryWorkflowTests(unittest.TestCase):
         self.assertIn("The claim and inventory change were rolled back", self.tickets)
 
     def test_multi_item_gag_tickets_select_and_consume_each_item(self):
-        self.assertIn("max_values=len(options[:25])", self.tickets)
+        self.assertIn("max_values=(len(options[:25]) if is_gag_route else 1)", self.tickets)
+        self.assertIn("Select one shop item…", self.tickets)
         self.assertIn('in {"shop","grow_a_garden","gag","boosting"}', self.tickets)
         self.assertIn('item.get("category")!="grow_a_garden"', self.tickets)
         self.assertIn("selected_item_ids", self.tickets)

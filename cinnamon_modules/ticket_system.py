@@ -119,7 +119,8 @@ class TicketInventorySelectView(discord.ui.View):
         if not options:
             self.add_item(discord.ui.Button(label="No eligible items in your inventory",style=discord.ButtonStyle.secondary,disabled=True))
             return
-        select=discord.ui.Select(placeholder="Select one or more GAG items…",min_values=1,max_values=len(options[:25]),options=options[:25],custom_id="ticket:itemselect:"+str(self.gid)+":"+self.panel_id+":"+self.category_id)
+        is_gag_route=str(category.get("routing","")).lower() in {"grow_a_garden","gag","boosting"}
+        select=discord.ui.Select(placeholder=("Select one or more GAG items…" if is_gag_route else "Select one shop item…"),min_values=1,max_values=(len(options[:25]) if is_gag_route else 1),options=options[:25],custom_id="ticket:itemselect:"+str(self.gid)+":"+self.panel_id+":"+self.category_id)
         select.callback=self._selected
         self.add_item(select)
 
