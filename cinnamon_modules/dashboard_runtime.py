@@ -134,18 +134,31 @@ def _bd_decode(raw: dict):
         if len(parts) == 2:
             economy_level_rewards_claimed[(int(parts[0]), int(parts[1]))] = [int(x) for x in levels]
     economy_income_roles = {int(g): {int(r): cfg for r, cfg in roles.items()} for g, roles in raw.get("economy_income_roles", {}).items()}
-    # A saved catalog is authoritative, including removals and an empty shop.
-    # Older snapshots without this field keep the built-in catalog. Update in
-    # place so existing views/helpers retain their shared catalog reference.
+    # Saved catalogs are authoritative: administrators may intentionally
+    # remove built-ins, and an explicitly empty catalog must remain empty.
     saved_items = raw.get("economy_items")
     current_defaults = dict(ECONOMY_ITEMS)
     if isinstance(saved_items, dict):
         ECONOMY_ITEMS.clear()
         ECONOMY_ITEMS.update(saved_items)
-        # Add newly introduced built-ins to legacy catalogs without replacing
-        # administrator-defined prices or custom item entries.
+        # Keep the established one-item migration for Fishing String.
         if saved_items and "fishing_string" not in saved_items:
             ECONOMY_ITEMS["fishing_string"] = current_defaults["fishing_string"]
+        # GAG services were added after some older snapshots. For non-empty
+        # legacy catalogs, restore missing service entries and repair only
+        # missing metadata on existing ones; preserve explicit shop_enabled,
+        # prices, descriptions and all other administrator choices.
+        gag_defaults = globals().get("GAG_SERVICE_ITEMS", {})
+        if saved_items and isinstance(gag_defaults, dict):
+            for gag_id, gag_item in gag_defaults.items():
+                current = ECONOMY_ITEMS.get(gag_id)
+                if current is None:
+                    ECONOMY_ITEMS[gag_id] = dict(gag_item)
+                elif isinstance(current, dict):
+                    for field, value in gag_item.items():
+                        current.setdefault(field, value)
+                    current["category"] = "grow_a_garden"
+                    current.setdefault("service_type", "grow_a_garden")
     else:
         # Migrate only legacy/default catalogs. Explicitly saved prices are
         # administrator choices and may validly be below these default floors.
@@ -174,6 +187,18 @@ def _bd_decode(raw: dict):
     advanced_features_data.update(_af_raw if isinstance(_af_raw, dict) else {})
     for _af_key_name in ("mystery_boxes", "crafted_counts", "mystery_opened", "black_market_purchases"):
         advanced_features_data.setdefault(_af_key_name, {})
+    # Reapply administrator-managed recipes after restoring the Upstash snapshot.
+    # Module imports happen before bd_load_data, so doing this here is essential
+    # for custom recipes to survive a restart/redeploy.
+    _recipes = globals().get("CRAFTING_RECIPES")
+    if isinstance(_recipes, dict):
+        for _recipe_id in advanced_features_data.get("disabled_crafting_recipes_v1", []):
+            _recipes.pop(str(_recipe_id), None)
+        _custom_recipes = advanced_features_data.get("custom_crafting_recipes_v1", {})
+        if isinstance(_custom_recipes, dict):
+            for _recipe_id, _recipe in _custom_recipes.items():
+                if isinstance(_recipe, dict):
+                    _recipes[str(_recipe_id)] = dict(_recipe)
 async def bd_load_data():
     """Load only a validated snapshot; an unavailable store never means fresh data."""
     result = await bd_store.load()
@@ -231,6 +256,11 @@ def dashboard_state_provider() -> dict:
         "economy_inventory": economy_inventory,
         "economy_log_channels": economy_log_channels, "economy_income_roles": economy_income_roles,
         "ECONOMY_ITEMS": ECONOMY_ITEMS, "achievement_data": achievement_data, "friendship_data": friendship_data, "quest_data": quest_data,
+        "CRAFTING_RECIPES": globals().get("CRAFTING_RECIPES", {}),
+        "BD_UPSTASH_URL": BD_UPSTASH_URL, "BD_UPSTASH_TOKEN": BD_UPSTASH_TOKEN,
+        "BOX_TIERS": globals().get("BOX_TIERS", {}),
+        "BOX_RARE_ITEM_POOL": globals().get("BOX_RARE_ITEM_POOL", []),
+        "ECONOMY_BUILTIN_DEFAULTS": globals().get("ECONOMY_BUILTIN_DEFAULTS", {}),
         "ECONOMY_DAILY_REWARD": ECONOMY_DAILY_REWARD, "ECONOMY_WORK_MIN": ECONOMY_WORK_MIN,
         "ECONOMY_WORK_MAX": ECONOMY_WORK_MAX, "ECONOMY_WORK_COOLDOWN": ECONOMY_WORK_COOLDOWN,
         # Read-only definitions/status exposed to the dashboard. Commands remain Discord-only.

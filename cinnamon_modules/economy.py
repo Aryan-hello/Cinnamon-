@@ -1253,9 +1253,16 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
         else:
             ECONOMY_ITEMS.clear()
             ECONOMY_ITEMS.update(restored_items)
-    # Preserve built-in Grow a Garden services when restoring older snapshots.
+    # Preserve and migrate built-in Grow a Garden services when restoring
+    # older snapshots, including snapshots that have the item but lack its
+    # category metadata (which would hide it from the GAG shop section).
     for gag_id, gag_item in GAG_SERVICE_ITEMS.items():
-        ECONOMY_ITEMS.setdefault(gag_id, dict(gag_item))
+        current = ECONOMY_ITEMS.setdefault(gag_id, dict(gag_item))
+        if isinstance(current, dict):
+            for field, value in gag_item.items():
+                current.setdefault(field, value)
+            current["category"] = "grow_a_garden"
+            current.setdefault("service_type", "grow_a_garden")
 
     snapshot_quests = latest.get("quests")
     if isinstance(snapshot_quests, dict):
