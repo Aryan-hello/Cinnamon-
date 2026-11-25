@@ -3343,7 +3343,8 @@ def dashboard_action():
             if not recipe_id:
                 base=re.sub(r"[^a-z0-9_-]+","_",name.lower()).strip("_-")[:32] or "recipe"
                 recipe_id=base; suffix=2
-                while recipe_id in (state.get("CRAFTING_RECIPES",{}) or {}) and recipe_id not in (state.get("advanced_features_data",{}).get("custom_crafting_recipes_v1",{}) or {}):
+                custom_recipe_ids=(state.get("advanced_features_data",{}).get("custom_crafting_recipes_v1",{}) or {})
+                while recipe_id in (state.get("CRAFTING_RECIPES",{}) or {}) or recipe_id in custom_recipe_ids:
                     recipe_id=f"{base[:35]}_{suffix}"; suffix+=1
             if len(recipe_id)>40 or not all(c.isalnum() or c in "_-" for c in recipe_id) or recipe_id=="repair_rod":
                 raise ValueError("Recipe ID must use letters, numbers, _ or - (max 40); that ID is reserved.")
@@ -4023,6 +4024,7 @@ def dashboard_action():
                 for raw in request.form.getlist("inventory_item_ids"):
                     if raw not in (state.get("ECONOMY_ITEMS",{}) or {}): raise ValueError("An eligible inventory item no longer exists.")
                     selected_inventory.append(str(raw))
+                if selected_inventory and not items_enabled: raise ValueError("Enable item features before linking inventory items to this panel.")
                 category_roles=[]
                 for raw in request.form.getlist("category_staff_role_ids"):
                     if not raw.isdigit() or not guild.get_role(int(raw)) or guild.get_role(int(raw)).managed: raise ValueError("A custom ticket ping role is invalid.")
