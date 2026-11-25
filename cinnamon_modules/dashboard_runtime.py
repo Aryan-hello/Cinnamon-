@@ -234,6 +234,8 @@ def dashboard_state_provider() -> dict:
         "economy_inventory": economy_inventory,
         "economy_log_channels": economy_log_channels, "economy_income_roles": economy_income_roles,
         "ECONOMY_ITEMS": ECONOMY_ITEMS, "achievement_data": achievement_data, "friendship_data": friendship_data, "quest_data": quest_data,
+        "CRAFTING_RECIPES": globals().get("CRAFTING_RECIPES", {}),
+        "BOX_TIERS": globals().get("BOX_TIERS", {}),
         "ECONOMY_DAILY_REWARD": ECONOMY_DAILY_REWARD, "ECONOMY_WORK_MIN": ECONOMY_WORK_MIN,
         "ECONOMY_WORK_MAX": ECONOMY_WORK_MAX, "ECONOMY_WORK_COOLDOWN": ECONOMY_WORK_COOLDOWN,
         # Read-only definitions/status exposed to the dashboard. Commands remain Discord-only.
