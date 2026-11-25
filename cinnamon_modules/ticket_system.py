@@ -315,17 +315,21 @@ class TicketControls(discord.ui.View):
                         try: service_message=await interaction.channel.fetch_message(service_message_id)
                         except discord.HTTPException: service_message=None
                     notice=f"✅ {interaction.user.mention} claimed this Grow a Garden service. **{item_name}** has been removed from <@{creator_id}>'s inventory. Both the member and this Trusted Booster must confirm completion."
-                    if service_message:
-                        try:
-                            await service_message.edit(content="This service has been claimed. Use the latest completion button below.",view=None,allowed_mentions=discord.AllowedMentions.none())
-                        except discord.HTTPException:
-                            pass
-                    service_message=await interaction.channel.send(notice,view=GAGServiceCompletionView(ticket["ticket_id"]),allowed_mentions=discord.AllowedMentions(users=True))
-                    ticket["service_message_id"]=service_message.id
                     try:
-                        await bd_save_data()
-                    except Exception:
-                        log.exception("Could not persist the latest GAG completion message ID")
+                        latest_message=await interaction.channel.send(notice,view=GAGServiceCompletionView(ticket["ticket_id"]),allowed_mentions=discord.AllowedMentions(users=True))
+                        ticket["service_message_id"]=latest_message.id
+                        try:
+                            await bd_save_data()
+                        except Exception:
+                            log.exception("Could not persist the latest GAG completion message ID")
+                        if service_message:
+                            try:
+                                await service_message.edit(content="This service has been claimed. Use the latest completion button below.",view=None,allowed_mentions=discord.AllowedMentions.none())
+                            except discord.HTTPException:
+                                pass
+                    except discord.HTTPException:
+                        log.exception("Could not post the latest GAG completion message; the original completion button remains available")
+                        await interaction.channel.send(notice+" The existing Service Completed button remains available.",allowed_mentions=discord.AllowedMentions(users=True))
                 else:
                     await interaction.channel.send(f"✅ {interaction.user.mention} claimed this shop ticket. **{item_name}** has been removed from <@{creator_id}>'s inventory. The item was consumed by the moderator handling this ticket.",allowed_mentions=discord.AllowedMentions(users=True))
             return await interaction.response.send_message(
