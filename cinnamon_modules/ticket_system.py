@@ -201,15 +201,16 @@ class GAGServiceCompletionView(discord.ui.View):
                 "Could not save the confirmation. No commission was paid; please try again.", ephemeral=True)
 
         if all(ticket.get("service_confirmations", {}).values()):
-            await interaction.channel.send(
-                f"🎉 Service completed! Both confirmations received. <@{booster}> earned **{reward:,} Catnip** (50% commission).",
+            await interaction.message.edit(
+                content=f"🎉 Service completed! Both confirmations received. <@{booster}> earned **{reward:,} Catnip** (50% commission).",
                 view=TicketControls(ticket["ticket_id"]))
             await _ticket_log(interaction.guild, "GAG service paid", interaction.user,
                               ticket, f"Reward {reward} Catnip")
-            await interaction.response.send_message("Completion confirmed and commission saved.", ephemeral=True)
+            await interaction.response.send_message("Completion confirmed and commission saved. The Close option is now available.", ephemeral=True)
         else:
-            await interaction.channel.send(
-                f"☑️ {who.title()} confirmed service completion. Waiting for the other participant.")
+            await interaction.message.edit(
+                content=f"☑️ {who.title()} confirmed service completion. Waiting for the other participant.",
+                view=GAGServiceCompletionView(ticket["ticket_id"]))
             await interaction.response.send_message("Confirmation recorded.", ephemeral=True)
 
 
@@ -286,7 +287,18 @@ class TicketControls(discord.ui.View):
             if action == "claim" and str(ticket.get("routing","")).lower() in {"shop","grow_a_garden"}:
                 creator_id=int(ticket.get("creator_id",0)); item_name=str(ticket.get("selected_item_name") or ticket.get("selected_item_id") or "item")
                 if gag:
-                    await interaction.channel.send(f"✅ {interaction.user.mention} claimed this Grow a Garden service. **{item_name}** has been removed from <@{creator_id}>'s inventory. Both the member and this Trusted Booster must confirm completion.",view=GAGServiceCompletionView(ticket["ticket_id"]),allowed_mentions=discord.AllowedMentions(users=True))
+                    service_message_id=int(ticket.get("service_message_id",0) or 0)
+                    service_message=None
+                    if service_message_id:
+                        try: service_message=await interaction.channel.fetch_message(service_message_id)
+                        except discord.HTTPException: service_message=None
+                    notice=f"✅ {interaction.user.mention} claimed this Grow a Garden service. **{item_name}** has been removed from <@{creator_id}>'s inventory. Both the member and this Trusted Booster must confirm completion."
+                    if service_message:
+                        await service_message.edit(content=notice,view=GAGServiceCompletionView(ticket["ticket_id"]),allowed_mentions=discord.AllowedMentions(users=True))
+                    else:
+                        service_message=await interaction.channel.send(notice,view=GAGServiceCompletionView(ticket["ticket_id"]),allowed_mentions=discord.AllowedMentions(users=True))
+                        ticket["service_message_id"]=service_message.id
+                        await bd_save_data()
                 else:
                     await interaction.channel.send(f"✅ {interaction.user.mention} claimed this shop ticket. **{item_name}** has been removed from <@{creator_id}>'s inventory. The item was consumed by the moderator handling this ticket.",allowed_mentions=discord.AllowedMentions(users=True))
             return await interaction.response.send_message(
@@ -431,6 +443,9 @@ async def _ticket_create_channel(interaction,panel,category,answers,selected_ite
         await channel.send("Please wait, a moderator will be with you soon.")
     else:
         await channel.send(content=(member.mention+" "+pings).strip(),embed=e,view=TicketControls(tid),allowed_mentions=discord.AllowedMentions(users=[member],roles=[guild.get_role(x) for x in staff if guild.get_role(x)]))
+        if route=="grow_a_garden":
+            service_message=await channel.send("Service completion confirmation will be available once a Trusted Booster claims this ticket.",view=GAGServiceCompletionView(tid))
+            ticket["service_message_id"]=service_message.id
     custom_label=str(category.get("persistent_button_label","")).strip()
     custom_reply=str(category.get("persistent_button_reply","")).strip()
     if custom_label and custom_reply:
@@ -458,7 +473,7 @@ async def cinnamon_ticket_restore_views():
             category=next((x for x in panel.get("categories",[]) if str(x.get("id"))==str(ticket.get("category_id"))),{})
             if category.get("persistent_button_label") and category.get("persistent_button_reply"):
                 bot.add_view(TicketPersistentButtonView(ticket.get("ticket_id"),category["persistent_button_label"],category["persistent_button_reply"]))
-            if ticket.get("service_consumed") and not ticket.get("service_paid"):
+            if str(ticket.get("routing","")).lower()=="grow_a_garden" and not ticket.get("service_paid"):
                 bot.add_view(GAGServiceCompletionView(ticket.get("ticket_id")))
 
 
