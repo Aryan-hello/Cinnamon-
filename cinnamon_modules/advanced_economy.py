@@ -364,14 +364,22 @@ async def prefix_craft(ctx, recipe: str = "", quantity: int = 1):
 # Mystery Boxes
 # ---------------------------------------------------------------------------
 
-def _weighted_reward():
-    roll = random.randint(1, 100)
-    total = 0
-    for weight, kind in MYSTERY_REWARDS:
-        total += weight
-        if roll <= total:
-            return kind
-    return "catnip_small"
+def _weighted_reward(guild_id=None):
+    """Roll a Common box outcome using server-configurable relative weights."""
+    defaults = {kind: weight for weight, kind in MYSTERY_REWARDS}
+    custom = (ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:common", {})
+              if guild_id is not None else {})
+    configured = custom.get("category_weights", {}) if isinstance(custom, dict) else {}
+    kinds = list(defaults)
+    weights = []
+    for kind in kinds:
+        try:
+            weights.append(max(0, min(1000000, int(configured.get(kind, defaults[kind])))))
+        except (TypeError, ValueError):
+            weights.append(defaults[kind])
+    if not any(weights):
+        weights = [defaults[kind] for kind in kinds]
+    return random.choices(kinds, weights=weights, k=1)[0]
 
 
 def _record_mystery_reward_provenance(guild_id, user_id, item_id, tier, quantity=1):
@@ -444,36 +452,40 @@ async def _open_one(guild_id, user, tier="common"):
     reward_weights = custom.get("weights", {}) if isinstance(custom.get("weights", {}), dict) else {}
     if tier != "common":
         cfg = BOX_TIERS[tier]
-        roll = random.random()
-        if roll < .55:
+        distribution = custom.get("outcome_weights", {}) if isinstance(custom.get("outcome_weights", {}), dict) else {}
+        defaults = {"catnip": 55, "items": 35, "materials": 10}
+        outcomes = list(defaults)
+        outcome_weights = []
+        for outcome in outcomes:
+            try:
+                outcome_weights.append(max(0, min(1000000, int(distribution.get(outcome, defaults[outcome])))))
+            except (TypeError, ValueError):
+                outcome_weights.append(defaults[outcome])
+        if not any(outcome_weights):
+            outcome_weights = [defaults[outcome] for outcome in outcomes]
+        outcome = random.choices(outcomes, weights=outcome_weights, k=1)[0]
+        if outcome == "catnip":
             amount = random.randint(*cfg["catnip"])
             economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
             return f"🌿 **+{amount:,} Catnip**"
-        if roll < .90:
-            item_id = _weighted_box_choice(tier_items, reward_weights)
-            if item_id is None:
-                amount = random.randint(*cfg["catnip"])
-                economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
-                return f"🌿 **+{amount:,} Catnip**"
-            item = ECONOMY_ITEMS[item_id]
+        pool = tier_items if outcome == "items" else tier_materials
+        item_id = _weighted_box_choice(pool, reward_weights)
+        if item_id is None:
+            amount = random.randint(*cfg["catnip"])
+            economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
+            return f"🌿 **+{amount:,} Catnip**"
+        item = ECONOMY_ITEMS[item_id]
+        if outcome == "items":
             limit = int(item.get("max_per_person", 0))
             if limit and int(inv.get(item_id, 0)) >= limit:
                 amount = random.randint(500, 1800)
                 economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
                 return f"🪙 Duplicate protection: **+{amount:,} Catnip** (already own {item['name']})"
-            inv[item_id] = int(inv.get(item_id, 0)) + 1
-            _record_mystery_reward_provenance(guild_id, user.id, item_id, tier, 1)
-            return f"{item['emoji']} **1× {item['name']}**"
-        item_id = _weighted_box_choice(tier_materials, reward_weights)
-        if item_id is None:
-            amount = random.randint(*cfg["catnip"])
-            economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
-            return f"🌿 **+{amount:,} Catnip**"
         inv[item_id] = int(inv.get(item_id, 0)) + 1
         _record_mystery_reward_provenance(guild_id, user.id, item_id, tier, 1)
-        item = ECONOMY_ITEMS[item_id]
-        return f"🧪 **1× {item['name']}**"
-    kind = _weighted_reward()
+        return (f"{item['emoji']} **1× {item['name']}**" if outcome == "items"
+                else f"🧪 **1× {item['name']}**")
+    kind = _weighted_reward(guild_id)
     if kind == "catnip_small":
         amount = random.randint(250, 700)
         economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
@@ -498,7 +510,11 @@ async def _open_one(guild_id, user, tier="common"):
         item = ECONOMY_ITEMS[item_id]
         return f"{item['emoji']} **{qty}× {item['name']}**"
     if kind == "item_rare":
-        item_id = random.choice(["fish", "golden_fish", "moon_fish_scale"])
+        item_id = _weighted_box_choice(_box_reward_pool(guild_id, "rare", "items"), ADVANCED_FEATURES.get("custom_box_rewards", {}).get(f"{int(guild_id)}:rare", {}).get("weights", {}))
+        if item_id is None:
+            amount = random.randint(1200, 3000)
+            economy_balances[(guild_id, user.id)] = economy_balance(guild_id, user.id) + amount
+            return f"🌿 **+{amount:,} Catnip**"
         qty = random.randint(1, 2)
         inv[item_id] = int(inv.get(item_id, 0)) + qty
         _record_mystery_reward_provenance(guild_id, user.id, item_id, "common", qty)
