@@ -378,7 +378,8 @@ class TicketCloseModal(discord.ui.Modal):
             if creator:
                 await channel.set_permissions(creator, view_channel=True, send_messages=True, read_message_history=True, attach_files=True, embed_links=True)
             return await interaction.followup.send("Ticket closure could not be saved. The ticket remains open.", ephemeral=True)
-        await channel.send(embed=discord.Embed(title="Ticket closed", description=f"Closed by {interaction.user.mention}.\\nReason: {reason}", color=discord.Color.orange()), view=TicketControls(self.ticket_id))
+        close_view=None if str(ticket.get("routing","")).lower()=="support" else TicketControls(self.ticket_id)
+        await channel.send(embed=discord.Embed(title="Ticket closed", description=f"Closed by {interaction.user.mention}.\\nReason: {reason}", color=discord.Color.orange()), view=close_view)
         transcript = await _ticket_transcript(channel)
         if transcript and cfg.get("settings", {}).get("transcript_on_close", True):
             logch = guild.get_channel(int(cfg.get("settings", {}).get("log_channel_id") or 0))
@@ -637,7 +638,8 @@ async def ticket_auto_close_loop():
                 creator=guild.get_member(int(ticket.get("creator_id",0)))
                 if creator: await channel.set_permissions(creator,view_channel=True,send_messages=False,read_message_history=True)
                 ticket.update({"status":"closed","closed_at":now,"close_reason":"Automatically closed after inactivity"})
-                await channel.send("This ticket was automatically closed due to inactivity.",view=TicketControls(ticket.get("ticket_id")))
+                auto_close_view=None if str(ticket.get("routing","")).lower()=="support" else TicketControls(ticket.get("ticket_id"))
+                await channel.send("This ticket was automatically closed due to inactivity.",view=auto_close_view)
                 transcript=await _ticket_transcript(channel); logch=guild.get_channel(int(settings.get("log_channel_id") or 0))
                 if transcript and settings.get("transcript_on_close",True) and logch: await logch.send(content=f"Auto-close transcript for {channel.mention}",file=discord.File(transcript,filename=f"ticket-{channel.id}.html"))
                 root_cfg.setdefault("closed",{})[str(channel.id)]=dict(ticket); await bd_save_data()
