@@ -231,9 +231,9 @@ class TicketControls(discord.ui.View):
             trusted = any(r.id in set(map(int, cfg.get("settings", {}).get("trusted_booster_role_ids", [])))
                           for r in interaction.user.roles) or cinnamon_role_has(interaction.user, "trusted_booster")
             moderator = any(r.id in set(map(int, cfg.get("settings", {}).get("moderator_role_ids", []))) for r in interaction.user.roles) or cinnamon_role_has(interaction.user, "moderator")
-            if gag and not (trusted or is_staff):
-                return await interaction.response.send_message("Only a Trusted Booster or ticket administrator can claim this GAG service.", ephemeral=True)
-            if not gag and str(ticket.get("routing","")).lower()=="shop" and not (moderator or is_staff):
+            if gag and not (trusted or interaction.user.guild_permissions.administrator):
+                return await interaction.response.send_message("Only a Trusted Booster or Discord administrator can claim this GAG service.", ephemeral=True)
+            if not gag and str(ticket.get("routing","")).lower()=="shop" and not (moderator or interaction.user.guild_permissions.administrator):
                 return await interaction.response.send_message("Only a configured Moderator can claim this shop ticket.", ephemeral=True)
             if not (is_staff or moderator or (gag and trusted)):
                 return await interaction.response.send_message("Only authorized ticket staff can claim tickets.", ephemeral=True)
@@ -470,6 +470,8 @@ async def ticket_close(interaction:discord.Interaction):
     if not _ticket_staff(interaction): return await interaction.response.send_message("Configured moderators and ticket staff only.",ephemeral=True)
     ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
     if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    if str(ticket.get("routing","")).lower()=="grow_a_garden" and not ticket.get("service_paid") and not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("Only a Discord administrator can close a GAG ticket before both completion confirmations.",ephemeral=True)
     await interaction.response.send_modal(TicketCloseModal(ticket.get("ticket_id"),interaction.user.id))
 
 
