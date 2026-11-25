@@ -16,7 +16,7 @@ class ShopItemRuntimeTests(unittest.TestCase):
 
     def test_runtime_loads_after_economy_and_registers_use_command(self):
         self.assertLess(self.main.index('"economy.py"'), self.main.index('"shop_items_runtime.py"'))
-        self.assertIn('@economy_admin_group.command(name="use"', self.runtime)
+        self.assertIn('@bot.tree.command(name="use"', self.runtime)
         self.assertIn("async def economy_use_cmd", self.runtime)
 
     def test_both_purchase_paths_enforce_stock_expiry_and_requirements(self):
