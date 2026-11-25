@@ -351,7 +351,10 @@ def _shop_items(guild, state):
             rows = []
             for item_id in active:
                 item = shop.get(item_id, {})
-                weight = max(1, min(1000000, int(weights.get(item_id, 1))))
+                try:
+                    weight = max(1, min(1000000, int(weights.get(item_id, 1))))
+                except (TypeError, ValueError):
+                    weight = 1
                 fields = f"<input type='hidden' name='tier' value='{_esc(tier)}'><input type='hidden' name='pool_kind' value='{kind}'><input type='hidden' name='item_id' value='{_esc(item_id)}'><div class='field'><label>Weight for {_esc(item.get('name',item_id))}</label><input name='weight' type='number' min='1' max='1000000' value='{weight}' required></div>"
                 rows.append("<div class='toggle'><span><b>" + _esc(item.get("emoji","🐾")) + " " + _esc(item.get("name",item_id)) + "</b><small>" + _esc(item_id) + "</small></span><div class='actions'>" +
                     _form(gid, "shop_box_weight", fields, "Update weight") +
