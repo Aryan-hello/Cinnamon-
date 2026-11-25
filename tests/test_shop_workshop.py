@@ -51,11 +51,10 @@ class ShopWorkshopSourceTests(unittest.TestCase):
         self.assertIn("category_weights", self.advanced)
         self.assertIn("_weighted_reward(guild_id)", self.advanced)
 
-    def test_legacy_snapshot_migration_restores_all_missing_builtins(self):
-        self.assertIn("current_defaults = {", self.runtime)
-        self.assertIn("for item_id, default_item in current_defaults.items():", self.runtime)
-        self.assertIn("if item_id not in ECONOMY_ITEMS:", self.runtime)
-        self.assertIn('current_item["category"] = "grow_a_garden"', self.runtime)
+    def test_legacy_catalogue_migrates_gag_services_without_overriding_saved_choices(self):
+        self.assertIn("Saved catalogs are authoritative", self.runtime)
+        self.assertIn("if saved_items and isinstance(gag_defaults, dict):", self.runtime)
+        self.assertIn('current["category"] = "grow_a_garden"', self.runtime)
         self.assertIn('current["category"] = "grow_a_garden"', (ROOT / "cinnamon_modules" / "economy.py").read_text(encoding="utf-8"))
 
 
