@@ -2913,7 +2913,7 @@ def dashboard_action():
             if category=="economy": state.setdefault("economy_log_channels",{})[gid]=cid
             _save(); _audit(gid,actor,"Dashboard: log route updated",f"{category} -> {cid}"); session["dashboard_notice"]=f"{category.title()} log channel saved."
         elif action=="category_log_disable":
-            category=request.form.get("log_category","").strip(); allowed={"moderation","economy","ai","levels","achievements","quests","friendship","community","roles","setup","general","dashboard"}
+            category=request.form.get("log_category","").strip(); allowed={"moderation","economy","shop_items","ai","levels","achievements","quests","friendship","community","roles","setup","general","dashboard"}
             if category not in allowed: raise ValueError("Unknown log category.")
             state.setdefault("category_log_channels",{}).setdefault(gid,{}).pop(category,None)
             if category=="moderation": state.setdefault("log_channels",{}).pop(gid,None)
