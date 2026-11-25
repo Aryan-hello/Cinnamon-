@@ -264,7 +264,7 @@ def _shop_items(guild, state):
         fields = (
             f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>"
             f"<div class='shop-editor-section'><h3>Item details</h3>"
-            f"<div class='field'><label>Item ID</label><input value='{_esc(item_id)}' disabled></div>"
+
             f"<div class='field'><label>Name</label><input name='name' maxlength='80' value='{_esc(item.get('name', item_id))}' required></div>"
             f"<div class='field'><label>Buy price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='{max(1,int(item.get('price',1)))}' required></div>"
             f"<div class='field'><label>Sell-back price (Catnip)</label><input name='sell_price' type='number' min='0' max='10000000' value='{'' if sell_value is None else max(0,int(sell_value))}' placeholder='Default: 50% of buy price'></div>"
@@ -309,7 +309,7 @@ def _shop_items(guild, state):
     item_grid = "".join(item_rows) or "<p class='muted'>No items yet. Create your first item.</p>"
     create_fields = (
         "<div class='shop-editor-section'><h3>Item details</h3>"
-        "<div class='field'><label>Unique item ID</label><input name='item_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div>"
+        "<div class='field'><label>Item key (optional)</label><input name='item_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' placeholder='Generated from the item name if blank'><small>Leave blank and Cinnamon will generate it automatically.</small></div>"
         "<div class='field'><label>Name</label><input name='name' maxlength='80' required placeholder='Give this item a name'></div>"
         "<div class='field'><label>Buy price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='1000' required></div>"
         "<div class='field'><label>Sell-back price (Catnip)</label><input name='sell_price' type='number' min='0' max='10000000' placeholder='Default: 50% of buy price'></div>"
@@ -377,7 +377,7 @@ def _shop_items(guild, state):
     recipe_rows = []
     recipe_dialogs = []
     for recipe_id, recipe in sorted(recipes.items()):
-        ingredients_text = "\\n".join(f"{k}:{v}" for k, v in recipe.get("ingredients", {}).items())
+        ingredients_text = "\\n".join(f"{shop.get(k,{}).get('name',k)}:{v}" for k, v in recipe.get("ingredients", {}).items())
         output_options = "".join(
             "<option value='" + _esc(k) + "'" +
             (" selected" if k == recipe.get("output") else "") + ">" +
@@ -1678,7 +1678,7 @@ def _tickets(guild,state):
         panel_selected_service_ids={str(x) for x in (first_cat.get("service_item_ids") or ([first_cat.get("service_item_id")] if first_cat.get("service_item_id") else []))}
         panel_service_options="".join("<option value='"+_esc(item_id)+"'"+(" selected" if str(item_id) in panel_selected_service_ids else "")+">"+_esc(item.get("name",item_id))+"</option>" for item_id,item in gag_items.items() if isinstance(item,dict) and item.get("category")=="grow_a_garden")
         panel_category_editor="<div class='formgrid'><div class='field'><label>Category name</label><input name='category_label' maxlength='60' required value='"+_esc(first_cat.get("label","Support"))+"'></div><div class='field'><label>Ticket button label</label><input name='button_label' maxlength='80' required value='"+_esc(first_cat.get("button_label",first_cat.get("label","Open ticket")))+"'></div><div class='field'><label>Button emoji</label><input name='button_emoji' maxlength='100' value='"+_esc(first_cat.get("emoji",""))+"'></div><div class='field'><label>Routing</label><select name='routing'>"+routing_options+"</select></div><div class='field full' data-panel-feature='gag'><label>Linked GAG service items</label><select name='service_item_ids' multiple size='6'>"+panel_service_options+"</select><small>Select multiple services if this category handles more than one.</small></div><div class='field full'><label>Welcome message / Cinnamon's first reply</label><textarea name='welcome_message' maxlength='1500'>"+_esc(first_cat.get("welcome_message",""))+"</textarea></div><div class='field full' data-panel-feature='items'><label>Eligible inventory items</label><select name='inventory_item_ids' multiple size='6'>"+panel_inventory_options+"</select><small>For Shop routing, leave empty to allow all items members own.</small></div><div class='field full'><label>Additional ticket ping roles</label>"+_role_multi_select(guild,"category_staff_role_ids",first_cat.get("staff_role_ids",[]))+"</div>"+question_fields+"<div class='field'><label>Persistent button label</label><input name='persistent_button_label' maxlength='80' value='"+_esc(first_cat.get("persistent_button_label",""))+"'></div><div class='field full'><label>Persistent button reply</label><textarea name='persistent_button_reply' maxlength='1800'>"+_esc(first_cat.get("persistent_button_reply",""))+"</textarea></div></div>"
-        panel_rows.append("<article class='card full'><h3>"+_esc(p.get("name","Ticket panel"))+" <span class='pill'>"+state_label+"</span></h3><p class='muted'>"+_esc("#"+ch.name if ch else "No channel")+" · "+str(len(cats))+" categories · ID "+_esc(pid)+"</p>"+_form(gid,"ticket_panel_update","<input type='hidden' name='panel_id' value='"+_esc(pid)+"'><div class='formgrid'><div class='field'><label>Panel name</label><input name='panel_name' maxlength='60' required value='"+_esc(p.get("name",""))+"'></div><div class='field'><label>Channel</label>"+_channel_select(guild,"channel_id",p.get("channel_id"),allow_none=False)+"</div><div class='field'><label>Title</label><input name='panel_title' maxlength='256' required value='"+_esc(p.get("title","Support Center"))+"'></div><div class='field'><label>Color</label><input name='panel_color' maxlength='7' value='"+_esc(p.get("color","#D99048"))+"'></div><div class='field full'><label>Description</label><textarea name='panel_description' maxlength='3500'>"+_esc(p.get("description",""))+"</textarea></div>"+"<div class='field full'><label class='toggle'><input type='checkbox' name='gag_features_enabled' value='1'"+(p.get("gag_features_enabled",True)?" checked":"")+"><span><b>Enable Grow a Garden features</b><small>Allow GAG ticket routing and linked services on this panel.</small></span></label></div><div class='field full'><label class='toggle'><input type='checkbox' name='item_features_enabled' value='1'"+(p.get("item_features_enabled",True)?" checked":"")+"><span><b>Enable item features</b><small>Allow shop inventory and item selection on this panel.</small></span></label></div>"+panel_category_editor+"<div class='field full'><details><summary>Advanced multi-category editor (JSON)</summary><textarea name='categories_json' maxlength='12000' placeholder='Paste a JSON category list only to replace the categories above'></textarea><small>Optional advanced override. Leave blank to save the no-code editor above.</small></details></div></div>","Save panel settings")+
+        panel_rows.append("<article class='card full'><h3>"+_esc(p.get("name","Ticket panel"))+" <span class='pill'>"+state_label+"</span></h3><p class='muted'>"+_esc("#"+ch.name if ch else "No channel")+" · "+str(len(cats))+" categories</p>"+_form(gid,"ticket_panel_update","<input type='hidden' name='panel_id' value='"+_esc(pid)+"'><div class='formgrid'><div class='field'><label>Panel name</label><input name='panel_name' maxlength='60' required value='"+_esc(p.get("name",""))+"'></div><div class='field'><label>Channel</label>"+_channel_select(guild,"channel_id",p.get("channel_id"),allow_none=False)+"</div><div class='field'><label>Title</label><input name='panel_title' maxlength='256' required value='"+_esc(p.get("title","Support Center"))+"'></div><div class='field'><label>Color</label><input name='panel_color' maxlength='7' value='"+_esc(p.get("color","#D99048"))+"'></div><div class='field full'><label>Description</label><textarea name='panel_description' maxlength='3500'>"+_esc(p.get("description",""))+"</textarea></div>"+"<div class='field full'><label class='toggle'><input type='checkbox' name='gag_features_enabled' value='1'"+(p.get("gag_features_enabled",True)?" checked":"")+"><span><b>Enable Grow a Garden features</b><small>Allow GAG ticket routing and linked services on this panel.</small></span></label></div><div class='field full'><label class='toggle'><input type='checkbox' name='item_features_enabled' value='1'"+(p.get("item_features_enabled",True)?" checked":"")+"><span><b>Enable item features</b><small>Allow shop inventory and item selection on this panel.</small></span></label></div>"+panel_category_editor+"<div class='field full'><details><summary>Advanced multi-category editor (JSON)</summary><textarea name='categories_json' maxlength='12000' placeholder='Paste a JSON category list only to replace the categories above'></textarea><small>Optional advanced override. Leave blank to save the no-code editor above.</small></details></div></div>","Save panel settings")+
         "<div class='actions'><form method='post' action='/dashboard/action' class='actions'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_publish'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><label class='field'><span>Send panel to channel</span>"+_channel_select(guild,'publish_channel_id',p.get('channel_id'),allow_none=False)+"</label><button class='btn'>"+("Update published panel" if p.get("published") else "Publish panel")+"</button></form><form method='post' action='/dashboard/action' data-confirm='Delete this panel configuration?'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_delete'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn danger small'>Delete</button></form></div></article>")
     panel_card="<article class='card full'><h2>Ticket panels</h2>"+("".join(panel_rows) or "<p class='empty'>No panels yet.</p>")+"</article>"
     ticket_query = request.args.get("ticket_q", "").strip().casefold()[:100]
@@ -3158,15 +3158,18 @@ def dashboard_action():
             session["dashboard_notice"] = f"Restored {len(added)} missing built-in items. Existing custom settings were preserved."
 
         elif action in {"shop_item_add", "shop_item_save"}:
+            name = request.form.get("name", "").strip()
             item_id = request.form.get("item_id", "").strip().lower()
             items = state["ECONOMY_ITEMS"]
-            if not item_id or len(item_id) > 40 or not all(c.isalnum() or c in "_-" for c in item_id):
-                raise ValueError("Item ID must use letters, numbers, _ or - (max 40).")
-            if action == "shop_item_add" and item_id in items:
-                raise ValueError("That item ID already exists.")
-            if action == "shop_item_save" and item_id not in items:
-                raise ValueError("That item no longer exists.")
-            name = request.form.get("name", "").strip()
+            if action=="shop_item_add" and not item_id:
+                base=re.sub(r"[^a-z0-9_-]+","_",name.lower()).strip("_-")[:32] or "item"
+                item_id=base; suffix=2
+                while item_id in items:
+                    item_id=f"{base[:35]}_{suffix}"; suffix+=1
+            if not item_id or len(item_id)>40 or not all(c.isalnum() or c in "_-" for c in item_id):
+                raise ValueError("Item name is required so Cinnamon can generate a unique item key.")
+            if action=="shop_item_add" and item_id in items: raise ValueError("That item key already exists; choose another name.")
+            if action=="shop_item_save" and item_id not in items: raise ValueError("That item no longer exists.")
             try:
                 price = int(request.form.get("price", "0"))
                 limit = int(request.form.get("max_per_person", "0"))
