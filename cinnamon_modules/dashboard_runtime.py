@@ -137,9 +137,13 @@ def _bd_decode(raw: dict):
     # Saved catalogs are authoritative: administrators may intentionally
     # remove built-ins, and an explicitly empty catalog must remain empty.
     saved_items = raw.get("economy_items")
+    current_defaults = dict(ECONOMY_ITEMS)
     if isinstance(saved_items, dict):
         ECONOMY_ITEMS.clear()
         ECONOMY_ITEMS.update(saved_items)
+        # Keep the established one-item migration for Fishing String.
+        if saved_items and "fishing_string" not in saved_items:
+            ECONOMY_ITEMS["fishing_string"] = current_defaults["fishing_string"]
         # GAG services were added after some older snapshots. For non-empty
         # legacy catalogs, restore missing service entries and repair only
         # missing metadata on existing ones; preserve explicit shop_enabled,
