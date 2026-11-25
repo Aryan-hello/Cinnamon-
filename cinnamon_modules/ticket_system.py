@@ -132,6 +132,18 @@ class TicketInventorySelectView(discord.ui.View):
         await interaction.response.send_modal(TicketQuestionModal(self.gid,self.panel_id,self.category_id,self.user_id,category.get("questions",[]),item_id))
 
 
+class TicketPersistentButtonView(discord.ui.View):
+    def __init__(self,ticket_id,label,reply):
+        super().__init__(timeout=None)
+        self.reply=str(reply)[:1800]
+        button=discord.ui.Button(label=str(label or "More information")[:80],style=discord.ButtonStyle.secondary,custom_id="ticket:persistent:"+str(ticket_id))
+        button.callback=self._reply
+        self.add_item(button)
+
+    async def _reply(self,interaction):
+        await interaction.response.send_message(self.reply,allowed_mentions=discord.AllowedMentions.none())
+
+
 class GAGServiceCompletionView(discord.ui.View):
     def __init__(self, ticket_id):
         super().__init__(timeout=None)
@@ -408,6 +420,10 @@ async def _ticket_create_channel(interaction,panel,category,answers,selected_ite
         await channel.send("Please wait, a moderator will be with you soon.")
     else:
         await channel.send(content=(member.mention+" "+pings).strip(),embed=e,view=TicketControls(tid),allowed_mentions=discord.AllowedMentions(users=[member],roles=[guild.get_role(x) for x in staff if guild.get_role(x)]))
+    custom_label=str(category.get("persistent_button_label","")).strip()
+    custom_reply=str(category.get("persistent_button_reply","")).strip()
+    if custom_label and custom_reply and route!="support":
+        await channel.send("Ticket actions:",view=TicketPersistentButtonView(tid,custom_label,custom_reply))
     saved=await bd_save_data()
     if not saved:
         cfg["tickets"].pop(str(channel.id),None); cfg["cooldowns"].pop(str(member.id),None)
@@ -427,6 +443,10 @@ async def cinnamon_ticket_restore_views():
                 bot.add_view(TicketControls(ticket.get("ticket_id")))
             if ticket.get("status") == "closed" and ticket.get("rating") is None:
                 bot.add_view(TicketRatingView(ticket.get("ticket_id")))
+            panel=(_ticket_guild(int(gid)).get("panels",{}) or {}).get(str(ticket.get("panel_id")), {})
+            category=next((x for x in panel.get("categories",[]) if str(x.get("id"))==str(ticket.get("category_id"))),{})
+            if category.get("persistent_button_label") and category.get("persistent_button_reply"):
+                bot.add_view(TicketPersistentButtonView(ticket.get("ticket_id"),category["persistent_button_label"],category["persistent_button_reply"]))
             if ticket.get("service_consumed") and not ticket.get("service_paid"):
                 bot.add_view(GAGServiceCompletionView(ticket.get("ticket_id")))
 
