@@ -322,6 +322,27 @@ def _shop_items(guild, state):
         disabled_items = set(str(x) for x in custom.get("disabled_items", []))
         disabled_materials = set(str(x) for x in custom.get("disabled_materials", []))
         weights = custom.get("weights", {}) if isinstance(custom.get("weights", {}), dict) else {}
+        if tier == "common":
+            distribution_defaults = {"catnip_small":29,"item_common":28,"xp":14,"material":12,"catnip_big":9,"item_rare":6,"rare_crown":2}
+            distribution_key = "category_weights"
+            distribution_label = "Common box outcome weights"
+        else:
+            distribution_defaults = {"catnip":55,"items":35,"materials":10}
+            distribution_key = "outcome_weights"
+            distribution_label = "Reward type weights"
+        distribution = custom.get(distribution_key, {}) if isinstance(custom.get(distribution_key, {}), dict) else {}
+        distribution_fields = [f"<input type='hidden' name='tier' value='{_esc(tier)}'>"]
+        for outcome_name, default_weight in distribution_defaults.items():
+            try:
+                outcome_weight = max(0, min(1000000, int(distribution.get(outcome_name, default_weight))))
+            except (TypeError, ValueError):
+                outcome_weight = default_weight
+            distribution_fields.append(
+                f"<div class='field'><label>{_esc(outcome_name.replace('_',' ').title())} weight</label>"
+                f"<input name='weight_{_esc(outcome_name)}' type='number' min='0' max='1000000' value='{outcome_weight}' required></div>"
+            )
+        distribution_form = _form(gid, "shop_box_distribution", "".join(distribution_fields),
+                                  "Save outcome weights")
         pool_forms = []
         for kind, label, base_ids in (("items", "Items", cfg.get("items", [])), ("materials", "Materials", cfg.get("materials", []))):
             active = [str(x) for x in base_ids if str(x) not in (disabled_items if kind=="items" else disabled_materials)]
@@ -338,7 +359,7 @@ def _shop_items(guild, state):
                     "</div></div>")
             add_fields = f"<input type='hidden' name='tier' value='{_esc(tier)}'><input type='hidden' name='pool_kind' value='{kind}'><div class='field'><label>Add existing item to {label.lower()}</label><select name='item_id' required>{item_options}</select></div><div class='field'><label>Reward weight</label><input name='weight' type='number' min='1' max='1000000' value='1' required></div>"
             pool_forms.append("<div class='card half'><h3>" + label + "</h3>" + ("".join(rows) or "<p class='muted'>No active rewards in this pool.</p>") + _form(gid, "shop_box_reward_add", add_fields, "Add reward") + "</div>")
-        box_cards.append("<article class='card full'><h2>" + _esc(cfg.get("emoji","📦")) + " " + _esc(cfg.get("label",tier.title())) + " Mystery Box</h2><p class='muted'>Weights are relative within each reward pool. Higher values make an item more likely than lower-weight items in the same pool.</p><div class='grid'>" + "".join(pool_forms) + "</div></article>")
+        box_cards.append("<article class='card full'><h2>" + _esc(cfg.get("emoji","📦")) + " " + _esc(cfg.get("label",tier.title())) + " Mystery Box</h2><p class='muted'>" + _esc(distribution_label) + ": set any weight to zero to disable that outcome. At least one outcome weight must remain above zero. Item weights are relative within their reward pool.</p>" + distribution_form + "<div class='grid'>" + "".join(pool_forms) + "</div></article>")
 
     audit_rows = advanced.get("shop_item_audit_v1", {}).get(str(gid), []) if isinstance(advanced, dict) else []
     audit_html = "".join(
@@ -2372,7 +2393,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","shop_items_log_channel","shop_item_add","shop_item_save","shop_item_disable","shop_recipe_save","shop_recipe_remove","shop_box_reward_add","shop_box_reward_remove","shop_box_weight","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","community_poll_create","community_poll_close","security_settings","moderation_controls_settings","verification_publish","appeal_settings","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","shop_items_log_channel","shop_item_add","shop_item_save","shop_item_disable","shop_recipe_save","shop_recipe_remove","shop_box_reward_add","shop_box_reward_remove","shop_box_weight","shop_box_distribution","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","community_poll_create","community_poll_close","security_settings","moderation_controls_settings","verification_publish","appeal_settings","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -3083,6 +3104,41 @@ def dashboard_action():
                 "Crafting recipe disabled", f"{recipe_id}: {removed.get('name', recipe_id)}.",
                 rollback_recipe_remove)
             session["dashboard_notice"] = "Crafting recipe disabled. Existing items and inventories were preserved."
+
+        elif action == "shop_box_distribution":
+            tier = request.form.get("tier", "").strip().lower()
+            tiers = state.get("BOX_TIERS", {})
+            if tier not in tiers:
+                raise ValueError("Choose a valid Mystery Box tier.")
+            if tier == "common":
+                distribution_key = "category_weights"
+                defaults = {"catnip_small":29,"item_common":28,"xp":14,"material":12,"catnip_big":9,"item_rare":6,"rare_crown":2}
+            else:
+                distribution_key = "outcome_weights"
+                defaults = {"catnip":55,"items":35,"materials":10}
+            configured = {}
+            for outcome_name in defaults:
+                try:
+                    weight = int(request.form.get("weight_" + outcome_name, str(defaults[outcome_name])))
+                except ValueError:
+                    raise ValueError("Every outcome weight must be a whole number.")
+                if not 0 <= weight <= 1000000:
+                    raise ValueError("Outcome weights must be between 0 and 1,000,000.")
+                configured[outcome_name] = weight
+            if not any(configured.values()):
+                raise ValueError("At least one outcome weight must be above zero.")
+            advanced = state["advanced_features_data"]
+            box_root = advanced.setdefault("custom_box_rewards", {})
+            before = copy.deepcopy(box_root)
+            cfg = box_root.setdefault(f"{gid}:{tier}", {})
+            cfg[distribution_key] = configured
+            def rollback_box_distribution():
+                box_root.clear(); box_root.update(before)
+            _shop_workshop_commit(state, gid, actor, int(_tokens[sid]["user"]["id"]),
+                "Mystery Box outcome weights updated", f"{tier.title()} outcome weights: {configured}.",
+                rollback_box_distribution)
+            session["dashboard_notice"] = f"{tier.title()} Mystery Box outcome weights saved."
+
         elif action in {"shop_box_reward_add", "shop_box_reward_remove", "shop_box_weight"}:
             tier = request.form.get("tier", "").strip().lower()
             pool_kind = request.form.get("pool_kind", "").strip().lower()
