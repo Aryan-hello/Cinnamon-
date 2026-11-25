@@ -62,6 +62,19 @@ class TicketInventoryWorkflowTests(unittest.TestCase):
         self.assertIn("Claim this shop ticket in Discord so Cinnamon can verify and consume", self.dashboard)
         self.assertIn("An inventory-backed ticket cannot be unclaimed after its item has been consumed", self.dashboard)
 
+    def test_closed_gag_tickets_cannot_receive_late_completion_or_payout(self):
+        self.assertIn('if ticket.get("status")!="open":', self.tickets)
+        self.assertIn("This ticket is closed; completion confirmations are no longer accepted.", self.tickets)
+
+    def test_custom_panel_ping_roles_can_claim_and_manage_their_ticket(self):
+        self.assertIn("category_staff_ids=set(map(int,category.get(\"staff_role_ids\",[])))", self.tickets)
+        self.assertIn("member_role_ids & (moderator_ids | category_staff_ids)", self.tickets)
+        self.assertIn("allowed.update(map(int,category.get(\"staff_role_ids\",[])))", self.tickets)
+
+    def test_trusted_boosters_do_not_become_global_support_moderators(self):
+        self.assertNotIn('cinnamon_role_has(member,"trusted_booster") or any(r.id in allowed', self.tickets)
+        self.assertIn('settings.get("trusted_booster_role_ids",[])', self.tickets)
+
 
 if __name__ == "__main__":
     unittest.main()
