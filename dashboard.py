@@ -4014,17 +4014,22 @@ def dashboard_action():
                 if not questions and routing in {"shop","grow_a_garden"}:
                     defaults=(["What item or service did you purchase?","Order ID or purchase proof (if available)","What issue are you experiencing?"] if routing=="shop" else ["What Grow a Garden service did you purchase?","Order ID or purchase proof (if available)","What do you need help with?"])
                     questions=[{"label":label,"required":True,"paragraph":True,"max_length":400} for label in defaults]
-                service_item_ids=list(dict.fromkeys(str(x).strip() for x in request.form.getlist("service_item_ids") if str(x).strip()))
-                if len(service_item_ids)>25: raise ValueError("A category can link at most 25 GAG service items.")
-                for service_id in service_item_ids:
-                    linked_item=(state.get("ECONOMY_ITEMS",{}) or {}).get(service_id)
-                    if routing!="grow_a_garden" or not isinstance(linked_item,dict) or linked_item.get("category")!="grow_a_garden":
-                        raise ValueError("Choose registered Grow a Garden items for a Grow a Garden ticket category.")
-                selected_inventory=[]
-                for raw in request.form.getlist("inventory_item_ids"):
-                    if raw not in (state.get("ECONOMY_ITEMS",{}) or {}): raise ValueError("An eligible inventory item no longer exists.")
-                    selected_inventory.append(str(raw))
-                if selected_inventory and not items_enabled: raise ValueError("Enable item features before linking inventory items to this panel.")
+                old_category=(panel.get("categories",[]) or [{}])[0] if action=="ticket_panel_update" else {}
+                legacy_services=old_category.get("service_item_ids") or ([old_category.get("service_item_id")] if old_category.get("service_item_id") else [])
+                service_item_ids=(list(dict.fromkeys(str(x).strip() for x in request.form.getlist("service_item_ids") if str(x).strip())) if gag_enabled else [str(x) for x in legacy_services if str(x)])
+                if gag_enabled:
+                    if len(service_item_ids)>25: raise ValueError("A category can link at most 25 GAG service items.")
+                    for service_id in service_item_ids:
+                        linked_item=(state.get("ECONOMY_ITEMS",{}) or {}).get(service_id)
+                        if routing!="grow_a_garden" or not isinstance(linked_item,dict) or linked_item.get("category")!="grow_a_garden":
+                            raise ValueError("Choose registered Grow a Garden items for a Grow a Garden ticket category.")
+                if items_enabled:
+                    selected_inventory=[]
+                    for raw in request.form.getlist("inventory_item_ids"):
+                        if raw not in (state.get("ECONOMY_ITEMS",{}) or {}): raise ValueError("An eligible inventory item no longer exists.")
+                        selected_inventory.append(str(raw))
+                else:
+                    selected_inventory=list(old_category.get("inventory_item_ids",[]) or [])
                 category_roles=[]
                 for raw in request.form.getlist("category_staff_role_ids"):
                     if not raw.isdigit() or not guild.get_role(int(raw)) or guild.get_role(int(raw)).managed: raise ValueError("A custom ticket ping role is invalid.")
@@ -4032,7 +4037,6 @@ def dashboard_action():
                 persistent_label=request.form.get("persistent_button_label","").strip()[:80]
                 persistent_reply=request.form.get("persistent_button_reply","").strip()[:1800]
                 if bool(persistent_label)!=bool(persistent_reply): raise ValueError("A persistent button needs both a label and a reply.")
-                old_category=(panel.get("categories",[]) or [{}])[0] if action=="ticket_panel_update" else {}
                 category={"id":str(old_category.get("id") or secrets.token_hex(4)),"label":label,"button_label":button,"emoji":request.form.get("button_emoji","").strip()[:100],"button_style":"primary","routing":routing,"trusted_booster_routing":routing=="grow_a_garden","service_item_id":service_item_ids[0] if service_item_ids else "","service_item_ids":service_item_ids,"welcome_message":request.form.get("welcome_message","").strip()[:1500],"questions":questions,"inventory_item_ids":selected_inventory,"staff_role_ids":category_roles,"persistent_button_label":persistent_label,"persistent_button_reply":persistent_reply}
                 if action=="ticket_panel_update":
                     panel["categories"]=[category]+(panel.get("categories",[]) or [])[1:]
