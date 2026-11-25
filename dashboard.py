@@ -371,7 +371,7 @@ def _shop_items(guild, state):
         + "document.addEventListener('click',function(e){var target=e.target&&e.target.closest?e.target:null;if(!target)return;var open=target.closest('[data-shop-open]');if(open){var d=document.getElementById(open.getAttribute('data-shop-open'));if(d){try{if(d.showModal&&!d.open)d.showModal();else d.setAttribute('open','');}catch(err){d.setAttribute('open','');}try{initDialog(d);}catch(err){console.error('Cinnamon shop editor initialization failed',err);}}}var close=target.closest('[data-shop-close]');if(close){var d=close.closest('dialog');if(d&&d.close)d.close();else if(d)d.removeAttribute('open');}});document.addEventListener('click',function(e){if(e.target&&e.target.matches&&e.target.matches('dialog.shop-item-dialog')){if(e.target.close)e.target.close();else e.target.removeAttribute('open');}});})();</script>"
     )
     item_options = "".join(
-        f"<option value='{_esc(k)}'>{_esc(v.get('emoji','🐾'))} {_esc(v.get('name',k))} ({_esc(k)})</option>"
+        f"<option value='{_esc(k)}'>{_esc(v.get('emoji','🐾'))} {_esc(v.get('name',k))}</option>"
         for k, v in sorted(shop.items()) if isinstance(v, dict)
     )
     recipe_rows = []
@@ -388,7 +388,7 @@ def _shop_items(guild, state):
             f"<div class='field'><label>Recipe name</label><input name='name' maxlength='80' value='{_esc(recipe.get('name',recipe_id))}' required></div>"
             f"<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(recipe.get('emoji','🧪'))}'></div>"
             f"<div class='field'><label>Output item</label><select name='output' required>{output_options}</select></div>"
-            f"<div class='field' style='grid-column:1/-1'><label>Ingredients (one item_id:quantity per line)</label><textarea name='ingredients' rows='4' required>{_esc(ingredients_text)}</textarea></div>"
+            f"<div class='field' style='grid-column:1/-1'><label>Ingredients (one item name:quantity per line)</label><textarea name='ingredients' rows='4' required>{_esc(ingredients_text)}</textarea></div>"
             f"<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(recipe.get('description',''))}'></div>"
         )
         recipe_dialog_id="shop-recipe-edit-"+str(recipe_id)
@@ -397,11 +397,11 @@ def _shop_items(guild, state):
         item_dialogs.append(f"<dialog class='shop-item-dialog' id='{_esc(recipe_dialog_id)}'><div class='shop-dialog-head'><div><span class='eyebrow'>RECIPE EDITOR</span><h2>{_esc(recipe.get('name',recipe_id))}</h2></div><button type='button' class='shop-dialog-close' data-shop-close aria-label='Close editor'>×</button></div><div class='shop-dialog-body'>{recipe_editor}<div class='shop-dialog-danger'>{recipe_remove}</div></div></dialog>")
         recipe_rows.append("<button type='button' class='shop-product-tile shop-recipe-card' data-shop-open='"+_esc(recipe_dialog_id)+"'><span class='shop-product-icon'>"+_esc(recipe.get("emoji","🧪"))+"</span><span class='shop-product-name'>"+_esc(recipe.get("name",recipe_id))+"</span><span class='shop-product-edit'>Edit recipe</span></button>")
     recipe_add = (
-        "<div class='formgrid'><div class='field'><label>Recipe ID</label><input name='recipe_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div>"
+        "<div class='formgrid'><div class='field'><label>Recipe ID (optional; generated from the name)</label><input name='recipe_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' placeholder='Auto-generated if blank'></div>"
         "<div class='field'><label>Recipe name</label><input name='name' maxlength='80' required></div>"
         "<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='🧪'></div>"
         f"<div class='field'><label>Output item</label><select name='output' required>{item_options}</select></div>"
-        "<div class='field' style='grid-column:1/-1'><label>Ingredients (one item_id:quantity per line)</label><textarea name='ingredients' rows='5' placeholder='tuna:2&#10;treat:1' required></textarea></div>"
+        "<div class='field' style='grid-column:1/-1'><label>Ingredients (one item name:quantity per line)</label><textarea name='ingredients' rows='5' placeholder='tuna:2&#10;treat:1' required></textarea></div>"
         "<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300'></div></div>"
     )
     recipe_card = "<article class='card full'><h2>Create or edit a crafting recipe</h2><p class='muted'>Every ingredient must already exist in the item catalogue. Recipe output items are automatically marked craftable.</p>" + _form(gid, "shop_recipe_save", recipe_add, "Save recipe") + "</article>"
@@ -3326,9 +3326,14 @@ def dashboard_action():
             session["dashboard_notice"] = "Item hidden from the shop. Existing inventory and recipes were preserved."
         elif action == "shop_recipe_save":
             recipe_id = request.form.get("recipe_id", "").strip().lower()
-            if not recipe_id or len(recipe_id) > 40 or not all(c.isalnum() or c in "_-" for c in recipe_id) or recipe_id == "repair_rod":
-                raise ValueError("Recipe ID must use letters, numbers, _ or - (max 40); that ID is reserved.")
             name = request.form.get("name", "").strip()
+            if not recipe_id:
+                base=re.sub(r"[^a-z0-9_-]+","_",name.lower()).strip("_-")[:32] or "recipe"
+                recipe_id=base; suffix=2
+                while recipe_id in (state.get("CRAFTING_RECIPES",{}) or {}) and recipe_id not in (state.get("advanced_features_data",{}).get("custom_crafting_recipes_v1",{}) or {}):
+                    recipe_id=f"{base[:35]}_{suffix}"; suffix+=1
+            if len(recipe_id)>40 or not all(c.isalnum() or c in "_-" for c in recipe_id) or recipe_id=="repair_rod":
+                raise ValueError("Recipe ID must use letters, numbers, _ or - (max 40); that ID is reserved.")
             output = request.form.get("output", "").strip()
             emoji = request.form.get("emoji", "🧪")[:8] or "🧪"
             description = request.form.get("description", "")[:300]
@@ -3344,13 +3349,18 @@ def dashboard_action():
                 parts = line.split(":", 1)
                 if len(parts) != 2:
                     raise ValueError("Ingredients must use one item_id:quantity per line.")
-                ingredient_id = parts[0].strip().lower()
+                ingredient_ref=parts[0].strip().lower()
                 try:
-                    quantity = int(parts[1].strip())
+                    quantity=int(parts[1].strip())
                 except ValueError:
-                    raise ValueError(f"Invalid quantity for ingredient {ingredient_id}.")
-                if ingredient_id not in items or ingredient_id == output or not 1 <= quantity <= 999:
-                    raise ValueError(f"Ingredient {ingredient_id} must exist, differ from the output and use quantity 1–999.")
+                    raise ValueError(f"Invalid quantity for ingredient {ingredient_ref}.")
+                ingredient_id=ingredient_ref if ingredient_ref in items else ""
+                if not ingredient_id:
+                    matches=[str(k) for k,v in items.items() if isinstance(v,dict) and str(v.get("name","")).strip().casefold()==ingredient_ref.casefold()]
+                    if len(matches)==1: ingredient_id=matches[0]
+                    elif len(matches)>1: raise ValueError(f"More than one item is named {parts[0].strip()}; use its internal item key to disambiguate.")
+                if not ingredient_id or ingredient_id==output or not 1<=quantity<=999:
+                    raise ValueError(f"Ingredient {parts[0].strip()} must match an existing item, differ from the output and use quantity 1–999.")
                 ingredients[ingredient_id] = quantity
             if not ingredients or len(ingredients) > 20:
                 raise ValueError("A recipe needs 1–20 unique ingredients.")
