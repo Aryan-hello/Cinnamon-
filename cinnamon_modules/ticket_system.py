@@ -129,7 +129,12 @@ class TicketInventorySelectView(discord.ui.View):
         category=next((x for x in panel.get("categories",[]) if str(x.get("id"))==self.category_id),None)
         if not category:
             return await interaction.response.send_message("That ticket category is unavailable.",ephemeral=True)
-        await interaction.response.send_modal(TicketQuestionModal(self.gid,self.panel_id,self.category_id,self.user_id,category.get("questions",[]),item_id))
+        questions=category.get("questions",[])
+        if questions:
+            await interaction.response.send_modal(TicketQuestionModal(self.gid,self.panel_id,self.category_id,self.user_id,questions,item_id))
+        else:
+            await interaction.response.defer(ephemeral=True,thinking=True)
+            await _ticket_create_channel(interaction,panel,category,[],item_id)
 
 
 class TicketPersistentButtonView(discord.ui.View):
@@ -231,8 +236,8 @@ class TicketControls(discord.ui.View):
             trusted = any(r.id in set(map(int, cfg.get("settings", {}).get("trusted_booster_role_ids", [])))
                           for r in interaction.user.roles) or cinnamon_role_has(interaction.user, "trusted_booster")
             moderator = any(r.id in set(map(int, cfg.get("settings", {}).get("moderator_role_ids", []))) for r in interaction.user.roles) or cinnamon_role_has(interaction.user, "moderator")
-            if gag and not (trusted or interaction.user.guild_permissions.administrator):
-                return await interaction.response.send_message("Only a Trusted Booster or Discord administrator can claim this GAG service.", ephemeral=True)
+            if gag and not trusted:
+                return await interaction.response.send_message("Only a configured Trusted Booster can claim this GAG service.", ephemeral=True)
             if not gag and str(ticket.get("routing","")).lower()=="shop" and not (moderator or interaction.user.guild_permissions.administrator):
                 return await interaction.response.send_message("Only a configured Moderator can claim this shop ticket.", ephemeral=True)
             if not (is_staff or moderator or (gag and trusted)):
@@ -394,8 +399,8 @@ async def _ticket_create_channel(interaction,panel,category,answers,selected_ite
     gag_purchase=route in {"grow_a_garden","gag","boosting"} or (route=="shop" and selected_item.get("category")=="grow_a_garden")
     if route=="shop" and not selected_item_id:
         return await interaction.followup.send("Choose an item from your inventory before opening a shop ticket.",ephemeral=True)
-    if selected_item_id and int(economy_inventory_for(guild.id,member.id).get(str(selected_item_id),0))<1:
-        return await interaction.followup.send("You no longer own that item. Reopen the panel and select an item you still have.",ephemeral=True)
+    if selected_item_id and (not selected_item or int(economy_inventory_for(guild.id,member.id).get(str(selected_item_id),0))<1):
+        return await interaction.followup.send("That item is no longer available in your inventory. Reopen the panel and select an item you still own.",ephemeral=True)
     if gag_purchase:
         route="grow_a_garden"
         staff=set(map(int,settings.get("trusted_booster_role_ids",[]))) | set(map(int,_role_setup(guild.id).get("trusted_booster",[])))
