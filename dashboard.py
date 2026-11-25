@@ -438,6 +438,15 @@ def _shop_items(guild, state):
         _esc(entry.get("at","")) + " · " + _esc(entry.get("actor","admin")) + " · " + _esc(entry.get("details","")) +
         "</small></div></div>" for entry in reversed(audit_rows[-30:])
     ) or "<p class='muted'>No Shop & Items changes recorded yet.</p>"
+    restore_form = _form(
+        gid, "shop_catalog_restore", "",
+        "Restore missing built-in items",
+    )
+    restore_card = (
+        "<article class='card full'><h2>Catalogue recovery</h2>"
+        "<p class='muted'>Restore missing built-in items from Cinnamon's bundled catalogue. Existing custom items and edited settings are preserved.</p>"
+        + restore_form + "</article>"
+    )
     return (
         "<h1>Shop & Items Workshop</h1><p class='muted'>Create and manage shop items, crafting recipes, Mystery Box reward pools and their relative weights without editing code.</p>"
         f"<div class='statusline' style='margin-bottom:16px'>{storage}<span class='pill'>{len(shop)} catalogue items</span><span class='pill'>{len(recipes)} active recipes</span></div>"
