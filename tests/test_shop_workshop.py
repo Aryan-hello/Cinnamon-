@@ -44,6 +44,8 @@ class ShopWorkshopSourceTests(unittest.TestCase):
 
     def test_mystery_box_pools_support_exclusions_and_relative_weights(self):
         self.assertIn("def _box_reward_pool", self.advanced)
+        self.assertIn("BOX_RARE_ITEM_POOL", self.advanced)
+        self.assertIn("rare_items", self.dashboard)
         self.assertIn("disabled_items", self.dashboard)
         self.assertIn("disabled_materials", self.dashboard)
         self.assertIn("def _weighted_box_choice", self.advanced)
