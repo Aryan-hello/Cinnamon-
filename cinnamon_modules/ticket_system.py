@@ -28,11 +28,12 @@ def _ticket_guild(gid):
     cfg.setdefault("panels",{}); cfg.setdefault("tickets",{}); cfg.setdefault("closed",{}); cfg.setdefault("cooldowns",{})
     cfg.setdefault("settings",{"log_channel_id":None,"ticket_category_id":None,"staff_role_ids":[],"moderator_role_ids":[],"trusted_booster_role_ids":[],"max_open_per_user":3,"cooldown_seconds":60,"auto_close_hours":0,"transcript_on_close":True,"rating_enabled":True})
     cfg["settings"].setdefault("moderator_role_ids", [])
-    if not cfg["panels"]:
-        cfg["panels"] = {
-            "default-shop": {"id":"default-shop","name":"Shop Ticket","title":"Shop Tickets","description":"Select the shop item you purchased to open a private service ticket.","color":"#D99048","published":False,"categories":[{"id":"shop","label":"Shop Ticket","button_label":"Shop Ticket","emoji":"🛍️","routing":"shop","welcome_message":"Thanks for opening a shop ticket. A staff member will claim it shortly.","questions":[{"label":"What do you need help with?","required":True,"paragraph":True,"max_length":400}],"inventory_item_ids":[]}]},
-            "default-support": {"id":"default-support","name":"Support Ticket","title":"Support Center","description":"Open a private ticket for general help.","color":"#D99048","published":False,"categories":[{"id":"support","label":"Support Ticket","button_label":"Support Ticket","emoji":"🎫","routing":"support","welcome_message":"Please wait, a moderator will be with you soon.","questions":[{"label":"Why did you open this ticket?","required":True,"paragraph":True,"max_length":800}]}]}
-        }
+    default_panels = {
+        "default-shop": {"id":"default-shop","name":"Shop Ticket","title":"Shop Tickets","description":"Select the shop item you purchased to open a private service ticket.","color":"#D99048","published":False,"categories":[{"id":"shop","label":"Shop Ticket","button_label":"Shop Ticket","emoji":"🛍️","routing":"shop","welcome_message":"Thanks for opening a shop ticket. A staff member will claim it shortly.","questions":[{"label":"What do you need help with?","required":True,"paragraph":True,"max_length":400}],"inventory_item_ids":[]}]},
+        "default-support": {"id":"default-support","name":"Support Ticket","title":"Support Center","description":"Open a private ticket for general help.","color":"#D99048","published":False,"categories":[{"id":"support","label":"Support Ticket","button_label":"Support Ticket","emoji":"🎫","routing":"support","welcome_message":"Please wait, a moderator will be with you soon.","questions":[{"label":"Why did you open this ticket?","required":True,"paragraph":True,"max_length":800}]}]}
+    }
+    for default_id,default_panel in default_panels.items():
+        cfg["panels"].setdefault(default_id,default_panel)
     return cfg
 
 def _role_setup(gid):
@@ -443,13 +444,13 @@ async def _ticket_create_channel(interaction,panel,category,answers,selected_ite
         await channel.send("Please wait, a moderator will be with you soon.")
     else:
         await channel.send(content=(member.mention+" "+pings).strip(),embed=e,view=TicketControls(tid),allowed_mentions=discord.AllowedMentions(users=[member],roles=[guild.get_role(x) for x in staff if guild.get_role(x)]))
-        if route=="grow_a_garden":
-            service_message=await channel.send("Service completion confirmation will be available once a Trusted Booster claims this ticket.",view=GAGServiceCompletionView(tid))
-            ticket["service_message_id"]=service_message.id
     custom_label=str(category.get("persistent_button_label","")).strip()
     custom_reply=str(category.get("persistent_button_reply","")).strip()
     if custom_label and custom_reply:
         await channel.send("Ticket actions:",view=TicketPersistentButtonView(tid,custom_label,custom_reply))
+    if route=="grow_a_garden":
+        service_message=await channel.send("Service completion confirmation will be available once a Trusted Booster claims this ticket.",view=GAGServiceCompletionView(tid))
+        ticket["service_message_id"]=service_message.id
     saved=await bd_save_data()
     if not saved:
         cfg["tickets"].pop(str(channel.id),None); cfg["cooldowns"].pop(str(member.id),None)
