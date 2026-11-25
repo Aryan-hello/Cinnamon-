@@ -24,7 +24,7 @@ class ShopWorkshopSourceTests(unittest.TestCase):
             "shop_recipe_save", "shop_recipe_remove",
             "shop_box_reward_add", "shop_box_reward_remove",
             "shop_box_weight", "shop_box_distribution",
-            "shop_items_log_channel",
+            "shop_items_log_channel", "shop_catalog_restore",
         ):
             self.assertIn(action, self.dashboard)
 
@@ -45,6 +45,8 @@ class ShopWorkshopSourceTests(unittest.TestCase):
     def test_mystery_box_pools_support_exclusions_and_relative_weights(self):
         self.assertIn("def _box_reward_pool", self.advanced)
         self.assertIn("BOX_RARE_ITEM_POOL", self.advanced)
+        self.assertIn("ECONOMY_BUILTIN_DEFAULTS", self.advanced)
+        self.assertIn("Restore missing built-in items", self.dashboard)
         self.assertIn("rare_items", self.dashboard)
         self.assertIn("disabled_items", self.dashboard)
         self.assertIn("disabled_materials", self.dashboard)
