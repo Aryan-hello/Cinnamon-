@@ -37,6 +37,13 @@ class ShopItemRuntimeTests(unittest.TestCase):
         self.assertIn('"bought_or_used"', self.runtime)
         self.assertIn("random_outcomes", self.runtime)
 
+    def test_dashboard_exposes_visual_no_code_builders(self):
+        for builder in ("shop-requirement-builder", "shop-action-builder", "shop-outcome-builder"):
+            self.assertIn(builder, self.dashboard)
+        self.assertIn("＋ Add required item", self.dashboard)
+        self.assertIn("＋ Add action", self.dashboard)
+        self.assertIn("＋ Add random outcome", self.dashboard)
+
     def test_dashboard_exposes_and_validates_every_runtime_setting(self):
         for field in (
             "stock_unlimited", "stock_quantity", "expires_at", "usable", "reusable",
@@ -44,6 +51,10 @@ class ShopItemRuntimeTests(unittest.TestCase):
             "item_actions", "random_outcomes",
         ):
             self.assertIn(field, self.dashboard)
+
+    def test_purchase_reply_effects_run_after_interaction_acknowledgement(self):
+        buy = self.economy[self.economy.index("async def economy_buy_cmd"):self.economy.index("def _economy_is_box_reward")]
+        self.assertLess(buy.index("interaction.response.send_message"), buy.index('_shop_item_run_actions(interaction, item_id, "bought")'))
 
     def test_runtime_source_parses(self):
         ast.parse(self.runtime)
