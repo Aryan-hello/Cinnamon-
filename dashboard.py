@@ -3231,7 +3231,11 @@ def dashboard_action():
                 items.clear(); items.update(before)
             _shop_workshop_commit(state, gid, actor, int(_tokens[sid]["user"]["id"]),
                 "Item created" if action == "shop_item_add" else "Item edited",
-                f"{item_id}: {name}; price={price} Catnip; shop_enabled={updated['shop_enabled']}; craftable={updated['craftable']}.",
+                f"{item_id}: {name}; price={price} Catnip; shop_enabled={updated['shop_enabled']}; craftable={updated['craftable']}; "
+                f"stock={'unlimited' if updated['stock_unlimited'] else updated['stock_quantity']}; expires_at={updated['expires_at'] or 'never'}; "
+                f"usable={updated['usable']}; reusable={updated['reusable']}; use_cooldown_seconds={updated['use_cooldown_seconds']}; "
+                f"purchase_requirements={len(updated['purchase_requirements'])} sections; use_requirements={len(updated['use_requirements'])} sections; "
+                f"actions={len(updated['actions'])}; random_outcomes={len(updated['random_outcomes'])}.",
                 rollback_shop_item)
             session["dashboard_notice"] = "Shop item saved."
         elif action == "shop_item_disable":
