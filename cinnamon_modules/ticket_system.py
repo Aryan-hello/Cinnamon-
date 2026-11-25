@@ -26,7 +26,14 @@ def _ticket_root():
 def _ticket_guild(gid):
     cfg=_ticket_root().setdefault(str(int(gid)),{})
     cfg.setdefault("panels",{}); cfg.setdefault("tickets",{}); cfg.setdefault("closed",{}); cfg.setdefault("cooldowns",{})
-    cfg.setdefault("settings",{"log_channel_id":None,"ticket_category_id":None,"staff_role_ids":[],"trusted_booster_role_ids":[],"max_open_per_user":3,"cooldown_seconds":60,"auto_close_hours":0,"transcript_on_close":True,"rating_enabled":True})
+    cfg.setdefault("settings",{"log_channel_id":None,"ticket_category_id":None,"staff_role_ids":[],"moderator_role_ids":[],"trusted_booster_role_ids":[],"max_open_per_user":3,"cooldown_seconds":60,"auto_close_hours":0,"transcript_on_close":True,"rating_enabled":True})
+    cfg["settings"].setdefault("moderator_role_ids", [])
+    default_panels = {
+        "default-shop": {"id":"default-shop","name":"Shop Ticket","title":"Shop Tickets","description":"Select the shop item you purchased to open a private service ticket.","color":"#D99048","published":False,"categories":[{"id":"shop","label":"Shop Ticket","button_label":"Shop Ticket","emoji":"🛍️","routing":"shop","welcome_message":"Thanks for opening a shop ticket. A staff member will claim it shortly.","questions":[{"label":"What do you need help with?","required":True,"paragraph":True,"max_length":400}],"inventory_item_ids":[]}]},
+        "default-support": {"id":"default-support","name":"Support Ticket","title":"Support Center","description":"Open a private ticket for general help.","color":"#D99048","published":False,"categories":[{"id":"support","label":"Support Ticket","button_label":"Support Ticket","emoji":"🎫","routing":"support","welcome_message":"Thanks for contacting Cinnamon support.","questions":[{"label":"Why did you open this ticket?","required":True,"paragraph":True,"max_length":800}]}]}
+    }
+    for default_id,default_panel in default_panels.items():
+        cfg["panels"].setdefault(default_id,default_panel)
     return cfg
 
 def _role_setup(gid):
@@ -62,9 +69,9 @@ async def _ticket_log(guild,action,actor=None,ticket=None,detail=""):
         except Exception: log.exception("Ticket audit failed")
 
 class TicketQuestionModal(discord.ui.Modal):
-    def __init__(self,gid,panel_id,category_id,user_id,questions):
+    def __init__(self,gid,panel_id,category_id,user_id,questions,selected_item_id=None):
         super().__init__(title="Open support ticket",timeout=300)
-        self.gid=int(gid); self.panel_id=str(panel_id); self.category_id=str(category_id); self.user_id=int(user_id); self.questions=list(questions or [])[:5]
+        self.gid=int(gid); self.panel_id=str(panel_id); self.category_id=str(category_id); self.user_id=int(user_id); self.questions=list(questions or [])[:5]; self.selected_item_id=str(selected_item_id or "")
         for i,q in enumerate(self.questions):
             self.add_item(discord.ui.TextInput(label=str(q.get("label","Question "+str(i+1)))[:45],placeholder=str(q.get("placeholder","Your answer"))[:100],required=bool(q.get("required",True)),max_length=min(1000,max(1,int(q.get("max_length",400)))),style=discord.TextStyle.paragraph if q.get("paragraph",True) else discord.TextStyle.short,custom_id="q"+str(i)))
     async def on_submit(self,interaction):
@@ -75,7 +82,7 @@ class TicketQuestionModal(discord.ui.Modal):
         if not panel or not panel.get("published",True): return await interaction.followup.send("That panel is unavailable.",ephemeral=True)
         category=next((x for x in panel.get("categories",[]) if str(x.get("id"))==self.category_id),None)
         if not category: return await interaction.followup.send("That ticket category is unavailable.",ephemeral=True)
-        await _ticket_create_channel(interaction,panel,category,answers)
+        await _ticket_create_channel(interaction,panel,category,answers,self.selected_item_id)
 
 class TicketPanelView(discord.ui.View):
     def __init__(self,gid,panel_id,panel):
@@ -88,8 +95,60 @@ class TicketPanelView(discord.ui.View):
         cat=next((x for x in panel.get("categories",[]) if str(x.get("id"))==cid),None)
         if not cat: return await interaction.response.send_message("Ticket category unavailable.",ephemeral=True)
         if str(cat.get("routing","")).lower()=="faq": return await interaction.response.send_message(str(cat.get("faq_answer","Please check the server FAQ or contact support."))[:2000],ephemeral=True)
+        if str(cat.get("routing","")).lower()=="shop":
+            return await interaction.response.send_message("Choose the item from your inventory for this ticket:",view=TicketInventorySelectView(self.gid,self.panel_id,cid,interaction.user.id,cat),ephemeral=True)
         if cat.get("questions"): return await interaction.response.send_modal(TicketQuestionModal(self.gid,self.panel_id,cid,interaction.user.id,cat["questions"]))
         await interaction.response.defer(ephemeral=True,thinking=True); await _ticket_create_channel(interaction,panel,cat,[])
+
+class TicketInventorySelectView(discord.ui.View):
+    def __init__(self,gid,panel_id,category_id,user_id,category):
+        super().__init__(timeout=300)
+        self.gid=int(gid); self.panel_id=str(panel_id); self.category_id=str(category_id); self.user_id=int(user_id)
+        inventory=economy_inventory_for(self.gid,self.user_id)
+        allowed={str(x) for x in category.get("inventory_item_ids",[]) if str(x)}
+        options=[]
+        for item_id,quantity in sorted(inventory.items(),key=lambda pair:str((ECONOMY_ITEMS.get(str(pair[0]),{}) or {}).get("name",pair[0])).casefold()):
+            item_id=str(item_id); item=ECONOMY_ITEMS.get(item_id,{})
+            if int(quantity or 0)<1 or not item or (allowed and item_id not in allowed): continue
+            name=str(item.get("name",item_id))[:100]
+            options.append(discord.SelectOption(label=name,value=item_id,description=("Owned: "+str(int(quantity)))[:100]))
+        if not options:
+            self.add_item(discord.ui.Button(label="No eligible items in your inventory",style=discord.ButtonStyle.secondary,disabled=True))
+            return
+        select=discord.ui.Select(placeholder="Select the item you purchased…",min_values=1,max_values=1,options=options[:25],custom_id="ticket:itemselect:"+str(self.gid)+":"+self.panel_id+":"+self.category_id)
+        select.callback=self._selected
+        self.add_item(select)
+
+    async def _selected(self,interaction):
+        if interaction.user.id!=self.user_id:
+            return await interaction.response.send_message("This inventory selection belongs to another member.",ephemeral=True)
+        item_id=str(interaction.data.get("values",[""])[0])
+        inventory=economy_inventory_for(self.gid,self.user_id)
+        if int(inventory.get(item_id,0))<1:
+            return await interaction.response.send_message("You no longer own that item. Reopen the panel and choose an item you still have.",ephemeral=True)
+        cfg=_ticket_guild(self.gid); panel=cfg.get("panels",{}).get(self.panel_id,{})
+        category=next((x for x in panel.get("categories",[]) if str(x.get("id"))==self.category_id),None)
+        if not category:
+            return await interaction.response.send_message("That ticket category is unavailable.",ephemeral=True)
+        questions=category.get("questions",[])
+        if questions:
+            await interaction.response.send_modal(TicketQuestionModal(self.gid,self.panel_id,self.category_id,self.user_id,questions,item_id))
+        else:
+            await interaction.response.defer(ephemeral=True,thinking=True)
+            await _ticket_create_channel(interaction,panel,category,[],item_id)
+
+
+class TicketPersistentButtonView(discord.ui.View):
+    def __init__(self,ticket_id,label,reply):
+        super().__init__(timeout=None)
+        self.reply=str(reply)[:1800]
+        button=discord.ui.Button(label=str(label or "More information")[:80],style=discord.ButtonStyle.secondary,custom_id="ticket:persistent:"+str(ticket_id))
+        button.callback=self._reply
+        self.add_item(button)
+
+    async def _reply(self,interaction):
+        await interaction.response.send_message(self.reply,allowed_mentions=discord.AllowedMentions.none())
+
 
 class GAGServiceCompletionView(discord.ui.View):
     def __init__(self, ticket_id):
@@ -107,6 +166,8 @@ class GAGServiceCompletionView(discord.ui.View):
                        if str(t.get("ticket_id")) == self.ticket_id), None)
         if not ticket or str(ticket.get("routing")) != "grow_a_garden":
             return await interaction.response.send_message("GAG service ticket not found.", ephemeral=True)
+        if ticket.get("status")!="open":
+            return await interaction.response.send_message("This ticket is closed; completion confirmations are no longer accepted.",ephemeral=True)
         uid = int(ticket.get("creator_id", 0))
         booster = int(ticket.get("claimed_by") or 0)
         if interaction.user.id == uid:
@@ -135,7 +196,12 @@ class GAGServiceCompletionView(discord.ui.View):
             ticket["service_paid"] = True
             ticket["service_completed_at"] = _time.time()
             ticket["booster_reward"] = reward
-        if not await bd_save_data():
+        try:
+            saved=await bd_save_data()
+        except Exception:
+            log.exception("GAG completion confirmation save failed")
+            saved=False
+        if not saved:
             ticket.clear()
             ticket.update(before_ticket)
             economy_balances[(interaction.guild.id, booster)] = before_balance
@@ -143,45 +209,70 @@ class GAGServiceCompletionView(discord.ui.View):
                 "Could not save the confirmation. No commission was paid; please try again.", ephemeral=True)
 
         if all(ticket.get("service_confirmations", {}).values()):
-            await interaction.channel.send(
-                f"🎉 Service completed! Both confirmations received. <@{booster}> earned **{reward:,} Catnip** (50% commission).")
+            await interaction.message.edit(
+                content=f"🎉 Service completed! Both confirmations received. <@{booster}> earned **{reward:,} Catnip** (50% commission).",
+                view=TicketControls(ticket["ticket_id"]))
             await _ticket_log(interaction.guild, "GAG service paid", interaction.user,
                               ticket, f"Reward {reward} Catnip")
-            await interaction.response.send_message("Completion confirmed and commission saved.", ephemeral=True)
+            await interaction.response.send_message("Completion confirmed and commission saved. The Close option is now available.", ephemeral=True)
         else:
-            await interaction.channel.send(
-                f"☑️ {who.title()} confirmed service completion. Waiting for the other participant.")
+            await interaction.message.edit(
+                content=f"☑️ {who.title()} confirmed service completion. Waiting for the other participant.",
+                view=GAGServiceCompletionView(ticket["ticket_id"]))
             await interaction.response.send_message("Confirmation recorded.", ephemeral=True)
 
 
 class TicketControls(discord.ui.View):
     def __init__(self,ticket_id):
         super().__init__(timeout=None); self.ticket_id=str(ticket_id)
-        for label,emoji,style,action in [("Claim","🙋",discord.ButtonStyle.success,"claim"),("Unclaim","↩️",discord.ButtonStyle.secondary,"unclaim"),("Close","🔒",discord.ButtonStyle.danger,"close"),("Reopen","🔓",discord.ButtonStyle.primary,"reopen")]:
+        ticket=next((t for g in _ticket_root().values() for t in (g.get("tickets",{}) or {}).values() if str(t.get("ticket_id"))==self.ticket_id),{})
+        gag=str(ticket.get("routing","")).lower()=="grow_a_garden"
+        support=str(ticket.get("routing","")).lower()=="support"
+        actions=[] if support else [("Claim","🙋",discord.ButtonStyle.success,"claim"),("Unclaim","↩️",discord.ButtonStyle.secondary,"unclaim")]
+        if not support:
+            actions.append(("Admin Close" if gag and not ticket.get("service_paid") else "Close","🔒",discord.ButtonStyle.danger,"close"))
+        if ticket.get("status")=="closed": actions.append(("Reopen","🔓",discord.ButtonStyle.primary,"reopen"))
+        for label,emoji,style,action in actions:
             b=discord.ui.Button(label=label,emoji=emoji,style=style,custom_id=f"ticket:control:{self.ticket_id}:{action}"); b.callback=self._control; self.add_item(b)
     async def _control(self,interaction):
         action=interaction.data.get("custom_id","").rsplit(":",1)[-1]
         ticket=next((t for g in _ticket_root().values() for t in (g.get("tickets",{}) or {}).values() if str(t.get("ticket_id"))==self.ticket_id),None)
         if not ticket: return await interaction.response.send_message("Ticket record not found.",ephemeral=True)
         guild=interaction.guild; cfg=_ticket_guild(guild.id); staff=set(map(int,cfg.get("settings",{}).get("staff_role_ids",[])))
-        is_staff=interaction.user.guild_permissions.administrator or any(r.id in staff for r in interaction.user.roles) or cinnamon_role_has(interaction.user,"ticket_staff") or cinnamon_role_has(interaction.user,"ticket_admin")
+        role_settings=cfg.get("settings",{})
+        moderator_ids=set(map(int,role_settings.get("moderator_role_ids",[])))
+        trusted_ids=set(map(int,role_settings.get("trusted_booster_role_ids",[])))
+        panel=cfg.get("panels",{}).get(str(ticket.get("panel_id")),{})
+        category=next((x for x in panel.get("categories",[]) if str(x.get("id"))==str(ticket.get("category_id"))),{})
+        category_staff_ids=set(map(int,category.get("staff_role_ids",[])))
+        member_role_ids={r.id for r in interaction.user.roles}
+        is_staff=interaction.user.guild_permissions.administrator or bool(member_role_ids & (staff | moderator_ids | category_staff_ids)) or cinnamon_role_has(interaction.user,"ticket_staff") or cinnamon_role_has(interaction.user,"ticket_admin") or cinnamon_role_has(interaction.user,"moderator")
         if action in ("claim", "unclaim"):
+            if ticket.get("status")!="open":
+                return await interaction.response.send_message("Only open tickets can be claimed or unclaimed.",ephemeral=True)
             gag = str(ticket.get("routing", "")).lower() == "grow_a_garden"
             trusted = any(r.id in set(map(int, cfg.get("settings", {}).get("trusted_booster_role_ids", [])))
                           for r in interaction.user.roles) or cinnamon_role_has(interaction.user, "trusted_booster")
-            if not (is_staff or (gag and trusted)):
+            moderator = bool(member_role_ids & (moderator_ids | category_staff_ids)) or cinnamon_role_has(interaction.user, "moderator")
+            if gag and not trusted:
+                return await interaction.response.send_message("Only a configured Trusted Booster can claim this GAG service.", ephemeral=True)
+            if not gag and str(ticket.get("routing","")).lower()=="shop" and not (moderator or interaction.user.guild_permissions.administrator):
+                return await interaction.response.send_message("Only a configured Moderator can claim this shop ticket.", ephemeral=True)
+            if not (is_staff or moderator or (gag and trusted)):
                 return await interaction.response.send_message("Only authorized ticket staff can claim tickets.", ephemeral=True)
+            if action == "claim" and ticket.get("claimed_by") == interaction.user.id:
+                return await interaction.response.send_message("You have already claimed this ticket.", ephemeral=True)
             if action == "claim" and ticket.get("claimed_by") not in (None, interaction.user.id):
                 return await interaction.response.send_message("Already claimed by another staff member.", ephemeral=True)
-            if action == "unclaim" and gag and ticket.get("service_consumed"):
+            if action == "unclaim" and str(ticket.get("routing","")).lower() in {"shop","grow_a_garden"} and ticket.get("service_consumed"):
                 return await interaction.response.send_message(
                     "A Grow a Garden service cannot be unclaimed after its voucher has been consumed. Complete the service or ask an administrator to review it.",
                     ephemeral=True)
             before_ticket = _copy.deepcopy(ticket)
             service_inv = None
             before_inventory = None
-            if action == "claim" and gag:
-                item_id = str(ticket.get("service_item_id", ""))
+            if action == "claim" and str(ticket.get("routing","")).lower() in {"shop","grow_a_garden"}:
+                item_id = str(ticket.get("selected_item_id") or ticket.get("service_item_id", ""))
                 creator_id = int(ticket.get("creator_id", 0))
                 service_inv = economy_inventory_for(guild.id, creator_id)
                 if not item_id or int(service_inv.get(item_id, 0)) < 1:
@@ -192,10 +283,20 @@ class TicketControls(discord.ui.View):
                 if service_inv[item_id] <= 0:
                     service_inv.pop(item_id, None)
                 ticket["service_consumed"] = True
+                ticket["item_consumed"] = True
                 ticket["service_claimed_at"] = _time.time()
-                ticket["service_confirmations"] = {"member": False, "booster": False}
+                ticket["item_consumed_at"] = _time.time()
+                ticket["item_consumed_by"] = interaction.user.id
+                if gag:
+                    ticket["service_item_id"] = item_id
+                    ticket["service_confirmations"] = {"member": False, "booster": False}
             ticket["claimed_by"] = interaction.user.id if action == "claim" else None
-            if not await bd_save_data():
+            try:
+                saved=await bd_save_data()
+            except Exception:
+                log.exception("Ticket claim transaction save failed")
+                saved=False
+            if not saved:
                 ticket.clear()
                 ticket.update(before_ticket)
                 if service_inv is not None and before_inventory is not None:
@@ -205,13 +306,38 @@ class TicketControls(discord.ui.View):
                     "Could not save the ticket transaction. The claim and inventory change were rolled back.",
                     ephemeral=True)
             await _ticket_log(guild, action, interaction.user, ticket)
-            if action == "claim" and gag:
-                await interaction.channel.send(
-                    f"✅ {interaction.user.mention} claimed this Grow a Garden service. The member's unfulfilled service voucher was consumed and saved. The Trusted Booster can now proceed with the service.",
-                    view=GAGServiceCompletionView(ticket["ticket_id"]))
+            if action == "claim" and str(ticket.get("routing","")).lower() in {"shop","grow_a_garden"}:
+                creator_id=int(ticket.get("creator_id",0)); item_name=str(ticket.get("selected_item_name") or ticket.get("selected_item_id") or "item")
+                if gag:
+                    service_message_id=int(ticket.get("service_message_id",0) or 0)
+                    service_message=None
+                    if service_message_id:
+                        try: service_message=await interaction.channel.fetch_message(service_message_id)
+                        except discord.HTTPException: service_message=None
+                    notice=f"✅ {interaction.user.mention} claimed this Grow a Garden service. **{item_name}** has been removed from <@{creator_id}>'s inventory. Both the member and this Trusted Booster must confirm completion."
+                    try:
+                        latest_message=await interaction.channel.send(notice,view=GAGServiceCompletionView(ticket["ticket_id"]),allowed_mentions=discord.AllowedMentions(users=True))
+                        ticket["service_message_id"]=latest_message.id
+                        try:
+                            await bd_save_data()
+                        except Exception:
+                            log.exception("Could not persist the latest GAG completion message ID")
+                        if service_message:
+                            try:
+                                await service_message.edit(content="This service has been claimed. Use the latest completion button below.",view=None,allowed_mentions=discord.AllowedMentions.none())
+                            except discord.HTTPException:
+                                pass
+                    except discord.HTTPException:
+                        log.exception("Could not post the latest GAG completion message; the original completion button remains available")
+                        await interaction.channel.send(notice+" The existing Service Completed button remains available.",allowed_mentions=discord.AllowedMentions(users=True))
+                else:
+                    await interaction.channel.send(f"✅ {interaction.user.mention} claimed this shop ticket. **{item_name}** has been removed from <@{creator_id}>'s inventory. The item was consumed by the moderator handling this ticket.",allowed_mentions=discord.AllowedMentions(users=True))
             return await interaction.response.send_message(
                 "Ticket " + ("claimed." if action == "claim" else "unclaimed."), ephemeral=True)
         if action=="close":
+            gag_pending=str(ticket.get("routing","")).lower()=="grow_a_garden" and not ticket.get("service_paid")
+            if gag_pending and not interaction.user.guild_permissions.administrator:
+                return await interaction.response.send_message("Only a Discord administrator can close a GAG ticket before both completion confirmations are received.",ephemeral=True)
             if not is_staff and interaction.user.id!=int(ticket.get("creator_id",0)): return await interaction.response.send_message("Only creator or staff can close.",ephemeral=True)
             return await interaction.response.send_modal(TicketCloseModal(self.ticket_id,interaction.user.id))
         if action=="reopen":
@@ -282,7 +408,8 @@ class TicketCloseModal(discord.ui.Modal):
             if creator:
                 await channel.set_permissions(creator, view_channel=True, send_messages=True, read_message_history=True, attach_files=True, embed_links=True)
             return await interaction.followup.send("Ticket closure could not be saved. The ticket remains open.", ephemeral=True)
-        await channel.send(embed=discord.Embed(title="Ticket closed", description=f"Closed by {interaction.user.mention}.\\nReason: {reason}", color=discord.Color.orange()), view=TicketControls(self.ticket_id))
+        close_view=None if str(ticket.get("routing","")).lower()=="support" else TicketControls(self.ticket_id)
+        await channel.send(embed=discord.Embed(title="Ticket closed", description=f"Closed by {interaction.user.mention}.\\nReason: {reason}", color=discord.Color.orange()), view=close_view)
         transcript = await _ticket_transcript(channel)
         if transcript and cfg.get("settings", {}).get("transcript_on_close", True):
             logch = guild.get_channel(int(cfg.get("settings", {}).get("log_channel_id") or 0))
@@ -304,7 +431,7 @@ async def _ticket_transcript(channel):
     page="<!doctype html><meta charset='utf-8'><title>Ticket transcript</title><style>body{font:15px sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;background:#f8f3ea;color:#38281e}article{background:white;padding:1rem;margin:.7rem 0;border-radius:10px;overflow-wrap:anywhere}time{color:#88796c;font-size:12px}</style><h1>"+_html.escape(channel.name)+"</h1>"+"".join(rows)
     return _io.BytesIO(page.encode("utf-8"))
 
-async def _ticket_create_channel(interaction,panel,category,answers):
+async def _ticket_create_channel(interaction,panel,category,answers,selected_item_id=None):
     guild=interaction.guild; member=interaction.user; cfg=_ticket_guild(guild.id); settings=cfg.get("settings",{})
     opened=sum(1 for t in cfg.get("tickets",{}).values() if int(t.get("creator_id",0))==member.id and t.get("status")=="open")
     if opened>=max(1,min(10,int(settings.get("max_open_per_user",3)))): return await interaction.followup.send("You reached the open-ticket limit.",ephemeral=True)
@@ -312,10 +439,22 @@ async def _ticket_create_channel(interaction,panel,category,answers):
     if _time.time()-last<cooldown: return await interaction.followup.send(f"Wait {int(cooldown-(_time.time()-last))} seconds before opening another ticket.",ephemeral=True)
     role_map=_role_setup(guild.id); staff=set(map(int,settings.get("staff_role_ids",[]))); staff.update(map(int,role_map.get("ticket_staff",[]))); staff.update(map(int,role_map.get("ticket_admin",[]))); staff.update(map(int,category.get("staff_role_ids",[]))); route=str(category.get("routing","shop")).lower()
     if route=="shop": staff.update(map(int,role_map.get("shop_manager",[])))
-    answers_text=" ".join(str(a) for _,a in (answers or [])).lower()
-    gag_purchase=any(x in answers_text for x in ("grow a garden","grow-a-garden","gag","garden boosting","garden boost","mutation","pet mutation"))
-    if route in {"grow_a_garden","gag","boosting"} or category.get("trusted_booster_routing") or (route=="shop" and gag_purchase):
-        staff.update(map(int,settings.get("trusted_booster_role_ids",[]))); staff.update(map(int,_role_setup(guild.id).get("trusted_booster",[])))
+    selected_item=(ECONOMY_ITEMS.get(str(selected_item_id),{}) or {}) if selected_item_id else {}
+    gag_purchase=route in {"grow_a_garden","gag","boosting"} or (route=="shop" and selected_item.get("category")=="grow_a_garden")
+    if route=="shop" and not selected_item_id:
+        return await interaction.followup.send("Choose an item from your inventory before opening a shop ticket.",ephemeral=True)
+    if selected_item_id and (not selected_item or int(economy_inventory_for(guild.id,member.id).get(str(selected_item_id),0))<1):
+        return await interaction.followup.send("That item is no longer available in your inventory. Reopen the panel and select an item you still own.",ephemeral=True)
+    if gag_purchase:
+        route="grow_a_garden"
+        staff=set(map(int,settings.get("trusted_booster_role_ids",[]))) | set(map(int,_role_setup(guild.id).get("trusted_booster",[])))
+        staff.update(map(int,category.get("staff_role_ids",[])))
+    elif route=="shop":
+        staff=set(map(int,settings.get("moderator_role_ids",[]))) | set(map(int,_role_setup(guild.id).get("moderator",[])))
+        staff.update(map(int,category.get("staff_role_ids",[])))
+    elif route=="support":
+        staff.update(map(int,settings.get("moderator_role_ids",[])))
+        staff.update(map(int,_role_setup(guild.id).get("moderator",[])))
     overwrites={guild.default_role:discord.PermissionOverwrite(view_channel=False),member:discord.PermissionOverwrite(view_channel=True,send_messages=True,read_message_history=True,attach_files=True,embed_links=True)}
     for rid in staff:
         role=guild.get_role(rid)
@@ -324,13 +463,25 @@ async def _ticket_create_channel(interaction,panel,category,answers):
     if not isinstance(parent,discord.CategoryChannel): parent=None
     base=str(category.get("channel_name_format","ticket-{username}"))[:80].replace("{username}",member.name.lower().replace(" ","-")[:20]).replace("{user_id}",str(member.id)); name="".join(c for c in base.lower() if c.isalnum() or c in "-_")[:90] or "ticket"
     channel=await guild.create_text_channel(name,category=parent,overwrites=overwrites,reason=f"Cinnamon ticket opened by {member}")
-    tid=_secrets.token_hex(8); ticket={"ticket_id":tid,"channel_id":channel.id,"creator_id":member.id,"panel_id":str(panel.get("id")),"panel_name":str(panel.get("name","Ticket panel")),"category_id":str(category.get("id")),"category_label":str(category.get("label","Support")),"created_at":_time.time(),"status":"open","claimed_by":None,"assigned_to":None,"priority":"normal","answers":answers,"close_reason":None,"routing":str(category.get("routing","support")),"service_item_id":str(category.get("service_item_id",""))}
+    tid=_secrets.token_hex(8); ticket={"ticket_id":tid,"channel_id":channel.id,"creator_id":member.id,"panel_id":str(panel.get("id")),"panel_name":str(panel.get("name","Ticket panel")),"category_id":str(category.get("id")),"category_label":str(category.get("label","Support")),"created_at":_time.time(),"status":"open","claimed_by":None,"assigned_to":None,"priority":"normal","answers":answers,"close_reason":None,"routing":route,"service_item_id":str(selected_item_id or category.get("service_item_id","")),"selected_item_id":str(selected_item_id or ""),"selected_item_name":str(selected_item.get("name","")) if selected_item else "","item_consumed":False}
     cfg["tickets"][str(channel.id)]=ticket; cfg["cooldowns"][str(member.id)]=int(_time.time())
     pings=" ".join(f"<@&{rid}>" for rid in staff if guild.get_role(rid)); e=discord.Embed(title=str(category.get("welcome_title") or f"{category.get('label','Support')} ticket"),description=str(category.get("welcome_message") or "Thanks for opening a ticket. Staff will assist you here."),color=discord.Color.orange())
     e.add_field(name="Ticket creator",value=member.mention,inline=True); e.add_field(name="Category",value=str(category.get("label","Support")),inline=True)
+    if selected_item_id: e.add_field(name="Selected inventory item",value=str(selected_item.get("emoji","🐾"))+" "+str(selected_item.get("name",selected_item_id)),inline=True)
     for q,a in answers[:5]: e.add_field(name=str(q)[:256],value=str(a)[:1024] or "—",inline=False)
     e.add_field(name="Priority",value="Normal",inline=True)
-    await channel.send(content=(member.mention+" "+pings).strip(),embed=e,view=TicketControls(tid),allowed_mentions=discord.AllowedMentions(users=[member],roles=[guild.get_role(x) for x in staff if guild.get_role(x)]))
+    if route=="support":
+        await channel.send(content=(member.mention+" "+pings).strip(),embed=e,allowed_mentions=discord.AllowedMentions(users=[member],roles=[guild.get_role(x) for x in staff if guild.get_role(x)]))
+        await channel.send("Please wait, a moderator will be with you soon.")
+    else:
+        await channel.send(content=(member.mention+" "+pings).strip(),embed=e,view=TicketControls(tid),allowed_mentions=discord.AllowedMentions(users=[member],roles=[guild.get_role(x) for x in staff if guild.get_role(x)]))
+    custom_label=str(category.get("persistent_button_label","")).strip()
+    custom_reply=str(category.get("persistent_button_reply","")).strip()
+    if custom_label and custom_reply:
+        await channel.send("Ticket actions:",view=TicketPersistentButtonView(tid,custom_label,custom_reply))
+    if route=="grow_a_garden":
+        service_message=await channel.send("Service completion confirmation will be available once a Trusted Booster claims this ticket.",view=GAGServiceCompletionView(tid))
+        ticket["service_message_id"]=service_message.id
     saved=await bd_save_data()
     if not saved:
         cfg["tickets"].pop(str(channel.id),None); cfg["cooldowns"].pop(str(member.id),None)
@@ -346,19 +497,42 @@ async def cinnamon_ticket_restore_views():
         for pid,panel in (cfg.get("panels",{}) or {}).items():
             if panel.get("published") and panel.get("message_id"): bot.add_view(TicketPanelView(int(gid),pid,panel),message_id=int(panel["message_id"]))
         for ticket in (cfg.get("tickets", {}) or {}).values():
-            if ticket.get("status") in ("open", "closed"):
+            if ticket.get("status") in ("open", "closed") and str(ticket.get("routing","")).lower()!="support":
                 bot.add_view(TicketControls(ticket.get("ticket_id")))
             if ticket.get("status") == "closed" and ticket.get("rating") is None:
                 bot.add_view(TicketRatingView(ticket.get("ticket_id")))
-            if ticket.get("service_consumed") and not ticket.get("service_paid"):
+            panel=(_ticket_guild(int(gid)).get("panels",{}) or {}).get(str(ticket.get("panel_id")), {})
+            category=next((x for x in panel.get("categories",[]) if str(x.get("id"))==str(ticket.get("category_id"))),{})
+            if category.get("persistent_button_label") and category.get("persistent_button_reply"):
+                bot.add_view(TicketPersistentButtonView(ticket.get("ticket_id"),category["persistent_button_label"],category["persistent_button_reply"]))
+            if str(ticket.get("routing","")).lower()=="grow_a_garden" and not ticket.get("service_paid"):
                 bot.add_view(GAGServiceCompletionView(ticket.get("ticket_id")))
 
 
 def _ticket_staff(interaction):
     member=interaction.user
-    return bool(member.guild_permissions.administrator or cinnamon_role_has(member,"ticket_staff") or cinnamon_role_has(member,"ticket_admin") or any(r.id in set(map(int,_ticket_guild(interaction.guild.id).get("settings",{}).get("staff_role_ids",[]))) for r in member.roles))
+    cfg=_ticket_guild(interaction.guild.id)
+    settings=cfg.get("settings",{})
+    allowed=set(map(int,settings.get("staff_role_ids",[]))) | set(map(int,settings.get("moderator_role_ids",[])))
+    ticket=cfg.get("tickets",{}).get(str(interaction.channel.id))
+    if ticket:
+        panel=cfg.get("panels",{}).get(str(ticket.get("panel_id")),{})
+        category=next((x for x in panel.get("categories",[]) if str(x.get("id"))==str(ticket.get("category_id"))),{})
+        allowed.update(map(int,category.get("staff_role_ids",[])))
+    return bool(member.guild_permissions.administrator or cinnamon_role_has(member,"ticket_staff") or cinnamon_role_has(member,"ticket_admin") or cinnamon_role_has(member,"moderator") or any(r.id in allowed for r in member.roles))
 
 ticket_group=app_commands.Group(name="ticket",description="Manage Cinnamon support tickets")
+
+@ticket_group.command(name="close",description="Close the current support ticket")
+@app_commands.guild_only()
+async def ticket_close(interaction:discord.Interaction):
+    ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
+    if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    if not _ticket_staff(interaction): return await interaction.response.send_message("Configured moderators and ticket staff only.",ephemeral=True)
+    if str(ticket.get("routing","")).lower()=="grow_a_garden" and not ticket.get("service_paid") and not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("Only a Discord administrator can close a GAG ticket before both completion confirmations.",ephemeral=True)
+    await interaction.response.send_modal(TicketCloseModal(ticket.get("ticket_id"),interaction.user.id))
+
 
 @ticket_group.command(name="assign",description="Assign the current ticket to a staff member")
 @app_commands.guild_only()
@@ -500,7 +674,8 @@ async def ticket_auto_close_loop():
                 creator=guild.get_member(int(ticket.get("creator_id",0)))
                 if creator: await channel.set_permissions(creator,view_channel=True,send_messages=False,read_message_history=True)
                 ticket.update({"status":"closed","closed_at":now,"close_reason":"Automatically closed after inactivity"})
-                await channel.send("This ticket was automatically closed due to inactivity.",view=TicketControls(ticket.get("ticket_id")))
+                auto_close_view=None if str(ticket.get("routing","")).lower()=="support" else TicketControls(ticket.get("ticket_id"))
+                await channel.send("This ticket was automatically closed due to inactivity.",view=auto_close_view)
                 transcript=await _ticket_transcript(channel); logch=guild.get_channel(int(settings.get("log_channel_id") or 0))
                 if transcript and settings.get("transcript_on_close",True) and logch: await logch.send(content=f"Auto-close transcript for {channel.mention}",file=discord.File(transcript,filename=f"ticket-{channel.id}.html"))
                 root_cfg.setdefault("closed",{})[str(channel.id)]=dict(ticket); await bd_save_data()
