@@ -3574,11 +3574,14 @@ def dashboard_action():
             bonus_ids=request.form.getlist("bonus_role_ids")
             bonus_template_name=request.form.get("bonus_role_template","").strip()
             saved_bonus_templates=(state.get("giveaway_bonus_role_templates",{}) or {}).get(gid,(state.get("giveaway_bonus_role_templates",{}) or {}).get(str(gid),{})) or {}
-            if bonus_template_name and not bonus_ids:
-                saved_bonus=saved_bonus_templates.get(bonus_template_name,{})
-                bonus_text="\n".join(f"<@&{rid}>:{count}" for rid,count in (saved_bonus.get("bonus_roles",{}) or {}).items())
-            else:
-                bonus_text="\n".join(f"<@&{rid}>:{request.form.get('bonus_role_count_'+str(rid),'1')}" for rid in dict.fromkeys(bonus_ids) if str(rid).isdigit())
+            bonus_pairs={}
+            if bonus_template_name:
+                saved_bonus=saved_bonus_templates.get(bonus_template_name)
+                if not isinstance(saved_bonus,dict): raise ValueError("That extra-entry template no longer exists.")
+                bonus_pairs.update(saved_bonus.get("bonus_roles",{}) or {})
+            for rid in dict.fromkeys(bonus_ids):
+                if str(rid).isdigit(): bonus_pairs[str(rid)]=request.form.get("bonus_role_count_"+str(rid),"1")
+            bonus_text="\n".join(f"<@&{rid}>:{count}" for rid,count in bonus_pairs.items())
             config=validate(guild, bonus_roles=bonus_text,
                 required_roles=role_text("required_roles"), bypass_roles=role_text("bypass_roles"),
                 blacklisted_roles=role_text("blacklisted_roles"),
