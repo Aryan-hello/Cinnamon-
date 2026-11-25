@@ -146,9 +146,18 @@ def _bd_decode(raw: dict):
     if isinstance(saved_items, dict):
         ECONOMY_ITEMS.clear()
         ECONOMY_ITEMS.update(saved_items)
+        gag_defaults = globals().get("GAG_SERVICE_ITEMS", {})
         for item_id, default_item in current_defaults.items():
             if item_id not in ECONOMY_ITEMS:
                 ECONOMY_ITEMS[item_id] = dict(default_item)
+            elif item_id in gag_defaults and isinstance(ECONOMY_ITEMS.get(item_id), dict):
+                # Older snapshots may contain a GAG item but omit its category
+                # metadata, causing it to vanish from the dedicated shop tab.
+                current_item = ECONOMY_ITEMS[item_id]
+                for field, value in default_item.items():
+                    current_item.setdefault(field, value)
+                current_item["category"] = "grow_a_garden"
+                current_item.setdefault("service_type", "grow_a_garden")
     else:
         # Migrate only legacy/default catalogs. Explicitly saved prices are
         # administrator choices and may validly be below these default floors.
