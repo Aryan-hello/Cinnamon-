@@ -181,6 +181,176 @@ def _audit(guild_id, actor, title, detail):
             log.exception("Dashboard audit log failed for guild %s", guild_id)
 
 
+
+def _shop_workshop_commit(state, guild_id, actor, actor_id, action, details, rollback):
+    """Commit a shop-workshop mutation and its bounded audit event in one snapshot."""
+    if not (state.get("BD_UPSTASH_URL") and state.get("BD_UPSTASH_TOKEN")):
+        rollback()
+        raise ValueError("Shop & Items changes require UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN. Configure both on Render first.")
+    advanced = state.get("advanced_features_data")
+    if not isinstance(advanced, dict):
+        rollback()
+        raise RuntimeError("Advanced economy storage is unavailable.")
+    root = advanced.setdefault("shop_item_audit_v1", {})
+    key = str(int(guild_id))
+    previous = copy.deepcopy(root.get(key, []))
+    rows = root.setdefault(key, [])
+    event = {
+        "at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "actor": str(actor)[:100],
+        "actor_id": int(actor_id),
+        "action": str(action)[:80],
+        "details": str(details)[:1200],
+    }
+    rows.append(event)
+    del rows[:-500]
+    try:
+        _save()
+    except Exception:
+        rollback()
+        if previous:
+            root[key] = previous
+        else:
+            root.pop(key, None)
+        raise
+    send_log = state.get("send_log")
+    if callable(send_log):
+        try:
+            _run_bot(send_log(
+                guild_id, title="🧰 Shop & Items • " + str(action)[:180],
+                description=str(details)[:900],
+                fields=[("Admin", f"{actor} ({actor_id})"), ("Audit storage", "Upstash snapshot committed")],
+                category="shop_items",
+            ))
+        except Exception:
+            log.exception("Shop & Items Discord log failed for guild %s", guild_id)
+
+
+def _shop_items(guild, state):
+    """No-code catalogue, crafting and mystery-box reward workshop."""
+    gid = guild.id
+    shop = state.get("ECONOMY_ITEMS", {})
+    recipes = state.get("CRAFTING_RECIPES", {})
+    advanced = state.get("advanced_features_data", {})
+    custom_recipes = advanced.get("custom_crafting_recipes_v1", {}) if isinstance(advanced, dict) else {}
+    disabled_recipes = set(advanced.get("disabled_crafting_recipes_v1", [])) if isinstance(advanced, dict) else set()
+    box_root = advanced.get("custom_box_rewards", {}) if isinstance(advanced, dict) else {}
+    tiers = state.get("BOX_TIERS", {})
+    storage_ok = bool(state.get("BD_UPSTASH_URL") and state.get("BD_UPSTASH_TOKEN"))
+    storage = "<span class='pill good'>Upstash configured</span>" if storage_ok else "<span class='pill warn'>Upstash not configured</span>"
+    channel_id = state.get("category_log_channels", {}).get(gid, {}).get("shop_items")
+    channel = guild.get_channel(int(channel_id)) if channel_id else None
+    channel_form = _form(gid, "shop_items_log_channel",
+        "<div class='field'><label>Dedicated Shop & Items log channel</label>" +
+        _channel_select(guild, "channel_id", channel_id) +
+        "<small>Admin changes are sent here. Audit records are also committed to the Upstash snapshot.</small></div>",
+        "Save log channel")
+    item_rows = []
+    for item_id, item in sorted(shop.items(), key=lambda pair: str(pair[1].get("name", pair[0])).casefold()):
+        item = item if isinstance(item, dict) else {}
+        fields = (
+            f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>"
+            f"<div class='field'><label>Name</label><input name='name' maxlength='80' value='{_esc(item.get('name', item_id))}' required></div>"
+            f"<div class='field'><label>Price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='{max(1,int(item.get('price',1)))}' required></div>"
+            f"<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(item.get('emoji','🐾'))}'></div>"
+            f"<div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='{max(0,int(item.get('max_per_person',0)))}'></div>"
+            f"<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(item.get('description',''))}'></div>"
+            f"<label class='toggle'><input type='checkbox' name='shop_enabled'{' checked' if item.get('shop_enabled', False) else ''}><span><b>Visible in shop</b></span></label>"
+            f"<label class='toggle'><input type='checkbox' name='craftable'{' checked' if item.get('craftable', False) else ''}><span><b>Craftable output</b></span></label>"
+        )
+        item_rows.append(
+            "<article class='card half'><div class='cataloghead'><span class='catalogname'>" +
+            _esc(item.get("emoji", "🐾")) + " " + _esc(item.get("name", item_id)) +
+            "</span><code>" + _esc(item_id) + "</code></div>" +
+            _form(gid, "shop_item_save", fields, "Save item") +
+            _form(gid, "shop_item_disable", f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>",
+                  "Remove from shop", danger=True) + "</article>"
+        )
+    item_add = (
+        "<div class='formgrid'>"
+        "<div class='field'><label>Unique item ID</label><input name='item_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div>"
+        "<div class='field'><label>Name</label><input name='name' maxlength='80' required></div>"
+        "<div class='field'><label>Price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='1000' required></div>"
+        "<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='🐾'></div>"
+        "<div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='0'></div>"
+        "<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300'></div>"
+        "<label class='toggle'><input type='checkbox' name='shop_enabled' checked><span><b>Show in shop</b></span></label>"
+        "<label class='toggle'><input type='checkbox' name='craftable'><span><b>Can be crafted</b></span></label></div>"
+    )
+    item_card = "<article class='card full'><h2>Create a new item</h2>" + _form(gid, "shop_item_add", item_add, "Create item") + "</article>"
+    item_grid = "".join(item_rows) or "<article class='card full'><p class='muted'>No items are registered yet.</p></article>"
+
+    item_options = "".join(
+        f"<option value='{_esc(k)}'>{_esc(v.get('emoji','🐾'))} {_esc(v.get('name',k))} ({_esc(k)})</option>"
+        for k, v in sorted(shop.items()) if isinstance(v, dict)
+    )
+    recipe_rows = []
+    for recipe_id, recipe in sorted(recipes.items()):
+        ingredients_text = "\\n".join(f"{k}:{v}" for k, v in recipe.get("ingredients", {}).items())
+        recipe_fields = (
+            f"<input type='hidden' name='recipe_id' value='{_esc(recipe_id)}'>"
+            f"<div class='field'><label>Recipe name</label><input name='name' maxlength='80' value='{_esc(recipe.get('name',recipe_id))}' required></div>"
+            f"<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(recipe.get('emoji','🧪'))}'></div>"
+            f"<div class='field'><label>Output item</label><select name='output' required>{''.join(f'<option value=\"{_esc(k)}\"{" selected" if k==recipe.get("output") else ""}>{_esc(v.get("name",k))}</option>' for k,v in sorted(shop.items()) if isinstance(v,dict))}</select></div>"
+            f"<div class='field' style='grid-column:1/-1'><label>Ingredients (one item_id:quantity per line)</label><textarea name='ingredients' rows='4' required>{_esc(ingredients_text)}</textarea></div>"
+            f"<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(recipe.get('description',''))}'></div>"
+        )
+        recipe_rows.append("<article class='card half'><h3>" + _esc(recipe.get("emoji","🧪")) + " " + _esc(recipe.get("name",recipe_id)) + "</h3>" +
+            _form(gid, "shop_recipe_save", recipe_fields, "Save recipe") +
+            _form(gid, "shop_recipe_remove", f"<input type='hidden' name='recipe_id' value='{_esc(recipe_id)}'>", "Disable recipe", danger=True) +
+            "</article>")
+    recipe_add = (
+        "<div class='formgrid'><div class='field'><label>Recipe ID</label><input name='recipe_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div>"
+        "<div class='field'><label>Recipe name</label><input name='name' maxlength='80' required></div>"
+        "<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='🧪'></div>"
+        f"<div class='field'><label>Output item</label><select name='output' required>{item_options}</select></div>"
+        "<div class='field' style='grid-column:1/-1'><label>Ingredients (one item_id:quantity per line)</label><textarea name='ingredients' rows='5' placeholder='tuna:2&#10;treat:1' required></textarea></div>"
+        "<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300'></div></div>"
+    )
+    recipe_card = "<article class='card full'><h2>Create or edit a crafting recipe</h2><p class='muted'>Every ingredient must already exist in the item catalogue. Recipe output items are automatically marked craftable.</p>" + _form(gid, "shop_recipe_save", recipe_add, "Save recipe") + "</article>"
+    recipe_grid = "".join(recipe_rows) or "<article class='card full'><p class='muted'>No active recipes.</p></article>"
+
+    box_cards = []
+    for tier, cfg in tiers.items():
+        custom = box_root.get(f"{gid}:{tier}", {}) if isinstance(box_root, dict) else {}
+        disabled_items = set(str(x) for x in custom.get("disabled_items", []))
+        disabled_materials = set(str(x) for x in custom.get("disabled_materials", []))
+        weights = custom.get("weights", {}) if isinstance(custom.get("weights", {}), dict) else {}
+        pool_forms = []
+        for kind, label, base_ids in (("items", "Items", cfg.get("items", [])), ("materials", "Materials", cfg.get("materials", []))):
+            active = [str(x) for x in base_ids if str(x) not in (disabled_items if kind=="items" else disabled_materials)]
+            active += [str(x) for x in custom.get(kind, []) if str(x) not in (disabled_items if kind=="items" else disabled_materials)]
+            active = list(dict.fromkeys(x for x in active if x in shop))
+            rows = []
+            for item_id in active:
+                item = shop.get(item_id, {})
+                weight = max(1, min(1000000, int(weights.get(item_id, 1))))
+                fields = f"<input type='hidden' name='tier' value='{_esc(tier)}'><input type='hidden' name='pool_kind' value='{kind}'><input type='hidden' name='item_id' value='{_esc(item_id)}'><div class='field'><label>Weight for {_esc(item.get('name',item_id))}</label><input name='weight' type='number' min='1' max='1000000' value='{weight}' required></div>"
+                rows.append("<div class='toggle'><span><b>" + _esc(item.get("emoji","🐾")) + " " + _esc(item.get("name",item_id)) + "</b><small>" + _esc(item_id) + "</small></span><div class='actions'>" +
+                    _form(gid, "shop_box_weight", fields, "Update weight") +
+                    _form(gid, "shop_box_reward_remove", f"<input type='hidden' name='tier' value='{_esc(tier)}'><input type='hidden' name='pool_kind' value='{kind}'><input type='hidden' name='item_id' value='{_esc(item_id)}'>", "Remove", danger=True) +
+                    "</div></div>")
+            add_fields = f"<input type='hidden' name='tier' value='{_esc(tier)}'><input type='hidden' name='pool_kind' value='{kind}'><div class='field'><label>Add existing item to {label.lower()}</label><select name='item_id' required>{item_options}</select></div><div class='field'><label>Reward weight</label><input name='weight' type='number' min='1' max='1000000' value='1' required></div>"
+            pool_forms.append("<div class='card half'><h3>" + label + "</h3>" + ("".join(rows) or "<p class='muted'>No active rewards in this pool.</p>") + _form(gid, "shop_box_reward_add", add_fields, "Add reward") + "</div>")
+        box_cards.append("<article class='card full'><h2>" + _esc(cfg.get("emoji","📦")) + " " + _esc(cfg.get("label",tier.title())) + " Mystery Box</h2><p class='muted'>Weights are relative within each reward pool. Higher values make an item more likely than lower-weight items in the same pool.</p><div class='grid'>" + "".join(pool_forms) + "</div></article>")
+
+    audit_rows = advanced.get("shop_item_audit_v1", {}).get(str(gid), []) if isinstance(advanced, dict) else []
+    audit_html = "".join(
+        "<div class='rowitem'><div class='rowmain'><b>" + _esc(entry.get("action","Change")) + "</b><small>" +
+        _esc(entry.get("at","")) + " · " + _esc(entry.get("actor","admin")) + " · " + _esc(entry.get("details","")) +
+        "</small></div></div>" for entry in reversed(audit_rows[-30:])
+    ) or "<p class='muted'>No Shop & Items changes recorded yet.</p>"
+    return (
+        "<h1>Shop & Items Workshop</h1><p class='muted'>Create and manage shop items, crafting recipes, Mystery Box reward pools and their relative weights without editing code.</p>"
+        f"<div class='statusline' style='margin-bottom:16px'>{storage}<span class='pill'>{len(shop)} catalogue items</span><span class='pill'>{len(recipes)} active recipes</span></div>"
+        "<div class='grid'><article class='card full'><h2>Dedicated change log</h2><p class='muted'>Current destination: " +
+        _esc(channel.mention if channel else "Not configured") + "</p>" + channel_form + "</article>"
+        + item_card + "<article class='card full'><h2>Existing catalogue items</h2><p class='muted'>Removing an item from the shop hides it from purchases but preserves its inventory, crafting and Mystery Box references.</p></article>"
+        + item_grid + recipe_card + "<article class='card full'><h2>Active crafting recipes</h2></article>" + recipe_grid
+        + "".join(box_cards) + "<article class='card full'><h2>Recent Shop & Items audit history</h2><p class='muted'>Last 30 events shown; up to 500 per server are retained in the Upstash-backed snapshot.</p>" + audit_html + "</article></div>"
+    )
+
+
 def _csrf():
     token = session.get("dashboard_csrf")
     if not token:
@@ -1293,6 +1463,7 @@ def _economy(guild,state):
     return body
 
 
+def _automation(guild,state):
 def _automation(guild,state):
     gid=guild.id
     welcome=state.get("welcome_config",{}).get(gid,{}) or state.get("welcome_config",{}).get(str(gid),{})
