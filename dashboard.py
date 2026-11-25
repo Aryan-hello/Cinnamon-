@@ -3063,16 +3063,20 @@ def dashboard_action():
             try:
                 price = int(request.form.get("price", "0"))
                 limit = int(request.form.get("max_per_person", "0"))
+                sell_raw = request.form.get("sell_price", "").strip()
+                sell_price = int(sell_raw) if sell_raw else None
             except ValueError:
-                raise ValueError("Price and per-member limit must be whole numbers.")
-            if not name or len(name) > 80 or not 1 <= price <= 10000000 or not 0 <= limit <= 999999:
-                raise ValueError("Check the name, price (1–10,000,000) and limit (0–999,999).")
+                raise ValueError("Prices and per-member limit must be whole numbers.")
+            if (not name or len(name) > 80 or not 1 <= price <= 10000000
+                    or not 0 <= limit <= 999999
+                    or (sell_price is not None and not 0 <= sell_price <= 10000000)):
+                raise ValueError("Check the name, buy price (1–10,000,000), sell price (0–10,000,000) and limit (0–999,999).")
             before = copy.deepcopy(items)
             updated = dict(items.get(item_id, {}))
             updated.update({
                 "name": name, "price": price,
                 "category": request.form.get("category", "General").strip()[:40] or "General",
-                "sell_price": (int(request.form.get("sell_price")) if request.form.get("sell_price","").strip() else None),
+                "sell_price": sell_price,
                 "sellable": "sellable" in request.form,
                 "emoji": request.form.get("emoji", "🐾")[:8] or "🐾",
                 "description": request.form.get("description", "")[:300],
