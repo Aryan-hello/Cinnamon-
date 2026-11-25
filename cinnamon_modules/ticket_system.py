@@ -113,7 +113,11 @@ class TicketInventorySelectView(discord.ui.View):
         super().__init__(timeout=300)
         self.gid=int(gid); self.panel_id=str(panel_id); self.category_id=str(category_id); self.user_id=int(user_id)
         inventory=economy_inventory_for(self.gid,self.user_id)
-        allowed={str(x) for x in category.get("inventory_item_ids",[]) if str(x)}
+        is_gag_route=str(category.get("routing","")).lower() in {"grow_a_garden","gag","boosting"}
+        linked_services=category.get("service_item_ids") or ([category.get("service_item_id")] if category.get("service_item_id") else [])
+        # A configured GAG service list is the category's own allow-list; it is
+        # separate from the ordinary Shop inventory filter.
+        allowed={str(x) for x in linked_services if str(x)} if is_gag_route and linked_services else {str(x) for x in category.get("inventory_item_ids",[]) if str(x)}
         options=[]
         for item_id,quantity in sorted(inventory.items(),key=lambda pair:str((ECONOMY_ITEMS.get(str(pair[0]),{}) or {}).get("name",pair[0])).casefold()):
             item_id=str(item_id); item=ECONOMY_ITEMS.get(item_id,{})
@@ -124,7 +128,6 @@ class TicketInventorySelectView(discord.ui.View):
         if not options:
             self.add_item(discord.ui.Button(label="No eligible items in your inventory",style=discord.ButtonStyle.secondary,disabled=True))
             return
-        is_gag_route=str(category.get("routing","")).lower() in {"grow_a_garden","gag","boosting"}
         select=discord.ui.Select(placeholder=("Select one or more GAG items…" if is_gag_route else "Select one shop item…"),min_values=1,max_values=(len(options[:25]) if is_gag_route else 1),options=options[:25],custom_id="ticket:itemselect:"+str(self.gid)+":"+self.panel_id+":"+self.category_id)
         select.callback=self._selected
         self.add_item(select)
