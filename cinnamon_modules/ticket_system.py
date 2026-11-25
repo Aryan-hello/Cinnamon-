@@ -507,9 +507,15 @@ async def cinnamon_ticket_restore_views():
 
 def _ticket_staff(interaction):
     member=interaction.user
-    settings=_ticket_guild(interaction.guild.id).get("settings",{})
-    allowed=set(map(int,settings.get("staff_role_ids",[]))) | set(map(int,settings.get("moderator_role_ids",[]))) | set(map(int,settings.get("trusted_booster_role_ids",[])))
-    return bool(member.guild_permissions.administrator or cinnamon_role_has(member,"ticket_staff") or cinnamon_role_has(member,"ticket_admin") or cinnamon_role_has(member,"moderator") or cinnamon_role_has(member,"trusted_booster") or any(r.id in allowed for r in member.roles))
+    cfg=_ticket_guild(interaction.guild.id)
+    settings=cfg.get("settings",{})
+    allowed=set(map(int,settings.get("staff_role_ids",[]))) | set(map(int,settings.get("moderator_role_ids",[])))
+    ticket=cfg.get("tickets",{}).get(str(interaction.channel.id))
+    if ticket:
+        panel=cfg.get("panels",{}).get(str(ticket.get("panel_id")),{})
+        category=next((x for x in panel.get("categories",[]) if str(x.get("id"))==str(ticket.get("category_id"))),{})
+        allowed.update(map(int,category.get("staff_role_ids",[])))
+    return bool(member.guild_permissions.administrator or cinnamon_role_has(member,"ticket_staff") or cinnamon_role_has(member,"ticket_admin") or cinnamon_role_has(member,"moderator") or any(r.id in allowed for r in member.roles))
 
 ticket_group=app_commands.Group(name="ticket",description="Manage Cinnamon support tickets")
 
