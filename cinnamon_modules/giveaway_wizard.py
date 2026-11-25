@@ -315,3 +315,21 @@ async def giveaway_cancel_command(interaction:discord.Interaction,message_id:str
     if not await cancel_giveaway(mid):
         return await cinnamon_send(interaction,"That giveaway could not be cancelled.",ephemeral=True)
     await cinnamon_send(interaction,f"🚫 Giveaway {mid} was cancelled.")
+
+async def _gw_active_giveaway_autocomplete(interaction:discord.Interaction,current:str):
+    """Offer active giveaways by prize name so admins do not need to copy message IDs."""
+    guild=getattr(interaction,"guild",None)
+    if guild is None: return []
+    query=str(current or "").casefold().strip()
+    choices=[]
+    for mid,gw in active_giveaways.items():
+        if int(gw.get("guild_id",0))!=guild.id: continue
+        prize=str(gw.get("prize","Giveaway"))
+        label=f"{prize} • {str(mid)[-6:]}"[:100]
+        if query and query not in prize.casefold() and query not in str(mid): continue
+        choices.append(discord.app_commands.Choice(name=label,value=str(mid)))
+    return choices[:25]
+
+
+giveaway_edit_wizard.autocomplete("message_id")(_gw_active_giveaway_autocomplete)
+giveaway_cancel_command.autocomplete("message_id")(_gw_active_giveaway_autocomplete)
