@@ -132,6 +132,8 @@ def _weighted_box_choice(item_ids: list[str], weights: dict) -> str | None:
     """Pick from a box pool using positive per-item weights; defaults to 1."""
     if not item_ids:
         return None
+    if not isinstance(weights, dict):
+        weights = {}
     usable = []
     values = []
     for item_id in item_ids:
