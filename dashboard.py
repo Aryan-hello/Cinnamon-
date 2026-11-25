@@ -287,11 +287,17 @@ def _shop_items(guild, state):
     recipe_rows = []
     for recipe_id, recipe in sorted(recipes.items()):
         ingredients_text = "\\n".join(f"{k}:{v}" for k, v in recipe.get("ingredients", {}).items())
+        output_options = "".join(
+            "<option value='" + _esc(k) + "'" +
+            (" selected" if k == recipe.get("output") else "") + ">" +
+            _esc(v.get("name", k)) + "</option>"
+            for k, v in sorted(shop.items()) if isinstance(v, dict)
+        )
         recipe_fields = (
             f"<input type='hidden' name='recipe_id' value='{_esc(recipe_id)}'>"
             f"<div class='field'><label>Recipe name</label><input name='name' maxlength='80' value='{_esc(recipe.get('name',recipe_id))}' required></div>"
             f"<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(recipe.get('emoji','🧪'))}'></div>"
-            f"<div class='field'><label>Output item</label><select name='output' required>{''.join(f'<option value=\"{_esc(k)}\"{" selected" if k==recipe.get("output") else ""}>{_esc(v.get("name",k))}</option>' for k,v in sorted(shop.items()) if isinstance(v,dict))}</select></div>"
+            f"<div class='field'><label>Output item</label><select name='output' required>{output_options}</select></div>"
             f"<div class='field' style='grid-column:1/-1'><label>Ingredients (one item_id:quantity per line)</label><textarea name='ingredients' rows='4' required>{_esc(ingredients_text)}</textarea></div>"
             f"<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(recipe.get('description',''))}'></div>"
         )
