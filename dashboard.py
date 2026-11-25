@@ -1776,15 +1776,20 @@ def _giveaways(guild,state):
         f"<div class='field full'><label>Eligibility-denied message</label><input name='denied_message' maxlength='300' value='{denied_message}'></div></div>")
         edit=_form(gid,"giveaway_edit",f"<input type='hidden' name='message_id' value='{int(mid)}'>{content}","Save giveaway")
         template_form=_form(gid,"giveaway_template_save",f"<input type='hidden' name='message_id' value='{int(mid)}'><div class='field'><label>Template name</label><input name='template_name' maxlength='40' required placeholder='e.g. Monthly Tuna'></div>","Save as template")
+        bonus_template_form=_form(gid,"giveaway_bonus_template_save",f"<input type='hidden' name='message_id' value='{int(mid)}'><div class='field'><label>Extra-entry template name</label><input name='template_name' maxlength='40' required placeholder='e.g. VIP + Booster'></div>","Save role template")
         end=(f"<form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_end'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn secondary small'>End & pick winners</button></form>"
              f"<form method='post' action='/dashboard/action' data-confirm='Cancel this giveaway without winners?'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_cancel'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn danger small'>Cancel giveaway</button></form>")
-        cards.append(f"<article class='card full'><h3>🎉 {_esc(gw.get('prize','Giveaway'))}</h3>{edit}<div class='grid'><article class='card half'><h3>Reusable template</h3>{template_form}</article><article class='card half'><h3>Finish or cancel</h3><div class='actions'>{end}</div></article></div></article>")
+        cards.append(f"<article class='card full'><h3>🎉 {_esc(gw.get('prize','Giveaway'))}</h3>{edit}<div class='grid'><article class='card half'><h3>Reusable giveaway template</h3>{template_form}</article><article class='card half'><h3>Reusable extra-entry template</h3>{bonus_template_form}</article><article class='card half'><h3>Finish or cancel</h3><div class='actions'>{end}</div></article></div></article>")
+    bonus_role_templates=(state.get("giveaway_bonus_role_templates",{}) or {}).get(gid,(state.get("giveaway_bonus_role_templates",{}) or {}).get(str(gid),{})) or {}
+    bonus_template_options="<option value=''>Use manually selected roles</option>"+"".join("<option value='"+_esc(name)+"'>"+_esc(name)+"</option>" for name in sorted(bonus_role_templates))
+    bonus_template_select="<div class='field full'><label>Reusable extra-entry template</label><select name='bonus_role_template'>"+bonus_template_options+"</select><small>Choose a saved role/count template, or configure roles below.</small></div>"
     channels=_channel_select(guild,"channel_id",allow_none=False)
     create=("<div class='formgrid'><div class='field'><label>Post in</label>"+channels+"</div><div class='field'><label>Prize</label><input name='prize' maxlength='200' required></div>"
     "<div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='1' required></div><div class='field'><label>Duration (minutes; max 1 year)</label><input name='duration_minutes' type='number' min='1' max='525600' value='60' required></div>"
     "<div class='field'><label>Entry button / reaction emoji</label><input name='entry_emoji' maxlength='40' value='🎉'></div><div class='field'><label>Embed colour (hex)</label><input name='embed_color' maxlength='7' value='FEE75C'></div>"
     "<div class='field'><label><input type='checkbox' name='reaction_entries' value='1'> Also allow reaction entry</label><small>Bot needs Add Reactions and Manage Messages to remove ineligible entries.</small></div>"
     "<div class='field'><label>Minimum account age (days)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='0'></div><div class='field'><label>Minimum server membership (days)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='0'></div>"
+    +bonus_template_select+
     "<div class='field full'><label>Bonus entries by role</label>"+_role_bonus_picker(guild)+"<small>Choose roles by name and set extra entries. No ID copying needed.</small></div>"
     "<div class='field full'><label>Required roles (member needs at least one)</label>"+_role_multi_select(guild,"required_roles")+"</div>"
     "<div class='field full'><label>Requirement-bypass roles</label>"+_role_multi_select(guild,"bypass_roles")+"</div>"
@@ -3538,7 +3543,13 @@ def dashboard_action():
             if not callable(validate): raise RuntimeError("Giveaway settings validation is not available.")
             role_text=lambda field: "\n".join(request.form.getlist(field))
             bonus_ids=request.form.getlist("bonus_role_ids")
-            bonus_text="\n".join(f"<@&{rid}>:{request.form.get('bonus_role_count_'+str(rid),'1')}" for rid in dict.fromkeys(bonus_ids) if str(rid).isdigit())
+            bonus_template_name=request.form.get("bonus_role_template","").strip()
+            saved_bonus_templates=(state.get("giveaway_bonus_role_templates",{}) or {}).get(gid,(state.get("giveaway_bonus_role_templates",{}) or {}).get(str(gid),{})) or {}
+            if bonus_template_name and not bonus_ids:
+                saved_bonus=saved_bonus_templates.get(bonus_template_name,{})
+                bonus_text="\n".join(f"<@&{rid}>:{count}" for rid,count in (saved_bonus.get("bonus_roles",{}) or {}).items())
+            else:
+                bonus_text="\n".join(f"<@&{rid}>:{request.form.get('bonus_role_count_'+str(rid),'1')}" for rid in dict.fromkeys(bonus_ids) if str(rid).isdigit())
             config=validate(guild, bonus_roles=bonus_text,
                 required_roles=role_text("required_roles"), bypass_roles=role_text("bypass_roles"),
                 blacklisted_roles=role_text("blacklisted_roles"),
@@ -3611,6 +3622,17 @@ def dashboard_action():
             templates[template_key]={k:v for k,v in gw.items() if k not in {"guild_id","channel_id","host_id","ends_at","entrants","winner_ids","finished_at","eligible_entrants"}}
             _save(); _audit(gid,actor,"Dashboard: giveaway template saved",f"Template {name}; prize {gw.get('prize','Giveaway')}")
             session["dashboard_notice"]=f"Saved giveaway template '{name}'."
+        elif action=="giveaway_bonus_template_save":
+            raw_mid=request.form.get("message_id","0"); name=request.form.get("template_name","").strip()
+            if not raw_mid.isdigit() or not name or len(name)>40: raise ValueError("Choose an active giveaway and a template name (1–40 characters).")
+            gw=state.get("active_giveaways",{}).get(int(raw_mid))
+            if not gw or int(gw.get("guild_id",0))!=gid: raise ValueError("Active giveaway not found in this server.")
+            bonus=dict(gw.get("bonus_roles",{}) or {})
+            if not bonus: raise ValueError("This giveaway has no extra-entry role rules to save.")
+            templates=state.setdefault("giveaway_bonus_role_templates",{}).setdefault(gid,{})
+            templates[name]= {"bonus_roles":{str(k):max(1,min(20,int(v))) for k,v in bonus.items() if str(k).isdigit()}}
+            _save(); _audit(gid,actor,"Dashboard: extra-entry template saved",f"Template {name}; {len(bonus)} role rules.")
+            session["dashboard_notice"]=f"Saved extra-entry template '{name}'. It can now be selected for new giveaways."
         elif action=="giveaway_template_delete":
             name=request.form.get("template_name","").strip().lower(); templates=state.setdefault("giveaway_templates",{}).setdefault(gid,{})
             if not name or templates.pop(name,None) is None: raise ValueError("That giveaway template no longer exists.")
