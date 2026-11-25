@@ -278,6 +278,7 @@ def _shop_items(guild, state):
         "<label class='toggle'><input type='checkbox' name='craftable'><span><b>Can be crafted</b></span></label></div>"
     )
     item_card = "<article class='card full'><h2>Create a new item</h2>" + _form(gid, "shop_item_add", item_add, "Create item") + "</article>"
+    restore_card = "<article class='card full'><h2>Restore missing built-in items</h2><p class='muted'>Adds missing Cinnamon defaults (including standard shop products and Grow a Garden services) without overwriting existing prices, descriptions, custom items or inventory. This is an explicit recovery action.</p>" + _form(gid, "shop_catalog_restore", "", "Restore missing built-in items") + "</article>"
     item_grid = "".join(item_rows) or "<article class='card full'><p class='muted'>No items are registered yet.</p></article>"
 
     item_options = "".join(
@@ -381,7 +382,7 @@ def _shop_items(guild, state):
         f"<div class='statusline' style='margin-bottom:16px'>{storage}<span class='pill'>{len(shop)} catalogue items</span><span class='pill'>{len(recipes)} active recipes</span></div>"
         "<div class='grid'><article class='card full'><h2>Dedicated change log</h2><p class='muted'>Current destination: " +
         _esc(channel.mention if channel else "Not configured") + "</p>" + channel_form + "</article>"
-        + item_card + "<article class='card full'><h2>Existing catalogue items</h2><p class='muted'>Removing an item from the shop hides it from purchases but preserves its inventory, crafting and Mystery Box references.</p></article>"
+        + restore_card + item_card + "<article class='card full'><h2>Existing catalogue items</h2><p class='muted'>Removing an item from the shop hides it from purchases but preserves its inventory, crafting and Mystery Box references.</p></article>"
         + item_grid + recipe_card + "<article class='card full'><h2>Active crafting recipes</h2></article>" + recipe_grid
         + "".join(box_cards) + "<article class='card full'><h2>Recent Shop & Items audit history</h2><p class='muted'>Last 30 events shown; up to 500 per server are retained in the Upstash-backed snapshot.</p>" + audit_html + "</article></div>"
     )
@@ -2402,7 +2403,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","shop_items_log_channel","shop_item_add","shop_item_save","shop_item_disable","shop_recipe_save","shop_recipe_remove","shop_box_reward_add","shop_box_reward_remove","shop_box_weight","shop_box_distribution","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","community_poll_create","community_poll_close","security_settings","moderation_controls_settings","verification_publish","appeal_settings","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","shop_items_log_channel","shop_catalog_restore","shop_item_add","shop_item_save","shop_item_disable","shop_recipe_save","shop_recipe_remove","shop_box_reward_add","shop_box_reward_remove","shop_box_weight","shop_box_distribution","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","community_poll_create","community_poll_close","security_settings","moderation_controls_settings","verification_publish","appeal_settings","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -2992,6 +2993,27 @@ def dashboard_action():
                                   "Log channel updated", f"Dedicated Shop & Items log channel: {channel.mention if channel else 'disabled'}.",
                                   rollback_shop_log)
             session["dashboard_notice"] = "Shop & Items log channel saved."
+
+        elif action == "shop_catalog_restore":
+            items = state["ECONOMY_ITEMS"]
+            defaults = state.get("ECONOMY_BUILTIN_DEFAULTS", {})
+            if not isinstance(defaults, dict) or not defaults:
+                raise RuntimeError("The built-in catalogue source is unavailable.")
+            before = copy.deepcopy(items)
+            added = []
+            for default_id, default_item in defaults.items():
+                if default_id not in items and isinstance(default_item, dict):
+                    items[default_id] = copy.deepcopy(default_item)
+                    added.append(default_id)
+            if not added:
+                raise ValueError("No built-in items are missing from the catalogue.")
+            def rollback_catalog_restore():
+                items.clear(); items.update(before)
+            _shop_workshop_commit(state, gid, actor, int(_tokens[sid]["user"]["id"]),
+                "Built-in catalogue restored", f"Added {len(added)} missing built-in items: {', '.join(added[:80])}.",
+                rollback_catalog_restore)
+            session["dashboard_notice"] = f"Restored {len(added)} missing built-in items. Existing custom settings were preserved."
+
         elif action in {"shop_item_add", "shop_item_save"}:
             item_id = request.form.get("item_id", "").strip().lower()
             items = state["ECONOMY_ITEMS"]
