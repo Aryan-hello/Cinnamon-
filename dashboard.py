@@ -732,6 +732,7 @@ def _nav(guild_id, tab):
         ]),
         ("Economy & games", [
             ("economy", "🌿", "Catnip Economy"),
+            ("shop_items", "🧰", "Shop & Items Workshop"),
             ("adventure", "🎣", "Adventures & Fishing"),
             ("hangry", "🎮", "Hangry Games"),
             ("giveaways", "🎉", "Giveaways"),
@@ -1464,7 +1465,6 @@ def _economy(guild,state):
 
 
 def _automation(guild,state):
-def _automation(guild,state):
     gid=guild.id
     welcome=state.get("welcome_config",{}).get(gid,{}) or state.get("welcome_config",{}).get(str(gid),{})
     goodbye=state.get("goodbye_config",{}).get(gid,{}) or state.get("goodbye_config",{}).get(str(gid),{})
@@ -1795,7 +1795,7 @@ def _community(guild,state):
 
 def _system(guild,state):
     gid=guild.id; hg=state.get("hg_cog"); category_channels=state.get("category_log_channels",{}).get(gid,{})
-    categories=[("moderation","Main moderation"),("economy","Economy"),("ai","AI"),("levels","Levels & XP"),("achievements","Achievements"),("quests","Quests"),("friendship","Cinnamon Friendship"),("community","Giveaways & polls"),("roles","Role management"),("setup","Server setup"),("general","General utilities"),("dashboard","Dashboard audit trail")]
+    categories=[("moderation","Main moderation"),("economy","Economy"),("shop_items","Shop & Items"),("ai","AI"),("levels","Levels & XP"),("achievements","Achievements"),("quests","Quests"),("friendship","Cinnamon Friendship"),("community","Giveaways & polls"),("roles","Role management"),("setup","Server setup"),("general","General utilities"),("dashboard","Dashboard audit trail")]
     configured=[]
     for key,label in categories:
         cid=state.get("log_channels",{}).get(gid) if key=="moderation" else (state.get("economy_log_channels",{}).get(gid) if key=="economy" else category_channels.get(key))
@@ -2339,11 +2339,11 @@ def dashboard_home():
         return _page("<main class='main'>"+_header()+body+"</main>")
     guild_id=request.args.get("guild_id") or eligible[0]["id"]
     guild,guild_item=_get_access(sid,guilds,guild_id)
-    tab=request.args.get("tab","overview"); allowed={"overview","mind","adventure","automation","moderation","engagement","achievements","quests","friendship","companions","economy","giveaways","tickets","roles_setup","hangry","community","message_studio","analytics","activity_logs","system"}
+    tab=request.args.get("tab","overview"); allowed={"overview","mind","adventure","automation","moderation","engagement","achievements","quests","friendship","companions","economy","shop_items","giveaways","tickets","roles_setup","hangry","community","message_studio","analytics","activity_logs","system"}
     if tab not in allowed: tab="overview"
     state=_state(); notice=session.pop("dashboard_notice",None)
     notice_level=session.pop("dashboard_notice_level","success")
-    pages={"overview":_overview,"mind":_mind,"adventure":_adventure,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"companions":_companions,"economy":_economy,"giveaways":_giveaways,"tickets":_tickets,"roles_setup":_roles_setup,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
+    pages={"overview":_overview,"mind":_mind,"adventure":_adventure,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"companions":_companions,"economy":_economy,"shop_items":_shop_items,"giveaways":_giveaways,"tickets":_tickets,"roles_setup":_roles_setup,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
     return _shell(guild,eligible,tab,pages[tab](guild,state),notice,notice_level)
 
 
@@ -2366,7 +2366,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","community_poll_create","community_poll_close","security_settings","moderation_controls_settings","verification_publish","appeal_settings","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","shop_items_log_channel","shop_item_add","shop_item_save","shop_item_disable","shop_recipe_save","shop_recipe_remove","shop_box_reward_add","shop_box_reward_remove","shop_box_weight","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","community_poll_create","community_poll_close","security_settings","moderation_controls_settings","verification_publish","appeal_settings","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -2899,7 +2899,7 @@ def dashboard_action():
             session["dashboard_notice"]="XP channel removed."
         elif action=="category_log_set":
             category=request.form.get("log_category","").strip(); channel_id=request.form.get("channel_id","").strip()
-            allowed={"moderation","economy","ai","levels","achievements","quests","friendship","community","roles","setup","general","dashboard"}
+            allowed={"moderation","economy","shop_items","ai","levels","achievements","quests","friendship","community","roles","setup","general","dashboard"}
             if category not in allowed: raise ValueError("Unknown log category.")
             if not channel_id.isdigit() or not isinstance(guild.get_channel(int(channel_id)),__import__("discord").TextChannel): raise ValueError("Choose a valid text channel.")
             cid=int(channel_id); state.setdefault("category_log_channels",{}).setdefault(gid,{})[category]=cid
@@ -2934,6 +2934,208 @@ def dashboard_action():
             send_log=state.get("send_log")
             if callable(send_log): _run_bot(send_log(gid,title="🎖️ Level role removed",category="levels",fields=[("Action","Removed"),("Level",str(level)),("Role",role.name if role else "Deleted role"),("Role ID",str(role_id)),("Dashboard actor",str(actor))]))
             session["dashboard_notice"]="Level reward removed. Members keep roles already earned."
+
+        elif action == "shop_items_log_channel":
+            raw = request.form.get("channel_id", "").strip()
+            channel = guild.get_channel(int(raw)) if raw.isdigit() else None
+            if raw and not isinstance(channel, __import__("discord").TextChannel):
+                raise ValueError("Choose a valid text channel from this server.")
+            if channel:
+                perms = channel.permissions_for(guild.me) if guild.me else None
+                if not perms or not (perms.view_channel and perms.send_messages and perms.embed_links):
+                    raise ValueError("Cinnamon needs View Channel, Send Messages and Embed Links in that channel.")
+            routes = state.setdefault("category_log_channels", {}).setdefault(gid, {})
+            before = copy.deepcopy(routes)
+            if channel:
+                routes["shop_items"] = channel.id
+            else:
+                routes.pop("shop_items", None)
+            def rollback_shop_log():
+                routes.clear(); routes.update(before)
+            _shop_workshop_commit(state, gid, actor, int(_tokens[sid]["user"]["id"]),
+                                  "Log channel updated", f"Dedicated Shop & Items log channel: {channel.mention if channel else 'disabled'}.",
+                                  rollback_shop_log)
+            session["dashboard_notice"] = "Shop & Items log channel saved."
+        elif action in {"shop_item_add", "shop_item_save"}:
+            item_id = request.form.get("item_id", "").strip().lower()
+            items = state["ECONOMY_ITEMS"]
+            if not item_id or len(item_id) > 40 or not all(c.isalnum() or c in "_-" for c in item_id):
+                raise ValueError("Item ID must use letters, numbers, _ or - (max 40).")
+            if action == "shop_item_add" and item_id in items:
+                raise ValueError("That item ID already exists.")
+            if action == "shop_item_save" and item_id not in items:
+                raise ValueError("That item no longer exists.")
+            name = request.form.get("name", "").strip()
+            try:
+                price = int(request.form.get("price", "0"))
+                limit = int(request.form.get("max_per_person", "0"))
+            except ValueError:
+                raise ValueError("Price and per-member limit must be whole numbers.")
+            if not name or len(name) > 80 or not 1 <= price <= 10000000 or not 0 <= limit <= 999999:
+                raise ValueError("Check the name, price (1–10,000,000) and limit (0–999,999).")
+            before = copy.deepcopy(items)
+            updated = dict(items.get(item_id, {}))
+            updated.update({
+                "name": name, "price": price,
+                "emoji": request.form.get("emoji", "🐾")[:8] or "🐾",
+                "description": request.form.get("description", "")[:300],
+                "max_per_person": limit,
+                "shop_enabled": "shop_enabled" in request.form,
+                "craftable": "craftable" in request.form,
+            })
+            items[item_id] = updated
+            def rollback_shop_item():
+                items.clear(); items.update(before)
+            _shop_workshop_commit(state, gid, actor, int(_tokens[sid]["user"]["id"]),
+                "Item created" if action == "shop_item_add" else "Item edited",
+                f"{item_id}: {name}; price={price} Catnip; shop_enabled={updated['shop_enabled']}; craftable={updated['craftable']}.",
+                rollback_shop_item)
+            session["dashboard_notice"] = "Shop item saved."
+        elif action == "shop_item_disable":
+            item_id = request.form.get("item_id", "").strip()
+            items = state["ECONOMY_ITEMS"]
+            if item_id not in items:
+                raise ValueError("That item no longer exists.")
+            before = copy.deepcopy(items[item_id])
+            items[item_id]["shop_enabled"] = False
+            def rollback_shop_item_disable():
+                items[item_id] = before
+            _shop_workshop_commit(state, gid, actor, int(_tokens[sid]["user"]["id"]),
+                "Item removed from shop", f"{item_id} is hidden from purchases; inventory, recipe and Mystery Box references remain intact.",
+                rollback_shop_item_disable)
+            session["dashboard_notice"] = "Item hidden from the shop. Existing inventory and recipes were preserved."
+        elif action == "shop_recipe_save":
+            recipe_id = request.form.get("recipe_id", "").strip().lower()
+            if not recipe_id or len(recipe_id) > 40 or not all(c.isalnum() or c in "_-" for c in recipe_id) or recipe_id == "repair_rod":
+                raise ValueError("Recipe ID must use letters, numbers, _ or - (max 40); that ID is reserved.")
+            name = request.form.get("name", "").strip()
+            output = request.form.get("output", "").strip()
+            emoji = request.form.get("emoji", "🧪")[:8] or "🧪"
+            description = request.form.get("description", "")[:300]
+            items = state["ECONOMY_ITEMS"]
+            recipes = state.get("CRAFTING_RECIPES", {})
+            if not name or len(name) > 80 or output not in items:
+                raise ValueError("Choose a valid recipe name and output item.")
+            ingredients = {}
+            for line in request.form.get("ingredients", "").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split(":", 1)
+                if len(parts) != 2:
+                    raise ValueError("Ingredients must use one item_id:quantity per line.")
+                ingredient_id = parts[0].strip().lower()
+                try:
+                    quantity = int(parts[1].strip())
+                except ValueError:
+                    raise ValueError(f"Invalid quantity for ingredient {ingredient_id}.")
+                if ingredient_id not in items or ingredient_id == output or not 1 <= quantity <= 999:
+                    raise ValueError(f"Ingredient {ingredient_id} must exist, differ from the output and use quantity 1–999.")
+                ingredients[ingredient_id] = quantity
+            if not ingredients or len(ingredients) > 20:
+                raise ValueError("A recipe needs 1–20 unique ingredients.")
+            recipe = {"name": name, "emoji": emoji, "output": output, "ingredients": ingredients, "description": description}
+            advanced = state["advanced_features_data"]
+            custom_before = copy.deepcopy(advanced.get("custom_crafting_recipes_v1", {}))
+            disabled_before = copy.deepcopy(advanced.get("disabled_crafting_recipes_v1", []))
+            recipes_before = copy.deepcopy(recipes)
+            advanced.setdefault("custom_crafting_recipes_v1", {})[recipe_id] = recipe
+            disabled = advanced.setdefault("disabled_crafting_recipes_v1", [])
+            advanced["disabled_crafting_recipes_v1"] = [x for x in disabled if str(x) != recipe_id]
+            recipes[recipe_id] = recipe
+            items[output]["craftable"] = True
+            def rollback_recipe_save():
+                recipes.clear(); recipes.update(recipes_before)
+                advanced["custom_crafting_recipes_v1"] = custom_before
+                advanced["disabled_crafting_recipes_v1"] = disabled_before
+                if output in items:
+                    items[output]["craftable"] = before_output_flag
+            before_output_flag = bool(items[output].get("craftable", False))
+            # Snapshot the output flag before it is changed (the rollback closure is invoked only on failed save).
+            before_output_flag = bool(items[output].get("craftable", False))
+            _shop_workshop_commit(state, gid, actor, int(_tokens[sid]["user"]["id"]),
+                "Crafting recipe saved", f"{recipe_id}: {name}; output={output}; ingredients={ingredients}.",
+                rollback_recipe_save)
+            session["dashboard_notice"] = "Crafting recipe saved. The output item is now marked craftable."
+        elif action == "shop_recipe_remove":
+            recipe_id = request.form.get("recipe_id", "").strip().lower()
+            recipes = state.get("CRAFTING_RECIPES", {})
+            if recipe_id not in recipes:
+                raise ValueError("That active recipe no longer exists.")
+            advanced = state["advanced_features_data"]
+            recipes_before = copy.deepcopy(recipes)
+            custom_before = copy.deepcopy(advanced.get("custom_crafting_recipes_v1", {}))
+            disabled_before = copy.deepcopy(advanced.get("disabled_crafting_recipes_v1", []))
+            removed = recipes.pop(recipe_id)
+            advanced.setdefault("custom_crafting_recipes_v1", {}).pop(recipe_id, None)
+            disabled = advanced.setdefault("disabled_crafting_recipes_v1", [])
+            if recipe_id not in disabled:
+                disabled.append(recipe_id)
+            def rollback_recipe_remove():
+                recipes.clear(); recipes.update(recipes_before)
+                advanced["custom_crafting_recipes_v1"] = custom_before
+                advanced["disabled_crafting_recipes_v1"] = disabled_before
+            _shop_workshop_commit(state, gid, actor, int(_tokens[sid]["user"]["id"]),
+                "Crafting recipe disabled", f"{recipe_id}: {removed.get('name', recipe_id)}.",
+                rollback_recipe_remove)
+            session["dashboard_notice"] = "Crafting recipe disabled. Existing items and inventories were preserved."
+        elif action in {"shop_box_reward_add", "shop_box_reward_remove", "shop_box_weight"}:
+            tier = request.form.get("tier", "").strip().lower()
+            pool_kind = request.form.get("pool_kind", "").strip().lower()
+            item_id = request.form.get("item_id", "").strip().lower()
+            tiers = state.get("BOX_TIERS", {})
+            items = state.get("ECONOMY_ITEMS", {})
+            if tier not in tiers or pool_kind not in {"items", "materials"} or item_id not in items:
+                raise ValueError("Choose a valid Mystery Box tier, reward pool and existing catalogue item.")
+            advanced = state["advanced_features_data"]
+            box_root = advanced.setdefault("custom_box_rewards", {})
+            key = f"{gid}:{tier}"
+            before = copy.deepcopy(box_root)
+            cfg = box_root.setdefault(key, {"items": [], "materials": [], "weights": {}, "disabled_items": [], "disabled_materials": []})
+            cfg.setdefault("items", []); cfg.setdefault("materials", []); cfg.setdefault("weights", {})
+            cfg.setdefault("disabled_items", []); cfg.setdefault("disabled_materials", [])
+            base_ids = [str(x) for x in tiers[tier].get(pool_kind, [])]
+            custom_ids = cfg[pool_kind]
+            disabled_key = f"disabled_{pool_kind}"
+            if action == "shop_box_reward_add":
+                try:
+                    weight = int(request.form.get("weight", "1"))
+                except ValueError:
+                    raise ValueError("Reward weight must be a whole number.")
+                if not 1 <= weight <= 1000000:
+                    raise ValueError("Reward weight must be between 1 and 1,000,000.")
+                cfg[disabled_key] = [x for x in cfg[disabled_key] if str(x) != item_id]
+                if item_id not in base_ids and item_id not in custom_ids:
+                    custom_ids.append(item_id)
+                cfg["weights"][item_id] = weight
+                label = "Reward added"
+                details = f"{tier.title()} {pool_kind}: added {item_id} with relative weight {weight}."
+            elif action == "shop_box_weight":
+                try:
+                    weight = int(request.form.get("weight", "0"))
+                except ValueError:
+                    raise ValueError("Reward weight must be a whole number.")
+                active = item_id in base_ids or item_id in custom_ids
+                if not active or not 1 <= weight <= 1000000:
+                    raise ValueError("That reward must be active and its weight must be 1–1,000,000.")
+                cfg["weights"][item_id] = weight
+                label = "Reward weight updated"
+                details = f"{tier.title()} {pool_kind}: {item_id} weight set to {weight}."
+            else:
+                if item_id not in base_ids and item_id not in custom_ids:
+                    raise ValueError("That reward is not in this box pool.")
+                if item_id in base_ids and item_id not in cfg[disabled_key]:
+                    cfg[disabled_key].append(item_id)
+                cfg[pool_kind] = [x for x in custom_ids if str(x) != item_id]
+                cfg["weights"].pop(item_id, None)
+                label = "Reward removed"
+                details = f"{tier.title()} {pool_kind}: removed {item_id} from the active pool."
+            def rollback_box_pool():
+                box_root.clear(); box_root.update(before)
+            _shop_workshop_commit(state, gid, actor, int(_tokens[sid]["user"]["id"]),
+                label, details, rollback_box_pool)
+            session["dashboard_notice"] = details
+
         elif action in {"economy_item_add","economy_item_save"}:
             item_id=request.form.get("item_id","").strip().lower(); items=state["ECONOMY_ITEMS"]
             if not item_id or len(item_id)>40 or not all(c.isalnum() or c in "_-" for c in item_id): raise ValueError("Item ID must use letters, numbers, _ or - (max 40).")
