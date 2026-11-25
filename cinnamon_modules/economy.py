@@ -294,22 +294,37 @@ class CinnamonShopView(discord.ui.LayoutView):
                 if not data or not data.get("shop_enabled", True):
                     return await interaction.followup.send(
                         "This item is no longer available.", ephemeral=True)
+                failure = _shop_item_purchase_failure(interaction.guild, interaction.user, item_id, 1)
+                if failure:
+                    return await interaction.followup.send(failure, ephemeral=True)
                 inv = economy_inventory_for(guild_id, user_id)
                 current_qty = int(inv.get(item_id, 0))
-                limit = int(data.get("max_per_person", 0))
-                if limit and current_qty >= limit:
-                    return await interaction.followup.send(
-                        f"You've reached the {limit}-per-person purchase limit.",
-                        ephemeral=True)
                 price = _cm_price(guild_id, user_id, item_id, data.get("price", 0))
                 balance = economy_balance(guild_id, user_id)
                 if balance < price:
                     return await interaction.followup.send(
                         f"Not enough Catnip. You need {price:,}, but have {balance:,}.",
                         ephemeral=True)
+                old_stock = data.get("stock_quantity")
                 economy_balances[(guild_id, user_id)] = balance - price
                 inv[item_id] = current_qty + 1
-                await bd_save_data()
+                if not data.get("stock_unlimited", True):
+                    data["stock_quantity"] = max(0, int(data.get("stock_quantity", 0)) - 1)
+                try:
+                    saved = await bd_save_data()
+                    if saved is False:
+                        raise RuntimeError("Economy storage did not confirm the save.")
+                except Exception:
+                    economy_balances[(guild_id, user_id)] = balance
+                    if current_qty:
+                        inv[item_id] = current_qty
+                    else:
+                        inv.pop(item_id, None)
+                    if old_stock is not None:
+                        data["stock_quantity"] = old_stock
+                    return await interaction.followup.send(
+                        "The purchase could not be saved. No Catnip or stock was consumed.",
+                        ephemeral=True)
 
             fresh = CinnamonShopView(guild_id, user_id, self.page, self.section)
             await interaction.edit_original_response(view=fresh)
@@ -317,6 +332,7 @@ class CinnamonShopView(discord.ui.LayoutView):
                 f"Purchased **1 × {cinnamon_ui_literal(data.get('name', item_id), 90)}** "
                 f"for **{price:,} Catnip**. Remaining: **{balance - price:,}**.",
                 ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+            await _shop_item_run_actions(interaction, item_id, "bought")
             try:
                 await economy_log(guild_id, title="🛒 Economy purchase", fields=[
                     ("User", f"{interaction.user} ({user_id})"),
@@ -627,21 +643,36 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
     # so two simultaneous purchases cannot both spend the same balance.
     lock = _CINNAMON_SHOP_LOCKS.setdefault((guild_id, user_id), asyncio.Lock())
     async with lock:
+        failure = _shop_item_purchase_failure(interaction.guild, interaction.user, item_id, quantity)
+        if failure:
+            return await cinnamon_send(interaction, failure, ephemeral=True)
         current_qty = int(economy_inventory_for(guild_id, user_id).get(item_id, 0))
-        max_per_person = int(data.get("max_per_person", 0))
-        if max_per_person and current_qty + quantity > max_per_person:
-            await cinnamon_send(interaction, f"❌ This item has a limit of **{max_per_person}** per person. You already have **{current_qty}**.", ephemeral=True)
-            return
         unit_price = _cm_price(guild_id, user_id, item_id, data["price"])
         cost = unit_price * quantity
         balance = economy_balance(guild_id, user_id)
         if balance < cost:
             await cinnamon_send(interaction, f"❌ You need **{cost:,} Catnip**, but you only have **{balance:,}**.", ephemeral=True)
             return
-        economy_balances[(guild_id, user_id)] = balance - cost
         inv = economy_inventory_for(guild_id, user_id)
+        old_stock = data.get("stock_quantity")
+        economy_balances[(guild_id, user_id)] = balance - cost
         inv[item_id] = current_qty + quantity
-        await bd_save_data()
+        if not data.get("stock_unlimited", True):
+            data["stock_quantity"] = max(0, int(data.get("stock_quantity", 0)) - quantity)
+        try:
+            saved = await bd_save_data()
+            if saved is False:
+                raise RuntimeError("Economy storage did not confirm the save.")
+        except Exception:
+            economy_balances[(guild_id, user_id)] = balance
+            if current_qty:
+                inv[item_id] = current_qty
+            else:
+                inv.pop(item_id, None)
+            if old_stock is not None:
+                data["stock_quantity"] = old_stock
+            return await cinnamon_send(interaction, "❌ Purchase save failed. No Catnip or stock was consumed.", ephemeral=True)
+    await _shop_item_run_actions(interaction, item_id, "bought")
     await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity", quantity), ("Unit price", f"{unit_price:,} Catnip"), ("Deducted", f"-{cost:,} Catnip"), ("Balance before", f"{balance:,} Catnip"), ("Balance after", f"{balance-cost:,} Catnip"), ("Item quantity after", str(inv[item_id]))])
     embed = cinnamon_embed("🛒 Purchase Complete", f"You bought **{quantity:,}× {data['emoji']} {data['name']}**.", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Purchase")
     cinnamon_field(embed, "💸 Cost", f"**{cost:,} Catnip**", True)
