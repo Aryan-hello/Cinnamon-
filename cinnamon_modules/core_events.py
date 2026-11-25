@@ -377,7 +377,7 @@ async def prefix_help(ctx):
     for index, body in enumerate(pages, start=1):
         embed = cinnamon_embed(
             "🐾 Cinnamon · Prefix commands",
-            "These commands are registered right now. Use `!command`, "
+            "These commands are registered right now. Use `!command` or `?command`, "
             "or `/help` for slash commands and more details.",
             color=CINNAMON_ORANGE, user=ctx.author,
             footer=cinnamon_page_footer("Prefix Help", index, total, 
@@ -696,9 +696,12 @@ async def prefix_work(ctx):
     if not ok:
         embed=cinnamon_embed("⏳ Work Cooldown",msg,color=CINNAMON_MUTED,user=ctx.author,footer="Cinnamon Economy • Work")
         return await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
+    pet_drop = await collectible_pet_work_drop(ctx.guild.id, ctx.author) if "collectible_pet_work_drop" in globals() else None
     balance=economy_balance(ctx.guild.id,ctx.author.id); job=msg.replace("💼 You **","").split("** and earned",1)[0] if "** and earned" in msg else "worked for Cinnamon"
     embed=cinnamon_embed("💼 Shift Complete","Cinnamon inspected your work and approved the payment. 🐾",color=CINNAMON_GREEN,user=ctx.author,footer="Cinnamon Economy • Work • 10 minute cooldown")
     cinnamon_field(embed,"💼 Job",job); cinnamon_field(embed,"🌿 Earned",f"**+{amount:,} Catnip**",True); cinnamon_field(embed,"💰 New balance",f"**{balance:,} Catnip**",True)
+    if pet_drop:
+        cinnamon_field(embed, '🐾 New discovery', f"**{pet_drop['emoji']} {pet_drop['species']}** · {pet_drop['rarity']}! Use ?pets to view your collection.")
     await ctx.reply(embed=embed,mention_author=False,allowed_mentions=discord.AllowedMentions.none())
 
 @bot.command(name="buy")
@@ -771,19 +774,6 @@ async def prefix_botstatus(ctx):
 async def on_message(message: discord.Message):
     if message.author.bot or getattr(message, "webhook_id", None) is not None:
         return
-    # Prefix commands are intentionally !-only. The former ? prefix is retired.
-    if message.content.startswith("?") and len(message.content) > 1:
-        candidate = message.content[1:].lstrip().split(maxsplit=1)[0].lower()
-        if candidate and candidate.replace("-", "").isalnum():
-            try:
-                await message.reply(
-                    "🐾 Cinnamon's prefix is now **!**. Try `!" + candidate + "`.",
-                    mention_author=False,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
-            except discord.HTTPException:
-                pass
-            return
     ctx = await bot.get_context(message)
     if ctx.valid:
         await bot.invoke(ctx)
