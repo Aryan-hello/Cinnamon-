@@ -34,6 +34,8 @@ class TicketInventoryWorkflowTests(unittest.TestCase):
 
     def test_multi_item_gag_tickets_select_and_consume_each_item(self):
         self.assertIn("max_values=len(options[:25])", self.tickets)
+        self.assertIn('in {"shop","grow_a_garden","gag","boosting"}', self.tickets)
+        self.assertIn('item.get("category")!="grow_a_garden"', self.tickets)
         self.assertIn("selected_item_ids", self.tickets)
         self.assertIn("for item_id in item_ids:", self.tickets)
         self.assertIn("consumed_item_ids", self.tickets)
