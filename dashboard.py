@@ -3039,6 +3039,7 @@ def dashboard_action():
             custom_before = copy.deepcopy(advanced.get("custom_crafting_recipes_v1", {}))
             disabled_before = copy.deepcopy(advanced.get("disabled_crafting_recipes_v1", []))
             recipes_before = copy.deepcopy(recipes)
+            before_output_flag = bool(items[output].get("craftable", False))
             advanced.setdefault("custom_crafting_recipes_v1", {})[recipe_id] = recipe
             disabled = advanced.setdefault("disabled_crafting_recipes_v1", [])
             advanced["disabled_crafting_recipes_v1"] = [x for x in disabled if str(x) != recipe_id]
@@ -3050,9 +3051,6 @@ def dashboard_action():
                 advanced["disabled_crafting_recipes_v1"] = disabled_before
                 if output in items:
                     items[output]["craftable"] = before_output_flag
-            before_output_flag = bool(items[output].get("craftable", False))
-            # Snapshot the output flag before it is changed (the rollback closure is invoked only on failed save).
-            before_output_flag = bool(items[output].get("craftable", False))
             _shop_workshop_commit(state, gid, actor, int(_tokens[sid]["user"]["id"]),
                 "Crafting recipe saved", f"{recipe_id}: {name}; output={output}; ingredients={ingredients}.",
                 rollback_recipe_save)
