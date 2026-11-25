@@ -3736,7 +3736,10 @@ def dashboard_action():
                 if bool(persistent_label)!=bool(persistent_reply): raise ValueError("A persistent button needs both a label and a reply.")
                 old_category=(panel.get("categories",[]) or [{}])[0] if action=="ticket_panel_update" else {}
                 category={"id":str(old_category.get("id") or secrets.token_hex(4)),"label":label,"button_label":button,"emoji":request.form.get("button_emoji","").strip()[:100],"button_style":"primary","routing":routing,"trusted_booster_routing":routing=="grow_a_garden","service_item_id":service_item_id,"welcome_message":request.form.get("welcome_message","").strip()[:1500],"questions":questions,"inventory_item_ids":selected_inventory,"staff_role_ids":category_roles,"persistent_button_label":persistent_label,"persistent_button_reply":persistent_reply}
-                panel["categories"]=[category]
+                if action=="ticket_panel_update":
+                    panel["categories"]=[category]+(panel.get("categories",[]) or [])[1:]
+                else:
+                    panel["categories"]=[category]
             panel.update({"id":panel_id,"name":name,"channel_id":channel.id,"title":title,"description":description,"color":color,"updated_at":int(time.time())})
             panels[panel_id]=panel
             _save(); _audit(gid,actor,"Ticket panel configuration saved",f"Panel {name} ({panel_id}); published={bool(panel.get('published'))}.")
