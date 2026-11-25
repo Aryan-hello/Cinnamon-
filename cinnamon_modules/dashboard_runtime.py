@@ -134,20 +134,24 @@ def _bd_decode(raw: dict):
         if len(parts) == 2:
             economy_level_rewards_claimed[(int(parts[0]), int(parts[1]))] = [int(x) for x in levels]
     economy_income_roles = {int(g): {int(r): cfg for r, cfg in roles.items()} for g, roles in raw.get("economy_income_roles", {}).items()}
-    # Saved catalogs are authoritative: administrators may intentionally
-    # remove built-ins, and an explicitly empty catalog must remain empty.
+    # Restore saved catalogs while adding built-ins introduced after an older
+    # snapshot was created. Existing item settings and custom entries win;
+    # explicitly empty catalogs remain empty.
     saved_items = raw.get("economy_items")
-    current_defaults = dict(ECONOMY_ITEMS)
+    current_defaults = {
+        key: dict(value) for key, value in ECONOMY_ITEMS.items()
+        if isinstance(value, dict)
+    }
     if isinstance(saved_items, dict):
         ECONOMY_ITEMS.clear()
         ECONOMY_ITEMS.update(saved_items)
-        # Keep the established one-item migration for Fishing String.
-        if saved_items and "fishing_string" not in saved_items:
-            ECONOMY_ITEMS["fishing_string"] = current_defaults["fishing_string"]
-        # GAG services were added after some older snapshots. For non-empty
-        # legacy catalogs, restore missing service entries and repair only
-        # missing metadata on existing ones; preserve explicit shop_enabled,
-        # prices, descriptions and all other administrator choices.
+        if saved_items:
+            for item_id, default_item in current_defaults.items():
+                if item_id not in ECONOMY_ITEMS:
+                    ECONOMY_ITEMS[item_id] = dict(default_item)
+        # GAG services were added after some older snapshots. Repair only
+        # missing metadata on existing entries, preserving explicit prices,
+        # descriptions and shop_enabled choices.
         gag_defaults = globals().get("GAG_SERVICE_ITEMS", {})
         if saved_items and isinstance(gag_defaults, dict):
             for gag_id, gag_item in gag_defaults.items():
