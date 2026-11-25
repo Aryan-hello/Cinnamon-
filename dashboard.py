@@ -22,7 +22,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from flask import Blueprint, abort, make_response, redirect, render_template_string, request, session, url_for
+from flask import Blueprint, abort, make_response, redirect, render_template_string, request, send_from_directory, session, url_for
 
 log = logging.getLogger("cinnamon.dashboard")
 dashboard_bp = Blueprint("cinnamon_dashboard", __name__)
@@ -203,242 +203,433 @@ def _check_csrf():
 def _page(body, title="Cinnamon Dashboard", status=200):
     return render_template_string(
         """<!doctype html><html lang='en'><head><meta charset='utf-8'>
-<meta name='viewport' content='width=device-width,initial-scale=1'>
-<meta name='color-scheme' content='light'><title>{{title}}</title><style>"""
-        + STYLE + """</style><script src='/static/dashboard-search.js' defer></script></head><body>{{body|safe}}</body></html>""",
+<meta name='viewport' content='width=device-width,initial-scale=1,viewport-fit=cover'>
+<meta name='color-scheme' content='light'><meta name='theme-color' content='#F7F3EC'><title>{{title}}</title><style>"""
+        + STYLE + """</style><script src='/assets/dashboard-search.js' defer></script></head><body>{{body|safe}}</body></html>""",
         title=title, body=body,
     ), status
 
 
+_ASSET_DIRS = (
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "Static"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "static"),
+)
+
+
+@dashboard_bp.get("/assets/<path:filename>")
+def dashboard_asset(filename):
+    """Serve the dashboard's stylesheet scripts and mascot from the repo asset folders."""
+    for folder in _ASSET_DIRS:
+        if os.path.isfile(os.path.join(folder, filename)):
+            return send_from_directory(folder, filename)
+    abort(404)
+
+
 STYLE = r"""
-:root{--cream:#fbf2e4;--beige:#f7ebd9;--orange:#b96b2c;--orange2:#d88b45;--brown:#38251d;--taupe:#897765;--white:#fffdf9;--line:#e4d5c0;--green:#36734d;--red:#a53f32;--shadow:0 12px 34px #38251d0c}
-*{box-sizing:border-box}body{margin:0;background:var(--cream);color:var(--brown);font:15px "Trebuchet MS",system-ui,-apple-system,Segoe UI,sans-serif}a{color:inherit;text-decoration:none}button,input,select,textarea{font:inherit}.layout{min-height:100vh;display:grid;grid-template-columns:248px minmax(0,1fr)}.side{background:#f3e5d0;border-right:1px solid var(--line);padding:20px 14px;display:flex;flex-direction:column;gap:18px}.brand{display:flex;align-items:center;gap:11px;font-size:19px;font-weight:850;padding:4px 8px}.mascot{width:45px;height:45px;object-fit:cover;border-radius:15px;border:2px solid #ead7b8;background:var(--beige)}.serverbox{padding:12px;background:#fff9f0;border:1px solid var(--line);border-radius:14px}.serverbox label{display:block;font-size:11px;color:var(--taupe);font-weight:800;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px}.serverbox select{width:100%;border:1px solid var(--line);border-radius:9px;background:white;padding:10px;color:var(--brown)}.navlabel{font-size:11px;color:var(--taupe);font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:0 10px;margin:5px 0}.nav-search{margin:0 0 7px;padding:0 2px}.nav-search input{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:#fffdf9;color:var(--brown)}.nav{display:grid;gap:4px}.nav a{padding:10px 12px;border-radius:10px;color:#654d3d;font-weight:650;display:flex;gap:10px;align-items:center}.nav a.active,.nav a:hover{background:#e9d5b8;color:var(--brown)}.sidefoot{margin-top:auto;font-size:12px;color:var(--taupe);padding:8px}.main{min-width:0;padding:24px clamp(16px,3vw,38px) 40px;max-width:1500px;width:100%;margin:auto}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:24px}.crumb{font-size:13px;color:var(--taupe)}.profile{display:flex;align-items:center;gap:10px;font-weight:700}.avatar{width:34px;height:34px;border-radius:50%;background:var(--beige)}h1,h2,h3,p{margin-top:0}h1{font:700 clamp(27px,3vw,36px) Georgia,serif;margin-bottom:7px}h2{font:700 23px Georgia,serif;margin-bottom:12px}h3{font-size:16px;margin-bottom:8px}.muted{color:var(--taupe);line-height:1.55}.hero{background:linear-gradient(115deg,#f7e6ce,#fff7e9);border:1px solid var(--line);border-radius:22px;padding:25px;display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:20px;box-shadow:var(--shadow)}.hero p{margin:0;color:#78624e}.heroimg{width:100px;height:100px;object-fit:cover;border-radius:24px}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px;margin:15px 0 22px}.card{grid-column:span 4;min-width:0;background:var(--white);border:1px solid var(--line);border-radius:17px;padding:18px;box-shadow:var(--shadow)}.card.half{grid-column:span 6}.card.full{grid-column:1/-1}.card.third{grid-column:span 4}.stat{font:700 30px Georgia,serif;margin:8px 0 2px}.statlabel{font-size:12px;color:var(--taupe);font-weight:750;text-transform:uppercase;letter-spacing:.06em}.iconbox{width:38px;height:38px;display:grid;place-items:center;background:#f7ead7;border-radius:12px;font-size:19px;margin-bottom:13px}.btn{display:inline-block;border:0;border-radius:10px;background:var(--orange);color:white;padding:10px 14px;font-weight:750;cursor:pointer}.btn:hover{background:#a75e26}.btn.secondary{background:#f0e2cd;color:var(--brown);border:1px solid var(--line)}.btn.danger{background:var(--red)}.btn.small{padding:7px 10px;font-size:13px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.formgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.field{display:grid;gap:6px;margin:10px 0}.field label{font-size:13px;font-weight:750}.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:10px;background:#fff;padding:11px 12px;color:var(--brown);min-width:0}.field textarea{min-height:92px;resize:vertical}.field small{font-size:12px;color:var(--taupe);line-height:1.4}.toggle{display:flex;gap:10px;align-items:flex-start;padding:12px 0;border-bottom:1px solid #f0e6d9}.toggle input{accent-color:var(--orange);width:17px;height:17px;margin-top:2px}.toggle span{display:grid;gap:3px}.toggle small{color:var(--taupe)}.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{border-collapse:collapse;width:100%;min-width:460px;background:#fffdf9}th,td{text-align:left;padding:11px 13px;border-bottom:1px solid #f0e6d9;font-size:13px}th{color:var(--taupe);background:#fbf4e9;text-transform:uppercase;font-size:11px;letter-spacing:.05em}tr:last-child td{border-bottom:0}.pill{display:inline-block;border-radius:30px;padding:4px 9px;background:#efe4d2;color:#6b543e;font-size:11px;font-weight:800}.pill.good{background:#e3f0e5;color:var(--green)}.pill.warn{background:#f9e8d9;color:#99591f}.notice{padding:12px 14px;border-radius:12px;background:#f4e8d4;border:1px solid var(--line);margin-bottom:15px;color:#6e553e}.empty{padding:25px;text-align:center;color:var(--taupe)}.rule{height:1px;background:var(--line);margin:16px 0}.sectionhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:23px 0 8px}.servericon{width:38px;height:38px;border-radius:12px;background:#f4e5cf;display:grid;place-items:center;font-weight:800;color:var(--orange);overflow:hidden;flex-shrink:0}.servericon img{width:100%;height:100%;object-fit:cover}.serverlist{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}.serveritem{background:var(--white);border:1px solid var(--line);padding:15px;border-radius:15px;display:flex;align-items:center;gap:12px}.serveritem .grow{flex:1;min-width:0}.serveritem h3{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 4px}.mobilebrand{display:none}.footer{font-size:12px;color:var(--taupe);margin-top:25px}.dangerzone{border-color:#e8c6be}.dangerzone h3{color:var(--red)}@media(max-width:900px){.layout{grid-template-columns:205px minmax(0,1fr)}.card{grid-column:span 6}.card.third{grid-column:span 6}}@media(max-width:650px){.layout{display:block}.side{position:sticky;top:0;z-index:4;border-right:0;border-bottom:1px solid var(--line);padding:9px 12px;display:block}.brand{padding:2px 4px;margin-bottom:8px}.brand .mascot{width:35px;height:35px}.serverbox{padding:8px;margin-bottom:7px}.serverbox label{display:none}.serverbox select{padding:8px}.navlabel{display:none}.nav-search{margin:0 0 7px}.nav{display:flex;overflow-x:auto;gap:5px;padding-bottom:3px}.nav a{white-space:nowrap;padding:8px 10px;font-size:12px}.sidefoot{display:none}.main{padding:17px 13px 30px}.top{margin-bottom:16px}.hero{padding:18px}.heroimg{width:68px;height:68px}.card,.card.half,.card.third{grid-column:1/-1}.formgrid{grid-template-columns:1fr}h1{font-size:28px}.stat{font-size:26px}}
-/* Extra mobile ergonomics: safe-area spacing, touch targets, readable forms, and clear focus. */
-html{scroll-padding-top:150px;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-body{overflow-x:hidden}
-button,a,select,input[type=checkbox]{touch-action:manipulation}
-a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--orange2);outline-offset:2px}
-@media(max-width:650px){
-  .side{padding-top:max(8px,env(safe-area-inset-top));padding-left:max(11px,env(safe-area-inset-left));padding-right:max(11px,env(safe-area-inset-right));}
-  .nav{scrollbar-width:thin;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
-  .nav a{flex:0 0 auto;min-height:40px;scroll-snap-align:start}
-  .serverbox select{min-height:42px;font-size:14px}
-  .main{padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right));}
-  .top{align-items:flex-start;flex-wrap:wrap}
-  .crumb{font-size:12px}
-  .profile{font-size:13px;max-width:100%;flex-wrap:wrap;justify-content:flex-end}
-  .hero{align-items:center;min-width:0}
-  .hero>div{min-width:0}
-  .hero p{font-size:14px}
-  .heroimg{flex:0 0 58px;width:58px;height:58px;border-radius:17px}
-  .card{padding:16px;border-radius:15px}
-  .actions{gap:9px}
-  .actions .btn{min-height:42px;display:inline-flex;align-items:center;justify-content:center;flex:1 1 125px;text-align:center}
-  .field input,.field select,.field textarea{font-size:16px;min-height:44px}
-  .field textarea{min-height:100px}
-  .toggle{min-height:52px;align-items:center}
-  .toggle input{width:20px;height:20px;flex:0 0 20px}
-  .tablewrap{max-width:100%;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
-  th,td{padding:10px 11px}
-  .serverlist{grid-template-columns:minmax(0,1fr)}
+/* Cinnamon Dashboard — warm cream surfaces, burnt-orange action colour, dark-brown ink.
+   One consistent system: tokens, layout, navigation, cards, forms, tables, dialogs, mobile. */
+:root{
+  --bg:#F7F3EC; --surface:#FFFDFA; --surface-2:#FBF7F0; --surface-3:#F4EEE4;
+  --ink:#2B211B; --ink-2:#57483D; --muted:#7C6E62;
+  --line:#E9DFD2; --line-strong:#D9CBB8;
+  --brand:#B4551B; --brand-strong:#94430F; --brand-soft:#FBEDDD;
+  --accent:#D98A45;
+  --green:#2E6A46; --green-soft:#E8F2EB;
+  --amber:#7E5410; --amber-soft:#FBF0D9;
+  --red:#A0372B; --red-soft:#FAE9E6;
+  --focus:#1F4F8F;
+  --radius:12px; --radius-sm:9px;
+  --shadow:0 1px 2px rgba(43,33,27,.05),0 10px 26px rgba(43,33,27,.035);
+  --font:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
 }
-@media(max-width:380px){
-  .brand{font-size:17px}
-  .top{gap:8px}
-  .profile{gap:6px}
-  .hero{padding:14px;gap:10px}
-  h1{font-size:25px}
-  h2{font-size:21px}
-  .card{padding:14px}
-  .nav a{font-size:11px;padding:8px 9px}
-}
-@media(orientation:landscape) and (max-height:500px) and (max-width:900px){
-  .side{position:relative}
-}
-/* Lovable consultation: calm cream/orange, clear card hierarchy, accessible controls. */
-:root{--focus:#1f5fbf;--surface2:#fffaf2;--accent:#a9531a}
-body{font-size:16px;line-height:1.52}
-h1,h2,.stat{font-family:"Trebuchet MS",system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:-.035em}
-.main{max-width:1240px}.card{box-shadow:0 2px 0 #e4d5c0,0 7px 18px #38251d10}
-.card h2{font-size:20px;line-height:1.25}.stat{font-weight:850}
-.btn{min-height:44px;background:#a9531a}
-.btn:hover{background:#84401a}
-.btn.secondary{background:#fff7ec;color:#432817}
-.field input,.field select,.field textarea{min-height:44px}
-.nav a{min-height:44px}
-:focus-visible{outline:3px solid var(--focus)!important;outline-offset:2px!important}
-.card .toggle{min-height:44px}
-.pill{font-size:12px}
-.searchable-select{display:grid;gap:6px;margin-bottom:9px}
-.searchable-select input{min-height:40px;width:100%;background:#fffaf2;border:1px solid var(--line);border-radius:8px;padding:9px}
-@media(max-width:650px){.hero{flex-direction:column;align-items:flex-start}.heroimg{align-self:flex-end}}
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
-/* Mobile navigation drawer: keep every category reachable on short screens. */
-.mobile-nav-toggle{display:none;border:1px solid var(--line);background:var(--white);color:var(--brown);border-radius:10px;min-height:42px;min-width:44px;padding:8px 12px;font-size:20px;line-height:1;cursor:pointer}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-padding-top:96px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14.5px;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+button,input,select,textarea{font:inherit;color:inherit}
+img{max-width:100%}
+h1,h2,h3,p{margin-top:0}
+h1{font-size:clamp(23px,2.2vw,28px);font-weight:700;letter-spacing:-.022em;line-height:1.22;margin-bottom:8px}
+h2{font-size:16.5px;font-weight:680;letter-spacing:-.012em;line-height:1.3;margin-bottom:12px}
+h3{font-size:14.5px;font-weight:680;margin-bottom:8px}
+p{margin-bottom:12px}
+small{font-size:12.5px;line-height:1.45}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9em;background:var(--surface-3);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+.muted{color:var(--muted)}
+p.muted{font-size:13.5px;max-width:78ch}
+.skip-link{position:absolute;left:-9999px;top:8px;z-index:400;background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;padding:10px 14px;font-weight:650}
+.skip-link:focus{left:12px}
+
+/* ---------- Layout ---------- */
+.layout{min-height:100vh;display:grid;grid-template-columns:266px minmax(0,1fr);background:var(--bg)}
+.side{position:sticky;top:0;align-self:start;height:100vh;height:100dvh;overflow-y:auto;overscroll-behavior:contain;background:var(--surface);border-right:1px solid var(--line);padding:18px 14px 16px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin}
+.main{min-width:0;width:100%;max-width:1320px;margin:0 auto;padding:0 clamp(18px,3vw,40px) 40px}
+.footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+
+/* ---------- Brand + server switch ---------- */
+.brand{display:flex;align-items:center;gap:11px;padding:2px 6px 8px}
+.mascot{width:42px;height:42px;border-radius:11px;border:1px solid var(--line);background:var(--surface-2);object-fit:cover;flex:0 0 auto}
+.brandtext{display:grid;min-width:0}
+.brandtext b{font-size:16.5px;font-weight:750;letter-spacing:-.02em;line-height:1.2}
+.brandtext span{font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+.serverbox{padding:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-sm);display:grid;gap:8px}
+.serverbox label{display:block;font-size:10.5px;color:var(--muted);font-weight:750;text-transform:uppercase;letter-spacing:.09em}
+.serverbox select{width:100%;min-height:40px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);padding:8px 9px;color:var(--ink);font-size:13.5px}
+.serverbox .btn{width:100%;justify-content:center}
+.sidefoot{margin-top:auto;font-size:11.5px;line-height:1.5;color:var(--muted);padding:10px 8px 2px;border-top:1px solid var(--line)}
+.sidefoot b{display:block;color:var(--ink-2);font-size:12px;font-weight:650;margin-bottom:2px}
+
+/* ---------- Navigation ---------- */
+.nav-search{display:block;margin:0;padding:0 2px}
+.nav-search input{width:100%;min-height:38px;padding:8px 11px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface-2);font-size:13px}
+.nav-search input::placeholder{color:#9A8B7E}
+.navgroup{display:grid;gap:2px;margin-top:4px}
+.navlabel{font-size:10px;color:var(--muted);font-weight:750;letter-spacing:.11em;text-transform:uppercase;padding:8px 10px 4px}
+.nav{display:grid;gap:2px}
+.nav a{position:relative;display:flex;align-items:center;gap:10px;min-height:38px;padding:7px 10px;border-radius:8px;color:var(--ink-2);font-size:13.5px;font-weight:550;transition:background .14s ease,color .14s ease}
+.nav a .navicon{width:18px;text-align:center;font-size:14px;line-height:1;opacity:.85;flex:0 0 18px}
+.nav a .navtext{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav a:hover{background:var(--surface-2);color:var(--ink)}
+.nav a.active{background:var(--brand-soft);color:var(--brand-strong);font-weight:650}
+.nav a.active .navicon{opacity:1}
+.nav a.active::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--brand)}
+.nav a:focus-visible,.serverbox select:focus-visible,.nav-search input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+
+/* ---------- Top bar ---------- */
+.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;padding:14px 0 13px;margin-bottom:24px;background:var(--bg);border-bottom:1px solid var(--line)}
+.crumb{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);min-width:0}
+.crumb b{color:var(--ink-2);font-weight:600}
+.crumb .sep{opacity:.5}
+.profile{display:flex;align-items:center;gap:9px;margin-left:auto;min-width:0}
+.profile .avatar{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--brand-soft);color:var(--brand-strong);font-size:12.5px;font-weight:750;flex:0 0 30px;border:1px solid #F0DCC4}
+.profile .profilename{font-size:13px;font-weight:600;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- Page header + hero ---------- */
+.pagehead{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;margin:2px 0 20px}
+.pagehead h1{margin-bottom:5px}
+.pagehead p{margin-bottom:0}
+.eyebrow{font-size:11px;font-weight:750;letter-spacing:.1em;text-transform:uppercase;color:var(--brand);margin-bottom:7px}
+.statusline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.hero{display:flex;align-items:center;gap:20px;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;margin-bottom:18px;box-shadow:var(--shadow)}
+.hero h1{margin-bottom:6px}
+.hero p{margin-bottom:14px;color:var(--muted);font-size:13.5px;max-width:70ch}
+.hero .actions{margin-top:0}
+.heroimg{width:72px;height:72px;border-radius:16px;border:1px solid var(--line);background:var(--surface-2);flex:0 0 auto}
+
+/* ---------- Grid + cards ---------- */
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px;margin:0 0 22px}
+.card{grid-column:span 12;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:19px 20px;box-shadow:var(--shadow);min-width:0}
+.card.third{grid-column:span 4}
+.card.half{grid-column:span 6}
+.card.full{grid-column:span 12}
+.card>h2:first-child,.card>h3:first-child{margin-top:0}
+.card>p:last-child,.card>p.muted:last-child{margin-bottom:0}
+.card:hover{border-color:var(--line-strong)}
+.card .grid{margin-bottom:0}
+.card .grid>.card{box-shadow:none;background:var(--surface-2)}
+.rule{height:1px;background:var(--line);margin:16px 0}
+.grow{flex:1 1 auto}
+
+/* ---------- KPI / stats ---------- */
+.statgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:0 0 18px}
+.statgrid>.card{grid-column:span 1}
+.statgrid .card,.card.kpi{padding:16px 17px;display:grid;gap:2px}
+.kpihead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.statlabel{font-size:10.5px;font-weight:750;letter-spacing:.085em;text-transform:uppercase;color:var(--muted)}
+.stat{font-size:27px;font-weight:720;letter-spacing:-.03em;line-height:1.15;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.kpitrend{font-size:12px;color:var(--muted);margin:4px 0 0}
+.iconbox{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:var(--brand-soft);border:1px solid #F0DCC4;font-size:16px;flex:0 0 34px}
+
+/* ---------- Rows / key-value lists ---------- */
+.rowlist{display:grid;gap:0}
+.rowitem{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid #F2EBE1;min-width:0}
+.rowitem:first-child{border-top:0;padding-top:2px}
+.rowmain{display:grid;min-width:0;flex:1 1 auto}
+.rowmain b{font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rowmain small{color:var(--muted)}
+.rowmeta{flex:0 0 auto;font-weight:650;font-size:13px;font-variant-numeric:tabular-nums;text-align:right}
+.statusgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 26px}
+
+/* ---------- Notices ---------- */
+.notice{display:flex;gap:10px;align-items:flex-start;background:var(--green-soft);border:1px solid #C7E0CF;color:#245C3B;border-radius:10px;padding:12px 14px;margin:0 0 18px;font-size:13.5px;font-weight:500}
+.notice::before{content:"✓";font-weight:800;line-height:1.5}
+.notice.error{background:var(--red-soft);border-color:#EBC7C1;color:#7E2A20}
+.notice.error::before{content:"!";display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:#A0372B;color:#fff;font-size:11px;line-height:1;margin-top:3px}
+
+/* ---------- Buttons ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:8px 14px;border-radius:8px;border:1px solid transparent;background:var(--brand);color:#FFF9F3;font-size:13.5px;font-weight:600;line-height:1.2;cursor:pointer;white-space:nowrap;transition:background .14s ease,border-color .14s ease,color .14s ease}
+.btn:hover{background:var(--brand-strong)}
+.btn:active{transform:translateY(1px)}
+.btn[disabled]{opacity:.62;cursor:progress}
+.btn.secondary{background:var(--surface);border-color:var(--line-strong);color:var(--ink-2)}
+.btn.secondary:hover{background:var(--surface-2);color:var(--ink);border-color:#CBBBA6}
+.btn.danger{background:var(--red);color:#fff}
+.btn.danger:hover{background:#882D23}
+.btn.small{min-height:32px;padding:5px 10px;font-size:12.5px;border-radius:7px}
+.btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
+.card>.actions:first-child{margin-top:0}
+form>.actions{margin-top:16px}
+.actions .btn{margin:0}
+
+/* ---------- Forms ---------- */
+.formgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}
+.formgrid>.field.full,.formgrid .field[style*="grid-column"]{grid-column:1/-1}
+.field{display:grid;gap:6px;margin:12px 0;min-width:0}
+.field>label,.field>span.label{font-size:12px;font-weight:650;color:var(--ink-2);letter-spacing:.005em}
+.field small{color:var(--muted)}
+.field input,.field select,.field textarea,.searchable-select input,.choice-search{width:100%;min-height:40px;padding:8px 10px;background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;color:var(--ink);font-size:13.5px;transition:border-color .14s ease,box-shadow .14s ease}
+.field textarea{min-height:96px;resize:vertical;line-height:1.5}
+.field select{appearance:none;background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237C6E62' d='M6 8 0 0h12z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center;padding-right:32px}
+.field input[type=checkbox],.toggle input[type=checkbox]{width:18px;height:18px;min-height:0;accent-color:var(--brand);flex:0 0 18px;margin:1px 0 0}
+.field input[type=file]{padding:7px 9px;min-height:42px;background:var(--surface-2)}
+.field input[type=color]{padding:3px;height:40px;cursor:pointer}
+.field input:focus,.field select:focus,.field textarea:focus,.searchable-select input:focus,.choice-search:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(180,85,27,.14)}
+.field input::placeholder,.field textarea::placeholder{color:#A2948A}
+.searchable-select{display:grid;gap:5px;margin-bottom:7px}
+.searchable-select input{background:var(--surface-2);font-size:12.5px;min-height:36px}
+.toggle{display:flex;align-items:flex-start;gap:11px;min-height:44px;padding:10px 0;border-top:1px solid #F2EBE1;font-size:13.5px;cursor:default}
+.toggle:first-of-type{border-top:0}
+label.toggle{cursor:pointer}
+.toggle>span{display:grid;gap:2px;min-width:0;flex:1 1 auto}
+.toggle b{font-size:13.5px;font-weight:600;line-height:1.4}
+.toggle small{color:var(--muted);font-weight:400}
+.toggle>.pill{margin-left:auto;flex:0 0 auto}
+.toggle>b+span:not(.pill):not(.iconbox){margin-left:auto;text-align:right;color:var(--ink-2);font-size:13px;overflow-wrap:anywhere}
+.toggle>b{flex:0 1 auto}
+label.toggle:focus-within{outline:2px solid var(--focus);outline-offset:3px;border-radius:6px}
+
+/* ---------- Catalog / repeated editable blocks ---------- */
+.itemlist{display:grid;gap:12px;margin-top:4px}
+.catalogitem{border:1px solid var(--line);border-radius:10px;padding:14px 15px;background:var(--surface-2);min-width:0}
+.catalogitem form{margin:0}
+.cataloghead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.catalogname{font-weight:650;font-size:14px;color:var(--ink)}
+.cataloghead code{font-size:11.5px;color:var(--muted);background:var(--surface);border-color:var(--line)}
+.catalogitem .formgrid{margin-top:2px}
+
+/* ---------- Pills ---------- */
+.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:var(--surface-3);border:1px solid var(--line);color:var(--ink-2);font-size:11.5px;font-weight:650;line-height:1.5;white-space:nowrap}
+.pill.good{background:var(--green-soft);border-color:#C7E0CF;color:var(--green)}
+.pill.warn{background:var(--amber-soft);border-color:#EBD9B4;color:var(--amber)}
+.pill.danger{background:var(--red-soft);border-color:#EBC7C1;color:var(--red)}
+
+/* ---------- Tables ---------- */
+.tablewrap{width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:12px 0 4px;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;min-width:440px}
+th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #F2EBE1;font-size:13px}
+th{background:var(--surface-2);color:var(--muted);font-size:10.5px;font-weight:750;letter-spacing:.07em;text-transform:uppercase;white-space:nowrap;position:sticky;top:0}
+td{color:var(--ink-2)}
+td b{color:var(--ink);font-weight:600}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:#FDFAF4}
+td form{margin:0}
+td .actions{margin-top:0;flex-wrap:nowrap}
+td .actions select{min-height:32px;font-size:12.5px;min-width:130px}
+td .btn{margin:2px 2px 2px 0}
+.tablewrap+ .muted,.tablewrap+p{margin-top:10px}
+
+/* ---------- Searchable multi-select pickers ---------- */
+.choice-picker{display:grid;gap:9px;padding:12px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface-2)}
+.choice-toolbar{display:flex;align-items:center;gap:9px;min-width:0}
+.choice-search{background:var(--surface);min-height:38px;font-size:13px}
+.choice-count{flex:0 0 auto;color:var(--muted);font-size:11.5px;font-weight:650;white-space:nowrap}
+.choice-selected{display:flex;gap:5px;flex-wrap:wrap;min-height:22px;color:var(--muted);font-size:12.5px}
+.choice-chip{border:1px solid #EAD3BA;background:var(--brand-soft);color:#7C3E12;border-radius:999px;padding:4px 9px;font-size:11.5px;font-weight:600;cursor:pointer}
+.choice-chip:hover{background:#F7E0C8}
+.choice-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;max-height:250px;overflow:auto;padding:2px;overscroll-behavior:contain}
+.choice-option{display:flex;align-items:center;gap:9px;min-width:0;min-height:38px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--surface);cursor:pointer;transition:border-color .12s,background .12s}
+.choice-option:hover{border-color:var(--line-strong);background:#FFFCF6}
+.choice-option:has(input:checked){border-color:#E3C6A6;background:var(--brand-soft)}
+.choice-option[hidden]{display:none!important}
+.choice-option input{width:17px;height:17px;flex:0 0 17px;accent-color:var(--brand)}
+.choice-option span{overflow-wrap:anywhere;font-size:12.5px}
+.choice-help{color:var(--muted);font-size:11.5px;line-height:1.45}
+
+/* ---------- Empty states ---------- */
+.empty{display:grid;gap:4px;justify-items:center;text-align:center;padding:26px 16px;border:1px dashed var(--line-strong);border-radius:9px;background:var(--surface-2);color:var(--muted);font-size:13px;margin:12px 0}
+p.empty{margin:10px 0}
+td.empty,td[colspan]{color:var(--muted);font-size:12.5px;text-align:center;padding:16px 12px}
+.dangerzone{border-color:#EBC7C1;background:var(--red-soft)}
+.sectionhead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+
+/* ---------- Mobile navigation ---------- */
+.mobile-nav-toggle{display:none;align-items:center;justify-content:center;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:8px;min-height:38px;min-width:40px;padding:0 10px;font-size:17px;line-height:1;cursor:pointer}
 .mobile-nav-close{display:none}
 .nav-backdrop{display:none}
-@media(max-width:650px){
+
+/* ---------- Responsive ---------- */
+@media(max-width:1180px){
+  .statgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .card.third{grid-column:span 6}
+}
+@media(max-width:1024px){
+  .layout{grid-template-columns:236px minmax(0,1fr)}
+  .card.half{grid-column:span 12}
+  .side{padding:16px 12px}
+}
+@media(max-width:760px){
+  .layout{grid-template-columns:minmax(0,1fr)}
   body.nav-open{overflow:hidden}
-  .side{position:fixed!important;inset:0 auto 0 0;width:min(86vw,310px);height:100vh;height:100dvh;max-height:100dvh;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;touch-action:pan-y;transform:translateX(-105%);transition:transform .22s ease;z-index:100;display:flex!important;flex-direction:column;gap:14px;padding:calc(12px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom))!important;border-right:1px solid var(--line);border-bottom:0;box-shadow:12px 0 35px #38251d20}
+  .side{position:fixed!important;inset:0 auto 0 0;width:min(87vw,318px);height:100vh;height:100dvh;max-height:100dvh;z-index:120;transform:translateX(-104%);transition:transform .2s ease;box-shadow:14px 0 40px rgba(43,33,27,.20);padding:calc(14px + env(safe-area-inset-top)) 13px calc(18px + env(safe-area-inset-bottom))}
   .side.mobile-open{transform:translateX(0)}
-  .side>form,.side>div{flex-shrink:0}
-  .side .nav{display:grid!important;overflow:visible!important;flex-shrink:0;gap:4px;padding-bottom:8px;scroll-snap-type:none}
-  .side .nav a{white-space:normal;flex:initial;width:100%;min-height:44px;font-size:13px;padding:11px 12px;scroll-snap-align:none}
+  .side .nav a{min-height:44px;font-size:13.5px}
+  .side .nav{display:grid!important;overflow:visible!important}
   .side .navlabel{display:block}
-  .side .sidefoot{display:block;margin-top:auto;padding-top:12px}
-  .mobile-nav-toggle{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
-  .top{justify-content:flex-start;flex-wrap:wrap}
-  .top .crumb{flex:1;min-width:0;align-self:center}
-  .profile{margin-left:auto}
-  .nav-backdrop{display:block;position:fixed;inset:0;background:rgba(38,25,18,.42);z-index:99;opacity:0;visibility:hidden;transition:opacity .2s,visibility .2s;border:0;padding:0}
+  .mobile-nav-toggle{display:inline-flex}
+  .mobile-nav-close{display:inline-flex;align-items:center;justify-content:center;align-self:flex-end;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);min-height:38px;min-width:40px;font-size:19px;margin-bottom:-4px}
+  .nav-backdrop{display:block;position:fixed;inset:0;background:rgba(38,28,21,.42);z-index:110;opacity:0;visibility:hidden;transition:opacity .18s,visibility .18s;border:0;padding:0}
   .nav-backdrop.visible{opacity:1;visibility:visible}
-  .mobile-nav-close{display:inline-flex;align-items:center;justify-content:center;align-self:flex-end;border:1px solid var(--line);border-radius:9px;background:var(--white);color:var(--brown);min-height:40px;min-width:44px;font-size:20px;margin-bottom:-4px}
+  .main{padding:0 13px calc(30px + env(safe-area-inset-bottom))}
+  .top{padding:10px 0 10px;margin-bottom:18px;gap:9px;flex-wrap:wrap;background:var(--bg)}
+  .top .crumb{flex:1 1 auto;font-size:12px;min-width:0}
+  .profile{font-size:12.5px;margin-left:auto}
+  .profile .profilename{max-width:110px}
+  h1{font-size:23px}
+  h2{font-size:16px}
+  p.muted{font-size:13px}
+  .pagehead{gap:10px;margin-bottom:15px;align-items:flex-start}
+  .statusline{width:100%}
+  .hero{flex-direction:column;align-items:flex-start;gap:14px;padding:17px}
+  .heroimg{align-self:flex-end;width:56px;height:56px;border-radius:13px;margin-top:-46px}
+  .grid{gap:12px;margin-bottom:16px}
+  .card{padding:15px;border-radius:11px}
+  .statgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:14px}
+  .statgrid .card,.card.kpi{padding:13px}
+  .stat{font-size:23px}
+  .statusgrid{grid-template-columns:minmax(0,1fr)}
+  .formgrid{grid-template-columns:minmax(0,1fr);gap:0}
+  .field{margin:10px 0}
+  .field input,.field select,.field textarea,.searchable-select input,.choice-search{font-size:16px;min-height:46px}
+  .field textarea{min-height:108px}
+  .field select{padding-right:34px}
+  .btn{min-height:44px;padding:9px 14px}
+  .btn.small{min-height:36px;padding:6px 10px}
+  .actions{gap:8px}
+  .actions .btn{flex:1 1 140px}
+  .toggle{min-height:50px;padding:11px 0}
+  .toggle input[type=checkbox]{width:20px;height:20px;flex-basis:20px}
+  .choice-picker{padding:10px}
+  .choice-options{grid-template-columns:minmax(0,1fr);max-height:230px}
+  .choice-option{min-height:44px}
+  .choice-toolbar{flex-wrap:wrap;align-items:stretch}
+  .tablewrap{border-radius:9px;margin:10px 0 2px}
+  table{min-width:520px}
+  th,td{padding:9px 10px}
+  td .actions{flex-wrap:wrap}
+  .footer{font-size:11px;margin-top:24px}
 }
-
-/* Cinnamon dashboard refresh: calmer hierarchy, consistent controls, responsive surfaces. */
-:root{--cream:#f8f5ef;--beige:#f0e8dc;--orange:#a9531a;--orange2:#d18a48;--brown:#30251f;--taupe:#786d63;--white:#fffefa;--line:#e7dfd4;--surface2:#fbf8f2;--shadow:0 8px 24px rgba(48,37,31,.055);--focus:#285f9f;--green:#32744d;--red:#a53f32}
-body{background:#f7f5f1;color:var(--brown);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.55}
-.layout{grid-template-columns:264px minmax(0,1fr);background:transparent}
-.side{background:#fffefa;border-right:1px solid #e9e2d9;box-shadow:2px 0 18px rgba(48,37,31,.025);padding:22px 16px}
-.brand{font-size:18px;letter-spacing:-.025em;padding:5px 7px 12px}
-.mascot{border-radius:14px;border:1px solid #eadfce}
-.serverbox{background:#faf7f1;border-color:#e8e0d5;border-radius:12px}
-.navlabel{font-size:10px;letter-spacing:.12em;color:#8a7c70}
-.nav a{min-height:42px;border-radius:9px;color:#65584d;font-size:13px;transition:background .15s,color .15s}
-.nav a.active{background:#f5e8d8;color:#8d4517;box-shadow:inset 3px 0 #b96b2c}
-.nav a:hover{background:#f8f0e6}
-.main{max-width:1320px;padding:28px clamp(18px,3vw,44px) 48px}
-.top{margin-bottom:28px;padding-bottom:15px;border-bottom:1px solid #eae4db}
-.crumb{font-size:13px;color:#887b70}
-h1{font-size:clamp(27px,3vw,34px);font-weight:780;letter-spacing:-.045em;line-height:1.18;margin-bottom:8px}
-h2{font-size:19px;font-weight:740;letter-spacing:-.025em}
-h3{font-size:15px;font-weight:730}
-.muted{color:#81766c}
-.hero{background:linear-gradient(110deg,#fff5e8 0%,#fffdfa 82%);border:1px solid #eee2d2;border-radius:18px;padding:24px;box-shadow:none}
-.card{background:#fffefa;border:1px solid #e9e2d9;border-radius:15px;padding:20px;box-shadow:0 3px 12px rgba(48,37,31,.035)}
-.card:hover{border-color:#dfd2c2}
-.grid{gap:15px;margin:17px 0 24px}
-.stat{font-size:29px;letter-spacing:-.04em}
-.iconbox{background:#f8eee1;border:1px solid #f0e2d0}
-.btn{background:#a9531a;border-radius:9px;box-shadow:none;transition:background .15s,transform .15s}
-.btn:hover{background:#874313;transform:translateY(-1px)}
-.btn.secondary{background:#fff9f1;border-color:#e9ddce;color:#594333}
-.btn.danger{background:#a53f32}
-.field{gap:7px;margin:12px 0}
-.field label{font-size:12px;color:#55463a;letter-spacing:.01em}
-.field input,.field select,.field textarea,.searchable-select input{background:#fff;border:1px solid #e4dbcf;border-radius:9px;color:#30251f;transition:border-color .15s,box-shadow .15s}
-.field input:focus,.field select:focus,.field textarea:focus,.searchable-select input:focus,.choice-search:focus{border-color:#bd7a42;box-shadow:0 0 0 3px rgba(185,107,44,.12);outline:0}
-.tablewrap{border-color:#e9e2d9;border-radius:11px}
-th{background:#faf7f1;color:#81766c}
-td{border-bottom-color:#f0ebe4}
-.notice{background:#fff5e8;border-color:#edddc9;color:#76502f}
-.pill{background:#f1ece4;color:#67594c}
-.choice-picker{display:grid;gap:10px;padding:12px;border:1px solid #e8e0d5;border-radius:12px;background:#fffefa}
-.choice-toolbar{display:flex;align-items:center;gap:10px;min-width:0}
-.choice-search{width:100%;min-width:0;min-height:43px;padding:10px 12px;border:1px solid #e4dbcf;border-radius:9px;background:#fff;color:var(--brown);font:inherit}
-.choice-count{flex:0 0 auto;color:#83766b;font-size:12px;font-weight:700;white-space:nowrap}
-.choice-selected{display:flex;gap:6px;flex-wrap:wrap;min-height:25px}
-.choice-chip{border:1px solid #ead7c2;background:#fbf0e2;color:#79441f;border-radius:99px;padding:5px 9px;font-size:12px;font-weight:650;cursor:pointer}
-.choice-chip:hover{background:#f5e2cc}
-.choice-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px;max-height:260px;overflow:auto;padding:2px;overscroll-behavior:contain}
-.choice-option{display:flex;align-items:center;gap:9px;min-width:0;padding:10px 11px;border:1px solid #eee7de;border-radius:9px;background:#fff;cursor:pointer;transition:border-color .12s,background .12s}
-.choice-option:hover{border-color:#d6b38f;background:#fffaf3}
-.choice-option[hidden]{display:none!important}
-.choice-option input{width:18px;height:18px;flex:0 0 18px;accent-color:#a9531a}
-.choice-option span{overflow-wrap:anywhere;font-size:13px}
-.choice-help{color:#85796e;font-size:12px;line-height:1.45}
-.searchable-select{margin-bottom:7px}
-.searchable-select input{min-height:42px;padding:10px 12px}
-@media(max-width:900px){.layout{grid-template-columns:220px minmax(0,1fr)}.main{padding:22px 18px 38px}}
-@media(max-width:650px){
- .main{padding:14px 12px calc(28px + env(safe-area-inset-bottom))}
- .top{gap:8px;padding-bottom:12px;margin-bottom:18px}
- .crumb{font-size:12px}.profile{font-size:12px}
- .hero{padding:17px;border-radius:14px;gap:12px}.heroimg{width:56px;height:56px}
- .grid{gap:11px;margin:13px 0 19px}
- .card,.card.half,.card.third{padding:15px;border-radius:13px}
- .card h2{font-size:18px}.formgrid{grid-template-columns:minmax(0,1fr);gap:8px}
- .choice-picker{padding:10px}.choice-options{grid-template-columns:minmax(0,1fr);max-height:240px}
- .choice-toolbar{align-items:stretch;flex-wrap:wrap}.choice-count{padding:2px 1px}
- .choice-option{min-height:44px}.actions .btn{min-height:44px}
- .tablewrap{border-radius:9px}.tablewrap table{min-width:520px}
+@media(max-width:400px){
+  .statgrid{grid-template-columns:minmax(0,1fr)}
+  .brandtext b{font-size:16px}
+  .profile .profilename{display:none}
+  .actions .btn{flex:1 1 100%}
 }
-
-/* Brighter pastel colour pattern — keep the interface light, never dark. */
-:root{
- --cream:#fffaf2;--beige:#fff0df;--orange:#df8b45;--orange2:#f2b36f;
- --brown:#51443b;--taupe:#8b7b70;--white:#fffefa;--line:#eee3d7;
- --surface2:#fff8ee;--focus:#77a9cf;--green:#6b9c78;--red:#cf8178
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important;scroll-behavior:auto!important}
 }
-body{background:#fffaf4;color:#51443b}
-.side{background:#fffdf9;border-right-color:#f0e5da}
-.serverbox{background:#fff5e9;border-color:#f2dfca}
-.navlabel,.crumb,.muted{color:#928174}
-.nav a{color:#76675c}
-.nav a.active{background:#ffedda;color:#9a5c2d;box-shadow:inset 3px 0 #e9a15f}
-.nav a:hover{background:#fff3e6}
-.hero{background:linear-gradient(115deg,#fff0dc 0%,#fff8eb 52%,#f0f7ee 100%);border-color:#f0dfca}
-.card{background:#fffefa;border-color:#eee4da}
-.card:nth-child(4n+1){border-top:3px solid #efbd83}
-.card:nth-child(4n+2){border-top:3px solid #b9d7c0}
-.card:nth-child(4n+3){border-top:3px solid #b9d6e9}
-.card:nth-child(4n){border-top:3px solid #d8c9e9}
-.iconbox{background:#fff0dc;border-color:#f4dfc4}
-.btn{background:#df914e;color:#fffdf8}
-.btn:hover{background:#cb7b38}
-.btn.secondary{background:#fff4e7;border-color:#efdcc7;color:#72543d}
-.btn.danger{background:#d4867d;color:#fff}
-.field label{color:#6f5e50}
-.field input,.field select,.field textarea,.searchable-select input{border-color:#eee0d1;color:#51443b;background:#fffefa}
-.field input:focus,.field select:focus,.field textarea:focus,.searchable-select input:focus,.choice-search:focus{border-color:#e5a96d;box-shadow:0 0 0 3px rgba(229,169,109,.16)}
-th{background:#fff5e9;color:#837164}
-.notice{background:#fff3df;border-color:#f1dfc5;color:#765b40}
-.pill{background:#f5eee5;color:#776658}
-.choice-picker{background:#fffefa;border-color:#eee1d3}
-.choice-search{border-color:#eee0d1;color:#51443b}
-.choice-count{color:#918072}
-.choice-chip{border-color:#f0d9bf;background:#fff1df;color:#8b572f}
-.choice-chip:hover{background:#ffe8ce}
-.choice-option{border-color:#f0e7dd;background:#fffefa}
-.choice-option:hover{border-color:#e8c69f;background:#fff7ed}
-.choice-option input{accent-color:#df914e}
-.choice-help{color:#928276}
-@media(max-width:650px){
- body{background:#fffaf4}
- .hero{background:linear-gradient(140deg,#fff0dc,#fff8ec 62%,#f1f8ef)}
- .card:nth-child(n){border-top-width:2px}
-}
-
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
-
 """
 
 
 def _header():
-    return "<header class='top'><button class='mobile-nav-toggle' id='liveMenuBtn' type='button' aria-label='Open categories' aria-controls='liveSidebar' aria-expanded='false'>☰</button><div class='crumb'>Cinnamon / Server dashboard</div><div class='profile'>" + _esc(session.get("display_name", "Discord user")) + " <a class='btn secondary small' href='/logout'>Log out</a></div></header>"
+    name = str(session.get("display_name", "Discord user") or "Discord user")
+    initial = _esc((name.strip()[:1] or "C").upper())
+    return (
+        "<header class='top'>"
+        "<button class='mobile-nav-toggle' id='liveMenuBtn' type='button' aria-label='Open dashboard navigation' aria-controls='liveSidebar' aria-expanded='false'>☰</button>"
+        "<div class='crumb'><b>Cinnamon</b><span class='sep'>/</span><span>Server dashboard</span></div>"
+        "<div class='profile'><span class='avatar' aria-hidden='true'>" + initial + "</span>"
+        "<span class='profilename'>" + _esc(name) + "</span>"
+        "<a class='btn secondary small' href='/logout'>Log out</a></div>"
+        "</header>"
+    )
 
 
 def _nav(guild_id, tab):
-    items = [("overview", "⌂", "Overview"), ("mind", "🐈", "Cinnamon Mind"), ("adventure", "🎣", "Adventures & Fishing"), ("automation", "⚡", "Automation Studio"), ("moderation", "🛡", "Moderation & Security"), ("engagement", "✦", "Levels & XP"), ("achievements", "🏆", "Achievements"), ("quests", "📜", "Quests"), ("friendship", "🐾", "Friendship"), ("companions", "🐱", "Companions"), ("economy", "🌿", "Catnip Economy"), ("tickets", "🎫", "Tickets"), ("giveaways", "🎉", "Giveaways"), ("hangry", "🐾", "Hangry Games"), ("community", "☻", "Community & AI"), ("message_studio", "✉", "Message Studio"), ("analytics", "▥", "Analytics"), ("activity_logs", "≋", "Activity Logs"), ("system", "⚙", "Settings & Logs")]
-    links = "".join(
-        f"<a class='{'active' if tab == key else ''}' href='/dashboard?guild_id={guild_id}&tab={key}'><span>{ico}</span>{label}</a>" for key, ico, label in items
+    groups = [
+        ("Workspace", [
+            ("overview", "⌂", "Overview"),
+            ("mind", "🐈", "Cinnamon Mind"),
+            ("automation", "⚡", "Automation Studio"),
+            ("message_studio", "✉", "Message Studio"),
+        ]),
+        ("Community", [
+            ("engagement", "✦", "Levels & XP"),
+            ("achievements", "🏆", "Achievements"),
+            ("quests", "📜", "Quests"),
+            ("friendship", "🐾", "Friendship"),
+            ("companions", "🐱", "Companions"),
+        ]),
+        ("Economy & games", [
+            ("economy", "🌿", "Catnip Economy"),
+            ("adventure", "🎣", "Adventures & Fishing"),
+            ("hangry", "🎮", "Hangry Games"),
+            ("giveaways", "🎉", "Giveaways"),
+            ("tickets", "🎫", "Tickets"),
+        ]),
+        ("Insights", [
+            ("analytics", "▥", "Analytics"),
+            ("activity_logs", "≋", "Activity Logs"),
+        ]),
+        ("Configuration", [
+            ("community", "☻", "Community & AI"),
+            ("moderation", "🛡", "Moderation & Security"),
+            ("roles_setup", "♙", "Roles Setup"),
+            ("system", "⚙", "Settings & Logs"),
+        ]),
+    ]
+    groups_html = []
+    for label, items in groups:
+        links = "".join(
+            "<a class='" + ("active" if tab == key else "") + "' href='/dashboard?guild_id=" + str(guild_id) + "&tab=" + key + "'"
+            + (" aria-current='page'" if tab == key else "")
+            + "><span class='navicon' aria-hidden='true'>" + ico + "</span><span class='navtext'>" + _esc(text) + "</span></a>"
+            for key, ico, text in items
+        )
+        groups_html.append("<div class='navgroup'><div class='navlabel'>" + label + "</div><nav class='nav'>" + links + "</nav></div>")
+    return (
+        "<label class='field nav-search'><span class='label' style='position:absolute;left:-9999px'>Search dashboard</span>"
+        "<input id='dashboardNavSearch' type='search' placeholder='Search dashboard…' aria-label='Search dashboard sections' autocomplete='off'></label>"
+        "<div id='dashboardNav'>" + "".join(groups_html) + "</div>"
     )
-    return "<div class='navlabel'>Workspace</div><label class='field nav-search'><input id='dashboardNavSearch' type='search' placeholder='Search settings…' aria-label='Search dashboard settings'></label><nav class='nav' id='dashboardNav'>" + links + "</nav>"
 
 
-def _shell(guild, guilds, tab, body, notice=None):
+def _shell(guild, guilds, tab, body, notice=None, notice_level="success"):
     gid = guild.id
     options = []
     for item in guilds:
         if str(item.get("id")) in {str(g.id) for g in (_bot.guilds if _bot else [])} and (item.get("owner") or (int(item.get("permissions", "0")) & 0x8)):
             selected = " selected" if str(item.get("id")) == str(gid) else ""
             options.append(f"<option value='{_esc(item['id'])}'{selected}>{_esc(item.get('name','Server'))}</option>")
-    select = "<form action='/dashboard' method='get'><input type='hidden' name='tab' value='overview'><div class='serverbox'><label for='dashboardGuildSelect'>Selected server</label><select id='dashboardGuildSelect' name='guild_id'>" + "".join(options) + "</select><button class='btn secondary small' type='submit'>Switch server</button></div></form>"
-    side = "<aside class='side' id='liveSidebar' aria-label='Dashboard categories'><button class='mobile-nav-close' id='liveMenuClose' type='button' aria-label='Close categories'>×</button><div class='brand'><img class='mascot' src='/static/cinnamon_mascot.svg' alt=''><span>Cinnamon <span style='font-weight:500;color:var(--taupe)'>Control</span></span></div>" + select + _nav(gid, tab) + "<div class='sidefoot'>Cozy controls, careful paws. 🐾<br>Changes are logged where configured.</div></aside><button class='nav-backdrop' id='liveNavBackdrop' type='button' aria-label='Close categories'></button>"
-    notice_html = f"<div class='notice'>{_esc(notice)}</div>" if notice else ""
+    select = (
+        "<form action='/dashboard' method='get'><input type='hidden' name='tab' value='overview'>"
+        "<div class='serverbox'><label for='dashboardGuildSelect'>Selected server</label>"
+        "<select id='dashboardGuildSelect' name='guild_id'>" + "".join(options) + "</select>"
+        "<button class='btn secondary small' type='submit'>Switch server</button></div></form>"
+    )
+    brand = (
+        "<div class='brand'><img class='mascot' src='/assets/cinnamon_mascot.svg' alt=''>"
+        "<span class='brandtext'><b>Cinnamon</b><span>Control panel</span></span></div>"
+    )
+    side = (
+        "<aside class='side' id='liveSidebar' aria-label='Dashboard navigation'>"
+        "<button class='mobile-nav-close' id='liveMenuClose' type='button' aria-label='Close navigation'>×</button>"
+        + brand + select + _nav(gid, tab)
+        + "<div class='sidefoot'><b>Permission-checked controls</b>Every change is verified against your Discord permissions and written to the audit log where configured.</div>"
+        "</aside><button class='nav-backdrop' id='liveNavBackdrop' type='button' aria-label='Close navigation' tabindex='-1'></button>"
+    )
+    level = " error" if str(notice_level) == "error" else ""
+    role = "alert" if level else "status"
+    notice_html = f"<div class='notice{level}' role='{role}'>{_esc(notice)}</div>" if notice else ""
     title = f"{guild.name} • Cinnamon Dashboard"
-    nav_script = "<script src='/static/dashboard-mobile.js' defer></script>"
-    return _page("<div class='layout'>" + side + "<main class='main'>" + _header() + notice_html + body + "<div class='footer'>Cinnamon • Server controls are permission-checked. Keep your Discord account secure.</div></main></div>" + nav_script, title)
+    nav_script = "<script src='/assets/dashboard-mobile.js' defer></script>"
+    return _page(
+        "<a class='skip-link' href='#mainContent'>Skip to content</a>"
+        "<div class='layout'>" + side + "<main class='main' id='mainContent'>" + _header() + notice_html + body
+        + "<div class='footer'>Cinnamon · Server controls are permission-checked. Keep your Discord account secure.</div></main></div>"
+        + nav_script,
+        title,
+    )
 
 
 def _channel_select(guild, name, selected=None, allow_none=True, multiple=False, size=7):
@@ -491,7 +682,7 @@ def _member_select(guild, name="member_id", selected=None, allow_none=False, siz
         suffix = f" · @{tag}" if tag else ""
         sel = " selected" if str(member.id) == selected_id else ""
         opts.append(f"<option value='{member.id}'{sel}>{_esc(label + suffix)}</option>")
-    return f"<select name='{_esc(name)}' size='{max(4, min(int(size), 15))}'>" + "".join(opts) + "</select>"
+    return f"<select name='{_esc(name)}'>" + "".join(opts) + "</select>"
 
 def _role_select(guild, name, selected=None, allow_none=True):
     roles = sorted([r for r in guild.roles if not r.is_default() and not r.managed], key=lambda r: r.position, reverse=True)
@@ -745,24 +936,184 @@ def _adventure(guild, state):
 
 
 def _overview(guild, state):
+    """Live overview built only from Cinnamon's current runtime data."""
     gid = guild.id
+
+    def as_int(value, default=0):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def as_float(value, default=0.0):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def member_name(uid):
+        member = guild.get_member(int(uid)) if str(uid).isdigit() else None
+        return (member.display_name or member.name) if member else "Member " + str(uid)
+
+    balances = state.get("economy_balances", {}) or {}
+    guild_balances = [(key[1], as_int(value)) for key, value in balances.items()
+                      if isinstance(key, tuple) and len(key) >= 2 and key[0] == gid]
+    catnip_total = sum(amount for _, amount in guild_balances)
+    top_balances = sorted(guild_balances, key=lambda pair: pair[1], reverse=True)[:5]
+    balance_rows = "".join(
+        "<div class='rowitem'><span class='rowmain'><b>" + _esc(member_name(uid)) + "</b><small>Member</small></span>"
+        "<span class='rowmeta'>" + f"{amount:,} 🌿" + "</span></div>"
+        for uid, amount in top_balances
+    ) or "<p class='empty'>No Catnip balances recorded yet.</p>"
+
+    ticket_root = ((state.get("advanced_features_data", {}) or {}).get("cinnamon_tickets_v1", {}) or {}).get(str(gid), {}) or {}
+    tickets = ticket_root.get("tickets", {}) or {}
+    open_tickets = [t for t in tickets.values() if isinstance(t, dict) and t.get("status") == "open"]
+    closed_tickets = ticket_root.get("closed", {}) or {}
+    panels = ticket_root.get("panels", {}) or {}
+
+    giveaways = [gw for gw in (state.get("active_giveaways", {}) or {}).values()
+                 if isinstance(gw, dict) and as_int(gw.get("guild_id")) == gid]
+    giveaways.sort(key=lambda gw: as_float(gw.get("ends_at")))
+    giveaway_rows = "".join(
+        "<div class='rowitem'><span class='rowmain'><b>" + _esc(gw.get("prize", "Giveaway")) + "</b>"
+        "<small>" + f"{len(set(gw.get('entrants', []) or [])):,} entries" + " · ends " +
+        dt.datetime.fromtimestamp(as_float(gw.get("ends_at")), dt.timezone.utc).strftime("%d %b %H:%M UTC") + "</small></span>"
+        "<span class='rowmeta'>" + f"{as_int(gw.get('winners', 1)):,} winner(s)" + "</span></div>"
+        for gw in giveaways[:4] if as_float(gw.get("ends_at")) > 0
+    ) or "<p class='empty'>No active giveaways right now.</p>"
+
+    quest_data = state.get("quest_data", {}).get(gid, {}) or {}
+    daily_ids = quest_data.get("daily_ids", []) if isinstance(quest_data, dict) else []
+    weekly_ids = quest_data.get("weekly_ids", []) if isinstance(quest_data, dict) else []
+    daily_defs = state.get("DAILY_QUESTS", {}) or {}
+    weekly_defs = state.get("WEEKLY_QUESTS", {}) or {}
+    active_quests = len(daily_ids or []) + len(weekly_ids or [])
+    quest_rows = "".join(
+        "<div class='rowitem'><span class='rowmain'><b>" + _esc(pool.get(qid, {}).get("name", qid)) + "</b>"
+        "<small>" + ("Daily" if kind == "Daily" else "Weekly") + " rotation</small></span>"
+        "<span class='rowmeta'>" + f"{as_int(pool.get(qid, {}).get('qp')):,} QP</span></div>"
+        for ids, pool, kind in ((daily_ids, daily_defs, "Daily"), (weekly_ids, weekly_defs, "Weekly"))
+        for qid in (ids or [])[:3]
+    ) or "<p class='empty'>No quest rotation has been generated yet.</p>"
+
+    achievement_data = state.get("achievement_data", {}) or {}
+    achievement_users = [value for key, value in achievement_data.items()
+                         if isinstance(key, tuple) and len(key) >= 2 and key[0] == gid and isinstance(value, dict)]
+    unlocked = sum(len(value.get("unlocked", []) or []) for value in achievement_users)
+    achievement_defs = len(state.get("ACHIEVEMENTS", {}) or {}) + len(state.get("SECRET_ACHIEVEMENTS", {}) or {})
+
+    hangry = state.get("hg_cog")
+    hangry_games = as_int(getattr(hangry, "game_counts", {}).get(gid)) if hangry else 0
+    if hangry:
+        wins = sorted(((uid, count) for (guild_id, uid), count in hangry.win_counts.items() if guild_id == gid),
+                      key=lambda pair: pair[1], reverse=True)[:3]
+    else:
+        wins = []
+    hangry_rows = "".join(
+        "<div class='rowitem'><span class='rowmain'><b>" + _esc(member_name(uid)) + "</b><small>Hangry Games winner</small></span>"
+        "<span class='rowmeta'>" + f"{as_int(count):,} wins" + "</span></div>"
+        for uid, count in wins
+    ) or "<p class='empty'>No completed Hangry Games recorded yet.</p>"
+
     member_count = guild.member_count or len(guild.members)
-    stats = [("Members", member_count, "👥"), ("Channels", len(guild.channels), "#"), ("Roles", len(guild.roles), "♙"), ("Commands", len(_bot.tree.get_commands()) if _bot else 0, "⌘")]
-    cards = "".join(f"<article class='card third'><div class='iconbox'>{ico}</div><div class='statlabel'>{label}</div><div class='stat'>{int(value):,}</div></article>" for label,value,ico in stats)
-    flags = [
-        ("Welcome messages", bool(state.get("welcome_config", {}).get(gid)), "community"),
-        ("Goodbye messages", bool(state.get("goodbye_config", {}).get(gid)), "community"),
-        ("AutoMod", bool(state.get("automod_config", {}).get(gid)), "moderation"),
-        ("Anti-raid alerts", bool(state.get("antiraid_config", {}).get(gid, {}).get("enabled")), "moderation"),
-        ("AI channel", bool(state.get("ai_channels", {}).get(gid)), "community"),
-        ("Hangry Games", bool(state.get("hg_cog")), "hangry"),
-    ]
-    status_cards = "".join(f"<div class='toggle'><span><b>{_esc(name)}</b><small>{'Configured / enabled' if enabled else 'Not configured / disabled'}</small></span><span class='pill {'good' if enabled else 'warn'}'>{'ON' if enabled else 'OFF'}</span></div>" for name,enabled,_ in flags)
     ready = bool(_bot and _bot.is_ready())
-    latency = f"{round(_bot.latency*1000)} ms" if ready else "Unavailable"
-    storage = "Upstash configured" if state.get("BD_UPSTASH_URL") and state.get("BD_UPSTASH_TOKEN") else "Local file mode — redeploys may reset data"
-    body = f"<section class='hero'><div><h1>Welcome to { _esc(guild.name) }</h1><p>Here's a quick look at your server and Cinnamon's connected systems.</p><div class='actions'><a class='btn' href='/dashboard?guild_id={gid}&tab=moderation'>Manage moderation</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=system'>Configure Cinnamon</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=message_studio'>Message Studio</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=analytics'>Analytics</a><a class='btn secondary' href='/dashboard?guild_id={gid}&tab=activity_logs'>Activity logs</a></div></div><img class='heroimg' src='/static/cinnamon_mascot.svg' alt='Cinnamon'></section><div class='grid'>{cards}<article class='card half'><h2>Feature status</h2>{status_cards}</article><article class='card half'><h2>Cinnamon health</h2><p class='muted'>Live connection status from the running bot.</p><div class='toggle'><b>Gateway</b><span class='pill {'good' if ready else 'warn'}'>{'Online' if ready else 'Not ready'}</span></div><div class='toggle'><b>Storage</b><span class='pill {'good' if state.get('BD_UPSTASH_URL') and state.get('BD_UPSTASH_TOKEN') else 'warn'}'>{_esc(storage)}</span></div><div class='toggle'><b>Latency</b><span>{latency}</span></div><p class='muted'>For deeper diagnostics, use <b>/diagnostics</b> in Discord.</p></article></div>"
-    return body
+    latency = f"{round(_bot.latency * 1000)} ms" if ready else "Unavailable"
+    commands = len(_bot.tree.get_commands()) if _bot else 0
+    durable = bool(state.get("BD_UPSTASH_URL") and state.get("BD_UPSTASH_TOKEN"))
+    storage = "Upstash Redis" if durable else "Local JSON file"
+
+    flags = [
+        ("Welcome messages", bool((state.get("welcome_config", {}) or {}).get(gid) or (state.get("welcome_config", {}) or {}).get(str(gid)))),
+        ("Goodbye messages", bool((state.get("goodbye_config", {}) or {}).get(gid) or (state.get("goodbye_config", {}) or {}).get(str(gid)))),
+        ("AutoMod", bool((state.get("automod_config", {}) or {}).get(gid) or (state.get("automod_config", {}) or {}).get(str(gid)))),
+        ("Anti-raid alerts", bool(((state.get("antiraid_config", {}) or {}).get(gid) or (state.get("antiraid_config", {}) or {}).get(str(gid), {})).get("enabled"))),
+        ("Cinnamon AI channel", bool((state.get("ai_channels", {}) or {}).get(gid) or (state.get("ai_channels", {}) or {}).get(str(gid)))),
+        ("Hangry Games", bool(hangry)),
+        ("Ticket panels", bool(panels)),
+        ("Role permissions", bool(((state.get("advanced_features_data", {}) or {}).get("cinnamon_role_permissions_v1", {}) or {}).get(str(gid)))),
+    ]
+    status_rows = "".join(
+        "<div class='toggle'><span><b>" + _esc(name) + "</b><small>" + ("Configured" if enabled else "Not configured") + "</small></span>"
+        "<span class='pill " + ("good" if enabled else "warn") + "'>" + ("ON" if enabled else "OFF") + "</span></div>"
+        for name, enabled in flags
+    )
+
+    latest = []
+    for ticket in open_tickets:
+        created = as_float(ticket.get("created_at"))
+        if created > 0:
+            latest.append((created, "Ticket opened", "#" + str(ticket.get("category_label", "Support"))))
+    for gw in giveaways:
+        created = as_float(gw.get("created_at")) or as_float(gw.get("ends_at"))
+        if created > 0:
+            latest.append((created, "Giveaway active", str(gw.get("prize", "Giveaway"))))
+    latest.sort(key=lambda item: item[0], reverse=True)
+    latest_rows = "".join(
+        "<div class='rowitem'><span class='rowmain'><b>" + _esc(label) + "</b><small>" + _esc(detail) + "</small></span>"
+        "<span class='rowmeta'>" + dt.datetime.fromtimestamp(when, dt.timezone.utc).strftime("%d %b · %H:%M UTC") + "</span></div>"
+        for when, label, detail in latest[:5]
+    ) or "<p class='empty'>No timestamped tickets or giveaways yet. Discord-side activity appears in Activity Logs.</p>"
+
+    kpis = [
+        ("Members", f"{member_count:,}", "👥", "Server size"),
+        ("Catnip in circulation", f"{catnip_total:,} 🌿", "🌿", f"Across {len(guild_balances):,} tracked accounts"),
+        ("Open tickets", f"{len(open_tickets):,}", "🎫", f"{len(closed_tickets):,} closed records"),
+        ("Active giveaways", f"{len(giveaways):,}", "🎉", f"{len(panels):,} ticket panel(s) configured"),
+    ]
+    kpi_html = "".join(
+        "<article class='card kpi'><div class='kpihead'><span class='statlabel'>" + _esc(label) + "</span>"
+        "<span class='iconbox' aria-hidden='true'>" + icon + "</span></div>"
+        "<div class='stat'>" + value + "</div><p class='kpitrend'>" + _esc(note) + "</p></article>"
+        for label, value, icon, note in kpis
+    )
+
+    def link(label, tab_key, secondary=True):
+        return "<a class='btn " + ("secondary" if secondary else "") + "' href='/dashboard?guild_id=" + str(gid) + "&tab=" + tab_key + "'>" + label + "</a>"
+
+    return (
+        "<div class='pagehead'><div><p class='eyebrow'>Server overview</p><h1>" + _esc(guild.name) + "</h1>"
+        "<p class='muted'>Live information from Cinnamon's current runtime. Counters reflect saved state, not sample data.</p></div>"
+        "<div class='statusline'><span class='pill " + ("good" if ready else "warn") + "'>" + ("Cinnamon online" if ready else "Cinnamon not ready") + "</span>"
+        "<span class='pill'>" + _esc(storage) + "</span></div></div>"
+        "<div class='statgrid'>" + kpi_html + "</div>"
+        "<div class='grid'>"
+        "<article class='card half'><div class='sectionhead'><h2>Catnip economy</h2><span class='pill'>" + f"{catnip_total:,} 🌿" + "</span></div>"
+        "<div class='rowlist'>" + balance_rows + "</div>"
+        "<p class='muted'>Balances are read live. Shop items, role income and transfers stay on the economy page.</p>"
+        "<div class='actions'>" + link("Manage economy", "economy") + "</div></article>"
+        "<article class='card half'><div class='sectionhead'><h2>Quests & achievements</h2><span class='pill'>" + f"{active_quests:,} active quests" + "</span></div>"
+        "<div class='rowlist'>" + quest_rows + "</div><div class='rule'></div>"
+        "<div class='rowitem'><span class='rowmain'><b>" + f"{unlocked:,} achievement unlocks" + "</b><small>Across " + f"{len(achievement_users):,} tracked members" + "</small></span>"
+        "<span class='rowmeta'>" + f"{achievement_defs:,} definitions" + "</span></div>"
+        "<div class='actions'>" + link("Open quests", "quests") + link("Achievements", "achievements") + "</div></article>"
+        "<article class='card half'><div class='sectionhead'><h2>Giveaways</h2><span class='pill'>" + f"{len(giveaways):,} active" + "</span></div>"
+        "<div class='rowlist'>" + giveaway_rows + "</div>"
+        "<div class='actions'>" + link("Manage giveaways", "giveaways") + "</div></article>"
+        "<article class='card half'><div class='sectionhead'><h2>Tickets</h2><span class='pill " + ("good" if open_tickets else "") + "'>" + f"{len(open_tickets):,} open" + "</span></div>"
+        "<div class='rowlist'>"
+        "<div class='rowitem'><span class='rowmain'><b>Active tickets</b><small>Priority-ordered in the ticket workspace</small></span><span class='rowmeta'>" + f"{len(open_tickets):,}" + "</span></div>"
+        "<div class='rowitem'><span class='rowmain'><b>Recently closed</b><small>Up to 50 records retained</small></span><span class='rowmeta'>" + f"{len(closed_tickets):,}" + "</span></div>"
+        "<div class='rowitem'><span class='rowmain'><b>Panels</b><small>Publish separately after saving</small></span><span class='rowmeta'>" + f"{len(panels):,}" + "</span></div>"
+        "</div><div class='actions'>" + link("Open tickets", "tickets") + "</div></article>"
+        "<article class='card half'><h2>Cinnamon health</h2>"
+        "<div class='rowlist'>"
+        "<div class='rowitem'><span class='rowmain'><b>Gateway</b><small>Discord connection</small></span><span class='pill " + ("good" if ready else "warn") + "'>" + ("Online" if ready else "Not ready") + "</span></div>"
+        "<div class='rowitem'><span class='rowmain'><b>Latency</b><small>Current heartbeat</small></span><span class='rowmeta'>" + _esc(latency) + "</span></div>"
+        "<div class='rowitem'><span class='rowmain'><b>Storage</b><small>Durable persistence</small></span><span class='pill " + ("good" if durable else "warn") + "'>" + _esc(storage) + "</span></div>"
+        "<div class='rowitem'><span class='rowmain'><b>Slash commands</b><small>Registered in this process</small></span><span class='rowmeta'>" + f"{commands:,}" + "</span></div>"
+        "</div><p class='muted'>Run <b>/diagnostics</b> in Discord for the complete permission and runtime check.</p>"
+        "<div class='actions'>" + link("Settings & logs", "system") + "</div></article>"
+        "<article class='card half'><div class='sectionhead'><h2>Hangry Games</h2><span class='pill'>" + f"{hangry_games:,} games run" + "</span></div>"
+        "<div class='rowlist'>" + hangry_rows + "</div>"
+        "<div class='actions'>" + link("Game statistics", "hangry") + "</div></article>"
+        "<article class='card full'><h2>Feature status</h2><p class='muted'>Configuration read from this server's saved Cinnamon settings.</p>"
+        "<div class='statusgrid'>" + status_rows + "</div></article>"
+        "<article class='card full'><h2>Latest recorded activity</h2>"
+        "<div class='rowlist'>" + latest_rows + "</div>"
+        "<div class='actions'>" + link("View activity logs", "activity_logs") + link("Server analytics", "analytics") + "</div></article>"
+        "</div>"
+    )
 
 
 def _moderation(guild, state):
@@ -909,9 +1260,13 @@ def _economy(guild,state):
     total=sum(int(v) for (g,_),v in balances.items() if g==gid); users=_count(balances,gid)
     shop=state.get("ECONOMY_ITEMS",{}); items=[]
     for key,item in shop.items():
-        form=f"<form method='post' action='/dashboard/action' class='formgrid'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='economy_item_save'><input type='hidden' name='item_id' value='{_esc(key)}'><div class='field'><label>Name</label><input name='name' maxlength='80' value='{_esc(item.get('name',key))}' required></div><div class='field'><label>Price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='{int(item.get('price',1))}' required></div><div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(item.get('emoji','🐾'))}'></div><div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='{int(item.get('max_per_person',0))}'></div><div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(item.get('description',''))}'></div><div class='actions' style='grid-column:1/-1'><button class='btn small' type='submit'>Save item</button></div></form><form method='post' action='/dashboard/action' onsubmit='return confirm(&quot;Remove this shop item? Existing inventory will be kept but the item can no longer be purchased or used.&quot;);'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='economy_item_remove'><input type='hidden' name='item_id' value='{_esc(key)}'><button class='btn danger small' type='submit'>Remove item</button></form>"
-        items.append(f"<tr><td>{_esc(key)}<div class='muted'>{_esc(item.get('emoji','🐾'))} {_esc(item.get('name',key))}</div></td><td colspan='2'>{form}</td></tr>")
-    item_rows="".join(items) or "<tr><td colspan='3'>No shop items available.</td></tr>"
+        form=f"<form method='post' action='/dashboard/action' class='formgrid'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='economy_item_save'><input type='hidden' name='item_id' value='{_esc(key)}'><div class='field'><label>Name</label><input name='name' maxlength='80' value='{_esc(item.get('name',key))}' required></div><div class='field'><label>Price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='{int(item.get('price',1))}' required></div><div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(item.get('emoji','🐾'))}'></div><div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='{int(item.get('max_per_person',0))}'></div><div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(item.get('description',''))}'></div><div class='actions' style='grid-column:1/-1'><button class='btn small' type='submit'>Save item</button></div></form><form method='post' action='/dashboard/action' data-confirm='Remove this shop item? Existing inventory will be kept but the item can no longer be purchased or used.'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='economy_item_remove'><input type='hidden' name='item_id' value='{_esc(key)}'><button class='btn danger small' type='submit'>Remove item</button></form>"
+        items.append(
+            "<div class='catalogitem'><div class='cataloghead'><span class='catalogname'>"
+            + _esc(item.get('emoji','🐾')) + " " + _esc(item.get('name',key))
+            + "</span><code>" + _esc(key) + "</code></div>" + form + "</div>"
+        )
+    item_rows="".join(items) or "<p class='empty'>No shop items available.</p>"
     add_form="<div class='formgrid'><div class='field'><label>Item ID (unique)</label><input name='item_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div><div class='field'><label>Name</label><input name='name' maxlength='80' required></div><div class='field'><label>Price</label><input name='price' type='number' min='1' max='10000000' required></div><div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='🐾'></div><div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='0'></div><div class='field'><label>Description</label><input name='description' maxlength='300'></div></div>"
     add_card="<article class='card full'><h2>Add shop item</h2>"+_form(gid,"economy_item_add",add_form,"Create item")+"</article>"
     income_cfg=state.get("economy_income_roles",{}).get(gid,{}) or state.get("economy_income_roles",{}).get(str(gid),{})
@@ -925,7 +1280,7 @@ def _economy(guild,state):
         income_rows.append(f"<div class='toggle'><span><b>{_esc(role_name)}</b><small>{amount:,} Catnip every {interval} {_esc(unit)}(s)</small></span><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='economy_income_remove'><input type='hidden' name='role_id' value='{_esc(role_id)}'><button class='btn danger small' type='submit'>Remove</button></form></div>")
     income_add="<div class='formgrid'><div class='field'><label>Income role</label>"+_role_select(guild,"role_id",allow_none=False)+"</div><div class='field'><label>Catnip per collection</label><input name='amount' type='number' min='1' max='1000000' value='100' required></div><div class='field'><label>Interval</label><input name='interval' type='number' min='1' max='1000' value='1' required></div><div class='field'><label>Time unit</label><select name='unit'><option value='minute'>Minutes</option><option value='hour'>Hours</option><option value='day'>Days</option><option value='week'>Weeks</option></select></div></div>"
     income_card="<article class='card full'><h2>Role-based Catnip income</h2><p class='muted'>Members with a configured role can collect its recurring income using Cinnamon's existing collect command. Role income changes are audited and saved to the bot's data store.</p>"+(''.join(income_rows) or "<p class='muted'>No role income rules configured.</p>")+_form(gid,"economy_income_add",income_add,"Save role income")+"</article>"
-    body=f"<h1>Catnip economy</h1><p class='muted'>Manage the shared shop catalog, role income rules, and live economy statistics. Member balances and inventories are preserved.</p><div class='grid'><article class='card third'><div class='statlabel'>Economy members</div><div class='stat'>{users:,}</div></article><article class='card third'><div class='statlabel'>Total Catnip in circulation</div><div class='stat'>{total:,} 🌿</div></article><article class='card third'><div class='statlabel'>Shop items</div><div class='stat'>{len(shop)}</div></article><article class='card half'><h2>Top balances</h2><div class='tablewrap'><table><thead><tr><th>#</th><th>Member</th><th>Balance</th><th>Items</th></tr></thead><tbody>{rows}</tbody></table></div></article><article class='card half'><h2>Economy configuration</h2><p class='muted'>Daily reward: <b>{int(state.get('ECONOMY_DAILY_REWARD',150)):,} Catnip</b></p><p class='muted'>Work range: <b>{int(state.get('ECONOMY_WORK_MIN',50)):,}–{int(state.get('ECONOMY_WORK_MAX',150)):,}</b></p><p class='muted'>Work cooldown: <b>{int(state.get('ECONOMY_WORK_COOLDOWN',600))//60} minutes</b></p><p class='muted'>Economy logs: {_esc(guild.get_channel(state.get('economy_log_channels',{}).get(gid)).mention if guild.get_channel(state.get('economy_log_channels',{}).get(gid)) else 'Not configured')}</p></article><article class='card full'><h2>Catnip shop catalog</h2><div class='tablewrap'><table><thead><tr><th>Item</th><th colspan='2'>Edit fields</th></tr></thead><tbody>{item_rows}</tbody></table></article>{add_card}{income_card}</div>"
+    body=f"<h1>Catnip economy</h1><p class='muted'>Manage the shared shop catalog, role income rules, and live economy statistics. Member balances and inventories are preserved.</p><div class='grid'><article class='card third'><div class='statlabel'>Economy members</div><div class='stat'>{users:,}</div></article><article class='card third'><div class='statlabel'>Total Catnip in circulation</div><div class='stat'>{total:,} 🌿</div></article><article class='card third'><div class='statlabel'>Shop items</div><div class='stat'>{len(shop)}</div></article><article class='card half'><h2>Top balances</h2><div class='tablewrap'><table><thead><tr><th>#</th><th>Member</th><th>Balance</th><th>Items</th></tr></thead><tbody>{rows}</tbody></table></div></article><article class='card half'><h2>Economy configuration</h2><p class='muted'>Daily reward: <b>{int(state.get('ECONOMY_DAILY_REWARD',150)):,} Catnip</b></p><p class='muted'>Work range: <b>{int(state.get('ECONOMY_WORK_MIN',50)):,}–{int(state.get('ECONOMY_WORK_MAX',150)):,}</b></p><p class='muted'>Work cooldown: <b>{int(state.get('ECONOMY_WORK_COOLDOWN',600))//60} minutes</b></p><p class='muted'>Economy logs: {_esc(guild.get_channel(state.get('economy_log_channels',{}).get(gid)).mention if guild.get_channel(state.get('economy_log_channels',{}).get(gid)) else 'Not configured')}</p></article><article class='card full'><h2>Catnip shop catalog</h2><p class='muted'>Each item below is editable in place. Saving updates the shared catalog without touching member inventories.</p><div class='itemlist'>{item_rows}</div></article>{add_card}{income_card}</div>"
     gift_form=(
         "<div class='field'><label>Choose a member by name</label>" +
         _member_select(guild,"member_id",allow_none=True,size=7) +
@@ -984,7 +1339,7 @@ def _tickets(guild,state):
         ch=guild.get_channel(int(p.get("channel_id",0) or 0))
         cats=p.get("categories",[]) or []
         panel_rows.append("<article class='card full'><h3>"+_esc(p.get("name","Ticket panel"))+" <span class='pill'>"+state_label+"</span></h3><p class='muted'>"+_esc("#"+ch.name if ch else "No channel")+" · "+str(len(cats))+" categories · ID "+_esc(pid)+"</p>"+_form(gid,"ticket_panel_update","<input type='hidden' name='panel_id' value='"+_esc(pid)+"'><div class='formgrid'><div class='field'><label>Panel name</label><input name='panel_name' maxlength='60' required value='"+_esc(p.get("name",""))+"'></div><div class='field'><label>Channel</label>"+_channel_select(guild,"channel_id",p.get("channel_id"),allow_none=False)+"</div><div class='field'><label>Title</label><input name='panel_title' maxlength='256' required value='"+_esc(p.get("title","Support Center"))+"'></div><div class='field'><label>Color</label><input name='panel_color' maxlength='7' value='"+_esc(p.get("color","#D99048"))+"'></div><div class='field full'><label>Description</label><textarea name='panel_description' maxlength='3500'>"+_esc(p.get("description",""))+"</textarea></div><div class='field full'><label>Categories & modal questions (JSON)</label><textarea name='categories_json' maxlength='12000'>"+_esc(json.dumps(p.get("categories",[]),ensure_ascii=False,indent=2))+"</textarea><small>Edit all panel buttons/categories here. Each category supports its own questions and staff routing.</small></div></div>","Save panel settings")+
-        "<div class='actions'><form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_publish'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn'>"+("Update published panel" if p.get("published") else "Publish panel")+"</button></form><form method='post' action='/dashboard/action' onsubmit='return confirm(&quot;Delete this panel configuration?&quot;);'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_delete'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn danger small'>Delete</button></form></div></article>")
+        "<div class='actions'><form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_publish'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn'>"+("Update published panel" if p.get("published") else "Publish panel")+"</button></form><form method='post' action='/dashboard/action' data-confirm='Delete this panel configuration?'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_delete'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn danger small'>Delete</button></form></div></article>")
     panel_card="<article class='card full'><h2>Ticket panels</h2>"+("".join(panel_rows) or "<p class='empty'>No panels yet.</p>")+"</article>"
     ticket_query = request.args.get("ticket_q", "").strip().casefold()[:100]
     active_parts = []
@@ -1003,7 +1358,7 @@ def _tickets(guild,state):
         channel_id = str(t.get("channel_id"))
         claim_form = "<form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_claim'><input type='hidden' name='channel_id' value='" + channel_id + "'><button class='btn secondary small'>Claim as me</button></form>"
         unclaim_form = "<form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_unclaim'><input type='hidden' name='channel_id' value='" + channel_id + "'><button class='btn secondary small'>Unclaim</button></form>"
-        close_form = "<form method='post' action='/dashboard/action' onsubmit='return confirm(&quot;Close this ticket?&quot;);'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_close'><input type='hidden' name='channel_id' value='" + channel_id + "'><button class='btn danger small'>Close</button></form>"
+        close_form = "<form method='post' action='/dashboard/action' data-confirm='Close this ticket?'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_close'><input type='hidden' name='channel_id' value='" + channel_id + "'><button class='btn danger small'>Close</button></form>"
         assign_form = "<form method='post' action='/dashboard/action' class='actions'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_assign'><input type='hidden' name='channel_id' value='" + channel_id + "'><select name='member_id' aria-label='Assign ticket to member'><option value=''>Assign to member…</option>" + member_options + "</select><button class='btn secondary small'>Assign</button></form>"
         priority_form = "<form method='post' action='/dashboard/action' class='actions'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_priority'><input type='hidden' name='channel_id' value='" + channel_id + "'><select name='priority' aria-label='Ticket priority'>" + "".join("<option value='" + p + "'" + (" selected" if str(t.get("priority", "normal")) == p else "") + ">" + p.title() + "</option>" for p in ("low", "normal", "high", "urgent")) + "</select><button class='btn secondary small'>Set priority</button></form>"
         assigned = _esc(getattr(assigned_member, "display_name", "Unassigned"))
@@ -1077,7 +1432,7 @@ def _giveaways(guild,state):
         edit=_form(gid,"giveaway_edit",f"<input type='hidden' name='message_id' value='{int(mid)}'>{content}","Save giveaway")
         template_form=_form(gid,"giveaway_template_save",f"<input type='hidden' name='message_id' value='{int(mid)}'><div class='field'><label>Template name</label><input name='template_name' maxlength='40' required placeholder='e.g. Monthly Tuna'></div>","Save as template")
         end=(f"<form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_end'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn secondary small'>End & pick winners</button></form>"
-             f"<form method='post' action='/dashboard/action' onsubmit='return confirm(&quot;Cancel this giveaway without winners?&quot;);'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_cancel'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn danger small'>Cancel giveaway</button></form>")
+             f"<form method='post' action='/dashboard/action' data-confirm='Cancel this giveaway without winners?'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_cancel'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn danger small'>Cancel giveaway</button></form>")
         cards.append(f"<article class='card full'><h3>🎉 {_esc(gw.get('prize','Giveaway'))}</h3>{edit}<div class='grid'><article class='card half'><h3>Reusable template</h3>{template_form}</article><article class='card half'><h3>Finish or cancel</h3><div class='actions'>{end}</div></article></div></article>")
     channels=_channel_select(guild,"channel_id",allow_none=False)
     create=("<div class='formgrid'><div class='field'><label>Post in</label>"+channels+"</div><div class='field'><label>Prize</label><input name='prize' maxlength='200' required></div>"
@@ -1809,15 +2164,16 @@ def dashboard_home():
     if not context: return redirect(url_for("cinnamon_dashboard.login"))
     sid,guilds,eligible=context
     if not eligible:
-        body="<section class='hero'><div><h1>No manageable server found</h1><p>Add Cinnamon to a server where you are the owner or have Administrator permission, then reload.</p></div><img class='heroimg' src='/static/cinnamon_mascot.svg' alt='Cinnamon'></section>"
+        body="<section class='hero'><div><h1>No manageable server found</h1><p>Add Cinnamon to a server where you are the owner or have Administrator permission, then reload.</p></div><img class='heroimg' src='/assets/cinnamon_mascot.svg' alt='Cinnamon'></section>"
         return _page("<main class='main'>"+_header()+body+"</main>")
     guild_id=request.args.get("guild_id") or eligible[0]["id"]
     guild,guild_item=_get_access(sid,guilds,guild_id)
     tab=request.args.get("tab","overview"); allowed={"overview","mind","adventure","automation","moderation","engagement","achievements","quests","friendship","companions","economy","giveaways","tickets","roles_setup","hangry","community","message_studio","analytics","activity_logs","system"}
     if tab not in allowed: tab="overview"
     state=_state(); notice=session.pop("dashboard_notice",None)
+    notice_level=session.pop("dashboard_notice_level","success")
     pages={"overview":_overview,"mind":_mind,"adventure":_adventure,"automation":_automation,"moderation":_moderation,"engagement":_engagement,"achievements":_achievements,"quests":_quests,"friendship":_friendship,"companions":_companions,"economy":_economy,"giveaways":_giveaways,"tickets":_tickets,"roles_setup":_roles_setup,"hangry":_hangry,"community":_community,"message_studio":_message_studio,"analytics":_analytics,"activity_logs":_activity_logs,"system":_system}
-    return _shell(guild,eligible,tab,pages[tab](guild,state),notice)
+    return _shell(guild,eligible,tab,pages[tab](guild,state),notice,notice_level)
 
 
 
@@ -2926,10 +3282,12 @@ def dashboard_action():
         tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_update":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","community_features_settings":"community","community_event_create":"community","community_event_cancel":"community","security_settings":"moderation","moderation_controls_settings":"moderation","verification_publish":"moderation","appeal_settings":"moderation","dashboard_appeal_review":"moderation","ticket_dashboard_claim":"tickets","ticket_dashboard_unclaim":"tickets","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
+        session["dashboard_notice_level"]="error"
         session["dashboard_notice"]=str(exc)[:300]
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","ticket_settings_save":"tickets","ticket_panel_save":"tickets","ticket_panel_update":"tickets","ticket_panel_publish":"tickets","ticket_panel_delete":"tickets","ticket_dashboard_claim":"tickets","ticket_dashboard_unclaim":"tickets","roles_setup_save":"roles_setup","config_backup_restore":"system","hangry_logs":"hangry","moderate":"moderation","automod":"moderation","antiraid":"moderation","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","message_send":"message_studio"}.get(request.form.get("action"),"community")))
     except Exception as exc:
         log.exception("Dashboard action failed (%s)",type(exc).__name__)
+        session["dashboard_notice_level"]="error"
         session["dashboard_notice"]="The change could not be completed. Check Cinnamon's Render logs and bot permissions."
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=request.form.get("guild_id",""),tab="overview"))
 

@@ -58,6 +58,10 @@
     document.querySelectorAll(".layout select").forEach(function (select) {
       if (select.multiple) return;
       if (select.closest(".searchable-select")) return;
+      // Table row controls stay compact: a filter box there would break the action layout.
+      if (select.closest("td") || select.closest(".actions")) return;
+      // The server switcher is short and already labelled; a filter box adds noise.
+      if (select.closest(".serverbox")) return;
       var box = document.createElement("div");
       box.className = "searchable-select";
       var input = document.createElement("input");
