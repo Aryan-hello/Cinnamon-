@@ -375,6 +375,7 @@ def _shop_items(guild, state):
         for k, v in sorted(shop.items()) if isinstance(v, dict)
     )
     recipe_rows = []
+    recipe_dialogs = []
     for recipe_id, recipe in sorted(recipes.items()):
         ingredients_text = "\\n".join(f"{k}:{v}" for k, v in recipe.get("ingredients", {}).items())
         output_options = "".join(
@@ -394,7 +395,7 @@ def _shop_items(guild, state):
         recipe_dialog_id="shop-recipe-edit-"+str(recipe_id)
         recipe_editor=_form(gid,"shop_recipe_save",recipe_fields,"Save recipe")
         recipe_remove=_form(gid,"shop_recipe_remove",f"<input type='hidden' name='recipe_id' value='{_esc(recipe_id)}'>","Disable recipe",danger=True)
-        item_dialogs.append(f"<dialog class='shop-item-dialog' id='{_esc(recipe_dialog_id)}'><div class='shop-dialog-head'><div><span class='eyebrow'>RECIPE EDITOR</span><h2>{_esc(recipe.get('name',recipe_id))}</h2></div><button type='button' class='shop-dialog-close' data-shop-close aria-label='Close editor'>×</button></div><div class='shop-dialog-body'>{recipe_editor}<div class='shop-dialog-danger'>{recipe_remove}</div></div></dialog>")
+        recipe_dialogs.append(f"<dialog class='shop-item-dialog' id='{_esc(recipe_dialog_id)}'><div class='shop-dialog-head'><div><span class='eyebrow'>RECIPE EDITOR</span><h2>{_esc(recipe.get('name',recipe_id))}</h2></div><button type='button' class='shop-dialog-close' data-shop-close aria-label='Close editor'>×</button></div><div class='shop-dialog-body'>{recipe_editor}<div class='shop-dialog-danger'>{recipe_remove}</div></div></dialog>")
         recipe_rows.append("<button type='button' class='shop-product-tile shop-recipe-card' data-shop-open='"+_esc(recipe_dialog_id)+"'><span class='shop-product-icon'>"+_esc(recipe.get("emoji","🧪"))+"</span><span class='shop-product-name'>"+_esc(recipe.get("name",recipe_id))+"</span><span class='shop-product-edit'>Edit recipe</span></button>")
     recipe_add = (
         "<div class='formgrid'><div class='field'><label>Recipe ID (optional; generated from the name)</label><input name='recipe_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' placeholder='Auto-generated if blank'></div>"
@@ -481,7 +482,7 @@ def _shop_items(guild, state):
         f"<div class='statusline' style='margin-bottom:16px'>{storage}<span class='pill'>{len(shop)} catalogue items</span><span class='pill'>{len(recipes)} active recipes</span></div>"
         "<div class='grid'><article class='card full'><h2>Dedicated change log</h2><p class='muted'>Current destination: " +
         _esc(channel.mention if channel else "Not configured") + "</p>" + channel_form + "</article>"
-        + restore_card + shop_editor_ui + recipe_card + "<article class='card full'><h2>Active crafting recipes</h2></article>" + recipe_grid
+        + restore_card + shop_editor_ui + recipe_card + "<article class='card full'><h2>Active crafting recipes</h2></article>" + recipe_grid + "".join(recipe_dialogs)
         + "".join(box_cards) + "<article class='card full'><h2>Recent Shop & Items audit history</h2><p class='muted'>Last 30 events shown; up to 500 per server are retained in the Upstash-backed snapshot.</p>" + audit_html + "</article></div>"
     )
 
