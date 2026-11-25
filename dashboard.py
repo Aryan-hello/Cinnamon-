@@ -264,7 +264,7 @@ def _shop_items(guild, state):
         fields = (
             f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>"
             f"<div class='shop-editor-section'><h3>Item details</h3>"
-            f"<div class='field'><label>Item ID</label><input value='{_esc(item_id)}' disabled></div>"
+
             f"<div class='field'><label>Name</label><input name='name' maxlength='80' value='{_esc(item.get('name', item_id))}' required></div>"
             f"<div class='field'><label>Buy price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='{max(1,int(item.get('price',1)))}' required></div>"
             f"<div class='field'><label>Sell-back price (Catnip)</label><input name='sell_price' type='number' min='0' max='10000000' value='{'' if sell_value is None else max(0,int(sell_value))}' placeholder='Default: 50% of buy price'></div>"
@@ -309,7 +309,7 @@ def _shop_items(guild, state):
     item_grid = "".join(item_rows) or "<p class='muted'>No items yet. Create your first item.</p>"
     create_fields = (
         "<div class='shop-editor-section'><h3>Item details</h3>"
-        "<div class='field'><label>Unique item ID</label><input name='item_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div>"
+        "<div class='field'><label>Item key (optional)</label><input name='item_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' placeholder='Generated from the item name if blank'><small>Leave blank and Cinnamon will generate it automatically.</small></div>"
         "<div class='field'><label>Name</label><input name='name' maxlength='80' required placeholder='Give this item a name'></div>"
         "<div class='field'><label>Buy price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='1000' required></div>"
         "<div class='field'><label>Sell-back price (Catnip)</label><input name='sell_price' type='number' min='0' max='10000000' placeholder='Default: 50% of buy price'></div>"
@@ -347,7 +347,7 @@ def _shop_items(guild, state):
         ".shop-product-icon{font-size:42px;line-height:1.2;min-height:52px;display:grid;place-items:center}.shop-product-name{font-weight:750;line-height:1.25;overflow-wrap:anywhere}"
         ".shop-product-price{font-size:18px;font-weight:800;color:var(--accent)}.shop-product-price small{font-size:11px;font-weight:600;color:var(--muted)}.shop-product-edit{font-size:12px;color:var(--muted)}"
         ".shop-recipe-grid{display:grid;grid-column:1/-1;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px;width:100%;min-width:0;box-sizing:border-box}.shop-recipe-card{min-width:0;width:100%;box-sizing:border-box;overflow-wrap:anywhere}.shop-recipe-card form{min-width:0}.shop-recipe-card input,.shop-recipe-card select,.shop-recipe-card textarea{max-width:100%;box-sizing:border-box}.shop-item-dialog{border:1px solid var(--line);border-radius:18px;padding:0;width:min(680px,calc(100vw - 24px));max-height:min(88dvh,900px);background:var(--surface);color:var(--text);box-shadow:0 24px 80px #0008}"
-        ".shop-item-dialog::backdrop{background:#09070bd9;backdrop-filter:blur(4px)}.shop-dialog-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:18px 22px;background:var(--surface);border-bottom:1px solid var(--line)}"
+        ".shop-item-dialog[open]{display:block}.shop-item-dialog::backdrop{background:#09070bd9;backdrop-filter:blur(4px)}.shop-dialog-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:18px 22px;background:var(--surface);border-bottom:1px solid var(--line)}"
         ".shop-dialog-head h2{margin:4px 0 0}.shop-dialog-close{border:0;background:var(--surface-2);color:var(--text);width:40px;height:40px;border-radius:12px;font-size:26px;cursor:pointer}"
         ".shop-dialog-body{padding:18px 22px 24px;overflow:auto;max-height:calc(88dvh - 82px)}.shop-editor-section{border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}.shop-editor-section h3{margin:0 0 12px}"
         ".shop-editor-section textarea{width:100%;resize:vertical}.shop-builder-field{display:flex;flex-direction:column;gap:6px;margin:10px 0;font-size:13px;font-weight:650}.shop-builder-field input,.shop-builder-field select,.shop-builder-field textarea,.shop-builder-inline select,.shop-builder-inline input{width:100%;min-height:40px;border:1px solid var(--line-strong);border-radius:9px;background:var(--surface-2);padding:8px 10px;color:var(--ink)}.shop-builder-field select[multiple]{min-height:96px}.shop-builder-list{display:grid;gap:10px;margin:10px 0}.shop-builder-row,.shop-builder-outcome{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:12px;margin:8px 0}.shop-builder-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.shop-builder-inline{display:grid;grid-template-columns:minmax(0,1fr) 100px 42px;gap:8px;margin:8px 0}.shop-builder-button,.shop-builder-remove{border:1px solid var(--line-strong);border-radius:9px;padding:9px 12px;background:var(--surface-3);font-weight:650;cursor:pointer}.shop-builder-remove{color:var(--red)}.shop-builder-outcome h4{margin:8px 0}.shop-dialog-danger{border-top:1px solid var(--line);margin-top:18px;padding-top:14px}.shop-dialog-body .actions{position:sticky;bottom:-24px;background:var(--surface);padding:12px 0 2px}"
@@ -368,15 +368,25 @@ def _shop_items(guild, state):
         + "function buildActions(root,hidden,items){var cfg=[];try{cfg=JSON.parse(hidden.value||'[]');}catch(e){}var list=node('div','shop-builder-list');(cfg||[]).forEach(function(c){list.appendChild(effectRow(items,c,false));});root.appendChild(list);root.appendChild(button('＋ Add action','shop-builder-button',function(){list.appendChild(effectRow(items,{type:'give_catnip',amount:100,trigger:'both'},false));}));root.readConfig=function(){return Array.from(list.children).filter(function(x){return x.readConfig;}).map(function(x){return x.readConfig();});};}"
         + "function buildOutcomes(root,hidden,items){var cfg=[];try{cfg=JSON.parse(hidden.value||'[]');}catch(e){}var list=node('div','shop-builder-list');function addOutcome(c){c=c||{trigger:'both',weight:100,actions:[]};var card=node('div','shop-builder-outcome');var trig=select([['bought','When bought'],['used','When used'],['both','When bought or used']],c.trigger||'both');var weight=input('number',c.weight||100,'Weight %');var effects=node('div','shop-builder-list');effectList(effects,items,c.actions||[],true);card.appendChild(field('Trigger',trig));card.appendChild(field('Chance weight (%)',weight));card.appendChild(node('h4','','Outcome effects'));card.appendChild(effects);card.appendChild(button('Remove outcome','shop-builder-remove',function(){card.remove();}));card.readConfig=function(){return {trigger:trig.value,weight:Number(weight.value),actions:Array.from(effects.children).filter(function(x){return x.readConfig;}).map(function(x){return x.readConfig();})};};list.appendChild(card);} (cfg||[]).forEach(addOutcome);root.appendChild(list);root.appendChild(button('＋ Add random outcome','shop-builder-button',function(){addOutcome({trigger:'both',weight:100,actions:[]});}));root.readConfig=function(){return Array.from(list.children).filter(function(x){return x.readConfig;}).map(function(x){return x.readConfig();});};}"
         + "function initDialog(d){if(d.dataset.shopBuildersReady)return;d.dataset.shopBuildersReady='1';d.querySelectorAll('[data-config-builder]').forEach(function(root){var hidden=d.querySelector('[name="'+root.dataset.configBuilder+'"]');if(!hidden)return;var items=JSON.parse(root.dataset.items||'[]');if(root.classList.contains('shop-requirement-builder'))buildRequirement(root,hidden);else if(root.classList.contains('shop-action-builder'))buildActions(root,hidden,items);else if(root.classList.contains('shop-outcome-builder'))buildOutcomes(root,hidden,items);});var form=d.querySelector('form');if(form)form.addEventListener('submit',function(){d.querySelectorAll('[data-config-builder]').forEach(function(root){var hidden=d.querySelector('[name="'+root.dataset.configBuilder+'"]');if(hidden&&root.readConfig)hidden.value=JSON.stringify(root.readConfig());});});}"
-        + "document.addEventListener('click',function(e){var open=e.target.closest('[data-shop-open]');if(open){var d=document.getElementById(open.getAttribute('data-shop-open'));if(d&&d.showModal){initDialog(d);d.showModal();}}var close=e.target.closest('[data-shop-close]');if(close){var d=close.closest('dialog');if(d)d.close();}});document.addEventListener('click',function(e){if(e.target.matches('dialog.shop-item-dialog'))e.target.close();});})();</script>"
+        + "document.addEventListener('click',function(e){var node=e.target;while(node&&node.nodeType!==1)node=node.parentElement;var open=null,close=null;for(var el=node;el&&el!==document;el=el.parentElement){if(!open&&el.matches&&el.matches('[data-shop-open]'))open=el;if(!close&&el.matches&&el.matches('[data-shop-close]'))close=el;}if(open){e.preventDefault();e.stopPropagation();var id=open.getAttribute('data-shop-open');var d=id?document.getElementById(id):null;if(d){try{initDialog(d);}catch(err){console.error('Cinnamon shop editor initialization failed',err);}try{if(d.showModal&&!d.open)d.showModal();else d.setAttribute('open','');}catch(err){d.setAttribute('open','');}}}if(close){e.preventDefault();e.stopPropagation();var dialog=close.closest('dialog');if(dialog&&dialog.close)dialog.close();else if(dialog)dialog.removeAttribute('open');}if(node&&node.matches&&node.matches('dialog.shop-item-dialog')){if(node.close)node.close();else node.removeAttribute('open');}},true);})();</script>"
     )
     item_options = "".join(
-        f"<option value='{_esc(k)}'>{_esc(v.get('emoji','🐾'))} {_esc(v.get('name',k))} ({_esc(k)})</option>"
+        f"<option value='{_esc(k)}'>{_esc(v.get('emoji','🐾'))} {_esc(v.get('name',k))}</option>"
         for k, v in sorted(shop.items()) if isinstance(v, dict)
     )
+    def ingredient_picker(selected=None):
+        selected={str(k):max(1,int(v)) for k,v in (selected or {}).items() if str(k) in shop}
+        rows=[]
+        for item_id,item in sorted(shop.items(),key=lambda pair:str((pair[1] or {}).get("name",pair[0])).casefold()):
+            if not isinstance(item,dict): continue
+            rid=str(item_id); checked=" checked" if rid in selected else ""
+            quantity=selected.get(rid,1)
+            rows.append(f"<label class='choice-option' data-choice-label='{_esc(str(item.get('name',rid)).lower())}'><input type='checkbox' name='ingredient_item_ids' value='{_esc(rid)}'{checked}><span>{_esc(str(item.get('emoji','🐾'))+' '+str(item.get('name',rid)))}</span><input aria-label='Quantity for {_esc(str(item.get('name',rid)))}' type='number' name='ingredient_quantity_{_esc(rid)}' min='1' max='999' value='{quantity}' style='width:84px;margin-left:auto'></label>")
+        return "<div class='choice-picker' data-choice-picker><div class='choice-toolbar'><input class='choice-search' type='search' placeholder='Search catalogue items…' aria-label='Search recipe ingredients' autocomplete='off'><span class='choice-count' aria-live='polite'></span></div><div class='choice-options'>"+("".join(rows) or "<p class='muted'>No catalogue items available.</p>")+"</div><small class='choice-help'>Select ingredients by their names and set the quantity for each.</small></div>"
     recipe_rows = []
+    recipe_dialogs = []
     for recipe_id, recipe in sorted(recipes.items()):
-        ingredients_text = "\\n".join(f"{k}:{v}" for k, v in recipe.get("ingredients", {}).items())
+        ingredients_text = "\\n".join(f"{shop.get(k,{}).get('name',k)}:{v}" for k, v in recipe.get("ingredients", {}).items())
         output_options = "".join(
             "<option value='" + _esc(k) + "'" +
             (" selected" if k == recipe.get("output") else "") + ">" +
@@ -388,19 +398,20 @@ def _shop_items(guild, state):
             f"<div class='field'><label>Recipe name</label><input name='name' maxlength='80' value='{_esc(recipe.get('name',recipe_id))}' required></div>"
             f"<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(recipe.get('emoji','🧪'))}'></div>"
             f"<div class='field'><label>Output item</label><select name='output' required>{output_options}</select></div>"
-            f"<div class='field' style='grid-column:1/-1'><label>Ingredients (one item_id:quantity per line)</label><textarea name='ingredients' rows='4' required>{_esc(ingredients_text)}</textarea></div>"
+            f"<div class='field' style='grid-column:1/-1'><label>Ingredients</label>{ingredient_picker(recipe.get('ingredients',{}))}</div>"
             f"<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(recipe.get('description',''))}'></div>"
         )
-        recipe_rows.append("<article class='card shop-recipe-card'><h3>" + _esc(recipe.get("emoji","🧪")) + " " + _esc(recipe.get("name",recipe_id)) + "</h3>" +
-            _form(gid, "shop_recipe_save", recipe_fields, "Save recipe") +
-            _form(gid, "shop_recipe_remove", f"<input type='hidden' name='recipe_id' value='{_esc(recipe_id)}'>", "Disable recipe", danger=True) +
-            "</article>")
+        recipe_dialog_id="shop-recipe-edit-"+str(recipe_id)
+        recipe_editor=_form(gid,"shop_recipe_save",recipe_fields,"Save recipe")
+        recipe_remove=_form(gid,"shop_recipe_remove",f"<input type='hidden' name='recipe_id' value='{_esc(recipe_id)}'>","Disable recipe",danger=True)
+        recipe_dialogs.append(f"<dialog class='shop-item-dialog' id='{_esc(recipe_dialog_id)}'><div class='shop-dialog-head'><div><span class='eyebrow'>RECIPE EDITOR</span><h2>{_esc(recipe.get('name',recipe_id))}</h2></div><button type='button' class='shop-dialog-close' data-shop-close aria-label='Close editor'>×</button></div><div class='shop-dialog-body'>{recipe_editor}<div class='shop-dialog-danger'>{recipe_remove}</div></div></dialog>")
+        recipe_rows.append("<button type='button' class='shop-product-tile shop-recipe-card' data-shop-open='"+_esc(recipe_dialog_id)+"'><span class='shop-product-icon'>"+_esc(recipe.get("emoji","🧪"))+"</span><span class='shop-product-name'>"+_esc(recipe.get("name",recipe_id))+"</span><span class='shop-product-edit'>Edit recipe</span></button>")
     recipe_add = (
-        "<div class='formgrid'><div class='field'><label>Recipe ID</label><input name='recipe_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div>"
+        "<div class='formgrid'><div class='field'><label>Recipe ID (optional; generated from the name)</label><input name='recipe_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' placeholder='Auto-generated if blank'></div>"
         "<div class='field'><label>Recipe name</label><input name='name' maxlength='80' required></div>"
         "<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='🧪'></div>"
         f"<div class='field'><label>Output item</label><select name='output' required>{item_options}</select></div>"
-        "<div class='field' style='grid-column:1/-1'><label>Ingredients (one item_id:quantity per line)</label><textarea name='ingredients' rows='5' placeholder='tuna:2&#10;treat:1' required></textarea></div>"
+        "<div class='field' style='grid-column:1/-1'><label>Ingredients</label>"+ingredient_picker()+"</div>"
         "<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300'></div></div>"
     )
     recipe_card = "<article class='card full'><h2>Create or edit a crafting recipe</h2><p class='muted'>Every ingredient must already exist in the item catalogue. Recipe output items are automatically marked craftable.</p>" + _form(gid, "shop_recipe_save", recipe_add, "Save recipe") + "</article>"
@@ -480,7 +491,7 @@ def _shop_items(guild, state):
         f"<div class='statusline' style='margin-bottom:16px'>{storage}<span class='pill'>{len(shop)} catalogue items</span><span class='pill'>{len(recipes)} active recipes</span></div>"
         "<div class='grid'><article class='card full'><h2>Dedicated change log</h2><p class='muted'>Current destination: " +
         _esc(channel.mention if channel else "Not configured") + "</p>" + channel_form + "</article>"
-        + restore_card + shop_editor_ui + recipe_card + "<article class='card full'><h2>Active crafting recipes</h2></article>" + recipe_grid
+        + restore_card + shop_editor_ui + recipe_card + "<article class='card full'><h2>Active crafting recipes</h2></article>" + recipe_grid + "".join(recipe_dialogs)
         + "".join(box_cards) + "<article class='card full'><h2>Recent Shop & Items audit history</h2><p class='muted'>Last 30 events shown; up to 500 per server are retained in the Upstash-backed snapshot.</p>" + audit_html + "</article></div>"
     )
 
@@ -1026,6 +1037,18 @@ def _role_multi_select(guild, name, selected=None):
     )
 
 
+def _role_bonus_picker(guild, name="bonus_role_ids", selected=None):
+    """Searchable role picker with a per-role extra-entry count; IDs remain internal."""
+    selected={str(k):max(1,min(20,int(v))) for k,v in (selected or {}).items() if str(k).isdigit()}
+    roles=sorted([r for r in guild.roles if not r.is_default() and not r.managed],key=lambda r:r.position,reverse=True)
+    rows=[]
+    for role in roles:
+        rid=str(role.id); checked=" checked" if rid in selected else ""
+        count=selected.get(rid,1)
+        rows.append(f"<label class='choice-option' data-choice-label='{_esc(role.name.lower())}'><input type='checkbox' name='{_esc(name)}' value='{rid}'{checked}><span>@{_esc(role.name)}</span><input aria-label='Extra entries for @{_esc(role.name)}' type='number' name='bonus_role_count_{rid}' min='1' max='20' value='{count}' style='width:76px;margin-left:auto'></label>")
+    return ("<div class='choice-picker' data-choice-picker><div class='choice-toolbar'><input class='choice-search' type='search' placeholder='Search roles…' aria-label='Search bonus-entry roles' autocomplete='off'><span class='choice-count' aria-live='polite'></span></div><div class='choice-options'>"+("".join(rows) or "<p class='muted'>No assignable roles found.</p>")+"</div><small class='choice-help'>Select each role and set its extra entries (1–20). Only the highest matching role bonus applies.</small></div>")
+
+
 def _form(guild_id, action, content, button="Save changes", danger=False):
     style = " danger" if danger else ""
     return f"<form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{guild_id}'><input type='hidden' name='action' value='{_esc(action)}'>{content}<div class='actions'><button class='btn{style}' type='submit'>{_esc(button)}</button></div></form>"
@@ -1485,16 +1508,21 @@ def _moderation(guild, state):
             for label, value in (("Approve", "approved"), ("Decline", "declined")):
                 action_forms += "<form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='dashboard_appeal_review'><input type='hidden' name='appeal_id' value='" + _esc(str(appeal_id)) + "'><input type='hidden' name='decision' value='" + value + "'><button class='btn " + ("secondary" if value == "approved" else "danger") + " small'>" + label + "</button></form>"
             action_forms += "</div>"
-        appeal_rows.append("<tr><td>" + _esc(str(appeal_id)) + "</td><td>" + _esc(str(appeal.get("user_id", ""))) + "</td><td>" + _esc(str(appeal.get("details", ""))[:180]) + "</td><td>" + _esc(decision.title()) + "</td><td>" + action_forms + "</td></tr>")
+        appeal_member=guild.get_member(int(appeal.get("user_id",0) or 0)) if str(appeal.get("user_id","")).isdigit() else None
+        appeal_member_name=getattr(appeal_member,"display_name","Unknown member")
+        appeal_rows.append("<tr><td>" + _esc(str(appeal_id)) + "</td><td>" + _esc(appeal_member_name) + "</td><td>" + _esc(str(appeal.get("details", ""))[:180]) + "</td><td>" + _esc(decision.title()) + "</td><td>" + action_forms + "</td></tr>")
     appeal_rows_html = "".join(appeal_rows) or "<tr><td colspan='5'>No appeals have been submitted.</td></tr>"
     appeal_form = "<div class='field'><label>Private appeal channel</label>" + _channel_select(guild, "appeal_channel_id", controls.get("appeal_channel_id")) + "</div><p class='muted'>Members submit appeals in a direct message to Cinnamon using /appeal submit. This channel must be private to moderators.</p>"
-    appeal_card = "<article class='card full'><h2>Moderation appeals</h2><p class='muted'>Current channel: " + _esc(appeal_channel.mention if appeal_channel else "Disabled") + " · Pending: " + str(sum(1 for a in appeals.values() if a.get("status") == "pending")) + "</p>" + _form(gid, "appeal_settings", appeal_form, "Save appeal channel") + "<div class='tablewrap'><table><thead><tr><th>Appeal ID</th><th>Member ID</th><th>Details preview</th><th>Status</th><th>Review</th></tr></thead><tbody>" + appeal_rows_html + "</tbody></table></div></article>"
+    appeal_card = "<article class='card full'><h2>Moderation appeals</h2><p class='muted'>Current channel: " + _esc(appeal_channel.mention if appeal_channel else "Disabled") + " · Pending: " + str(sum(1 for a in appeals.values() if a.get("status") == "pending")) + "</p>" + _form(gid, "appeal_settings", appeal_form, "Save appeal channel") + "<div class='tablewrap'><table><thead><tr><th>Appeal ID</th><th>Member</th><th>Details preview</th><th>Status</th><th>Review</th></tr></thead><tbody>" + appeal_rows_html + "</tbody></table></div></article>"
     note_rows = []
     for member_id, member_notes in notes.items():
         for note_id, note in list((member_notes or {}).items())[-10:]:
-            note_rows.append("<tr><td>" + _esc(str(member_id)) + "</td><td>" + _esc(str(note_id)) + "</td><td>" + _esc(str(note.get("text", ""))[:180]) + "</td><td>" + _esc(str(note.get("created_by", ""))) + "</td></tr>")
+            noted_member=guild.get_member(int(member_id)) if str(member_id).isdigit() else None
+            author_id=note.get("created_by","")
+            note_author=guild.get_member(int(author_id)) if str(author_id).isdigit() else None
+            note_rows.append("<tr><td>" + _esc(getattr(noted_member,"display_name","Unknown member")) + "</td><td>" + _esc(str(note_id)) + "</td><td>" + _esc(str(note.get("text", ""))[:180]) + "</td><td>" + _esc(getattr(note_author,"display_name","Unknown moderator")) + "</td></tr>")
     note_rows_html = "".join(note_rows[-30:]) or "<tr><td colspan='4'>No private moderator notes.</td></tr>"
-    notes_card = "<article class='card full'><h2>Private moderator notes</h2><p class='muted'>Only administrators and moderators with the appropriate permissions can view or edit these notes.</p><div class='tablewrap'><table><thead><tr><th>Member ID</th><th>Note ID</th><th>Note preview</th><th>Added by</th></tr></thead><tbody>" + note_rows_html + "</tbody></table></div></article>"
+    notes_card = "<article class='card full'><h2>Private moderator notes</h2><p class='muted'>Only administrators and moderators with the appropriate permissions can view or edit these notes.</p><div class='tablewrap'><table><thead><tr><th>Member</th><th>Note ID</th><th>Note preview</th><th>Added by</th></tr></thead><tbody>" + note_rows_html + "</tbody></table></div></article>"
     body = f"<h1>Moderation & safety</h1><p class='muted'>Manage member actions, message filters, join-spike alerts, anti-spam, anti-nuke, private moderator notes, appeals, verification and onboarding.</p><div class='grid'><article class='card third'><div class='statlabel'>Recorded warnings</div><div class='stat'>{warning_count:,}</div></article><article class='card third'><div class='statlabel'>AutoMod</div><div class='stat'><span class='pill {'good' if automod else 'warn'}'>{'Configured' if automod else 'Off'}</span></div></article><article class='card third'><div class='statlabel'>Anti-raid</div><div class='stat'><span class='pill {'good' if antiraid.get('enabled') else 'warn'}'>{'Enabled' if antiraid.get('enabled') else 'Disabled'}</span></div></article>{modcard}{automodcard}{raidcard}{securitycard}{onboardingcard}{appeal_card}{notes_card}</div>"
     return body
 
@@ -1643,12 +1671,12 @@ def _tickets(guild,state):
     settings_card="<article class='card full'><h2>Ticket settings</h2><p class='muted'>Changes are validated and saved together. Ticket settings and metadata live inside Cinnamon's Upstash-backed snapshot.</p>"+_form(gid,"ticket_settings_save",log_form,"Save ticket settings")+"</article>"
     gag_items = state.get("ECONOMY_ITEMS", {}) or {}
     gag_options = "".join("<option value='" + _esc(item_id) + "'>" + _esc(item.get("name", item_id)) + "</option>" for item_id, item in gag_items.items() if item.get("category") == "grow_a_garden")
-    service_select = "<div class='field'><label>Linked Grow a Garden service item</label><select name='service_item_id'><option value=''>No linked service</option>" + gag_options + "</select><small>For legacy GAG-only panels; Shop panels select directly from member inventory.</small></div>"
+    service_select = "<div class='field full' data-panel-feature='gag'><label>Linked Grow a Garden service items</label><select name='service_item_ids' multiple size='6'>" + gag_options + "</select><small>Select multiple registered GAG services. Members can still choose their own eligible inventory items when opening a ticket.</small></div>"
     inventory_options = "".join("<option value='"+_esc(item_id)+"'>"+_esc(str(item.get("emoji","🐾"))+" "+str(item.get("name",item_id)))+"</option>" for item_id,item in sorted(gag_items.items(),key=lambda pair:str((pair[1] or {}).get("name",pair[0])).casefold()) if isinstance(item,dict))
-    inventory_select = "<div class='field full'><label>Eligible inventory items</label><select name='inventory_item_ids' multiple size='6'>"+inventory_options+"</select><small>For Shop routing, select which owned items members may choose. Leave empty to allow every item they own.</small></div>"
+    inventory_select = "<div class='field full' data-panel-feature='items'><label>Eligible inventory items</label><select name='inventory_item_ids' multiple size='6'>"+inventory_options+"</select><small>For Shop routing, select which owned items members may choose. Leave empty to allow every item they own.</small></div>"
     category_roles = "<div class='field full'><label>Additional ticket ping roles</label>"+_role_multi_select(guild,"category_staff_role_ids",[])+ "<small>Use this for custom routing; the default Moderator / Trusted Booster roles are configured above.</small></div>"
-    create="<div class='formgrid'><div class='field'><label>Panel name (dashboard label)</label><input name='panel_name' maxlength='60' required placeholder='Support Center'></div><div class='field'><label>Publish channel</label>"+_channel_select(guild,"channel_id",allow_none=False)+"</div><div class='field'><label>Panel title</label><input name='panel_title' maxlength='256' required value='Cinnamon Support Center'></div><div class='field'><label>Embed color (hex)</label><input name='panel_color' maxlength='7' value='#D99048'></div><div class='field full'><label>Panel description</label><textarea name='panel_description' maxlength='3500'>Choose a category below to open a private support ticket.</textarea></div><div class='field'><label>First category name</label><input name='category_label' maxlength='60' required value='General Support'></div><div class='field'><label>Button label</label><input name='button_label' maxlength='80' required value='Open Support Ticket'></div><div class='field'><label>Button emoji (optional)</label><input name='button_emoji' maxlength='100' placeholder='🎫'></div><div class='field'><label>Routing</label><select name='routing'><option value='support'>General support</option><option value='shop'>Shop support</option><option value='grow_a_garden'>Grow a Garden / boosting</option></select></div>"+service_select+"<div class='field full'><label>Welcome message / Cinnamon's first reply</label><textarea name='welcome_message' maxlength='1500'>Thanks for opening a ticket. Staff will help you here.</textarea></div>"+inventory_select+category_roles+"<div class='field'><label>Persistent button label (optional)</label><input name='persistent_button_label' maxlength='80' placeholder='View service instructions'></div><div class='field full'><label>Persistent button reply</label><textarea name='persistent_button_reply' maxlength='1800' placeholder='Cinnamon sends this reply when the button is clicked.'></textarea></div><div class='field'><label>Question 1</label><input name='question1' maxlength='45' placeholder='What do you need help with?'></div><div class='field'><label>Question 2</label><input name='question2' maxlength='45' placeholder='What did you purchase?'></div><div class='field'><label>Question 3</label><input name='question3' maxlength='45' placeholder='Order ID'></div><div class='field'><label>Question 4</label><input name='question4' maxlength='45' placeholder='Describe the issue'></div><div class='field'><label>Question 5</label><input name='question5' maxlength='45' placeholder='Anything else?'></div><div class='field full'><label>Optional multi-category JSON (overrides the single category above)</label><textarea name='categories_json' maxlength='12000' placeholder='Paste a JSON category list here'></textarea><small>Each category can have its own modal questions, routing (support/shop/grow_a_garden), button emoji/style, welcome text and ticket naming format.</small></div></div>"
-    create_card="<article class='card full'><h2>Create ticket panel</h2><p class='muted'>Create a panel configuration first, then publish it separately. Modal questions are asked before the private channel is created.</p>"+_form(gid,"ticket_panel_save",create,"Save panel draft")+"</article>"
+    create="<div class='formgrid'><div class='field'><label>Panel name (dashboard label)</label><input name='panel_name' maxlength='60' required placeholder='Support Center'></div><div class='field'><label>Publish channel</label>"+_channel_select(guild,"channel_id",allow_none=False)+"</div><div class='field'><label>Panel title</label><input name='panel_title' maxlength='256' required value='Cinnamon Support Center'></div><div class='field'><label>Embed color (hex)</label><input name='panel_color' maxlength='7' value='#D99048'></div><div class='field full'><label>Panel description</label><textarea name='panel_description' maxlength='3500'>Choose a category below to open a private support ticket.</textarea></div><div class='field'><label>First category name</label><input name='category_label' maxlength='60' required value='General Support'></div><div class='field'><label>Button label</label><input name='button_label' maxlength='80' required value='Open Support Ticket'></div><div class='field'><label>Button emoji (optional)</label><input name='button_emoji' maxlength='100' placeholder='🎫'></div><div class='field'><label>Routing</label><select name='routing'><option value='support'>General support</option><option value='shop'>Shop support</option><option value='grow_a_garden'>Grow a Garden / boosting</option></select></div><div class='field full'><label class='toggle'><input type='checkbox' name='gag_features_enabled' value='1' checked><span><b>Enable Grow a Garden features</b><small>Turn off to remove GAG routing and linked GAG service options from this panel.</small></span></label></div><div class='field full'><label class='toggle'><input type='checkbox' name='item_features_enabled' value='1' checked><span><b>Enable item features</b><small>Turn off to remove shop inventory selection and item-related ticket options from this panel.</small></span></label></div>"+service_select+"<div class='field full'><label>Welcome message / Cinnamon's first reply</label><textarea name='welcome_message' maxlength='1500'>Thanks for opening a ticket. Staff will help you here.</textarea></div>"+inventory_select+category_roles+"<div class='field'><label>Persistent button label (optional)</label><input name='persistent_button_label' maxlength='80' placeholder='View service instructions'></div><div class='field full'><label>Persistent button reply</label><textarea name='persistent_button_reply' maxlength='1800' placeholder='Cinnamon sends this reply when the button is clicked.'></textarea></div><div class='field'><label>Question 1</label><input name='question1' maxlength='45' placeholder='What do you need help with?'></div><div class='field'><label>Question 2</label><input name='question2' maxlength='45' placeholder='What did you purchase?'></div><div class='field'><label>Question 3</label><input name='question3' maxlength='45' placeholder='Order ID'></div><div class='field'><label>Question 4</label><input name='question4' maxlength='45' placeholder='Describe the issue'></div><div class='field'><label>Question 5</label><input name='question5' maxlength='45' placeholder='Anything else?'></div><div class='field full'><label>Optional multi-category JSON (overrides the single category above)</label><textarea name='categories_json' maxlength='12000' placeholder='Paste a JSON category list here'></textarea><small>Each category can have its own modal questions, routing (support/shop/grow_a_garden), button emoji/style, welcome text and ticket naming format.</small></div></div>"
+    create_card="<article class='card full'><h2>Create ticket panel</h2><p class='muted'>Create a panel configuration first, then publish it separately. Modal questions are asked before the private channel is created.</p>"+_form(gid,"ticket_panel_save",create,"Save panel draft")+"</article><script>(function(){function sync(f){var g=f.querySelector('[name=gag_features_enabled]'),it=f.querySelector('[name=item_features_enabled]');f.querySelectorAll('[data-panel-feature]').forEach(function(w){var on=w.dataset.panelFeature==='gag'?!g||g.checked:!it||it.checked;w.hidden=!on;w.querySelectorAll('input,select,textarea').forEach(function(x){x.disabled=!on;});});var route=f.querySelector('[name=routing]');if(route){Array.from(route.options).forEach(function(o){if(o.value==='grow_a_garden')o.disabled=!!g&&!g.checked;if(o.value==='shop')o.disabled=!!it&&!it.checked;});if(route.selectedOptions.length&&route.selectedOptions[0].disabled)route.value='support';}}document.addEventListener('change',function(e){if(e.target&&['gag_features_enabled','item_features_enabled'].includes(e.target.name)){var f=e.target.closest('form');if(f)sync(f);}});document.querySelectorAll('form').forEach(function(f){if(f.querySelector('[name=gag_features_enabled]')||f.querySelector('[name=item_features_enabled]'))sync(f);});})();</script>"
     panel_rows=[]
     for pid,p in sorted(panels.items()):
         state_label="Published" if p.get("published") else "Draft"
@@ -1661,9 +1689,10 @@ def _tickets(guild,state):
         question_fields="".join("<div class='field'><label>Question "+str(i+1)+"</label><input name='question"+str(i+1)+"' maxlength='45' value='"+_esc((panel_questions[i] if i<len(panel_questions) else {}).get("label",""))+"'></div>" for i in range(5))
         panel_routing=str(first_cat.get("routing","support"))
         routing_options="".join("<option value='"+value+"'"+(" selected" if panel_routing==value else "")+">"+label+"</option>" for value,label in (("support","General support"),("shop","Shop support"),("grow_a_garden","Grow a Garden / boosting")))
-        panel_service_options="".join("<option value='"+_esc(item_id)+"'"+(" selected" if str(first_cat.get("service_item_id",""))==str(item_id) else "")+">"+_esc(item.get("name",item_id))+"</option>" for item_id,item in gag_items.items() if isinstance(item,dict) and item.get("category")=="grow_a_garden")
-        panel_category_editor="<div class='formgrid'><div class='field'><label>Category name</label><input name='category_label' maxlength='60' required value='"+_esc(first_cat.get("label","Support"))+"'></div><div class='field'><label>Ticket button label</label><input name='button_label' maxlength='80' required value='"+_esc(first_cat.get("button_label",first_cat.get("label","Open ticket")))+"'></div><div class='field'><label>Button emoji</label><input name='button_emoji' maxlength='100' value='"+_esc(first_cat.get("emoji",""))+"'></div><div class='field'><label>Routing</label><select name='routing'>"+routing_options+"</select></div><div class='field'><label>Linked GAG service item</label><select name='service_item_id'><option value=''>No linked service</option>"+panel_service_options+"</select></div><div class='field full'><label>Welcome message / Cinnamon's first reply</label><textarea name='welcome_message' maxlength='1500'>"+_esc(first_cat.get("welcome_message",""))+"</textarea></div><div class='field full'><label>Eligible inventory items</label><select name='inventory_item_ids' multiple size='6'>"+panel_inventory_options+"</select><small>For Shop routing, leave empty to allow all items members own.</small></div><div class='field full'><label>Additional ticket ping roles</label>"+_role_multi_select(guild,"category_staff_role_ids",first_cat.get("staff_role_ids",[]))+"</div>"+question_fields+"<div class='field'><label>Persistent button label</label><input name='persistent_button_label' maxlength='80' value='"+_esc(first_cat.get("persistent_button_label",""))+"'></div><div class='field full'><label>Persistent button reply</label><textarea name='persistent_button_reply' maxlength='1800'>"+_esc(first_cat.get("persistent_button_reply",""))+"</textarea></div></div>"
-        panel_rows.append("<article class='card full'><h3>"+_esc(p.get("name","Ticket panel"))+" <span class='pill'>"+state_label+"</span></h3><p class='muted'>"+_esc("#"+ch.name if ch else "No channel")+" · "+str(len(cats))+" categories · ID "+_esc(pid)+"</p>"+_form(gid,"ticket_panel_update","<input type='hidden' name='panel_id' value='"+_esc(pid)+"'><div class='formgrid'><div class='field'><label>Panel name</label><input name='panel_name' maxlength='60' required value='"+_esc(p.get("name",""))+"'></div><div class='field'><label>Channel</label>"+_channel_select(guild,"channel_id",p.get("channel_id"),allow_none=False)+"</div><div class='field'><label>Title</label><input name='panel_title' maxlength='256' required value='"+_esc(p.get("title","Support Center"))+"'></div><div class='field'><label>Color</label><input name='panel_color' maxlength='7' value='"+_esc(p.get("color","#D99048"))+"'></div><div class='field full'><label>Description</label><textarea name='panel_description' maxlength='3500'>"+_esc(p.get("description",""))+"</textarea></div>"+panel_category_editor+"<div class='field full'><details><summary>Advanced multi-category editor (JSON)</summary><textarea name='categories_json' maxlength='12000' placeholder='Paste a JSON category list only to replace the categories above'></textarea><small>Optional advanced override. Leave blank to save the no-code editor above.</small></details></div></div>","Save panel settings")+
+        panel_selected_service_ids={str(x) for x in (first_cat.get("service_item_ids") or ([first_cat.get("service_item_id")] if first_cat.get("service_item_id") else []))}
+        panel_service_options="".join("<option value='"+_esc(item_id)+"'"+(" selected" if str(item_id) in panel_selected_service_ids else "")+">"+_esc(item.get("name",item_id))+"</option>" for item_id,item in gag_items.items() if isinstance(item,dict) and item.get("category")=="grow_a_garden")
+        panel_category_editor="<div class='formgrid'><div class='field'><label>Category name</label><input name='category_label' maxlength='60' required value='"+_esc(first_cat.get("label","Support"))+"'></div><div class='field'><label>Ticket button label</label><input name='button_label' maxlength='80' required value='"+_esc(first_cat.get("button_label",first_cat.get("label","Open ticket")))+"'></div><div class='field'><label>Button emoji</label><input name='button_emoji' maxlength='100' value='"+_esc(first_cat.get("emoji",""))+"'></div><div class='field'><label>Routing</label><select name='routing'>"+routing_options+"</select></div><div class='field full' data-panel-feature='gag'><label>Linked GAG service items</label><select name='service_item_ids' multiple size='6'>"+panel_service_options+"</select><small>Select multiple services if this category handles more than one.</small></div><div class='field full'><label>Welcome message / Cinnamon's first reply</label><textarea name='welcome_message' maxlength='1500'>"+_esc(first_cat.get("welcome_message",""))+"</textarea></div><div class='field full' data-panel-feature='items'><label>Eligible inventory items</label><select name='inventory_item_ids' multiple size='6'>"+panel_inventory_options+"</select><small>For Shop routing, leave empty to allow all items members own.</small></div><div class='field full'><label>Additional ticket ping roles</label>"+_role_multi_select(guild,"category_staff_role_ids",first_cat.get("staff_role_ids",[]))+"</div>"+question_fields+"<div class='field'><label>Persistent button label</label><input name='persistent_button_label' maxlength='80' value='"+_esc(first_cat.get("persistent_button_label",""))+"'></div><div class='field full'><label>Persistent button reply</label><textarea name='persistent_button_reply' maxlength='1800'>"+_esc(first_cat.get("persistent_button_reply",""))+"</textarea></div></div>"
+        panel_rows.append("<article class='card full'><h3>"+_esc(p.get("name","Ticket panel"))+" <span class='pill'>"+state_label+"</span></h3><p class='muted'>"+_esc("#"+ch.name if ch else "No channel")+" · "+str(len(cats))+" categories</p>"+_form(gid,"ticket_panel_update","<input type='hidden' name='panel_id' value='"+_esc(pid)+"'><div class='formgrid'><div class='field'><label>Panel name</label><input name='panel_name' maxlength='60' required value='"+_esc(p.get("name",""))+"'></div><div class='field'><label>Channel</label>"+_channel_select(guild,"channel_id",p.get("channel_id"),allow_none=False)+"</div><div class='field'><label>Title</label><input name='panel_title' maxlength='256' required value='"+_esc(p.get("title","Support Center"))+"'></div><div class='field'><label>Color</label><input name='panel_color' maxlength='7' value='"+_esc(p.get("color","#D99048"))+"'></div><div class='field full'><label>Description</label><textarea name='panel_description' maxlength='3500'>"+_esc(p.get("description",""))+"</textarea></div>"+"<div class='field full'><label class='toggle'><input type='checkbox' name='gag_features_enabled' value='1'"+(" checked" if p.get("gag_features_enabled",True) else "")+"><span><b>Enable Grow a Garden features</b><small>Allow GAG ticket routing and linked services on this panel.</small></span></label></div><div class='field full'><label class='toggle'><input type='checkbox' name='item_features_enabled' value='1'"+(" checked" if p.get("item_features_enabled",True) else "")+"><span><b>Enable item features</b><small>Allow shop inventory and item selection on this panel.</small></span></label></div>"+panel_category_editor+"<div class='field full'><details><summary>Advanced multi-category editor (JSON)</summary><textarea name='categories_json' maxlength='12000' placeholder='Paste a JSON category list only to replace the categories above'></textarea><small>Optional advanced override. Leave blank to save the no-code editor above.</small></details></div></div>","Save panel settings")+
         "<div class='actions'><form method='post' action='/dashboard/action' class='actions'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_publish'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><label class='field'><span>Send panel to channel</span>"+_channel_select(guild,'publish_channel_id',p.get('channel_id'),allow_none=False)+"</label><button class='btn'>"+("Update published panel" if p.get("published") else "Publish panel")+"</button></form><form method='post' action='/dashboard/action' data-confirm='Delete this panel configuration?'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_panel_delete'><input type='hidden' name='panel_id' value='"+_esc(pid)+"'><button class='btn danger small'>Delete</button></form></div></article>")
     panel_card="<article class='card full'><h2>Ticket panels</h2>"+("".join(panel_rows) or "<p class='empty'>No panels yet.</p>")+"</article>"
     ticket_query = request.args.get("ticket_q", "").strip().casefold()[:100]
@@ -1675,9 +1704,11 @@ def _tickets(guild,state):
     for t in active_tickets:
         ch = guild.get_channel(int(t.get("channel_id", 0) or 0))
         channel_name = ("#" + ch.name) if ch else ("Unknown channel " + str(t.get("channel_id", "")))
+        creator_member = guild.get_member(int(t.get("creator_id",0) or 0))
+        creator_name = getattr(creator_member,"display_name","Unknown member")
         claimed_member = guild.get_member(int(t.get("claimed_by", 0) or 0)) if t.get("claimed_by") else None
         assigned_member = guild.get_member(int(t.get("assigned_to", 0) or 0)) if t.get("assigned_to") else None
-        searchable = " ".join([channel_name, str(t.get("category_label", "")), str(t.get("creator_id", "")), str(t.get("priority", "")), str(getattr(claimed_member, "display_name", "")), str(getattr(assigned_member, "display_name", ""))]).casefold()
+        searchable = " ".join([channel_name, str(t.get("category_label", "")), creator_name, str(t.get("priority", "")), str(getattr(claimed_member, "display_name", "")), str(getattr(assigned_member, "display_name", ""))]).casefold()
         if ticket_query and ticket_query not in searchable:
             continue
         channel_id = str(t.get("channel_id"))
@@ -1695,18 +1726,20 @@ def _tickets(guild,state):
         assigned = _esc(getattr(assigned_member, "display_name", "Unassigned"))
         claimed = _esc(getattr(claimed_member, "display_name", "Unclaimed"))
         actions = "<div class='actions'>" + claim_form + unclaim_form + close_form + "</div>" + assign_form + priority_form
-        active_parts.append("<tr><td>" + _esc(channel_name) + "</td><td>" + _esc(t.get("category_label", "Support")) + "</td><td>" + _esc(str(t.get("creator_id", ""))) + "</td><td><span class='pill'>" + _esc(str(t.get("priority", "normal")).title()) + "</span></td><td>" + claimed + "</td><td>" + assigned + "</td><td>" + actions + "</td></tr>")
+        active_parts.append("<tr><td>" + _esc(channel_name) + "</td><td>" + _esc(t.get("category_label", "Support")) + "</td><td>" + _esc(creator_name) + "</td><td><span class='pill'>" + _esc(str(t.get("priority", "normal")).title()) + "</span></td><td>" + claimed + "</td><td>" + assigned + "</td><td>" + actions + "</td></tr>")
     active_rows="".join(active_parts) or "<tr><td colspan='7'>No active tickets.</td></tr>"
     closed_parts=[]
     for channel_id,t in list((cfg.get("closed",{}) or {}).items())[-50:]:
         ch=guild.get_channel(int(channel_id)) if str(channel_id).isdigit() else None
         cname="#"+ch.name if ch else "Ticket "+str(channel_id)
         reopen="<form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='ticket_dashboard_reopen'><input type='hidden' name='channel_id' value='"+_esc(channel_id)+"'><button class='btn secondary small'>Reopen</button></form>"
-        closed_parts.append("<tr><td>"+_esc(cname)+"</td><td>"+_esc(t.get("category_label","Support"))+"</td><td>"+_esc(str(t.get("creator_id","")))+"</td><td>"+_esc(t.get("close_reason",""))+"</td><td>"+reopen+"</td></tr>")
+        closed_creator=guild.get_member(int(t.get("creator_id",0) or 0))
+        closed_creator_name=getattr(closed_creator,"display_name","Unknown member")
+        closed_parts.append("<tr><td>"+_esc(cname)+"</td><td>"+_esc(t.get("category_label","Support"))+"</td><td>"+_esc(closed_creator_name)+"</td><td>"+_esc(t.get("close_reason",""))+"</td><td>"+reopen+"</td></tr>")
     closed_rows="".join(closed_parts) or "<tr><td colspan='5'>No closed tickets.</td></tr>"
-    closed_card="<article class='card full'><h2>Recently closed tickets (up to 50)</h2><div class='tablewrap'><table><thead><tr><th>Channel</th><th>Category</th><th>Creator ID</th><th>Close reason</th><th>Action</th></tr></thead><tbody>"+closed_rows+"</tbody></table></div></article>"
-    search_form = "<form method='get' action='/dashboard' class='formgrid'><input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='tab' value='tickets'><div class='field'><label>Search active tickets</label><input name='ticket_q' maxlength='100' value='" + _esc(ticket_query) + "' placeholder='Channel, category, creator ID, priority or staff name'></div><div class='field'><label>&nbsp;</label><div class='actions'><button class='btn' type='submit'>Search</button><a class='btn secondary' href='/dashboard?guild_id=" + str(gid) + "&tab=tickets'>Clear</a></div></div></form>"
-    active="<article class='card full'><h2>Active tickets ("+str(open_count)+")</h2>"+search_form+"<div class='tablewrap'><table><thead><tr><th>Channel</th><th>Category</th><th>Creator ID</th><th>Priority</th><th>Claimed by</th><th>Assigned to</th><th>Actions</th></tr></thead><tbody>"+active_rows+"</tbody></table></div><p class='muted'>Active tickets are ordered by priority. Assigning and changing priority is saved to the same ticket record used by Discord commands. Ticket conversations and staff replies stay inside Discord.</p></article>"
+    closed_card="<article class='card full'><h2>Recently closed tickets (up to 50)</h2><div class='tablewrap'><table><thead><tr><th>Channel</th><th>Category</th><th>Creator</th><th>Close reason</th><th>Action</th></tr></thead><tbody>"+closed_rows+"</tbody></table></div></article>"
+    search_form = "<form method='get' action='/dashboard' class='formgrid'><input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='tab' value='tickets'><div class='field'><label>Search active tickets</label><input name='ticket_q' maxlength='100' value='" + _esc(ticket_query) + "' placeholder='Channel, category, creator name, priority or staff name'></div><div class='field'><label>&nbsp;</label><div class='actions'><button class='btn' type='submit'>Search</button><a class='btn secondary' href='/dashboard?guild_id=" + str(gid) + "&tab=tickets'>Clear</a></div></div></form>"
+    active="<article class='card full'><h2>Active tickets ("+str(open_count)+")</h2>"+search_form+"<div class='tablewrap'><table><thead><tr><th>Channel</th><th>Category</th><th>Creator</th><th>Priority</th><th>Claimed by</th><th>Assigned to</th><th>Actions</th></tr></thead><tbody>"+active_rows+"</tbody></table></div><p class='muted'>Active tickets are ordered by priority. Assigning and changing priority is saved to the same ticket record used by Discord commands. Ticket conversations and staff replies stay inside Discord.</p></article>"
     body="<h1>Tickets</h1><p class='muted'>Discord-native private tickets, modal intake, automatic staff routing, transcripts, and durable records.</p><div class='grid'><article class='card third'><div class='statlabel'>Panels</div><div class='stat'>"+str(len(panels))+"</div></article><article class='card third'><div class='statlabel'>Open tickets</div><div class='stat'>"+str(open_count)+"</div></article><article class='card third'><div class='statlabel'>Closed records</div><div class='stat'>"+str(closed_count)+"</div></article>"+settings_card+create_card+panel_card+active+closed_card+"</div>"
     return body
 
@@ -1738,13 +1771,13 @@ def _giveaways(guild,state):
         remain=max(0,int((float(gw.get('ends_at',0))-time.time())//60))
         entry_message = _esc(gw.get("entry_message", "🎉 You're entered! Tap again to leave."))
         denied_message = _esc(gw.get("denied_message", "You do not meet this giveaway's entry requirements."))
-        content=(f"<p class='muted'>Message ID: <code>{int(mid)}</code> · Entries: {len(set(gw.get('entrants',[])))} · Ends in approx. {remain} min</p>"
+        content=(f"<p class='muted'>Entries: {len(set(gw.get('entrants',[])))} · Ends in approx. {remain} min</p>"
         f"<div class='formgrid'><div class='field'><label>Prize</label><input name='prize' maxlength='200' value='{_esc(gw.get('prize',''))}' required></div>"
         f"<div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='{int(gw.get('winners',1))}' required></div>"
         f"<div class='field'><label>Reset duration (minutes from save)</label><input name='duration_minutes' type='number' min='1' max='525600' value='{max(1,remain)}' required></div>"
         f"<div class='field'><label>Entry button / reaction emoji</label><input name='entry_emoji' maxlength='40' value='{_esc(gw.get('entry_emoji','🎉'))}'></div>"
         f"<div class='field'><label><input type='checkbox' name='reaction_entries' value='1'{(' checked' if gw.get('reaction_entries') else '')}> Also allow reaction entry</label><small>Bot must have Add Reactions and Manage Messages to remove ineligible entries.</small></div>"
-        f"<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'>{_esc(chr(10).join(f'{rid}:{count}' for rid,count in (gw.get('bonus_roles',{}) or {}).items()))}</textarea><small>Each listed role adds 1–20 entries. Only the highest bonus among a member's matching roles applies.</small></div>"
+        f"<div class='field full'><label>Bonus entries by role</label>{_role_bonus_picker(guild,selected=gw.get('bonus_roles',{}))}<small>Choose roles by name and set extra entries. Only the highest matching role bonus applies.</small></div>"
         f"<div class='field'><label>Minimum Discord account age (days, 0 = none)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='{int(gw.get('min_account_age_days',0) or 0)}'></div>"
         f"<div class='field'><label>Minimum server membership (days, 0 = none)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='{int(gw.get('min_server_age_days',0) or 0)}'></div>"
         f"<div class='field full'><label>Required roles (member needs at least one)</label>{_role_multi_select(guild,'required_roles',gw.get('required_roles',[]))}</div>"
@@ -1762,16 +1795,21 @@ def _giveaways(guild,state):
         f"<div class='field full'><label>Eligibility-denied message</label><input name='denied_message' maxlength='300' value='{denied_message}'></div></div>")
         edit=_form(gid,"giveaway_edit",f"<input type='hidden' name='message_id' value='{int(mid)}'>{content}","Save giveaway")
         template_form=_form(gid,"giveaway_template_save",f"<input type='hidden' name='message_id' value='{int(mid)}'><div class='field'><label>Template name</label><input name='template_name' maxlength='40' required placeholder='e.g. Monthly Tuna'></div>","Save as template")
+        bonus_template_form=_form(gid,"giveaway_bonus_template_save",f"<input type='hidden' name='message_id' value='{int(mid)}'><div class='field'><label>Extra-entry template name</label><input name='template_name' maxlength='40' required placeholder='e.g. VIP + Booster'></div>","Save role template")
         end=(f"<form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_end'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn secondary small'>End & pick winners</button></form>"
              f"<form method='post' action='/dashboard/action' data-confirm='Cancel this giveaway without winners?'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_cancel'><input type='hidden' name='message_id' value='{int(mid)}'><button class='btn danger small'>Cancel giveaway</button></form>")
-        cards.append(f"<article class='card full'><h3>🎉 {_esc(gw.get('prize','Giveaway'))}</h3>{edit}<div class='grid'><article class='card half'><h3>Reusable template</h3>{template_form}</article><article class='card half'><h3>Finish or cancel</h3><div class='actions'>{end}</div></article></div></article>")
+        cards.append(f"<article class='card full'><h3>🎉 {_esc(gw.get('prize','Giveaway'))}</h3>{edit}<div class='grid'><article class='card half'><h3>Reusable giveaway template</h3>{template_form}</article><article class='card half'><h3>Reusable extra-entry template</h3>{bonus_template_form}</article><article class='card half'><h3>Finish or cancel</h3><div class='actions'>{end}</div></article></div></article>")
+    bonus_role_templates=(state.get("giveaway_bonus_role_templates",{}) or {}).get(gid,(state.get("giveaway_bonus_role_templates",{}) or {}).get(str(gid),{})) or {}
+    bonus_template_options="<option value=''>Use manually selected roles</option>"+"".join("<option value='"+_esc(name)+"'>"+_esc(name)+"</option>" for name in sorted(bonus_role_templates))
+    bonus_template_select="<div class='field full'><label>Reusable extra-entry template</label><select name='bonus_role_template'>"+bonus_template_options+"</select><small>Choose a saved role/count template, or configure roles below.</small></div>"
     channels=_channel_select(guild,"channel_id",allow_none=False)
     create=("<div class='formgrid'><div class='field'><label>Post in</label>"+channels+"</div><div class='field'><label>Prize</label><input name='prize' maxlength='200' required></div>"
     "<div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='1' required></div><div class='field'><label>Duration (minutes; max 1 year)</label><input name='duration_minutes' type='number' min='1' max='525600' value='60' required></div>"
     "<div class='field'><label>Entry button / reaction emoji</label><input name='entry_emoji' maxlength='40' value='🎉'></div><div class='field'><label>Embed colour (hex)</label><input name='embed_color' maxlength='7' value='FEE75C'></div>"
     "<div class='field'><label><input type='checkbox' name='reaction_entries' value='1'> Also allow reaction entry</label><small>Bot needs Add Reactions and Manage Messages to remove ineligible entries.</small></div>"
     "<div class='field'><label>Minimum account age (days)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='0'></div><div class='field'><label>Minimum server membership (days)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='0'></div>"
-    "<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'></textarea><small>Role IDs can be copied from Discord with Developer Mode enabled. Each listed role adds 1–20 entries.</small></div>"
+    +bonus_template_select+
+    "<div class='field full'><label>Bonus entries by role</label>"+_role_bonus_picker(guild)+"<small>Choose roles by name and set extra entries. No ID copying needed.</small></div>"
     "<div class='field full'><label>Required roles (member needs at least one)</label>"+_role_multi_select(guild,"required_roles")+"</div>"
     "<div class='field full'><label>Requirement-bypass roles</label>"+_role_multi_select(guild,"bypass_roles")+"</div>"
     "<div class='field full'><label>Blacklisted roles (always blocked)</label>"+_role_multi_select(guild,"blacklisted_roles")+"</div>"
@@ -1787,13 +1825,13 @@ def _giveaways(guild,state):
         return ("<div class='formgrid'><div class='field'><label>Prize</label><input name='prize' maxlength='200' required value='"+_esc(prize)+"'></div>"
         "<div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='"+str(int(winners))+"'></div>"
         "<div class='field'><label>Duration (minutes)</label><input name='duration_minutes' type='number' min='1' max='525600' value='"+str(int(duration))+"'></div>"
-        "<div class='field'><label>Role bonuses (ROLE_ID:EXTRA per line)</label><textarea name='bonus_roles'>"+_esc(bonus)+"</textarea></div>"
-        "<div class='field'><label>Required roles (IDs/mentions)</label><textarea name='required_roles'>"+_esc(roles('required_roles'))+"</textarea></div>"
-        "<div class='field'><label>Bypass roles</label><textarea name='bypass_roles'>"+_esc(roles('bypass_roles'))+"</textarea></div>"
-        "<div class='field'><label>Blacklisted roles</label><textarea name='blacklisted_roles'>"+_esc(roles('blacklisted_roles'))+"</textarea></div>"
+        "<div class='field full'><label>Role bonuses</label>"+_role_bonus_picker(guild,selected=c.get('bonus_roles',{}))+"</div>"
+        "<div class='field full'><label>Required roles (member needs at least one)</label>"+_role_multi_select(guild,"required_roles",c.get("required_roles",[]))+"</div>"
+        "<div class='field full'><label>Requirement-bypass roles</label>"+_role_multi_select(guild,"bypass_roles",c.get("bypass_roles",[]))+"</div>"
+        "<div class='field full'><label>Blacklisted roles</label>"+_role_multi_select(guild,"blacklisted_roles",c.get("blacklisted_roles",[]))+"</div>"
         "<div class='field'><label>Minimum account age (days)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='"+str(int(c.get('min_account_age_days',0) or 0))+"'></div>"
         "<div class='field'><label>Minimum server age (days)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='"+str(int(c.get('min_server_age_days',0) or 0))+"'></div>"
-        "<div class='field'><label>Winner role ID</label><input name='winner_role_id' value='"+_esc(c.get('winner_role_id',''))+"'></div>"
+        "<div class='field'><label>Winner role</label>"+_role_select(guild,"winner_role_id",c.get("winner_role_id"),True)+"</div>"
         "<div class='field'><label>Winner role duration (minutes)</label><input name='winner_role_minutes' type='number' min='0' max='525600' value='"+str(int(c.get('winner_role_minutes',0) or 0))+"'></div>"
         "<div class='field'><label>Winner thread duration (minutes)</label><input name='winner_thread_minutes' type='number' min='0' max='10080' value='"+str(int(c.get('winner_thread_minutes',0) or 0))+"'></div>"
         "<div class='field'><label>Claim deadline (minutes; 0 = off)</label><input name='claim_minutes' type='number' min='0' max='10080' value='"+str(int(c.get('claim_minutes',0) or 0))+"'></div>"
@@ -1810,7 +1848,7 @@ def _giveaways(guild,state):
     for sid,cfg in schedules.items():
         if int(cfg.get("guild_id",0))!=gid: continue
         ch=guild.get_channel(int(cfg.get("channel_id",0))); next_at=int(cfg.get("next_at",0))
-        schedule_rows.append(f"<div class='toggle'><span><b>{_esc(cfg.get('prize','Giveaway'))}</b><small>{_esc('#'+ch.name if ch else 'Missing channel')} · every {int(cfg.get('repeat_every_days',7))} day(s) · next <t:{next_at}:R></small><small>ID: <code>{_esc(sid)}</code></small></span><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_repeat_stop'><input type='hidden' name='schedule_id' value='{_esc(sid)}'><button class='btn danger small'>Stop</button></form></div>")
+        schedule_rows.append(f"<div class='toggle'><span><b>{_esc(cfg.get('prize','Giveaway'))}</b><small>{_esc('#'+ch.name if ch else 'Missing channel')} · every {int(cfg.get('repeat_every_days',7))} day(s) · next <t:{next_at}:R></small></span><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_repeat_stop'><input type='hidden' name='schedule_id' value='{_esc(sid)}'><button class='btn danger small'>Stop</button></form></div>")
     repeat_form=("<div class='formgrid'><div class='field'><label>Post in</label>"+_channel_select(guild,"channel_id",allow_none=False)+"</div><div class='field'><label>Prize</label><input name='prize' maxlength='200' required></div><div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='1' required></div><div class='field'><label>Giveaway duration (minutes)</label><input name='duration_minutes' type='number' min='1' max='525600' value='1440' required></div><div class='field'><label>Repeat every (days)</label><input name='repeat_every_days' type='number' min='1' max='365' value='7' required></div></div>")
     repeat_card="<article class='card half'><h2>Recurring giveaways</h2><p class='muted'>Schedules are saved with bot data and continue after restarts.</p>"+(''.join(schedule_rows) or "<p class='muted'>No recurring giveaways configured.</p>")+_form(gid,"giveaway_repeat_create",repeat_form,"Save recurring schedule")+"</article>"
     templates=state.get("giveaway_templates",{}) or {}; templates=templates.get(gid,templates.get(str(gid),{})) or {}; template_rows=[]
@@ -1819,8 +1857,8 @@ def _giveaways(guild,state):
     template_card="<article class='card half'><h2>Saved templates</h2>"+(''.join(template_rows) or "<p class='muted'>Save any active giveaway as a reusable template.</p>")+"</article>"
     finished=[(mid,gw) for mid,gw in history.items() if int(gw.get('guild_id',0))==gid]
     finished.sort(key=lambda x:float(x[1].get('finished_at',0)),reverse=True)
-    hist_rows=''.join(f"<tr><td>{_esc(gw.get('prize','Giveaway'))}</td><td>{len(set(gw.get('eligible_entrants',gw.get('entrants',[]))))}</td><td>{', '.join(str(x) for x in gw.get('winner_ids',[])) or 'No winner'}</td><td><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_reroll'><input type='hidden' name='message_id' value='{_esc(mid)}'><button class='btn secondary small'>Reroll</button></form></td></tr>" for mid,gw in finished[:20]) or "<tr><td colspan='4'>No finished giveaways in history yet.</td></tr>"
-    history_card="<article class='card full'><h2>Recent finished giveaways</h2><div class='tablewrap'><table><thead><tr><th>Prize</th><th>Eligible entries</th><th>Winner IDs</th><th>Action</th></tr></thead><tbody>"+hist_rows+"</tbody></table></div><p class='muted'>Reroll selects a different eligible entrant from the saved history. History keeps the latest 250 finished giveaways.</p></article>"
+    hist_rows=''.join(f"<tr><td>{_esc(gw.get('prize','Giveaway'))}</td><td>{len(set(gw.get('eligible_entrants',gw.get('entrants',[]))))}</td><td>{', '.join((guild.get_member(int(x)).display_name if str(x).isdigit() and guild.get_member(int(x)) else 'Unknown member') for x in gw.get('winner_ids',[])) or 'No winner'}</td><td><form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='giveaway_reroll'><input type='hidden' name='message_id' value='{_esc(mid)}'><button class='btn secondary small'>Reroll</button></form></td></tr>" for mid,gw in finished[:20]) or "<tr><td colspan='4'>No finished giveaways in history yet.</td></tr>"
+    history_card="<article class='card full'><h2>Recent finished giveaways</h2><div class='tablewrap'><table><thead><tr><th>Prize</th><th>Eligible entries</th><th>Winners</th><th>Action</th></tr></thead><tbody>"+hist_rows+"</tbody></table></div><p class='muted'>Reroll selects a different eligible entrant from the saved history. History keeps the latest 250 finished giveaways.</p></article>"
     drafts=(state.get("giveaway_drafts",{}) or {}).get(gid,(state.get("giveaway_drafts",{}) or {}).get(str(gid),{})) or {}
     draft_rows=[]
     for did,d in drafts.items():
@@ -3138,15 +3176,18 @@ def dashboard_action():
             session["dashboard_notice"] = f"Restored {len(added)} missing built-in items. Existing custom settings were preserved."
 
         elif action in {"shop_item_add", "shop_item_save"}:
+            name = request.form.get("name", "").strip()
             item_id = request.form.get("item_id", "").strip().lower()
             items = state["ECONOMY_ITEMS"]
-            if not item_id or len(item_id) > 40 or not all(c.isalnum() or c in "_-" for c in item_id):
-                raise ValueError("Item ID must use letters, numbers, _ or - (max 40).")
-            if action == "shop_item_add" and item_id in items:
-                raise ValueError("That item ID already exists.")
-            if action == "shop_item_save" and item_id not in items:
-                raise ValueError("That item no longer exists.")
-            name = request.form.get("name", "").strip()
+            if action=="shop_item_add" and not item_id:
+                base=re.sub(r"[^a-z0-9_-]+","_",name.lower()).strip("_-")[:32] or "item"
+                item_id=base; suffix=2
+                while item_id in items:
+                    item_id=f"{base[:35]}_{suffix}"; suffix+=1
+            if not item_id or len(item_id)>40 or not all(c.isalnum() or c in "_-" for c in item_id):
+                raise ValueError("Item name is required so Cinnamon can generate a unique item key.")
+            if action=="shop_item_add" and item_id in items: raise ValueError("That item key already exists; choose another name.")
+            if action=="shop_item_save" and item_id not in items: raise ValueError("That item no longer exists.")
             try:
                 price = int(request.form.get("price", "0"))
                 limit = int(request.form.get("max_per_person", "0"))
@@ -3307,9 +3348,15 @@ def dashboard_action():
             session["dashboard_notice"] = "Item hidden from the shop. Existing inventory and recipes were preserved."
         elif action == "shop_recipe_save":
             recipe_id = request.form.get("recipe_id", "").strip().lower()
-            if not recipe_id or len(recipe_id) > 40 or not all(c.isalnum() or c in "_-" for c in recipe_id) or recipe_id == "repair_rod":
-                raise ValueError("Recipe ID must use letters, numbers, _ or - (max 40); that ID is reserved.")
             name = request.form.get("name", "").strip()
+            if not recipe_id:
+                base=re.sub(r"[^a-z0-9_-]+","_",name.lower()).strip("_-")[:32] or "recipe"
+                recipe_id=base; suffix=2
+                custom_recipe_ids=(state.get("advanced_features_data",{}).get("custom_crafting_recipes_v1",{}) or {})
+                while recipe_id in (state.get("CRAFTING_RECIPES",{}) or {}) or recipe_id in custom_recipe_ids:
+                    recipe_id=f"{base[:35]}_{suffix}"; suffix+=1
+            if len(recipe_id)>40 or not all(c.isalnum() or c in "_-" for c in recipe_id) or recipe_id=="repair_rod":
+                raise ValueError("Recipe ID must use letters, numbers, _ or - (max 40); that ID is reserved.")
             output = request.form.get("output", "").strip()
             emoji = request.form.get("emoji", "🧪")[:8] or "🧪"
             description = request.form.get("description", "")[:300]
@@ -3318,21 +3365,31 @@ def dashboard_action():
             if not name or len(name) > 80 or output not in items:
                 raise ValueError("Choose a valid recipe name and output item.")
             ingredients = {}
-            for line in request.form.get("ingredients", "").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split(":", 1)
-                if len(parts) != 2:
-                    raise ValueError("Ingredients must use one item_id:quantity per line.")
-                ingredient_id = parts[0].strip().lower()
-                try:
-                    quantity = int(parts[1].strip())
-                except ValueError:
-                    raise ValueError(f"Invalid quantity for ingredient {ingredient_id}.")
-                if ingredient_id not in items or ingredient_id == output or not 1 <= quantity <= 999:
-                    raise ValueError(f"Ingredient {ingredient_id} must exist, differ from the output and use quantity 1–999.")
-                ingredients[ingredient_id] = quantity
+            selected_ingredient_ids=request.form.getlist("ingredient_item_ids")
+            if selected_ingredient_ids:
+                for ingredient_id in dict.fromkeys(selected_ingredient_ids):
+                    if ingredient_id not in items or not isinstance(items.get(ingredient_id),dict):
+                        raise ValueError("One of the selected recipe ingredients no longer exists.")
+                    try: quantity=int(request.form.get("ingredient_quantity_"+ingredient_id,"1") or 1)
+                    except ValueError: raise ValueError(f"Invalid quantity for {items[ingredient_id].get('name',ingredient_id)}.")
+                    if ingredient_id==output or not 1<=quantity<=999: raise ValueError("Choose ingredients different from the output and use quantities 1–999.")
+                    ingredients[ingredient_id]=quantity
+            else:
+                # Backward compatibility for older clients posting name:quantity lines.
+                for line in request.form.get("ingredients", "").splitlines():
+                    line=line.strip()
+                    if not line: continue
+                    parts=line.split(":",1)
+                    if len(parts)!=2: raise ValueError("Choose ingredients from the item list.")
+                    ingredient_ref=parts[0].strip().lower()
+                    try: quantity=int(parts[1].strip())
+                    except ValueError: raise ValueError(f"Invalid quantity for ingredient {ingredient_ref}.")
+                    ingredient_id=ingredient_ref if ingredient_ref in items else ""
+                    if not ingredient_id:
+                        matches=[str(k) for k,v in items.items() if isinstance(v,dict) and str(v.get("name","")).strip().casefold()==ingredient_ref.casefold()]
+                        if len(matches)==1: ingredient_id=matches[0]
+                    if not ingredient_id or ingredient_id==output or not 1<=quantity<=999: raise ValueError(f"Choose a valid ingredient and quantity for {parts[0].strip()}.")
+                    ingredients[ingredient_id]=quantity
             if not ingredients or len(ingredients) > 20:
                 raise ValueError("A recipe needs 1–20 unique ingredients.")
             recipe = {"name": name, "emoji": emoji, "output": output, "ingredients": ingredients, "description": description}
@@ -3523,7 +3580,18 @@ def dashboard_action():
             validate=state.get("validate_giveaway_config")
             if not callable(validate): raise RuntimeError("Giveaway settings validation is not available.")
             role_text=lambda field: "\n".join(request.form.getlist(field))
-            config=validate(guild, bonus_roles=request.form.get("bonus_roles",""),
+            bonus_ids=request.form.getlist("bonus_role_ids")
+            bonus_template_name=request.form.get("bonus_role_template","").strip()
+            saved_bonus_templates=(state.get("giveaway_bonus_role_templates",{}) or {}).get(gid,(state.get("giveaway_bonus_role_templates",{}) or {}).get(str(gid),{})) or {}
+            bonus_pairs={}
+            if bonus_template_name:
+                saved_bonus=saved_bonus_templates.get(bonus_template_name)
+                if not isinstance(saved_bonus,dict): raise ValueError("That extra-entry template no longer exists.")
+                bonus_pairs.update(saved_bonus.get("bonus_roles",{}) or {})
+            for rid in dict.fromkeys(bonus_ids):
+                if str(rid).isdigit(): bonus_pairs[str(rid)]=request.form.get("bonus_role_count_"+str(rid),"1")
+            bonus_text="\n".join(f"<@&{rid}>:{count}" for rid,count in bonus_pairs.items())
+            config=validate(guild, bonus_roles=bonus_text,
                 required_roles=role_text("required_roles"), bypass_roles=role_text("bypass_roles"),
                 blacklisted_roles=role_text("blacklisted_roles"),
                 min_account_age_days=request.form.get("min_account_age_days","0"),
@@ -3595,6 +3663,17 @@ def dashboard_action():
             templates[template_key]={k:v for k,v in gw.items() if k not in {"guild_id","channel_id","host_id","ends_at","entrants","winner_ids","finished_at","eligible_entrants"}}
             _save(); _audit(gid,actor,"Dashboard: giveaway template saved",f"Template {name}; prize {gw.get('prize','Giveaway')}")
             session["dashboard_notice"]=f"Saved giveaway template '{name}'."
+        elif action=="giveaway_bonus_template_save":
+            raw_mid=request.form.get("message_id","0"); name=request.form.get("template_name","").strip()
+            if not raw_mid.isdigit() or not name or len(name)>40: raise ValueError("Choose an active giveaway and a template name (1–40 characters).")
+            gw=state.get("active_giveaways",{}).get(int(raw_mid))
+            if not gw or int(gw.get("guild_id",0))!=gid: raise ValueError("Active giveaway not found in this server.")
+            bonus=dict(gw.get("bonus_roles",{}) or {})
+            if not bonus: raise ValueError("This giveaway has no extra-entry role rules to save.")
+            templates=state.setdefault("giveaway_bonus_role_templates",{}).setdefault(gid,{})
+            templates[name]= {"bonus_roles":{str(k):max(1,min(20,int(v))) for k,v in bonus.items() if str(k).isdigit()}}
+            _save(); _audit(gid,actor,"Dashboard: extra-entry template saved",f"Template {name}; {len(bonus)} role rules.")
+            session["dashboard_notice"]=f"Saved extra-entry template '{name}'. It can now be selected for new giveaways."
         elif action=="giveaway_template_delete":
             name=request.form.get("template_name","").strip().lower(); templates=state.setdefault("giveaway_templates",{}).setdefault(gid,{})
             if not name or templates.pop(name,None) is None: raise ValueError("That giveaway template no longer exists.")
@@ -3900,6 +3979,9 @@ def dashboard_action():
                     if not isinstance(item,dict): raise ValueError("Each category must be a JSON object.")
                     label=str(item.get("label","")).strip(); button=str(item.get("button_label",label)).strip(); routing=str(item.get("routing","support")).lower()
                     if not label or len(label)>60 or not button or len(button)>80 or routing not in {"support","shop","grow_a_garden","gag","boosting","faq"}: raise ValueError("Category label, button or routing is invalid.")
+                    gag_enabled=request.form.get("gag_features_enabled")=="1"; items_enabled=request.form.get("item_features_enabled")=="1"
+                    if routing in {"grow_a_garden","gag","boosting"} and not gag_enabled: raise ValueError("Enable Grow a Garden features before adding a GAG category.")
+                    if routing=="shop" and not items_enabled: raise ValueError("Enable item features before adding a Shop category.")
                     questions=item.get("questions",[])
                     if not isinstance(questions,list) or len(questions)>5: raise ValueError("Each category supports up to five modal questions.")
                     clean_questions=[]
@@ -3912,21 +3994,30 @@ def dashboard_action():
                     for rid in raw_staff:
                         if not str(rid).isdigit() or not guild.get_role(int(rid)) or guild.get_role(int(rid)).managed: raise ValueError("A category staff role is invalid.")
                         category_staff.append(int(rid))
-                    service_item_id = str(item.get("service_item_id", "")).strip()
-                    if service_item_id:
-                        linked_item = (state.get("ECONOMY_ITEMS", {}) or {}).get(service_item_id)
-                        if routing not in {"grow_a_garden", "gag", "boosting"} or not linked_item or linked_item.get("category") != "grow_a_garden":
-                            raise ValueError("A linked service item must be a registered Grow a Garden item on a Grow a Garden category.")
+                    service_item_ids=item.get("service_item_ids", [])
+                    if not isinstance(service_item_ids,list): service_item_ids=[service_item_ids] if service_item_ids else []
+                    if not service_item_ids and item.get("service_item_id"): service_item_ids=[item.get("service_item_id")]
+                    service_item_ids=list(dict.fromkeys(str(x).strip() for x in service_item_ids if str(x).strip()))
+                    if len(service_item_ids)>25: raise ValueError("A category can link at most 25 GAG service items.")
+                    for service_id in service_item_ids:
+                        linked_item=(state.get("ECONOMY_ITEMS",{}) or {}).get(service_id)
+                        if routing not in {"grow_a_garden","gag","boosting"} or not isinstance(linked_item,dict) or linked_item.get("category")!="grow_a_garden":
+                            raise ValueError("Every linked service must be a registered Grow a Garden item on a Grow a Garden category.")
                     inventory_ids=item.get("inventory_item_ids",[])
+                    if inventory_ids and not items_enabled: raise ValueError("Enable item features before linking inventory items to a category.")
                     if not isinstance(inventory_ids,list) or len(inventory_ids)>100 or any(str(x) not in (state.get("ECONOMY_ITEMS",{}) or {}) for x in inventory_ids): raise ValueError("Eligible inventory items must be existing shop item IDs.")
                     persistent_label=str(item.get("persistent_button_label","")).strip()[:80]
                     persistent_reply=str(item.get("persistent_button_reply","")).strip()[:1800]
                     if bool(persistent_label)!=bool(persistent_reply): raise ValueError("A persistent button needs both a label and a reply.")
-                    clean_categories.append({"id":str(item.get("id") or secrets.token_hex(4))[:40],"label":label,"button_label":button,"emoji":str(item.get("emoji",""))[:100],"button_style":str(item.get("button_style","primary")).lower(),"routing":routing,"trusted_booster_routing":bool(item.get("trusted_booster_routing",routing in {"grow_a_garden","gag","boosting"})),"staff_role_ids":category_staff,"inventory_item_ids":[str(x) for x in inventory_ids],"persistent_button_label":persistent_label,"persistent_button_reply":persistent_reply,"faq_answer":str(item.get("faq_answer",""))[:2000],"welcome_title":str(item.get("welcome_title",""))[:256],"welcome_message":str(item.get("welcome_message",""))[:1500],"channel_category_id":int(item.get("channel_category_id",0) or 0),"channel_name_format":str(item.get("channel_name_format","ticket-{username}"))[:80],"service_item_id":service_item_id,"questions":clean_questions})
+                    clean_categories.append({"id":str(item.get("id") or secrets.token_hex(4))[:40],"label":label,"button_label":button,"emoji":str(item.get("emoji",""))[:100],"button_style":str(item.get("button_style","primary")).lower(),"routing":routing,"trusted_booster_routing":bool(item.get("trusted_booster_routing",routing in {"grow_a_garden","gag","boosting"})),"staff_role_ids":category_staff,"inventory_item_ids":[str(x) for x in inventory_ids],"persistent_button_label":persistent_label,"persistent_button_reply":persistent_reply,"faq_answer":str(item.get("faq_answer",""))[:2000],"welcome_title":str(item.get("welcome_title",""))[:256],"welcome_message":str(item.get("welcome_message",""))[:1500],"channel_category_id":int(item.get("channel_category_id",0) or 0),"channel_name_format":str(item.get("channel_name_format","ticket-{username}"))[:80],"service_item_id":service_item_ids[0] if service_item_ids else "","service_item_ids":service_item_ids,"questions":clean_questions})
                 panel["categories"]=clean_categories
             elif action in {"ticket_panel_save","ticket_panel_update"}:
                 label=request.form.get("category_label","").strip(); button=request.form.get("button_label","").strip(); routing=request.form.get("routing","support").strip()
                 if not label or len(label)>60 or not button or len(button)>80 or routing not in {"support","shop","grow_a_garden"}: raise ValueError("Ticket category/button/routing is invalid.")
+                gag_enabled=request.form.get("gag_features_enabled")=="1"
+                items_enabled=request.form.get("item_features_enabled")=="1"
+                if routing=="grow_a_garden" and not gag_enabled: raise ValueError("Enable Grow a Garden features to use GAG routing on this panel.")
+                if routing=="shop" and not items_enabled: raise ValueError("Enable item features to use Shop routing on this panel.")
                 custom_questions=[]
                 for i in range(1,6):
                     q=request.form.get("question"+str(i),"").strip()
@@ -3935,15 +4026,22 @@ def dashboard_action():
                 if not questions and routing in {"shop","grow_a_garden"}:
                     defaults=(["What item or service did you purchase?","Order ID or purchase proof (if available)","What issue are you experiencing?"] if routing=="shop" else ["What Grow a Garden service did you purchase?","Order ID or purchase proof (if available)","What do you need help with?"])
                     questions=[{"label":label,"required":True,"paragraph":True,"max_length":400} for label in defaults]
-                service_item_id = request.form.get("service_item_id", "").strip()
-                if service_item_id:
-                    linked_item = (state.get("ECONOMY_ITEMS", {}) or {}).get(service_item_id)
-                    if routing != "grow_a_garden" or not linked_item or linked_item.get("category") != "grow_a_garden":
-                        raise ValueError("Choose a registered Grow a Garden item for a Grow a Garden ticket category.")
-                selected_inventory=[]
-                for raw in request.form.getlist("inventory_item_ids"):
-                    if raw not in (state.get("ECONOMY_ITEMS",{}) or {}): raise ValueError("An eligible inventory item no longer exists.")
-                    selected_inventory.append(str(raw))
+                old_category=(panel.get("categories",[]) or [{}])[0] if action=="ticket_panel_update" else {}
+                legacy_services=old_category.get("service_item_ids") or ([old_category.get("service_item_id")] if old_category.get("service_item_id") else [])
+                service_item_ids=(list(dict.fromkeys(str(x).strip() for x in request.form.getlist("service_item_ids") if str(x).strip())) if gag_enabled else [str(x) for x in legacy_services if str(x)])
+                if gag_enabled:
+                    if len(service_item_ids)>25: raise ValueError("A category can link at most 25 GAG service items.")
+                    for service_id in service_item_ids:
+                        linked_item=(state.get("ECONOMY_ITEMS",{}) or {}).get(service_id)
+                        if routing!="grow_a_garden" or not isinstance(linked_item,dict) or linked_item.get("category")!="grow_a_garden":
+                            raise ValueError("Choose registered Grow a Garden items for a Grow a Garden ticket category.")
+                if items_enabled:
+                    selected_inventory=[]
+                    for raw in request.form.getlist("inventory_item_ids"):
+                        if raw not in (state.get("ECONOMY_ITEMS",{}) or {}): raise ValueError("An eligible inventory item no longer exists.")
+                        selected_inventory.append(str(raw))
+                else:
+                    selected_inventory=list(old_category.get("inventory_item_ids",[]) or [])
                 category_roles=[]
                 for raw in request.form.getlist("category_staff_role_ids"):
                     if not raw.isdigit() or not guild.get_role(int(raw)) or guild.get_role(int(raw)).managed: raise ValueError("A custom ticket ping role is invalid.")
@@ -3951,13 +4049,12 @@ def dashboard_action():
                 persistent_label=request.form.get("persistent_button_label","").strip()[:80]
                 persistent_reply=request.form.get("persistent_button_reply","").strip()[:1800]
                 if bool(persistent_label)!=bool(persistent_reply): raise ValueError("A persistent button needs both a label and a reply.")
-                old_category=(panel.get("categories",[]) or [{}])[0] if action=="ticket_panel_update" else {}
-                category={"id":str(old_category.get("id") or secrets.token_hex(4)),"label":label,"button_label":button,"emoji":request.form.get("button_emoji","").strip()[:100],"button_style":"primary","routing":routing,"trusted_booster_routing":routing=="grow_a_garden","service_item_id":service_item_id,"welcome_message":request.form.get("welcome_message","").strip()[:1500],"questions":questions,"inventory_item_ids":selected_inventory,"staff_role_ids":category_roles,"persistent_button_label":persistent_label,"persistent_button_reply":persistent_reply}
+                category={"id":str(old_category.get("id") or secrets.token_hex(4)),"label":label,"button_label":button,"emoji":request.form.get("button_emoji","").strip()[:100],"button_style":"primary","routing":routing,"trusted_booster_routing":routing=="grow_a_garden","service_item_id":service_item_ids[0] if service_item_ids else "","service_item_ids":service_item_ids,"welcome_message":request.form.get("welcome_message","").strip()[:1500],"questions":questions,"inventory_item_ids":selected_inventory,"staff_role_ids":category_roles,"persistent_button_label":persistent_label,"persistent_button_reply":persistent_reply}
                 if action=="ticket_panel_update":
                     panel["categories"]=[category]+(panel.get("categories",[]) or [])[1:]
                 else:
                     panel["categories"]=[category]
-            panel.update({"id":panel_id,"name":name,"channel_id":channel.id,"title":title,"description":description,"color":color,"updated_at":int(time.time())})
+            panel.update({"id":panel_id,"name":name,"channel_id":channel.id,"title":title,"description":description,"color":color,"gag_features_enabled":request.form.get("gag_features_enabled")=="1","item_features_enabled":request.form.get("item_features_enabled")=="1","updated_at":int(time.time())})
             panels[panel_id]=panel
             _save(); _audit(gid,actor,"Ticket panel configuration saved",f"Panel {name} ({panel_id}); published={bool(panel.get('published'))}.")
             session["dashboard_notice"]="Panel configuration saved. Publish separately to update Discord."

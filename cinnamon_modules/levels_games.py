@@ -783,24 +783,33 @@ async def cancel_giveaway(mid: int):
 def _validate_giveaway_config(guild, *, bonus_roles="", required_roles="", bypass_roles="", blacklisted_roles="",
                                min_account_age_days=0, min_server_age_days=0, winner_role_id="", winner_role_minutes=0,
                                winner_thread_minutes=0, embed_color="FEE75C", entry_emoji="🎉", reaction_entries=False) -> dict:
+    def resolve_role(token, label):
+        token=str(token or "").strip()
+        mention=re.fullmatch(r"<@&(\d+)>",token)
+        raw_id=mention.group(1) if mention else token
+        role=guild.get_role(int(raw_id)) if raw_id.isdigit() else None
+        if role is None and token:
+            name=token[1:].strip() if token.startswith("@") else token
+            matches=[r for r in getattr(guild,"roles",[]) if r.name.casefold()==name.casefold()]
+            role=matches[0] if len(matches)==1 else None
+        if not role or role.is_default() or role.managed:
+            raise ValueError(f"{label} contains a role that is missing or cannot be assigned. Use a role mention such as @VIP.")
+        return role
     def role_ids(raw, label, max_count=20):
         ids=[]
         for token in str(raw or "").replace(",", "\n").splitlines():
-            token=token.strip().replace("<@&", "").replace(">", "")
+            token=token.strip()
             if not token: continue
-            if not token.isdigit(): raise ValueError(f"{label} must contain role IDs, separated by commas or lines.")
-            role=guild.get_role(int(token))
-            if not role or role.is_default() or role.managed: raise ValueError(f"{label} contains a role that is missing or cannot be assigned.")
-            ids.append(role.id)
+            ids.append(resolve_role(token,label).id)
         if len(set(ids)) > max_count: raise ValueError(f"{label} supports at most {max_count} roles.")
         return list(dict.fromkeys(ids))
     bonus={}
     for line in str(bonus_roles or "").splitlines():
         if not line.strip(): continue
-        parts=line.strip().split(":",1)
-        if len(parts)!=2 or not parts[0].isdigit() or not parts[1].isdigit(): raise ValueError("Bonus roles must use ROLE_ID:EXTRA_ENTRIES, one per line.")
-        role=guild.get_role(int(parts[0])); extra=int(parts[1])
-        if not role or role.is_default() or role.managed or not 1<=extra<=20: raise ValueError("Each bonus role must exist and grant 1–20 extra entries.")
+        parts=line.strip().rsplit(":",1)
+        if len(parts)!=2 or not parts[1].isdigit(): raise ValueError("Bonus roles must use @Role:EXTRA_ENTRIES, one per line.")
+        role=resolve_role(parts[0],"Bonus roles"); extra=int(parts[1])
+        if not 1<=extra<=20: raise ValueError("Each bonus role must grant 1–20 extra entries.")
         bonus[str(role.id)]=extra
     if len(bonus)>20: raise ValueError("Use at most 20 bonus-entry roles.")
     try:

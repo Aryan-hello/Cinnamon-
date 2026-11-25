@@ -26,14 +26,14 @@ _GW_SECTIONS = {
         ("channel_id","Channel ID or mention (blank = current)",discord.TextStyle.short,False,100),
     ]),
     "eligibility":("Eligibility rules",[
-        ("required_roles","Required role IDs (one per line)",discord.TextStyle.paragraph,False,1000),
-        ("blacklisted_roles","Excluded role IDs (one per line)",discord.TextStyle.paragraph,False,1000),
-        ("bypass_roles","Bypass role IDs (one per line)",discord.TextStyle.paragraph,False,1000),
+        ("required_roles","Required role mentions (one per line)",discord.TextStyle.paragraph,False,1000),
+        ("blacklisted_roles","Excluded role mentions (one per line)",discord.TextStyle.paragraph,False,1000),
+        ("bypass_roles","Bypass role mentions (one per line)",discord.TextStyle.paragraph,False,1000),
         ("min_account_age_days","Minimum account age in days",discord.TextStyle.short,False,5),
         ("min_server_age_days","Minimum server membership in days",discord.TextStyle.short,False,5),
     ]),
     "bonus":("Bonus entries",[
-        ("bonus_roles","One ROLE_ID:EXTRA_ENTRIES per line",discord.TextStyle.paragraph,False,1000),
+        ("bonus_roles","One @Role:EXTRA_ENTRIES per line",discord.TextStyle.paragraph,False,1000),
     ]),
     "appearance":("Appearance",[
         ("embed_title","Embed title",discord.TextStyle.short,False,256),
@@ -42,7 +42,7 @@ _GW_SECTIONS = {
         ("entry_emoji","Entry button emoji",discord.TextStyle.short,False,40),
     ]),
     "advanced":("Advanced options",[
-        ("winner_role_id","Winner role ID (blank = none)",discord.TextStyle.short,False,100),
+        ("winner_role_id","Winner role mention (blank = none)",discord.TextStyle.short,False,100),
         ("winner_role_minutes","Winner role duration in minutes (0 = permanent)",discord.TextStyle.short,False,7),
         ("winner_thread_minutes","Winner thread duration in minutes (0 = disabled)",discord.TextStyle.short,False,7),
         ("claim_minutes","Prize claim window in minutes (0 = disabled)",discord.TextStyle.short,False,7),
@@ -71,17 +71,17 @@ def _gw_draft_from_existing(gw):
         "duration_minutes":str(max(1,int((float(gw.get("ends_at",_gw_time.time()+3600))-_gw_time.time())/60))),
         "winners":str(gw.get("winners",1)),
         "channel_id":str(gw.get("channel_id","")),
-        "required_roles":"\n".join(str(x) for x in gw.get("required_roles",[])),
-        "blacklisted_roles":"\n".join(str(x) for x in gw.get("blacklisted_roles",[])),
-        "bypass_roles":"\n".join(str(x) for x in gw.get("bypass_roles",[])),
+        "required_roles":"\n".join(f"<@&{x}>" for x in gw.get("required_roles",[])),
+        "blacklisted_roles":"\n".join(f"<@&{x}>" for x in gw.get("blacklisted_roles",[])),
+        "bypass_roles":"\n".join(f"<@&{x}>" for x in gw.get("bypass_roles",[])),
         "min_account_age_days":str(gw.get("min_account_age_days",0)),
         "min_server_age_days":str(gw.get("min_server_age_days",0)),
-        "bonus_roles":"\n".join(f"{k}:{v}" for k,v in (gw.get("bonus_roles",{}) or {}).items()),
+        "bonus_roles":"\n".join(f"<@&{k}>:{v}" for k,v in (gw.get("bonus_roles",{}) or {}).items()),
         "embed_title":str(gw.get("embed_title","")),
         "embed_description":str(gw.get("embed_description","")),
         "embed_color":str(gw.get("embed_color","E89A3C")),
         "entry_emoji":str(gw.get("entry_emoji","🎉")),
-        "winner_role_id":str(gw.get("winner_role_id","")),
+        "winner_role_id":(f"<@&{gw.get('winner_role_id')}>" if str(gw.get("winner_role_id","")).isdigit() else ""),
         "winner_role_minutes":str(gw.get("winner_role_minutes",0)),
         "winner_thread_minutes":str(gw.get("winner_thread_minutes",0)),
         "claim_minutes":str(gw.get("claim_minutes",0)),
@@ -315,3 +315,21 @@ async def giveaway_cancel_command(interaction:discord.Interaction,message_id:str
     if not await cancel_giveaway(mid):
         return await cinnamon_send(interaction,"That giveaway could not be cancelled.",ephemeral=True)
     await cinnamon_send(interaction,f"🚫 Giveaway {mid} was cancelled.")
+
+async def _gw_active_giveaway_autocomplete(interaction:discord.Interaction,current:str):
+    """Offer active giveaways by prize name so admins do not need to copy message IDs."""
+    guild=getattr(interaction,"guild",None)
+    if guild is None: return []
+    query=str(current or "").casefold().strip()
+    choices=[]
+    for mid,gw in active_giveaways.items():
+        if int(gw.get("guild_id",0))!=guild.id: continue
+        prize=str(gw.get("prize","Giveaway"))
+        label=f"{prize} • {str(mid)[-6:]}"[:100]
+        if query and query not in prize.casefold() and query not in str(mid): continue
+        choices.append(discord.app_commands.Choice(name=label,value=str(mid)))
+    return choices[:25]
+
+
+giveaway_edit_wizard.autocomplete("message_id")(_gw_active_giveaway_autocomplete)
+giveaway_cancel_command.autocomplete("message_id")(_gw_active_giveaway_autocomplete)

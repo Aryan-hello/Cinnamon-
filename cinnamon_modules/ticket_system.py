@@ -97,8 +97,13 @@ class TicketPanelView(discord.ui.View):
         cid=interaction.data.get("custom_id","").rsplit(":",1)[-1]; panel=_ticket_guild(self.gid).get("panels",{}).get(self.panel_id,{})
         cat=next((x for x in panel.get("categories",[]) if str(x.get("id"))==cid),None)
         if not cat: return await interaction.response.send_message("Ticket category unavailable.",ephemeral=True)
-        if str(cat.get("routing","")).lower()=="faq": return await interaction.response.send_message(str(cat.get("faq_answer","Please check the server FAQ or contact support."))[:2000],ephemeral=True)
-        if str(cat.get("routing","")).lower() in {"shop","grow_a_garden","gag","boosting"}:
+        route=str(cat.get("routing","")).lower()
+        if route=="faq": return await interaction.response.send_message(str(cat.get("faq_answer","Please check the server FAQ or contact support."))[:2000],ephemeral=True)
+        if route in {"grow_a_garden","gag","boosting"} and not panel.get("gag_features_enabled",True):
+            return await interaction.response.send_message("Grow a Garden features are disabled for this ticket panel.",ephemeral=True)
+        if route=="shop" and not panel.get("item_features_enabled",True):
+            return await interaction.response.send_message("Shop item features are disabled for this ticket panel.",ephemeral=True)
+        if route in {"shop","grow_a_garden","gag","boosting"}:
             return await interaction.response.send_message("Choose the service item(s) from your inventory for this ticket:",view=TicketInventorySelectView(self.gid,self.panel_id,cid,interaction.user.id,cat),ephemeral=True)
         if cat.get("questions"): return await interaction.response.send_modal(TicketQuestionModal(self.gid,self.panel_id,cid,interaction.user.id,cat["questions"]))
         await interaction.response.defer(ephemeral=True,thinking=True); await _ticket_create_channel(interaction,panel,cat,[])
@@ -108,7 +113,11 @@ class TicketInventorySelectView(discord.ui.View):
         super().__init__(timeout=300)
         self.gid=int(gid); self.panel_id=str(panel_id); self.category_id=str(category_id); self.user_id=int(user_id)
         inventory=economy_inventory_for(self.gid,self.user_id)
-        allowed={str(x) for x in category.get("inventory_item_ids",[]) if str(x)}
+        is_gag_route=str(category.get("routing","")).lower() in {"grow_a_garden","gag","boosting"}
+        linked_services=category.get("service_item_ids") or ([category.get("service_item_id")] if category.get("service_item_id") else [])
+        # A configured GAG service list is the category's own allow-list; it is
+        # separate from the ordinary Shop inventory filter.
+        allowed={str(x) for x in linked_services if str(x)} if is_gag_route and linked_services else {str(x) for x in category.get("inventory_item_ids",[]) if str(x)}
         options=[]
         for item_id,quantity in sorted(inventory.items(),key=lambda pair:str((ECONOMY_ITEMS.get(str(pair[0]),{}) or {}).get("name",pair[0])).casefold()):
             item_id=str(item_id); item=ECONOMY_ITEMS.get(item_id,{})
@@ -119,7 +128,6 @@ class TicketInventorySelectView(discord.ui.View):
         if not options:
             self.add_item(discord.ui.Button(label="No eligible items in your inventory",style=discord.ButtonStyle.secondary,disabled=True))
             return
-        is_gag_route=str(category.get("routing","")).lower() in {"grow_a_garden","gag","boosting"}
         select=discord.ui.Select(placeholder=("Select one or more GAG items…" if is_gag_route else "Select one shop item…"),min_values=1,max_values=(len(options[:25]) if is_gag_route else 1),options=options[:25],custom_id="ticket:itemselect:"+str(self.gid)+":"+self.panel_id+":"+self.category_id)
         select.callback=self._selected
         self.add_item(select)
@@ -456,6 +464,10 @@ async def _ticket_create_channel(interaction,panel,category,answers,selected_ite
     cooldown=max(0,min(86400,int(settings.get("cooldown_seconds",60)))); last=int(cfg["cooldowns"].get(str(member.id),0))
     if _time.time()-last<cooldown: return await interaction.followup.send(f"Wait {int(cooldown-(_time.time()-last))} seconds before opening another ticket.",ephemeral=True)
     role_map=_role_setup(guild.id); staff=set(map(int,settings.get("staff_role_ids",[]))); staff.update(map(int,role_map.get("ticket_staff",[]))); staff.update(map(int,role_map.get("ticket_admin",[]))); staff.update(map(int,category.get("staff_role_ids",[]))); route=str(category.get("routing","shop")).lower()
+    if route in {"grow_a_garden","gag","boosting"} and not panel.get("gag_features_enabled",True):
+        return await interaction.followup.send("Grow a Garden features are disabled for this ticket panel.",ephemeral=True)
+    if route=="shop" and not panel.get("item_features_enabled",True):
+        return await interaction.followup.send("Shop item features are disabled for this ticket panel.",ephemeral=True)
     if route=="shop": staff.update(map(int,role_map.get("shop_manager",[])))
     selected_items=[(ECONOMY_ITEMS.get(item_id,{}) or {}) for item_id in selected_item_ids]
     selected_item=selected_items[0] if selected_items else {}
@@ -488,7 +500,8 @@ async def _ticket_create_channel(interaction,panel,category,answers,selected_ite
     if not isinstance(parent,discord.CategoryChannel): parent=None
     base=str(category.get("channel_name_format","ticket-{username}"))[:80].replace("{username}",member.name.lower().replace(" ","-")[:20]).replace("{user_id}",str(member.id)); name="".join(c for c in base.lower() if c.isalnum() or c in "-_")[:90] or "ticket"
     channel=await guild.create_text_channel(name,category=parent,overwrites=overwrites,reason=f"Cinnamon ticket opened by {member}")
-    tid=_secrets.token_hex(8); ticket={"ticket_id":tid,"channel_id":channel.id,"creator_id":member.id,"panel_id":str(panel.get("id")),"panel_name":str(panel.get("name","Ticket panel")),"category_id":str(category.get("id")),"category_label":str(category.get("label","Support")),"created_at":_time.time(),"status":"open","claimed_by":None,"assigned_to":None,"priority":"normal","answers":answers,"close_reason":None,"routing":route,"service_item_id":str(selected_item_id or category.get("service_item_id","")),"service_item_ids":selected_item_ids or ([str(category.get("service_item_id"))] if category.get("service_item_id") else []),"selected_item_id":str(selected_item_id or ""),"selected_item_ids":selected_item_ids,"selected_item_name":", ".join(str(item.get("name",item_id)) for item_id,item in zip(selected_item_ids,selected_items)),"selected_item_names":[str(item.get("name",item_id)) for item_id,item in zip(selected_item_ids,selected_items)],"item_consumed":False}
+    linked_service_ids=[str(x) for x in (category.get("service_item_ids") or ([category.get("service_item_id")] if category.get("service_item_id") else [])) if str(x)]
+    tid=_secrets.token_hex(8); ticket={"ticket_id":tid,"channel_id":channel.id,"creator_id":member.id,"panel_id":str(panel.get("id")),"panel_name":str(panel.get("name","Ticket panel")),"category_id":str(category.get("id")),"category_label":str(category.get("label","Support")),"created_at":_time.time(),"status":"open","claimed_by":None,"assigned_to":None,"priority":"normal","answers":answers,"close_reason":None,"routing":route,"service_item_id":str(selected_item_id or (linked_service_ids[0] if linked_service_ids else "")),"service_item_ids":selected_item_ids or linked_service_ids,"selected_item_id":str(selected_item_id or ""),"selected_item_ids":selected_item_ids,"selected_item_name":", ".join(str(item.get("name",item_id)) for item_id,item in zip(selected_item_ids,selected_items)),"selected_item_names":[str(item.get("name",item_id)) for item_id,item in zip(selected_item_ids,selected_items)],"item_consumed":False}
     cfg["tickets"][str(channel.id)]=ticket; cfg["cooldowns"][str(member.id)]=int(_time.time())
     pings=" ".join(f"<@&{rid}>" for rid in staff if guild.get_role(rid)); e=discord.Embed(title=str(category.get("welcome_title") or f"{category.get('label','Support')} ticket"),description=str(category.get("welcome_message") or "Thanks for opening a ticket. Staff will assist you here."),color=discord.Color.orange())
     e.add_field(name="Ticket creator",value=member.mention,inline=True); e.add_field(name="Category",value=str(category.get("label","Support")),inline=True)
