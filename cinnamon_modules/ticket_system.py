@@ -234,6 +234,8 @@ class TicketControls(discord.ui.View):
         guild=interaction.guild; cfg=_ticket_guild(guild.id); staff=set(map(int,cfg.get("settings",{}).get("staff_role_ids",[])))
         is_staff=interaction.user.guild_permissions.administrator or any(r.id in staff for r in interaction.user.roles) or cinnamon_role_has(interaction.user,"ticket_staff") or cinnamon_role_has(interaction.user,"ticket_admin")
         if action in ("claim", "unclaim"):
+            if ticket.get("status")!="open":
+                return await interaction.response.send_message("Only open tickets can be claimed or unclaimed.",ephemeral=True)
             gag = str(ticket.get("routing", "")).lower() == "grow_a_garden"
             trusted = any(r.id in set(map(int, cfg.get("settings", {}).get("trusted_booster_role_ids", [])))
                           for r in interaction.user.roles) or cinnamon_role_has(interaction.user, "trusted_booster")
@@ -275,7 +277,12 @@ class TicketControls(discord.ui.View):
                     ticket["service_item_id"] = item_id
                     ticket["service_confirmations"] = {"member": False, "booster": False}
             ticket["claimed_by"] = interaction.user.id if action == "claim" else None
-            if not await bd_save_data():
+            try:
+                saved=await bd_save_data()
+            except Exception:
+                log.exception("Ticket claim transaction save failed")
+                saved=False
+            if not saved:
                 ticket.clear()
                 ticket.update(before_ticket)
                 if service_inv is not None and before_inventory is not None:
