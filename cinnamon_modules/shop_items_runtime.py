@@ -168,7 +168,7 @@ async def _shop_item_run_actions(interaction, item_id, trigger):
             log.exception("Shop item message action failed: item=%s type=%s", item_id, kind)
 
 
-@economy_group.command(name="use", description="Use an item from your Cinnamon inventory")
+@economy_admin_group.command(name="use", description="Use an item from your Cinnamon inventory")
 @app_commands.describe(item="Choose an item from your inventory")
 @app_commands.autocomplete(item=cinnamon_item_autocomplete)
 @app_commands.guild_only()
