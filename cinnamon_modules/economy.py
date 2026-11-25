@@ -913,12 +913,15 @@ async def economy_work_cmd(interaction: discord.Interaction):
         embed = cinnamon_embed("⏳ Work Cooldown", message, color=CINNAMON_MUTED, user=interaction.user, footer="Cinnamon Economy • Work")
         await interaction.response.send_message(embed=cinnamon_polish_embed(embed), ephemeral=True)
         return
+    pet_drop = await collectible_pet_work_drop(interaction.guild.id, interaction.user) if callable(globals().get("collectible_pet_work_drop")) else None
     balance = economy_balance(interaction.guild.id, interaction.user.id)
     job = message.replace("💼 You **", "").split("** and earned", 1)[0] if "** and earned" in message else "worked for Cinnamon"
     embed = cinnamon_embed("💼 Shift Complete", "Cinnamon inspected your work and approved the payment. 🐾", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Work • 10 minute cooldown")
     cinnamon_field(embed, "💼 Job", f"{job}", False)
     cinnamon_field(embed, "🌿 Earned", f"**+{amount:,} Catnip**", True)
     cinnamon_field(embed, "💰 New balance", f"**{balance:,} Catnip**", True)
+    if pet_drop:
+        cinnamon_field(embed, "🐾 New discovery", f"**{pet_drop['emoji']} {pet_drop['species']}** · {pet_drop['rarity']}! Use ?pets to view your collection.")
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
 

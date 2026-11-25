@@ -186,9 +186,9 @@ class CinnamonRepairAndSelection(unittest.TestCase):
     def test_prefix_docs_and_dispatch_are_consistent(self):
         main = (ROOT / 'main.py').read_text()
         events = (MODULES / 'core_events.py').read_text()
-        self.assertIn('command_prefix="!"', main)
-        self.assertIn('Use `!command`', events)
-        self.assertIn("Prefix commands are intentionally !-only", events)
+        self.assertIn('command_prefix=["!","?"]', main)
+        self.assertIn('Use `!command` or `?command`', events)
+        self.assertNotIn("Prefix commands are intentionally !-only", events)
         self.assertIn('name="balance",aliases=["bal","wallet"]', events)
 
     def test_fishing_decisions_can_snap_line_or_lose_fish(self):
