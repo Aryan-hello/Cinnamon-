@@ -466,6 +466,7 @@ _CINNAMON_MODULES = (
     # Economy is loaded before the quest/achievement modules so all shared
     # economy state/helpers exist when those systems are registered.
     "economy.py",
+    "shop_items_runtime.py",  # Dashboard-configured item requirements, actions, outcomes and /use.
     "advanced_economy.py",
     "economy_marketplace.py",  # Member-to-member escrow trading and marketplace.
     "quests.py",
