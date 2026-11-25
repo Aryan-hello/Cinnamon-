@@ -55,6 +55,8 @@ class ShopWorkshopSourceTests(unittest.TestCase):
         self.assertIn("current_defaults = {", self.runtime)
         self.assertIn("for item_id, default_item in current_defaults.items():", self.runtime)
         self.assertIn("if item_id not in ECONOMY_ITEMS:", self.runtime)
+        self.assertIn('current_item["category"] = "grow_a_garden"', self.runtime)
+        self.assertIn('current["category"] = "grow_a_garden"', (ROOT / "cinnamon_modules" / "economy.py").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
