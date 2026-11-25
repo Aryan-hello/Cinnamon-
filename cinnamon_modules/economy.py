@@ -316,7 +316,7 @@ class CinnamonShopView(discord.ui.LayoutView):
                     data["stock_quantity"] = max(0, int(data.get("stock_quantity", 0)) - 1)
                 try:
                     saved = await bd_save_data()
-                    if saved is False:
+                    if not saved:
                         raise RuntimeError("Economy storage did not confirm the save.")
                 except Exception:
                     economy_balances[(guild_id, user_id)] = balance
@@ -665,7 +665,7 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
             data["stock_quantity"] = max(0, int(data.get("stock_quantity", 0)) - quantity)
         try:
             saved = await bd_save_data()
-            if saved is False:
+            if not saved:
                 raise RuntimeError("Economy storage did not confirm the save.")
         except Exception:
             economy_balances[(guild_id, user_id)] = balance
