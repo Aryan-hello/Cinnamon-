@@ -246,41 +246,78 @@ def _shop_items(guild, state):
         "<small>Admin changes are sent here. Audit records are also committed to the Upstash snapshot.</small></div>",
         "Save log channel")
     item_rows = []
-    for item_id, item in sorted(shop.items(), key=lambda pair: str(pair[1].get("name", pair[0])).casefold()):
+    item_dialogs = []
+    for item_id, item in sorted(shop.items(), key=lambda pair: str((pair[1] if isinstance(pair[1], dict) else {}).get("name", pair[0])).casefold()):
         item = item if isinstance(item, dict) else {}
+        sell_value = item.get("sell_price")
         fields = (
             f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>"
+            f"<div class='shop-editor-section'><h3>Item details</h3>"
+            f"<div class='field'><label>Item ID</label><input value='{_esc(item_id)}' disabled></div>"
             f"<div class='field'><label>Name</label><input name='name' maxlength='80' value='{_esc(item.get('name', item_id))}' required></div>"
-            f"<div class='field'><label>Price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='{max(1,int(item.get('price',1)))}' required></div>"
-            f"<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(item.get('emoji','🐾'))}'></div>"
-            f"<div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='{max(0,int(item.get('max_per_person',0)))}'></div>"
-            f"<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(item.get('description',''))}'></div>"
-            f"<label class='toggle'><input type='checkbox' name='shop_enabled'{' checked' if item.get('shop_enabled', True) else ''}><span><b>Visible in shop</b></span></label>"
-            f"<label class='toggle'><input type='checkbox' name='craftable'{' checked' if item.get('craftable', False) else ''}><span><b>Craftable output</b></span></label>"
+            f"<div class='field'><label>Buy price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='{max(1,int(item.get('price',1)))}' required></div>"
+            f"<div class='field'><label>Sell-back price (Catnip)</label><input name='sell_price' type='number' min='0' max='10000000' value='{'' if sell_value is None else max(0,int(sell_value))}' placeholder='Default: 50% of buy price'></div>"
+            f"<div class='field'><label>Category</label><input name='category' maxlength='40' value='{_esc(item.get('category','General'))}' placeholder='General, GAG Services, Materials…'></div>"
+            f"<div class='field'><label>Description</label><textarea name='description' maxlength='300' rows='3'>{_esc(item.get('description',''))}</textarea></div>"
+            f"<div class='field'><label>Icon / emoji</label><input name='emoji' maxlength='8' value='{_esc(item.get('emoji','🐾'))}'></div></div>"
+            f"<div class='shop-editor-section'><h3>Availability & inventory</h3>"
+            f"<label class='toggle'><input type='checkbox' name='shop_enabled'{' checked' if item.get('shop_enabled', True) else ''}><span><b>Listed in shop</b><small>Members can see and purchase this item.</small></span></label>"
+            f"<label class='toggle'><input type='checkbox' name='craftable'{' checked' if item.get('craftable', False) else ''}><span><b>Craftable output</b><small>This item can be the output of a crafting recipe.</small></span></label>"
+            f"<label class='toggle'><input type='checkbox' name='sellable'{' checked' if item.get('sellable', True) else ''}><span><b>Sell-back enabled</b><small>Members may sell eligible items using /economy sell.</small></span></label>"
+            f"<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='{max(0,int(item.get('max_per_person',0)))}'><small>0 means unlimited.</small></div></div>"
+        )
+        editor = _form(gid, "shop_item_save", fields, "Save changes")
+        remove_form = _form(gid, "shop_item_disable", f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>", "Remove from shop", danger=True)
+        item_dialogs.append(
+            f"<dialog class='shop-item-dialog' id='shop-edit-{_esc(item_id)}'><div class='shop-dialog-head'><div><span class='eyebrow'>ITEM EDITOR</span><h2>{_esc(item.get('name',item_id))}</h2></div><button type='button' class='shop-dialog-close' data-shop-close aria-label='Close editor'>×</button></div>"
+            f"<div class='shop-dialog-body'>{editor}<div class='shop-dialog-danger'>{remove_form}</div></div></dialog>"
         )
         item_rows.append(
-            "<article class='card half'><div class='cataloghead'><span class='catalogname'>" +
-            _esc(item.get("emoji", "🐾")) + " " + _esc(item.get("name", item_id)) +
-            "</span><code>" + _esc(item_id) + "</code></div>" +
-            _form(gid, "shop_item_save", fields, "Save item") +
-            _form(gid, "shop_item_disable", f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>",
-                  "Remove from shop", danger=True) + "</article>"
+            f"<button type='button' class='shop-product-tile' data-shop-open='shop-edit-{_esc(item_id)}'>"
+            f"<span class='shop-product-icon'>{_esc(item.get('emoji','🐾'))}</span><span class='shop-product-name'>{_esc(item.get('name',item_id))}</span>"
+            f"<span class='shop-product-price'>{max(0,int(item.get('price',0))):,} <small>Catnip</small></span><span class='shop-product-edit'>Edit item</span></button>"
         )
-    item_add = (
-        "<div class='formgrid'>"
+    item_grid = "".join(item_rows) or "<p class='muted'>No items yet. Create your first item.</p>"
+    create_fields = (
+        "<div class='shop-editor-section'><h3>Item details</h3>"
         "<div class='field'><label>Unique item ID</label><input name='item_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div>"
-        "<div class='field'><label>Name</label><input name='name' maxlength='80' required></div>"
-        "<div class='field'><label>Price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='1000' required></div>"
-        "<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='🐾'></div>"
-        "<div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='0'></div>"
-        "<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300'></div>"
-        "<label class='toggle'><input type='checkbox' name='shop_enabled' checked><span><b>Show in shop</b></span></label>"
-        "<label class='toggle'><input type='checkbox' name='craftable'><span><b>Can be crafted</b></span></label></div>"
+        "<div class='field'><label>Name</label><input name='name' maxlength='80' required placeholder='Give this item a name'></div>"
+        "<div class='field'><label>Buy price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='1000' required></div>"
+        "<div class='field'><label>Sell-back price (Catnip)</label><input name='sell_price' type='number' min='0' max='10000000' placeholder='Default: 50% of buy price'></div>"
+        "<div class='field'><label>Category</label><input name='category' maxlength='40' value='General'></div>"
+        "<div class='field'><label>Description</label><textarea name='description' maxlength='300' rows='3'></textarea></div>"
+        "<div class='field'><label>Icon / emoji</label><input name='emoji' maxlength='8' value='🐾'></div></div>"
+        "<div class='shop-editor-section'><h3>Availability & inventory</h3>"
+        "<label class='toggle'><input type='checkbox' name='shop_enabled' checked><span><b>Listed in shop</b><small>Members can see and purchase this item.</small></span></label>"
+        "<label class='toggle'><input type='checkbox' name='craftable'><span><b>Craftable output</b><small>This item can be the output of a crafting recipe.</small></span></label>"
+        "<label class='toggle'><input type='checkbox' name='sellable' checked><span><b>Sell-back enabled</b><small>Members may sell eligible items using /economy sell.</small></span></label>"
+        "<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='0'><small>0 means unlimited.</small></div></div>"
     )
-    item_card = "<article class='card full'><h2>Create a new item</h2>" + _form(gid, "shop_item_add", item_add, "Create item") + "</article>"
-    restore_card = "<article class='card full'><h2>Restore missing built-in items</h2><p class='muted'>Adds missing Cinnamon defaults (including standard shop products and Grow a Garden services) without overwriting existing prices, descriptions, custom items or inventory. This is an explicit recovery action.</p>" + _form(gid, "shop_catalog_restore", "", "Restore missing built-in items") + "</article>"
-    item_grid = "".join(item_rows) or "<article class='card full'><p class='muted'>No items are registered yet.</p></article>"
-
+    create_editor = _form(gid, "shop_item_add", create_fields, "Create item")
+    create_dialog = (
+        "<dialog class='shop-item-dialog' id='shop-create-dialog'><div class='shop-dialog-head'><div><span class='eyebrow'>NEW CATALOGUE ITEM</span><h2>Create item</h2></div><button type='button' class='shop-dialog-close' data-shop-close aria-label='Close editor'>×</button></div>"
+        "<div class='shop-dialog-body'>" + create_editor + "</div></dialog>"
+    )
+    shop_editor_ui = (
+        "<style>"
+        ".shop-catalog-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:18px 0 14px}"
+        ".shop-product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:14px}"
+        ".shop-product-tile{appearance:none;border:1px solid var(--line);background:var(--surface-2);color:var(--text);border-radius:16px;min-height:174px;padding:18px 12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;cursor:pointer;transition:transform .16s,border-color .16s,box-shadow .16s}"
+        ".shop-product-tile:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:0 8px 24px #0002}"
+        ".shop-create-tile{border:2px dashed var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface-2))}"
+        ".shop-product-icon{font-size:42px;line-height:1.2;min-height:52px;display:grid;place-items:center}.shop-product-name{font-weight:750;line-height:1.25;overflow-wrap:anywhere}"
+        ".shop-product-price{font-size:18px;font-weight:800;color:var(--accent)}.shop-product-price small{font-size:11px;font-weight:600;color:var(--muted)}.shop-product-edit{font-size:12px;color:var(--muted)}"
+        ".shop-item-dialog{border:1px solid var(--line);border-radius:18px;padding:0;width:min(680px,calc(100vw - 24px));max-height:min(88dvh,900px);background:var(--surface);color:var(--text);box-shadow:0 24px 80px #0008}"
+        ".shop-item-dialog::backdrop{background:#09070bd9;backdrop-filter:blur(4px)}.shop-dialog-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:18px 22px;background:var(--surface);border-bottom:1px solid var(--line)}"
+        ".shop-dialog-head h2{margin:4px 0 0}.shop-dialog-close{border:0;background:var(--surface-2);color:var(--text);width:40px;height:40px;border-radius:12px;font-size:26px;cursor:pointer}"
+        ".shop-dialog-body{padding:18px 22px 24px;overflow:auto;max-height:calc(88dvh - 82px)}.shop-editor-section{border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}.shop-editor-section h3{margin:0 0 12px}"
+        ".shop-editor-section textarea{width:100%;resize:vertical}.shop-dialog-danger{border-top:1px solid var(--line);margin-top:18px;padding-top:14px}.shop-dialog-body .actions{position:sticky;bottom:-24px;background:var(--surface);padding:12px 0 2px}"
+        "@media(max-width:520px){.shop-product-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.shop-product-tile{min-height:150px;padding:14px 8px}.shop-product-icon{font-size:36px}.shop-dialog-head{padding:14px 16px}.shop-dialog-body{padding:14px 16px 20px}}"
+        "</style><div class='shop-catalog-toolbar'><div><h2>Shop catalogue</h2><p class='muted'>Tap an item card to edit it.</p></div><span class='pill'>" + str(len(shop)) + " items</span></div>"
+        "<div class='shop-product-grid'><button type='button' class='shop-product-tile shop-create-tile' data-shop-open='shop-create-dialog'><span class='shop-product-icon'>＋</span><span class='shop-product-name'>CREATE ITEM</span><span class='shop-product-edit'>Add to catalogue</span></button>"
+        + item_grid + "</div>" + "".join(item_dialogs) + create_dialog
+        + "<script>(function(){if(window.__cinnamonShopEditorReady)return;window.__cinnamonShopEditorReady=true;document.addEventListener('click',function(e){var open=e.target.closest('[data-shop-open]');if(open){var d=document.getElementById(open.getAttribute('data-shop-open'));if(d&&d.showModal)d.showModal();}var close=e.target.closest('[data-shop-close]');if(close){var d=close.closest('dialog');if(d)d.close();}});document.addEventListener('click',function(e){if(e.target.matches('dialog.shop-item-dialog'))e.target.close();});})();</script>"
+    )
     item_options = "".join(
         f"<option value='{_esc(k)}'>{_esc(v.get('emoji','🐾'))} {_esc(v.get('name',k))} ({_esc(k)})</option>"
         for k, v in sorted(shop.items()) if isinstance(v, dict)
@@ -382,8 +419,7 @@ def _shop_items(guild, state):
         f"<div class='statusline' style='margin-bottom:16px'>{storage}<span class='pill'>{len(shop)} catalogue items</span><span class='pill'>{len(recipes)} active recipes</span></div>"
         "<div class='grid'><article class='card full'><h2>Dedicated change log</h2><p class='muted'>Current destination: " +
         _esc(channel.mention if channel else "Not configured") + "</p>" + channel_form + "</article>"
-        + restore_card + item_card + "<article class='card full'><h2>Existing catalogue items</h2><p class='muted'>Removing an item from the shop hides it from purchases but preserves its inventory, crafting and Mystery Box references.</p></article>"
-        + item_grid + recipe_card + "<article class='card full'><h2>Active crafting recipes</h2></article>" + recipe_grid
+        + restore_card + shop_editor_ui + recipe_card + "<article class='card full'><h2>Active crafting recipes</h2></article>" + recipe_grid
         + "".join(box_cards) + "<article class='card full'><h2>Recent Shop & Items audit history</h2><p class='muted'>Last 30 events shown; up to 500 per server are retained in the Upstash-backed snapshot.</p>" + audit_html + "</article></div>"
     )
 
@@ -3035,6 +3071,9 @@ def dashboard_action():
             updated = dict(items.get(item_id, {}))
             updated.update({
                 "name": name, "price": price,
+                "category": request.form.get("category", "General").strip()[:40] or "General",
+                "sell_price": (int(request.form.get("sell_price")) if request.form.get("sell_price","").strip() else None),
+                "sellable": "sellable" in request.form,
                 "emoji": request.form.get("emoji", "🐾")[:8] or "🐾",
                 "description": request.form.get("description", "")[:300],
                 "max_per_person": limit,
