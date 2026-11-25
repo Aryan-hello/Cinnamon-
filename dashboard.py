@@ -1027,6 +1027,18 @@ def _role_multi_select(guild, name, selected=None):
     )
 
 
+def _role_bonus_picker(guild, name="bonus_role_ids", selected=None):
+    """Searchable role picker with a per-role extra-entry count; IDs remain internal."""
+    selected={str(k):max(1,min(20,int(v))) for k,v in (selected or {}).items() if str(k).isdigit()}
+    roles=sorted([r for r in guild.roles if not r.is_default() and not r.managed],key=lambda r:r.position,reverse=True)
+    rows=[]
+    for role in roles:
+        rid=str(role.id); checked=" checked" if rid in selected else ""
+        count=selected.get(rid,1)
+        rows.append(f"<label class='choice-option' data-choice-label='{_esc(role.name.lower())}'><input type='checkbox' name='{_esc(name)}' value='{rid}'{checked}><span>@{_esc(role.name)}</span><input aria-label='Extra entries for @{_esc(role.name)}' type='number' name='bonus_role_count_{rid}' min='1' max='20' value='{count}' style='width:76px;margin-left:auto'></label>")
+    return ("<div class='choice-picker' data-choice-picker><div class='choice-toolbar'><input class='choice-search' type='search' placeholder='Search roles…' aria-label='Search bonus-entry roles' autocomplete='off'><span class='choice-count' aria-live='polite'></span></div><div class='choice-options'>"+("".join(rows) or "<p class='muted'>No assignable roles found.</p>")+"</div><small class='choice-help'>Select each role and set its extra entries (1–20). Only the highest matching role bonus applies.</small></div>")
+
+
 def _form(guild_id, action, content, button="Save changes", danger=False):
     style = " danger" if danger else ""
     return f"<form method='post' action='/dashboard/action'>{_csrf_input()}<input type='hidden' name='guild_id' value='{guild_id}'><input type='hidden' name='action' value='{_esc(action)}'>{content}<div class='actions'><button class='btn{style}' type='submit'>{_esc(button)}</button></div></form>"
@@ -1746,7 +1758,7 @@ def _giveaways(guild,state):
         f"<div class='field'><label>Reset duration (minutes from save)</label><input name='duration_minutes' type='number' min='1' max='525600' value='{max(1,remain)}' required></div>"
         f"<div class='field'><label>Entry button / reaction emoji</label><input name='entry_emoji' maxlength='40' value='{_esc(gw.get('entry_emoji','🎉'))}'></div>"
         f"<div class='field'><label><input type='checkbox' name='reaction_entries' value='1'{(' checked' if gw.get('reaction_entries') else '')}> Also allow reaction entry</label><small>Bot must have Add Reactions and Manage Messages to remove ineligible entries.</small></div>"
-        f"<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'>{_esc(chr(10).join(f'{rid}:{count}' for rid,count in (gw.get('bonus_roles',{}) or {}).items()))}</textarea><small>Each listed role adds 1–20 entries. Only the highest bonus among a member's matching roles applies.</small></div>"
+        f"<div class='field full'><label>Bonus entries by role</label>{_role_bonus_picker(guild,selected=gw.get('bonus_roles',{}))}<small>Choose roles by name and set extra entries. Only the highest matching role bonus applies.</small></div>"
         f"<div class='field'><label>Minimum Discord account age (days, 0 = none)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='{int(gw.get('min_account_age_days',0) or 0)}'></div>"
         f"<div class='field'><label>Minimum server membership (days, 0 = none)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='{int(gw.get('min_server_age_days',0) or 0)}'></div>"
         f"<div class='field full'><label>Required roles (member needs at least one)</label>{_role_multi_select(guild,'required_roles',gw.get('required_roles',[]))}</div>"
@@ -1773,7 +1785,7 @@ def _giveaways(guild,state):
     "<div class='field'><label>Entry button / reaction emoji</label><input name='entry_emoji' maxlength='40' value='🎉'></div><div class='field'><label>Embed colour (hex)</label><input name='embed_color' maxlength='7' value='FEE75C'></div>"
     "<div class='field'><label><input type='checkbox' name='reaction_entries' value='1'> Also allow reaction entry</label><small>Bot needs Add Reactions and Manage Messages to remove ineligible entries.</small></div>"
     "<div class='field'><label>Minimum account age (days)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='0'></div><div class='field'><label>Minimum server membership (days)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='0'></div>"
-    "<div class='field full'><label>Bonus entries by role</label><textarea name='bonus_roles' maxlength='2400' placeholder='ROLE_ID:EXTRA_ENTRIES, one per line'></textarea><small>Role IDs can be copied from Discord with Developer Mode enabled. Each listed role adds 1–20 entries.</small></div>"
+    "<div class='field full'><label>Bonus entries by role</label>"+_role_bonus_picker(guild)+"<small>Choose roles by name and set extra entries. No ID copying needed.</small></div>"
     "<div class='field full'><label>Required roles (member needs at least one)</label>"+_role_multi_select(guild,"required_roles")+"</div>"
     "<div class='field full'><label>Requirement-bypass roles</label>"+_role_multi_select(guild,"bypass_roles")+"</div>"
     "<div class='field full'><label>Blacklisted roles (always blocked)</label>"+_role_multi_select(guild,"blacklisted_roles")+"</div>"
@@ -1789,13 +1801,13 @@ def _giveaways(guild,state):
         return ("<div class='formgrid'><div class='field'><label>Prize</label><input name='prize' maxlength='200' required value='"+_esc(prize)+"'></div>"
         "<div class='field'><label>Winners</label><input name='winners' type='number' min='1' max='100' value='"+str(int(winners))+"'></div>"
         "<div class='field'><label>Duration (minutes)</label><input name='duration_minutes' type='number' min='1' max='525600' value='"+str(int(duration))+"'></div>"
-        "<div class='field'><label>Role bonuses (ROLE_ID:EXTRA per line)</label><textarea name='bonus_roles'>"+_esc(bonus)+"</textarea></div>"
+        "<div class='field full'><label>Role bonuses</label>"+_role_bonus_picker(guild,selected=c.get('bonus_roles',{}))+"</div>"
         "<div class='field'><label>Required roles (IDs/mentions)</label><textarea name='required_roles'>"+_esc(roles('required_roles'))+"</textarea></div>"
         "<div class='field'><label>Bypass roles</label><textarea name='bypass_roles'>"+_esc(roles('bypass_roles'))+"</textarea></div>"
         "<div class='field'><label>Blacklisted roles</label><textarea name='blacklisted_roles'>"+_esc(roles('blacklisted_roles'))+"</textarea></div>"
         "<div class='field'><label>Minimum account age (days)</label><input name='min_account_age_days' type='number' min='0' max='3650' value='"+str(int(c.get('min_account_age_days',0) or 0))+"'></div>"
         "<div class='field'><label>Minimum server age (days)</label><input name='min_server_age_days' type='number' min='0' max='3650' value='"+str(int(c.get('min_server_age_days',0) or 0))+"'></div>"
-        "<div class='field'><label>Winner role ID</label><input name='winner_role_id' value='"+_esc(c.get('winner_role_id',''))+"'></div>"
+        "<div class='field'><label>Winner role</label>"+_role_select(guild,"winner_role_id",c.get("winner_role_id"),True)+"</div>"
         "<div class='field'><label>Winner role duration (minutes)</label><input name='winner_role_minutes' type='number' min='0' max='525600' value='"+str(int(c.get('winner_role_minutes',0) or 0))+"'></div>"
         "<div class='field'><label>Winner thread duration (minutes)</label><input name='winner_thread_minutes' type='number' min='0' max='10080' value='"+str(int(c.get('winner_thread_minutes',0) or 0))+"'></div>"
         "<div class='field'><label>Claim deadline (minutes; 0 = off)</label><input name='claim_minutes' type='number' min='0' max='10080' value='"+str(int(c.get('claim_minutes',0) or 0))+"'></div>"
@@ -3525,7 +3537,9 @@ def dashboard_action():
             validate=state.get("validate_giveaway_config")
             if not callable(validate): raise RuntimeError("Giveaway settings validation is not available.")
             role_text=lambda field: "\n".join(request.form.getlist(field))
-            config=validate(guild, bonus_roles=request.form.get("bonus_roles",""),
+            bonus_ids=request.form.getlist("bonus_role_ids")
+            bonus_text="\n".join(f"<@&{rid}>:{request.form.get('bonus_role_count_'+str(rid),'1')}" for rid in dict.fromkeys(bonus_ids) if str(rid).isdigit())
+            config=validate(guild, bonus_roles=bonus_text,
                 required_roles=role_text("required_roles"), bypass_roles=role_text("bypass_roles"),
                 blacklisted_roles=role_text("blacklisted_roles"),
                 min_account_age_days=request.form.get("min_account_age_days","0"),
