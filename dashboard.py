@@ -3109,11 +3109,60 @@ def dashboard_action():
                 raise ValueError("Actions and random outcomes must each be JSON arrays.")
             allowed_triggers = {"bought", "used", "both", "bought_or_used"}
             allowed_action_types = {"give_catnip", "give_item", "send_message", "reply"}
-            for action_config in item_actions:
+            for requirement in (purchase_requirements, use_requirements):
+                try:
+                    balance_min = int(requirement.get("balance_min", 0) or 0)
+                except (TypeError, ValueError):
+                    raise ValueError("Requirement balance_min must be a whole Catnip amount.")
+                if not 0 <= balance_min <= 1000000000:
+                    raise ValueError("Requirement balance_min must be between 0 and 1,000,000,000.")
+                roles_cfg = requirement.get("roles", {})
+                if roles_cfg:
+                    if not isinstance(roles_cfg, dict) or roles_cfg.get("mode", "all") not in {"all", "any", "none"}:
+                        raise ValueError("Role requirements need mode all, any or none.")
+                    role_ids = roles_cfg.get("ids", [])
+                    if not isinstance(role_ids, list) or len(role_ids) > 20:
+                        raise ValueError("Role requirements support up to 20 role IDs.")
+                    for role_id in role_ids:
+                        role = guild.get_role(int(role_id)) if str(role_id).isdigit() else None
+                        if not role or role.is_default() or role.managed:
+                            raise ValueError("A requirement role is invalid or no longer belongs to this server.")
+                items_cfg = requirement.get("items", {})
+                if items_cfg:
+                    if not isinstance(items_cfg, dict) or items_cfg.get("mode", "all") not in {"all", "any", "none"}:
+                        raise ValueError("Item requirements need mode all, any or none.")
+                    entries = items_cfg.get("entries", {})
+                    if not isinstance(entries, dict) or len(entries) > 20:
+                        raise ValueError("Item requirements support up to 20 item entries.")
+                    for required_id, required_qty in entries.items():
+                        try:
+                            required_qty = int(required_qty)
+                        except (TypeError, ValueError):
+                            raise ValueError("Required item quantities must be whole numbers.")
+                        if required_id not in items or not 1 <= required_qty <= 999:
+                            raise ValueError(f"Requirement item {required_id} must exist and use quantity 1–999.")
+            def validate_action(action_config, require_trigger=True):
                 if (not isinstance(action_config, dict)
-                        or str(action_config.get("trigger", "both")).lower() not in allowed_triggers
+                        or (require_trigger and str(action_config.get("trigger", "both")).lower() not in allowed_triggers)
                         or str(action_config.get("type", "")).lower() not in allowed_action_types):
                     raise ValueError("Each action needs a supported type and trigger (bought, used or both).")
+                kind = str(action_config.get("type", "")).lower()
+                if kind == "give_catnip":
+                    try: amount = int(action_config.get("amount", 0))
+                    except (TypeError, ValueError): raise ValueError("Give Catnip actions need a whole-number amount.")
+                    if not 1 <= amount <= 10000000: raise ValueError("Give Catnip amount must be 1–10,000,000.")
+                elif kind == "give_item":
+                    reward_id = str(action_config.get("item_id", ""))
+                    try: amount = int(action_config.get("amount", 1))
+                    except (TypeError, ValueError): raise ValueError("Give item actions need a whole-number amount.")
+                    if reward_id not in items or not 1 <= amount <= 999:
+                        raise ValueError("Give item actions need an existing item and quantity 1–999.")
+                elif kind in {"send_message", "reply"}:
+                    message = str(action_config.get("message", "")).strip()
+                    if not message or len(message) > 1800:
+                        raise ValueError("Message actions need text between 1 and 1,800 characters.")
+            for action_config in item_actions:
+                validate_action(action_config)
             trigger_totals = {"bought": 0.0, "used": 0.0}
             for outcome in random_outcomes:
                 if (not isinstance(outcome, dict)
@@ -3132,9 +3181,7 @@ def dashboard_action():
                 if trigger in {"used", "both", "bought_or_used"}:
                     trigger_totals["used"] += weight
                 for action_config in outcome.get("actions", []):
-                    if (not isinstance(action_config, dict)
-                            or str(action_config.get("type", "")).lower() not in allowed_action_types):
-                        raise ValueError("Random outcome actions must use a supported action type.")
+                    validate_action(action_config, require_trigger=False)
             for trigger, total in trigger_totals.items():
                 if total and abs(total - 100.0) > 0.001:
                     raise ValueError(f"Random outcome weights for {trigger} must total 100%.")
