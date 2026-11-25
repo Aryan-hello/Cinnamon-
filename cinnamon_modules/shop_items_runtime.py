@@ -146,7 +146,7 @@ async def _shop_item_run_actions(interaction, item_id, trigger):
     if changed:
         try:
             saved = await bd_save_data()
-            if saved is False:
+            if not saved:
                 raise RuntimeError("Economy storage did not confirm the action reward save.")
         except Exception:
             if old_balance is None:
@@ -211,7 +211,7 @@ async def economy_use_cmd(interaction: discord.Interaction, item: str):
             economy_cooldowns[(guild.id, user.id, cooldown_key)] = _shop_time.time() + cooldown
         try:
             saved = await bd_save_data()
-            if saved is False:
+            if not saved:
                 raise RuntimeError("Economy storage did not confirm the save.")
         except Exception:
             inv.clear()
