@@ -264,7 +264,19 @@ def _shop_items(guild, state):
             f"<label class='toggle'><input type='checkbox' name='shop_enabled'{' checked' if item.get('shop_enabled', True) else ''}><span><b>Listed in shop</b><small>Members can see and purchase this item.</small></span></label>"
             f"<label class='toggle'><input type='checkbox' name='craftable'{' checked' if item.get('craftable', False) else ''}><span><b>Craftable output</b><small>This item can be the output of a crafting recipe.</small></span></label>"
             f"<label class='toggle'><input type='checkbox' name='sellable'{' checked' if item.get('sellable', True) else ''}><span><b>Sell-back enabled</b><small>Members may sell eligible items using /economy sell.</small></span></label>"
-            f"<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='{max(0,int(item.get('max_per_person',0)))}'><small>0 means unlimited.</small></div></div>"
+            f"<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='{max(0,int(item.get('max_per_person',0)))}'><small>0 means unlimited.</small></div>"
+            f"<label class='toggle'><input type='checkbox' name='stock_unlimited'{' checked' if item.get('stock_unlimited', True) else ''}><span><b>Unlimited stock</b><small>Turn off to enforce a fixed stock quantity.</small></span></label>"
+            f"<div class='field'><label>Stock quantity</label><input name='stock_quantity' type='number' min='0' max='100000000' value='{max(0,int(item.get('stock_quantity',0)))}'></div>"
+            f"<div class='field'><label>Expiry date/time (ISO 8601)</label><input name='expires_at' value='{_esc(item.get('expires_at',''))}' placeholder='2026-12-31T23:59:00+00:00'></div>"
+            f"<label class='toggle'><input type='checkbox' name='usable'{' checked' if item.get('usable', False) else ''}><span><b>Usable item</b><small>Members can use it with /economy use.</small></span></label>"
+            f"<label class='toggle'><input type='checkbox' name='reusable'{' checked' if item.get('reusable', False) else ''}><span><b>Reusable</b><small>Using it does not consume one unit.</small></span></label>"
+            f"<div class='field'><label>Use cooldown (seconds)</label><input name='use_cooldown_seconds' type='number' min='0' max='31536000' value='{max(0,int(item.get('use_cooldown_seconds',0)))}'></div></div>"
+            f"<div class='shop-editor-section'><h3>Requirements</h3><p class='muted'>Purchase and use requirements are separate. JSON format: roles={{mode: all|any|none, ids: [role IDs]}}, items={{mode: all|any|none, entries: {{item_id: quantity}}}}, balance_min=Catnip.</p>"
+            f"<div class='field'><label>Purchase requirements (JSON)</label><textarea name='purchase_requirements' rows='5'>{_esc(json.dumps(item.get('purchase_requirements',{}),ensure_ascii=False,indent=2))}</textarea></div>"
+            f"<div class='field'><label>Use requirements (JSON)</label><textarea name='use_requirements' rows='5'>{_esc(json.dumps(item.get('use_requirements',{}),ensure_ascii=False,indent=2))}</textarea></div></div>"
+            f"<div class='shop-editor-section'><h3>Actions & random outcomes</h3><p class='muted'>Action types: give_catnip, give_item, send_message, reply. Triggers: bought, used, both. Give Catnip example: {{\"type\":\"give_catnip\",\"amount\":3000,\"trigger\":\"used\"}}.</p>"
+            f"<div class='field'><label>Actions (JSON array)</label><textarea name='item_actions' rows='7'>{_esc(json.dumps(item.get('actions',[]),ensure_ascii=False,indent=2))}</textarea></div>"
+            f"<div class='field'><label>Random outcomes (JSON array; weights total 100 per trigger)</label><textarea name='random_outcomes' rows='9'>{_esc(json.dumps(item.get('random_outcomes',[]),ensure_ascii=False,indent=2))}</textarea></div></div>"
         )
         editor = _form(gid, "shop_item_save", fields, "Save changes")
         remove_form = _form(gid, "shop_item_disable", f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>", "Remove from shop", danger=True)
@@ -291,7 +303,19 @@ def _shop_items(guild, state):
         "<label class='toggle'><input type='checkbox' name='shop_enabled' checked><span><b>Listed in shop</b><small>Members can see and purchase this item.</small></span></label>"
         "<label class='toggle'><input type='checkbox' name='craftable'><span><b>Craftable output</b><small>This item can be the output of a crafting recipe.</small></span></label>"
         "<label class='toggle'><input type='checkbox' name='sellable' checked><span><b>Sell-back enabled</b><small>Members may sell eligible items using /economy sell.</small></span></label>"
-        "<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='0'><small>0 means unlimited.</small></div></div>"
+        "<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='0'><small>0 means unlimited.</small></div>"
+        "<label class='toggle'><input type='checkbox' name='stock_unlimited' checked><span><b>Unlimited stock</b><small>Turn off to enforce fixed stock.</small></span></label>"
+        "<div class='field'><label>Stock quantity</label><input name='stock_quantity' type='number' min='0' max='100000000' value='0'></div>"
+        "<div class='field'><label>Expiry date/time (ISO 8601)</label><input name='expires_at' placeholder='2026-12-31T23:59:00+00:00'></div>"
+        "<label class='toggle'><input type='checkbox' name='usable'><span><b>Usable item</b><small>Members can use it with /economy use.</small></span></label>"
+        "<label class='toggle'><input type='checkbox' name='reusable'><span><b>Reusable</b><small>Using it does not consume one unit.</small></span></label>"
+        "<div class='field'><label>Use cooldown (seconds)</label><input name='use_cooldown_seconds' type='number' min='0' max='31536000' value='0'></div></div>"
+        "<div class='shop-editor-section'><h3>Requirements</h3><p class='muted'>Use JSON objects. roles: mode all/any/none and ids; items: mode all/any/none and entries; balance_min: Catnip.</p>"
+        "<div class='field'><label>Purchase requirements (JSON)</label><textarea name='purchase_requirements' rows='5'>{}</textarea></div>"
+        "<div class='field'><label>Use requirements (JSON)</label><textarea name='use_requirements' rows='5'>{}</textarea></div></div>"
+        "<div class='shop-editor-section'><h3>Actions & random outcomes</h3><p class='muted'>Action types: give_catnip, give_item, send_message, reply. Triggers: bought, used, both. Example: {{\"type\":\"give_catnip\",\"amount\":3000,\"trigger\":\"used\"}}.</p>"
+        "<div class='field'><label>Actions (JSON array)</label><textarea name='item_actions' rows='7'>[]</textarea></div>"
+        "<div class='field'><label>Random outcomes (JSON array; weights total 100 per trigger)</label><textarea name='random_outcomes' rows='9'>[]</textarea></div></div>"
     )
     create_editor = _form(gid, "shop_item_add", create_fields, "Create item")
     create_dialog = (
