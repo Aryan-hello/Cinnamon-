@@ -676,13 +676,13 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
             if old_stock is not None:
                 data["stock_quantity"] = old_stock
             return await cinnamon_send(interaction, "❌ Purchase save failed. No Catnip or stock was consumed.", ephemeral=True)
-    await _shop_item_run_actions(interaction, item_id, "bought")
     await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity", quantity), ("Unit price", f"{unit_price:,} Catnip"), ("Deducted", f"-{cost:,} Catnip"), ("Balance before", f"{balance:,} Catnip"), ("Balance after", f"{balance-cost:,} Catnip"), ("Item quantity after", str(inv[item_id]))])
     embed = cinnamon_embed("🛒 Purchase Complete", f"You bought **{quantity:,}× {data['emoji']} {data['name']}**.", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Purchase")
     cinnamon_field(embed, "💸 Cost", f"**{cost:,} Catnip**", True)
     cinnamon_field(embed, "🌿 New balance", f"**{economy_balances[(guild_id, user_id)]:,} Catnip**", True)
     cinnamon_field(embed, "📦 You now own", f"**{inv[item_id]:,}×**", True)
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
+    await _shop_item_run_actions(interaction, item_id, "bought")
     await _cp_react(interaction.guild, interaction.user, interaction.channel, "big_purchase", value=cost)
 
 
