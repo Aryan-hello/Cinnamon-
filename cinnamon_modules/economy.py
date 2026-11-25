@@ -236,12 +236,15 @@ class CinnamonShopView(discord.ui.LayoutView):
                 emoji = item.get("emoji", "🐾")
                 desc = cinnamon_ui_literal(item.get("description", "No description provided."), 210)
                 under_limit = not limit or owned < limit
-                can_buy = price <= balance and under_limit
-                # Don't call a perfectly valid product "Unavailable" just because
-                # this member cannot afford it yet. Show the actual blocker.
+                in_stock = bool(item.get("stock_unlimited", True)) or int(item.get("stock_quantity", 0)) > 0
+                expired = bool(globals().get("_shop_item_expired", lambda _item: False)(item))
+                can_buy = price <= balance and under_limit and in_stock and not expired
+                # Show the actual blocker instead of a generic unavailable state.
                 button_label = ("Buy 1" if can_buy else
-                               (f"Need {price - balance:,} Catnip" if under_limit and price > balance
-                                else "Limit reached"))
+                               ("Expired" if expired else
+                                ("Out of stock" if not in_stock else
+                                 (f"Need {price - balance:,} Catnip" if under_limit and price > balance
+                                  else "Limit reached"))))
                 button = discord.ui.Button(
                     label=button_label[:80],
                     style=discord.ButtonStyle.success if can_buy else discord.ButtonStyle.secondary,
@@ -250,7 +253,8 @@ class CinnamonShopView(discord.ui.LayoutView):
                 button.callback = self._make_buy_callback(item_id)
                 section = discord.ui.Section(
                     f"### {cinnamon_ui_literal(emoji, 20)} {cinnamon_ui_literal(name, 85)}",
-                    f"{desc}\n**{price:,} Catnip**  ·  {limit_text}  ·  Owned: **{owned}**",
+                    f"{desc}\n**{price:,} Catnip**  ·  {limit_text}  ·  Owned: **{owned}**"
+                    + (f"  ·  Stock: **{int(item.get('stock_quantity', 0))}**" if not item.get("stock_unlimited", True) else ""),
                     accessory=button,
                 )
                 container.add_item(section)
