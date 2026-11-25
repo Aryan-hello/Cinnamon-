@@ -3573,16 +3573,16 @@ def dashboard_action():
                             read_message_history=True, attach_files=True, embed_links=True)
                     raise ValueError("Ticket change could not be durably saved. The previous status was restored.")
                 if closing:
-                    await channel.send("Ticket closed by a dashboard administrator.",
-                                       view=state["ticket_control_view"](ticket.get("ticket_id")))
+                    close_view=None if str(ticket.get("routing","")).lower()=="support" else state["ticket_control_view"](ticket.get("ticket_id"))
+                    await channel.send("Ticket closed by a dashboard administrator.",view=close_view)
                     transcript = await state["ticket_transcript"](channel)
                     logch = guild.get_channel(int(cfg.get("settings", {}).get("log_channel_id") or 0))
                     if transcript and cfg.get("settings", {}).get("transcript_on_close", True) and logch:
                         await logch.send(content=f"Dashboard close transcript for {channel.mention}",
                                          file=__import__("discord").File(transcript, filename=f"ticket-{channel.id}.html"))
                 else:
-                    await channel.send("Ticket reopened by a dashboard administrator.",
-                                       view=state["ticket_control_view"](ticket.get("ticket_id")))
+                    reopen_view=None if str(ticket.get("routing","")).lower()=="support" else state["ticket_control_view"](ticket.get("ticket_id"))
+                    await channel.send("Ticket reopened by a dashboard administrator.",view=reopen_view)
             _run_bot(dashboard_ticket_change(),timeout=40)
             _audit(gid,actor,"Dashboard ticket "+("closed" if action=="ticket_dashboard_close" else "reopened"),f"Channel {channel.id}; creator {ticket.get('creator_id')}.")
             session["dashboard_notice"]="Ticket "+("closed" if action=="ticket_dashboard_close" else "reopened")+" in Discord."
