@@ -255,6 +255,7 @@ def dashboard_state_provider() -> dict:
         "CRAFTING_RECIPES": globals().get("CRAFTING_RECIPES", {}),
         "BD_UPSTASH_URL": BD_UPSTASH_URL, "BD_UPSTASH_TOKEN": BD_UPSTASH_TOKEN,
         "BOX_TIERS": globals().get("BOX_TIERS", {}),
+        "BOX_RARE_ITEM_POOL": globals().get("BOX_RARE_ITEM_POOL", []),
         "ECONOMY_DAILY_REWARD": ECONOMY_DAILY_REWARD, "ECONOMY_WORK_MIN": ECONOMY_WORK_MIN,
         "ECONOMY_WORK_MAX": ECONOMY_WORK_MAX, "ECONOMY_WORK_COOLDOWN": ECONOMY_WORK_COOLDOWN,
         # Read-only definitions/status exposed to the dashboard. Commands remain Discord-only.
