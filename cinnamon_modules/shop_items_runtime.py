@@ -117,34 +117,55 @@ async def _shop_item_run_actions(interaction, item_id, trigger):
                 if isinstance(outcome_actions, list):
                     selected.extend(a for a in outcome_actions if isinstance(a, dict))
 
+    balance_key = (guild.id, member.id)
+    old_balance = economy_balances.get(balance_key)
+    inventory = economy_inventory_for(guild.id, member.id)
+    old_inventory = dict(inventory)
+    pending_messages = []
+    changed = False
     for action in selected:
         kind = str(action.get("type", "")).lower()
         try:
             if kind == "give_catnip":
                 amount = int(action.get("amount", 0))
-                if amount > 0:
-                    economy_balances[(guild.id, member.id)] = economy_balance(guild.id, member.id) + amount
+                if 1 <= amount <= 10000000:
+                    economy_balances[balance_key] = economy_balance(guild.id, member.id) + amount
+                    changed = True
             elif kind == "give_item":
                 reward_id = str(action.get("item_id", ""))
                 amount = int(action.get("amount", 1))
                 if reward_id in ECONOMY_ITEMS and 1 <= amount <= 999:
-                    inv = economy_inventory_for(guild.id, member.id)
-                    inv[reward_id] = int(inv.get(reward_id, 0)) + amount
-            elif kind == "send_message":
-                message = str(action.get("message", ""))[:1800]
-                if message and interaction.channel:
-                    await interaction.channel.send(message, allowed_mentions=discord.AllowedMentions.none())
-            elif kind == "reply":
+                    inventory[reward_id] = int(inventory.get(reward_id, 0)) + amount
+                    changed = True
+            elif kind in {"send_message", "reply"}:
                 message = str(action.get("message", ""))[:1800]
                 if message:
-                    await interaction.followup.send(message, ephemeral=True,
-                        allowed_mentions=discord.AllowedMentions.none())
+                    pending_messages.append((kind, message))
+        except (TypeError, ValueError):
+            log.warning("Invalid Shop action config: item=%s type=%s", item_id, kind)
+    if changed:
+        try:
+            saved = await bd_save_data()
+            if saved is False:
+                raise RuntimeError("Economy storage did not confirm the action reward save.")
         except Exception:
-            log.exception("Shop item action failed: item=%s type=%s", item_id, kind)
-    try:
-        await bd_save_data()
-    except Exception:
-        log.exception("Could not persist shop item action rewards")
+            if old_balance is None:
+                economy_balances.pop(balance_key, None)
+            else:
+                economy_balances[balance_key] = old_balance
+            inventory.clear()
+            inventory.update(old_inventory)
+            log.exception("Could not persist shop item action rewards; rolled them back")
+            return
+    for kind, message in pending_messages:
+        try:
+            if kind == "send_message" and interaction.channel:
+                await interaction.channel.send(message, allowed_mentions=discord.AllowedMentions.none())
+            elif kind == "reply":
+                await interaction.followup.send(message, ephemeral=True,
+                    allowed_mentions=discord.AllowedMentions.none())
+        except Exception:
+            log.exception("Shop item message action failed: item=%s type=%s", item_id, kind)
 
 
 @economy_group.command(name="use", description="Use an item from your Cinnamon inventory")
@@ -180,7 +201,7 @@ async def economy_use_cmd(interaction: discord.Interaction, item: str):
         if remaining:
             return await cinnamon_send(interaction, f"You can use this item again in **{remaining} seconds**.", ephemeral=True)
         old_inventory = dict(inv)
-        old_cooldowns = dict(economy_cooldowns)
+        old_cooldown_value = economy_cooldowns.get((guild.id, user.id, cooldown_key))
         old_balance = economy_balances.get((guild.id, user.id))
         if not data.get("reusable", False):
             inv[item_id] = owned - 1
@@ -195,8 +216,10 @@ async def economy_use_cmd(interaction: discord.Interaction, item: str):
         except Exception:
             inv.clear()
             inv.update(old_inventory)
-            economy_cooldowns.clear()
-            economy_cooldowns.update(old_cooldowns)
+            if old_cooldown_value is None:
+                economy_cooldowns.pop((guild.id, user.id, cooldown_key), None)
+            else:
+                economy_cooldowns[(guild.id, user.id, cooldown_key)] = old_cooldown_value
             if old_balance is None:
                 economy_balances.pop((guild.id, user.id), None)
             else:
