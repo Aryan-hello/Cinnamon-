@@ -71,7 +71,10 @@ async def _ticket_log(guild,action,actor=None,ticket=None,detail=""):
 class TicketQuestionModal(discord.ui.Modal):
     def __init__(self,gid,panel_id,category_id,user_id,questions,selected_item_id=None):
         super().__init__(title="Open support ticket",timeout=300)
-        self.gid=int(gid); self.panel_id=str(panel_id); self.category_id=str(category_id); self.user_id=int(user_id); self.questions=list(questions or [])[:5]; self.selected_item_id=str(selected_item_id or "")
+        self.gid=int(gid); self.panel_id=str(panel_id); self.category_id=str(category_id); self.user_id=int(user_id); self.questions=list(questions or [])[:5]
+        raw_selected_items=selected_item_id if isinstance(selected_item_id,(list,tuple,set)) else ([selected_item_id] if selected_item_id else [])
+        self.selected_item_ids=list(dict.fromkeys(str(x) for x in raw_selected_items if str(x)))
+        self.selected_item_id=self.selected_item_ids[0] if self.selected_item_ids else ""
         for i,q in enumerate(self.questions):
             self.add_item(discord.ui.TextInput(label=str(q.get("label","Question "+str(i+1)))[:45],placeholder=str(q.get("placeholder","Your answer"))[:100],required=bool(q.get("required",True)),max_length=min(1000,max(1,int(q.get("max_length",400)))),style=discord.TextStyle.paragraph if q.get("paragraph",True) else discord.TextStyle.short,custom_id="q"+str(i)))
     async def on_submit(self,interaction):
@@ -82,7 +85,7 @@ class TicketQuestionModal(discord.ui.Modal):
         if not panel or not panel.get("published",True): return await interaction.followup.send("That panel is unavailable.",ephemeral=True)
         category=next((x for x in panel.get("categories",[]) if str(x.get("id"))==self.category_id),None)
         if not category: return await interaction.followup.send("That ticket category is unavailable.",ephemeral=True)
-        await _ticket_create_channel(interaction,panel,category,answers,self.selected_item_id)
+        await _ticket_create_channel(interaction,panel,category,answers,self.selected_item_ids or self.selected_item_id)
 
 class TicketPanelView(discord.ui.View):
     def __init__(self,gid,panel_id,panel):
@@ -115,17 +118,23 @@ class TicketInventorySelectView(discord.ui.View):
         if not options:
             self.add_item(discord.ui.Button(label="No eligible items in your inventory",style=discord.ButtonStyle.secondary,disabled=True))
             return
-        select=discord.ui.Select(placeholder="Select the item you purchased…",min_values=1,max_values=1,options=options[:25],custom_id="ticket:itemselect:"+str(self.gid)+":"+self.panel_id+":"+self.category_id)
+        select=discord.ui.Select(placeholder="Select one or more GAG items…",min_values=1,max_values=len(options[:25]),options=options[:25],custom_id="ticket:itemselect:"+str(self.gid)+":"+self.panel_id+":"+self.category_id)
         select.callback=self._selected
         self.add_item(select)
 
     async def _selected(self,interaction):
         if interaction.user.id!=self.user_id:
             return await interaction.response.send_message("This inventory selection belongs to another member.",ephemeral=True)
-        item_id=str(interaction.data.get("values",[""])[0])
+        item_ids=list(dict.fromkeys(str(x) for x in interaction.data.get("values",[]) if str(x)))
         inventory=economy_inventory_for(self.gid,self.user_id)
-        if int(inventory.get(item_id,0))<1:
-            return await interaction.response.send_message("You no longer own that item. Reopen the panel and choose an item you still have.",ephemeral=True)
+        if not item_ids or any(int(inventory.get(item_id,0))<1 for item_id in item_ids):
+            return await interaction.response.send_message("One or more selected items are no longer in your inventory. Reopen the panel and try again.",ephemeral=True)
+        selected_items=[ECONOMY_ITEMS.get(item_id,{}) or {} for item_id in item_ids]
+        if len(item_ids)>1 and any(item.get("category")!="grow_a_garden" for item in selected_items):
+            return await interaction.response.send_message("You can select multiple items only when every selected item is a Grow a Garden service.",ephemeral=True)
+        if str(category.get("routing","")).lower() in {"grow_a_garden","gag","boosting"} and any(item.get("category")!="grow_a_garden" for item in selected_items):
+            return await interaction.response.send_message("This panel only accepts Grow a Garden service items.",ephemeral=True)
+        item_id=item_ids
         cfg=_ticket_guild(self.gid); panel=cfg.get("panels",{}).get(self.panel_id,{})
         category=next((x for x in panel.get("categories",[]) if str(x.get("id"))==self.category_id),None)
         if not category:
@@ -191,7 +200,8 @@ class GAGServiceCompletionView(discord.ui.View):
         confirms[who] = True
         if all(confirms.values()):
             item = ECONOMY_ITEMS.get(str(ticket.get("service_item_id")), {})
-            reward = max(0, int(item.get("price", 0)) // 2)
+            service_item_ids=[str(x) for x in ticket.get("service_item_ids",[]) if str(x)] or ([str(ticket.get("service_item_id"))] if ticket.get("service_item_id") else [])
+            reward = sum(max(0,int(ECONOMY_ITEMS.get(item_id,{}).get("price",0))//2) for item_id in service_item_ids) if service_item_ids else max(0, int(item.get("price", 0)) // 2)
             economy_balances[(interaction.guild.id, booster)] = before_balance + reward
             ticket["service_paid"] = True
             ticket["service_completed_at"] = _time.time()
@@ -272,23 +282,27 @@ class TicketControls(discord.ui.View):
             service_inv = None
             before_inventory = None
             if action == "claim" and str(ticket.get("routing","")).lower() in {"shop","grow_a_garden"}:
-                item_id = str(ticket.get("selected_item_id") or ticket.get("service_item_id", ""))
+                item_ids=[str(x) for x in ticket.get("selected_item_ids",[]) if str(x)] or [str(ticket.get("selected_item_id") or ticket.get("service_item_id", ""))]
+                item_ids=list(dict.fromkeys(x for x in item_ids if x))
                 creator_id = int(ticket.get("creator_id", 0))
                 service_inv = economy_inventory_for(guild.id, creator_id)
-                if not item_id or int(service_inv.get(item_id, 0)) < 1:
+                if not item_ids or any(int(service_inv.get(item_id,0))<1 for item_id in item_ids):
                     return await interaction.response.send_message(
-                        "Member does not own the purchased service item. Claim refused.", ephemeral=True)
+                        "Member does not own every selected service item. Claim refused.", ephemeral=True)
                 before_inventory = dict(service_inv)
-                service_inv[item_id] = int(service_inv[item_id]) - 1
-                if service_inv[item_id] <= 0:
-                    service_inv.pop(item_id, None)
+                for item_id in item_ids:
+                    service_inv[item_id] = int(service_inv[item_id]) - 1
+                    if service_inv[item_id] <= 0:
+                        service_inv.pop(item_id, None)
                 ticket["service_consumed"] = True
                 ticket["item_consumed"] = True
+                ticket["consumed_item_ids"] = item_ids
                 ticket["service_claimed_at"] = _time.time()
                 ticket["item_consumed_at"] = _time.time()
                 ticket["item_consumed_by"] = interaction.user.id
                 if gag:
-                    ticket["service_item_id"] = item_id
+                    ticket["service_item_ids"] = item_ids
+                    ticket["service_item_id"] = item_ids[0]
                     ticket["service_confirmations"] = {"member": False, "booster": False}
             ticket["claimed_by"] = interaction.user.id if action == "claim" else None
             try:
@@ -314,7 +328,7 @@ class TicketControls(discord.ui.View):
                     if service_message_id:
                         try: service_message=await interaction.channel.fetch_message(service_message_id)
                         except discord.HTTPException: service_message=None
-                    notice=f"✅ {interaction.user.mention} claimed this Grow a Garden service. **{item_name}** has been removed from <@{creator_id}>'s inventory. Both the member and this Trusted Booster must confirm completion."
+                    notice=f"✅ {interaction.user.mention} claimed this Grow a Garden service. **{item_name}** ({len(ticket.get('selected_item_ids',[]) or [ticket.get('service_item_id')])} item(s)) has been removed from <@{creator_id}>'s inventory. Both the member and this Trusted Booster must confirm completion."
                     try:
                         latest_message=await interaction.channel.send(notice,view=GAGServiceCompletionView(ticket["ticket_id"]),allowed_mentions=discord.AllowedMentions(users=True))
                         ticket["service_message_id"]=latest_message.id
@@ -432,6 +446,8 @@ async def _ticket_transcript(channel):
     return _io.BytesIO(page.encode("utf-8"))
 
 async def _ticket_create_channel(interaction,panel,category,answers,selected_item_id=None):
+    selected_item_ids=list(dict.fromkeys(str(x) for x in (selected_item_id if isinstance(selected_item_id,(list,tuple,set)) else ([selected_item_id] if selected_item_id else [])) if str(x)))
+    selected_item_id=selected_item_ids[0] if selected_item_ids else ""
     guild=interaction.guild; member=interaction.user; cfg=_ticket_guild(guild.id); settings=cfg.get("settings",{})
     opened=sum(1 for t in cfg.get("tickets",{}).values() if int(t.get("creator_id",0))==member.id and t.get("status")=="open")
     if opened>=max(1,min(10,int(settings.get("max_open_per_user",3)))): return await interaction.followup.send("You reached the open-ticket limit.",ephemeral=True)
@@ -439,12 +455,19 @@ async def _ticket_create_channel(interaction,panel,category,answers,selected_ite
     if _time.time()-last<cooldown: return await interaction.followup.send(f"Wait {int(cooldown-(_time.time()-last))} seconds before opening another ticket.",ephemeral=True)
     role_map=_role_setup(guild.id); staff=set(map(int,settings.get("staff_role_ids",[]))); staff.update(map(int,role_map.get("ticket_staff",[]))); staff.update(map(int,role_map.get("ticket_admin",[]))); staff.update(map(int,category.get("staff_role_ids",[]))); route=str(category.get("routing","shop")).lower()
     if route=="shop": staff.update(map(int,role_map.get("shop_manager",[])))
-    selected_item=(ECONOMY_ITEMS.get(str(selected_item_id),{}) or {}) if selected_item_id else {}
-    gag_purchase=route in {"grow_a_garden","gag","boosting"} or (route=="shop" and selected_item.get("category")=="grow_a_garden")
-    if route=="shop" and not selected_item_id:
+    selected_items=[(ECONOMY_ITEMS.get(item_id,{}) or {}) for item_id in selected_item_ids]
+    selected_item=selected_items[0] if selected_items else {}
+    gag_item_selection=bool(selected_item_ids) and all(item.get("category")=="grow_a_garden" for item in selected_items)
+    if len(selected_item_ids)>1 and not gag_item_selection:
+        return await interaction.followup.send("Multiple selections are allowed only for Grow a Garden service items.",ephemeral=True)
+    gag_purchase=route in {"grow_a_garden","gag","boosting"} or (route=="shop" and gag_item_selection)
+    if route=="shop" and not selected_item_ids:
         return await interaction.followup.send("Choose an item from your inventory before opening a shop ticket.",ephemeral=True)
-    if selected_item_id and (not selected_item or int(economy_inventory_for(guild.id,member.id).get(str(selected_item_id),0))<1):
-        return await interaction.followup.send("That item is no longer available in your inventory. Reopen the panel and select an item you still own.",ephemeral=True)
+    current_inventory=economy_inventory_for(guild.id,member.id) if selected_item_ids else {}
+    if any(not item or int(current_inventory.get(item_id,0))<1 for item_id,item in zip(selected_item_ids,selected_items)):
+        return await interaction.followup.send("One or more selected items are no longer available in your inventory. Reopen the panel and select items you still own.",ephemeral=True)
+    if route in {"grow_a_garden","gag","boosting"} and selected_item_ids and not gag_item_selection:
+        return await interaction.followup.send("This panel only accepts Grow a Garden service items.",ephemeral=True)
     if gag_purchase:
         route="grow_a_garden"
         staff=set(map(int,settings.get("trusted_booster_role_ids",[]))) | set(map(int,_role_setup(guild.id).get("trusted_booster",[])))
@@ -463,11 +486,11 @@ async def _ticket_create_channel(interaction,panel,category,answers,selected_ite
     if not isinstance(parent,discord.CategoryChannel): parent=None
     base=str(category.get("channel_name_format","ticket-{username}"))[:80].replace("{username}",member.name.lower().replace(" ","-")[:20]).replace("{user_id}",str(member.id)); name="".join(c for c in base.lower() if c.isalnum() or c in "-_")[:90] or "ticket"
     channel=await guild.create_text_channel(name,category=parent,overwrites=overwrites,reason=f"Cinnamon ticket opened by {member}")
-    tid=_secrets.token_hex(8); ticket={"ticket_id":tid,"channel_id":channel.id,"creator_id":member.id,"panel_id":str(panel.get("id")),"panel_name":str(panel.get("name","Ticket panel")),"category_id":str(category.get("id")),"category_label":str(category.get("label","Support")),"created_at":_time.time(),"status":"open","claimed_by":None,"assigned_to":None,"priority":"normal","answers":answers,"close_reason":None,"routing":route,"service_item_id":str(selected_item_id or category.get("service_item_id","")),"selected_item_id":str(selected_item_id or ""),"selected_item_name":str(selected_item.get("name","")) if selected_item else "","item_consumed":False}
+    tid=_secrets.token_hex(8); ticket={"ticket_id":tid,"channel_id":channel.id,"creator_id":member.id,"panel_id":str(panel.get("id")),"panel_name":str(panel.get("name","Ticket panel")),"category_id":str(category.get("id")),"category_label":str(category.get("label","Support")),"created_at":_time.time(),"status":"open","claimed_by":None,"assigned_to":None,"priority":"normal","answers":answers,"close_reason":None,"routing":route,"service_item_id":str(selected_item_id or category.get("service_item_id","")),"service_item_ids":selected_item_ids or ([str(category.get("service_item_id"))] if category.get("service_item_id") else []),"selected_item_id":str(selected_item_id or ""),"selected_item_ids":selected_item_ids,"selected_item_name":", ".join(str(item.get("name",item_id)) for item_id,item in zip(selected_item_ids,selected_items)),"selected_item_names":[str(item.get("name",item_id)) for item_id,item in zip(selected_item_ids,selected_items)],"item_consumed":False}
     cfg["tickets"][str(channel.id)]=ticket; cfg["cooldowns"][str(member.id)]=int(_time.time())
     pings=" ".join(f"<@&{rid}>" for rid in staff if guild.get_role(rid)); e=discord.Embed(title=str(category.get("welcome_title") or f"{category.get('label','Support')} ticket"),description=str(category.get("welcome_message") or "Thanks for opening a ticket. Staff will assist you here."),color=discord.Color.orange())
     e.add_field(name="Ticket creator",value=member.mention,inline=True); e.add_field(name="Category",value=str(category.get("label","Support")),inline=True)
-    if selected_item_id: e.add_field(name="Selected inventory item",value=str(selected_item.get("emoji","🐾"))+" "+str(selected_item.get("name",selected_item_id)),inline=True)
+    if selected_item_ids: e.add_field(name="Selected inventory items",value="\n".join(str(item.get("emoji","🐾"))+" "+str(item.get("name",item_id)) for item_id,item in zip(selected_item_ids,selected_items))[:1024],inline=False)
     for q,a in answers[:5]: e.add_field(name=str(q)[:256],value=str(a)[:1024] or "—",inline=False)
     e.add_field(name="Priority",value="Normal",inline=True)
     if route=="support":
