@@ -111,7 +111,7 @@ class TicketInventorySelectView(discord.ui.View):
             item_id=str(item_id); item=ECONOMY_ITEMS.get(item_id,{})
             if int(quantity or 0)<1 or not item or (allowed and item_id not in allowed): continue
             name=str(item.get("name",item_id))[:100]
-            options.append(discord.SelectOption(label=name,value=item_id,description=("Owned: "+str(int(quantity)))[:100],emoji=str(item.get("emoji","🐾"))[:100] or None))
+            options.append(discord.SelectOption(label=name,value=item_id,description=("Owned: "+str(int(quantity)))[:100]))
         if not options:
             self.add_item(discord.ui.Button(label="No eligible items in your inventory",style=discord.ButtonStyle.secondary,disabled=True))
             return
@@ -194,7 +194,12 @@ class GAGServiceCompletionView(discord.ui.View):
             ticket["service_paid"] = True
             ticket["service_completed_at"] = _time.time()
             ticket["booster_reward"] = reward
-        if not await bd_save_data():
+        try:
+            saved=await bd_save_data()
+        except Exception:
+            log.exception("GAG completion confirmation save failed")
+            saved=False
+        if not saved:
             ticket.clear()
             ticket.update(before_ticket)
             economy_balances[(interaction.guild.id, booster)] = before_balance
