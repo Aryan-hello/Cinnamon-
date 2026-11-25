@@ -209,6 +209,12 @@ for _item_id, (_name, _emoji, _rarity, _price, _description, _unique) in EXPANSI
 for _tier_cfg in BOX_TIERS.values():
     for _reward_id in _tier_cfg["items"] + _tier_cfg["materials"]:
         ECONOMY_ITEMS.setdefault(_reward_id, {"name": _reward_id.replace("_", " ").title(), "price": 1000, "emoji": "🐾", "description": "A Cinnamon Mystery Box reward.", "max_per_person": 0, "shop_enabled": False})
+
+# Immutable source catalogue used only by the explicit dashboard restore action.
+# It is captured after the core, GAG, crafting and mystery reward items register.
+ECONOMY_BUILTIN_DEFAULTS = __import__("copy").deepcopy(ECONOMY_ITEMS)
+
+
 def _box_count(guild_id, user_id, tier="common"):
     raw=ADVANCED_FEATURES["mystery_boxes"].get(_af_key(guild_id,user_id),0)
     if isinstance(raw,dict): return max(0,int(raw.get(tier,0)))
