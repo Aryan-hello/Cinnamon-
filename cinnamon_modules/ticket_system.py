@@ -399,6 +399,7 @@ async def _ticket_create_channel(interaction,panel,category,answers,selected_ite
     if gag_purchase:
         route="grow_a_garden"
         staff=set(map(int,settings.get("trusted_booster_role_ids",[]))) | set(map(int,_role_setup(guild.id).get("trusted_booster",[])))
+        staff.update(map(int,category.get("staff_role_ids",[])))
     elif route=="shop":
         staff=set(map(int,settings.get("moderator_role_ids",[]))) | set(map(int,_role_setup(guild.id).get("moderator",[])))
         staff.update(map(int,category.get("staff_role_ids",[])))
