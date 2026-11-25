@@ -246,41 +246,130 @@ def _shop_items(guild, state):
         "<small>Admin changes are sent here. Audit records are also committed to the Upstash snapshot.</small></div>",
         "Save log channel")
     item_rows = []
-    for item_id, item in sorted(shop.items(), key=lambda pair: str(pair[1].get("name", pair[0])).casefold()):
+    item_dialogs = []
+    shop_builder_items = [
+        {"id": str(item_id), "name": str(item.get("name", item_id)), "emoji": str(item.get("emoji", "🐾"))}
+        for item_id, item in shop.items() if isinstance(item, dict)
+    ]
+    shop_builder_roles = [
+        {"id": str(role.id), "name": str(role.name)}
+        for role in getattr(guild, "roles", [])
+        if not role.is_default() and not role.managed
+    ]
+    shop_builder_items_json = _esc(json.dumps(shop_builder_items, ensure_ascii=False))
+    shop_builder_roles_json = _esc(json.dumps(shop_builder_roles, ensure_ascii=False))
+    for item_id, item in sorted(shop.items(), key=lambda pair: str((pair[1] if isinstance(pair[1], dict) else {}).get("name", pair[0])).casefold()):
         item = item if isinstance(item, dict) else {}
+        sell_value = item.get("sell_price")
         fields = (
             f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>"
+            f"<div class='shop-editor-section'><h3>Item details</h3>"
+            f"<div class='field'><label>Item ID</label><input value='{_esc(item_id)}' disabled></div>"
             f"<div class='field'><label>Name</label><input name='name' maxlength='80' value='{_esc(item.get('name', item_id))}' required></div>"
-            f"<div class='field'><label>Price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='{max(1,int(item.get('price',1)))}' required></div>"
-            f"<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(item.get('emoji','🐾'))}'></div>"
-            f"<div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='{max(0,int(item.get('max_per_person',0)))}'></div>"
-            f"<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(item.get('description',''))}'></div>"
-            f"<label class='toggle'><input type='checkbox' name='shop_enabled'{' checked' if item.get('shop_enabled', True) else ''}><span><b>Visible in shop</b></span></label>"
-            f"<label class='toggle'><input type='checkbox' name='craftable'{' checked' if item.get('craftable', False) else ''}><span><b>Craftable output</b></span></label>"
+            f"<div class='field'><label>Buy price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='{max(1,int(item.get('price',1)))}' required></div>"
+            f"<div class='field'><label>Sell-back price (Catnip)</label><input name='sell_price' type='number' min='0' max='10000000' value='{'' if sell_value is None else max(0,int(sell_value))}' placeholder='Default: 50% of buy price'></div>"
+            f"<div class='field'><label>Category</label><input name='category' maxlength='40' value='{_esc(item.get('category','General'))}' placeholder='General, GAG Services, Materials…'></div>"
+            f"<div class='field'><label>Description</label><textarea name='description' maxlength='300' rows='3'>{_esc(item.get('description',''))}</textarea></div>"
+            f"<div class='field'><label>Icon / emoji</label><input name='emoji' maxlength='8' value='{_esc(item.get('emoji','🐾'))}'></div></div>"
+            f"<div class='shop-editor-section'><h3>Availability & inventory</h3>"
+            f"<label class='toggle'><input type='checkbox' name='shop_enabled'{' checked' if item.get('shop_enabled', True) else ''}><span><b>Listed in shop</b><small>Members can see and purchase this item.</small></span></label>"
+            f"<label class='toggle'><input type='checkbox' name='craftable'{' checked' if item.get('craftable', False) else ''}><span><b>Craftable output</b><small>This item can be the output of a crafting recipe.</small></span></label>"
+            f"<label class='toggle'><input type='checkbox' name='sellable'{' checked' if item.get('sellable', True) else ''}><span><b>Sell-back enabled</b><small>Members may sell eligible items using /economy sell.</small></span></label>"
+            f"<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='{max(0,int(item.get('max_per_person',0)))}'><small>0 means unlimited.</small></div>"
+            f"<label class='toggle'><input type='checkbox' name='stock_unlimited'{' checked' if item.get('stock_unlimited', True) else ''}><span><b>Unlimited stock</b><small>Turn off to enforce a fixed stock quantity.</small></span></label>"
+            f"<div class='field'><label>Stock quantity</label><input name='stock_quantity' type='number' min='0' max='100000000' value='{max(0,int(item.get('stock_quantity',0)))}'></div>"
+            f"<div class='field'><label>Expiry date/time (ISO 8601)</label><input name='expires_at' value='{_esc(item.get('expires_at',''))}' placeholder='2026-12-31T23:59:00+00:00'></div>"
+            f"<label class='toggle'><input type='checkbox' name='usable'{' checked' if item.get('usable', False) else ''}><span><b>Usable item</b><small>Members can use it with /economy use.</small></span></label>"
+            f"<label class='toggle'><input type='checkbox' name='reusable'{' checked' if item.get('reusable', False) else ''}><span><b>Reusable</b><small>Using it does not consume one unit.</small></span></label>"
+            f"<div class='field'><label>Use cooldown (seconds)</label><input name='use_cooldown_seconds' type='number' min='0' max='31536000' value='{max(0,int(item.get('use_cooldown_seconds',0)))}'></div></div>"
+            f"<div class='shop-editor-section'><h3>Purchase requirements</h3><p class='muted'>Set who can buy this item. These rules are separate from use requirements.</p>"
+            f"<textarea hidden name='purchase_requirements'>{_esc(json.dumps(item.get('purchase_requirements',{}),ensure_ascii=False))}</textarea>"
+            f"<div class='shop-requirement-builder' data-config-builder='purchase_requirements' data-items='{shop_builder_items_json}' data-roles='{shop_builder_roles_json}'></div></div>"
+            f"<div class='shop-editor-section'><h3>Use requirements</h3><p class='muted'>Set who can use this item. These rules are checked separately.</p>"
+            f"<textarea hidden name='use_requirements'>{_esc(json.dumps(item.get('use_requirements',{}),ensure_ascii=False))}</textarea>"
+            f"<div class='shop-requirement-builder' data-config-builder='use_requirements' data-items='{shop_builder_items_json}' data-roles='{shop_builder_roles_json}'></div></div>"
+            f"<div class='shop-editor-section'><h3>Actions</h3><p class='muted'>Choose when each effect runs: after purchase, after use, or either event.</p>"
+            f"<textarea hidden name='item_actions'>{_esc(json.dumps(item.get('actions',[]),ensure_ascii=False))}</textarea>"
+            f"<div class='shop-action-builder' data-config-builder='item_actions' data-items='{shop_builder_items_json}'></div></div>"
+            f"<div class='shop-editor-section'><h3>Random outcomes</h3><p class='muted'>Add as many outcomes as you need. Configure separate outcome chances for buying and using; weights for each trigger must total 100%.</p>"
+            f"<textarea hidden name='random_outcomes'>{_esc(json.dumps(item.get('random_outcomes',[]),ensure_ascii=False))}</textarea>"
+            f"<div class='shop-outcome-builder' data-config-builder='random_outcomes' data-items='{shop_builder_items_json}'></div></div>"
+        )
+        editor = _form(gid, "shop_item_save", fields, "Save changes")
+        remove_form = _form(gid, "shop_item_disable", f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>", "Remove from shop", danger=True)
+        item_dialogs.append(
+            f"<dialog class='shop-item-dialog' id='shop-edit-{_esc(item_id)}'><div class='shop-dialog-head'><div><span class='eyebrow'>ITEM EDITOR</span><h2>{_esc(item.get('name',item_id))}</h2></div><button type='button' class='shop-dialog-close' data-shop-close aria-label='Close editor'>×</button></div>"
+            f"<div class='shop-dialog-body'>{editor}<div class='shop-dialog-danger'>{remove_form}</div></div></dialog>"
         )
         item_rows.append(
-            "<article class='card half'><div class='cataloghead'><span class='catalogname'>" +
-            _esc(item.get("emoji", "🐾")) + " " + _esc(item.get("name", item_id)) +
-            "</span><code>" + _esc(item_id) + "</code></div>" +
-            _form(gid, "shop_item_save", fields, "Save item") +
-            _form(gid, "shop_item_disable", f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>",
-                  "Remove from shop", danger=True) + "</article>"
+            f"<button type='button' class='shop-product-tile' data-shop-open='shop-edit-{_esc(item_id)}'>"
+            f"<span class='shop-product-icon'>{_esc(item.get('emoji','🐾'))}</span><span class='shop-product-name'>{_esc(item.get('name',item_id))}</span>"
+            f"<span class='shop-product-price'>{max(0,int(item.get('price',0))):,} <small>Catnip</small></span><span class='shop-product-edit'>Edit item</span></button>"
         )
-    item_add = (
-        "<div class='formgrid'>"
+    item_grid = "".join(item_rows) or "<p class='muted'>No items yet. Create your first item.</p>"
+    create_fields = (
+        "<div class='shop-editor-section'><h3>Item details</h3>"
         "<div class='field'><label>Unique item ID</label><input name='item_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div>"
-        "<div class='field'><label>Name</label><input name='name' maxlength='80' required></div>"
-        "<div class='field'><label>Price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='1000' required></div>"
-        "<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='🐾'></div>"
-        "<div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='0'></div>"
-        "<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300'></div>"
-        "<label class='toggle'><input type='checkbox' name='shop_enabled' checked><span><b>Show in shop</b></span></label>"
-        "<label class='toggle'><input type='checkbox' name='craftable'><span><b>Can be crafted</b></span></label></div>"
+        "<div class='field'><label>Name</label><input name='name' maxlength='80' required placeholder='Give this item a name'></div>"
+        "<div class='field'><label>Buy price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='1000' required></div>"
+        "<div class='field'><label>Sell-back price (Catnip)</label><input name='sell_price' type='number' min='0' max='10000000' placeholder='Default: 50% of buy price'></div>"
+        "<div class='field'><label>Category</label><input name='category' maxlength='40' value='General'></div>"
+        "<div class='field'><label>Description</label><textarea name='description' maxlength='300' rows='3'></textarea></div>"
+        "<div class='field'><label>Icon / emoji</label><input name='emoji' maxlength='8' value='🐾'></div></div>"
+        "<div class='shop-editor-section'><h3>Availability & inventory</h3>"
+        "<label class='toggle'><input type='checkbox' name='shop_enabled' checked><span><b>Listed in shop</b><small>Members can see and purchase this item.</small></span></label>"
+        "<label class='toggle'><input type='checkbox' name='craftable'><span><b>Craftable output</b><small>This item can be the output of a crafting recipe.</small></span></label>"
+        "<label class='toggle'><input type='checkbox' name='sellable' checked><span><b>Sell-back enabled</b><small>Members may sell eligible items using /economy sell.</small></span></label>"
+        "<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='0'><small>0 means unlimited.</small></div>"
+        "<label class='toggle'><input type='checkbox' name='stock_unlimited' checked><span><b>Unlimited stock</b><small>Turn off to enforce fixed stock.</small></span></label>"
+        "<div class='field'><label>Stock quantity</label><input name='stock_quantity' type='number' min='0' max='100000000' value='0'></div>"
+        "<div class='field'><label>Expiry date/time (ISO 8601)</label><input name='expires_at' placeholder='2026-12-31T23:59:00+00:00'></div>"
+        "<label class='toggle'><input type='checkbox' name='usable'><span><b>Usable item</b><small>Members can use it with /economy use.</small></span></label>"
+        "<label class='toggle'><input type='checkbox' name='reusable'><span><b>Reusable</b><small>Using it does not consume one unit.</small></span></label>"
+        "<div class='field'><label>Use cooldown (seconds)</label><input name='use_cooldown_seconds' type='number' min='0' max='31536000' value='0'></div></div>"
+        "<div class='shop-editor-section'><h3>Purchase requirements</h3><p class='muted'>Set who can buy this item.</p><textarea hidden name='purchase_requirements'>{}</textarea><div class='shop-requirement-builder' data-config-builder='purchase_requirements' data-items='" + shop_builder_items_json + "' data-roles='" + shop_builder_roles_json + "'></div></div>"
+        "<div class='shop-editor-section'><h3>Use requirements</h3><p class='muted'>Set who can use this item.</p><textarea hidden name='use_requirements'>{}</textarea><div class='shop-requirement-builder' data-config-builder='use_requirements' data-items='" + shop_builder_items_json + "' data-roles='" + shop_builder_roles_json + "'></div></div>"
+        "<div class='shop-editor-section'><h3>Actions</h3><p class='muted'>Choose whether each effect runs when bought, used or both.</p><textarea hidden name='item_actions'>[]</textarea><div class='shop-action-builder' data-config-builder='item_actions' data-items='" + shop_builder_items_json + "'></div></div>"
+        "<div class='shop-editor-section'><h3>Random outcomes</h3><p class='muted'>Add as many outcomes as you need. Weights for each trigger must total 100%.</p><textarea hidden name='random_outcomes'>[]</textarea><div class='shop-outcome-builder' data-config-builder='random_outcomes' data-items='" + shop_builder_items_json + "'></div></div>"
     )
-    item_card = "<article class='card full'><h2>Create a new item</h2>" + _form(gid, "shop_item_add", item_add, "Create item") + "</article>"
-    restore_card = "<article class='card full'><h2>Restore missing built-in items</h2><p class='muted'>Adds missing Cinnamon defaults (including standard shop products and Grow a Garden services) without overwriting existing prices, descriptions, custom items or inventory. This is an explicit recovery action.</p>" + _form(gid, "shop_catalog_restore", "", "Restore missing built-in items") + "</article>"
-    item_grid = "".join(item_rows) or "<article class='card full'><p class='muted'>No items are registered yet.</p></article>"
-
+    create_editor = _form(gid, "shop_item_add", create_fields, "Create item")
+    create_dialog = (
+        "<dialog class='shop-item-dialog' id='shop-create-dialog'><div class='shop-dialog-head'><div><span class='eyebrow'>NEW CATALOGUE ITEM</span><h2>Create item</h2></div><button type='button' class='shop-dialog-close' data-shop-close aria-label='Close editor'>×</button></div>"
+        "<div class='shop-dialog-body'>" + create_editor + "</div></dialog>"
+    )
+    shop_editor_ui = (
+        "<style>"
+        ".shop-catalog-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:18px 0 14px}"
+        ".shop-product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:14px}"
+        ".shop-product-tile{appearance:none;border:1px solid var(--line);background:var(--surface-2);color:var(--text);border-radius:16px;min-height:174px;padding:18px 12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;cursor:pointer;transition:transform .16s,border-color .16s,box-shadow .16s}"
+        ".shop-product-tile:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:0 8px 24px #0002}"
+        ".shop-create-tile{border:2px dashed var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface-2))}"
+        ".shop-product-icon{font-size:42px;line-height:1.2;min-height:52px;display:grid;place-items:center}.shop-product-name{font-weight:750;line-height:1.25;overflow-wrap:anywhere}"
+        ".shop-product-price{font-size:18px;font-weight:800;color:var(--accent)}.shop-product-price small{font-size:11px;font-weight:600;color:var(--muted)}.shop-product-edit{font-size:12px;color:var(--muted)}"
+        ".shop-item-dialog{border:1px solid var(--line);border-radius:18px;padding:0;width:min(680px,calc(100vw - 24px));max-height:min(88dvh,900px);background:var(--surface);color:var(--text);box-shadow:0 24px 80px #0008}"
+        ".shop-item-dialog::backdrop{background:#09070bd9;backdrop-filter:blur(4px)}.shop-dialog-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:18px 22px;background:var(--surface);border-bottom:1px solid var(--line)}"
+        ".shop-dialog-head h2{margin:4px 0 0}.shop-dialog-close{border:0;background:var(--surface-2);color:var(--text);width:40px;height:40px;border-radius:12px;font-size:26px;cursor:pointer}"
+        ".shop-dialog-body{padding:18px 22px 24px;overflow:auto;max-height:calc(88dvh - 82px)}.shop-editor-section{border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}.shop-editor-section h3{margin:0 0 12px}"
+        ".shop-editor-section textarea{width:100%;resize:vertical}.shop-builder-field{display:flex;flex-direction:column;gap:6px;margin:10px 0;font-size:13px;font-weight:650}.shop-builder-field input,.shop-builder-field select,.shop-builder-field textarea,.shop-builder-inline select,.shop-builder-inline input{width:100%;min-height:40px;border:1px solid var(--line-strong);border-radius:9px;background:var(--surface-2);padding:8px 10px;color:var(--ink)}.shop-builder-field select[multiple]{min-height:96px}.shop-builder-list{display:grid;gap:10px;margin:10px 0}.shop-builder-row,.shop-builder-outcome{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:12px;margin:8px 0}.shop-builder-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.shop-builder-inline{display:grid;grid-template-columns:minmax(0,1fr) 100px 42px;gap:8px;margin:8px 0}.shop-builder-button,.shop-builder-remove{border:1px solid var(--line-strong);border-radius:9px;padding:9px 12px;background:var(--surface-3);font-weight:650;cursor:pointer}.shop-builder-remove{color:var(--red)}.shop-builder-outcome h4{margin:8px 0}.shop-dialog-danger{border-top:1px solid var(--line);margin-top:18px;padding-top:14px}.shop-dialog-body .actions{position:sticky;bottom:-24px;background:var(--surface);padding:12px 0 2px}"
+        "@media(max-width:520px){.shop-product-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.shop-product-tile{min-height:150px;padding:14px 8px}.shop-product-icon{font-size:36px}.shop-dialog-head{padding:14px 16px}.shop-dialog-body{padding:14px 16px 20px}}"
+        "</style><div class='shop-catalog-toolbar'><div><h2>Shop catalogue</h2><p class='muted'>Tap an item card to edit it.</p></div><span class='pill'>" + str(len(shop)) + " items</span></div>"
+        "<div class='shop-product-grid'><button type='button' class='shop-product-tile shop-create-tile' data-shop-open='shop-create-dialog'><span class='shop-product-icon'>＋</span><span class='shop-product-name'>CREATE ITEM</span><span class='shop-product-edit'>Add to catalogue</span></button>"
+        + item_grid + "</div>" + "".join(item_dialogs) + create_dialog
+        + "<script>(function(){if(window.__cinnamonShopEditorReady)return;window.__cinnamonShopEditorReady=true;"
+        + "function node(tag,cls,txt){var n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n;}"
+        + "function field(label,control){var w=node('label','shop-builder-field');w.appendChild(node('span','',label));w.appendChild(control);return w;}"
+        + "function select(options,value){var s=node('select');options.forEach(function(o){var x=node('option','',o[1]);x.value=o[0];if(String(value)===String(o[0]))x.selected=true;s.appendChild(x);});return s;}"
+        + "function input(type,value,placeholder){var x=node('input');x.type=type;x.value=value==null?'':value;if(placeholder)x.placeholder=placeholder;return x;}"
+        + "function button(label,cls,fn){var b=node('button',cls||'shop-builder-button',label);b.type='button';b.addEventListener('click',fn);return b;}"
+        + "function itemOptions(items){return [['','Choose an item']].concat(items.map(function(x){return [x.id,(x.emoji||'')+' '+x.name+' ('+x.id+')'];}));}"
+        + "function effectRow(items,cfg,nested){cfg=cfg||{};var row=node('div','shop-builder-row');var type=select([['give_catnip','Give Catnip'],['give_item','Give an item'],['send_message','Send a message'],['reply','Reply to the member']],cfg.type||'give_catnip');var trigger=nested?null:select([['bought','When bought'],['used','When used'],['both','When bought or used']],cfg.trigger||'both');var amount=input('number',cfg.amount||'','Amount');var item=select(itemOptions(items),cfg.item_id||'');var message=node('textarea');message.rows=2;message.placeholder='Message to send';message.value=cfg.message||'';var remove=button('Remove','shop-builder-remove',function(){row.remove();});if(trigger)row.appendChild(field('Trigger',trigger));row.appendChild(field('Effect',type));row.appendChild(field('Catnip amount',amount));row.appendChild(field('Reward item',item));row.appendChild(field('Message',message));row.appendChild(remove);function sync(){var k=type.value;amount.parentElement.hidden=k!=='give_catnip';item.parentElement.hidden=k!=='give_item';message.parentElement.hidden=k!=='send_message'&&k!=='reply';}type.addEventListener('change',sync);sync();row.readConfig=function(){var o={type:type.value};if(trigger)o.trigger=trigger.value;if(type.value==='give_catnip')o.amount=Number(amount.value);if(type.value==='give_item'){o.item_id=item.value;o.amount=Number(amount.value||1);}if(type.value==='send_message'||type.value==='reply')o.message=message.value;return o;};return row;}"
+        + "function effectList(host,items,configs,nested){(configs||[]).forEach(function(c){host.appendChild(effectRow(items,c,nested));});host.appendChild(button('＋ Add effect','shop-builder-button',function(){host.insertBefore(effectRow(items,{type:'give_catnip',amount:100,trigger:'both'},nested),host.lastChild);}));}"
+        + "function buildRequirement(root,hidden){var items=JSON.parse(root.dataset.items||'[]'),roles=JSON.parse(root.dataset.roles||'[]'),cfg={};try{cfg=JSON.parse(hidden.value||'{}');}catch(e){}var bal=input('number',cfg.balance_min||0,'Minimum Catnip');root.appendChild(field('Minimum balance (Catnip)',bal));var rcfg=cfg.roles||{},rmode=select([['all','Has all selected roles'],['any','Has any selected role'],['none','Has none of these roles']],rcfg.mode||'all');root.appendChild(field('Role condition',rmode));var rselect=node('select');rselect.multiple=true;rselect.size=Math.min(5,Math.max(2,roles.length));roles.forEach(function(r){var o=node('option','',r.name);o.value=r.id;o.selected=(rcfg.ids||[]).map(String).includes(String(r.id));rselect.appendChild(o);});root.appendChild(field('Required roles (select multiple)',rselect));var icfg=cfg.items||{},imode=select([['all','Has all required items'],['any','Has any required item'],['none','Has none of these items']],icfg.mode||'all');root.appendChild(field('Inventory condition',imode));var list=node('div','shop-builder-list');var entries=icfg.entries||{};Object.keys(entries).forEach(function(id){addReq(id,entries[id]);});function addReq(id,qty){var row=node('div','shop-builder-inline');var sel=select(itemOptions(items),id);var q=input('number',qty||1,'Quantity');var rm=button('×','shop-builder-remove',function(){row.remove();});row.appendChild(sel);row.appendChild(q);row.appendChild(rm);list.appendChild(row);}root.appendChild(list);root.appendChild(button('＋ Add required item','shop-builder-button',function(){addReq('',1);}));root.readConfig=function(){var ent={};list.querySelectorAll('.shop-builder-inline').forEach(function(row){var id=row.querySelector('select').value,qty=Number(row.querySelector('input').value);if(id&&qty>0)ent[id]=qty;});var ids=Array.from(rselect.selectedOptions).map(function(o){return o.value;});var out={balance_min:Number(bal.value||0)};if(ids.length)out.roles={mode:rmode.value,ids:ids};if(Object.keys(ent).length)out.items={mode:imode.value,entries:ent};return out;};}"
+        + "function buildActions(root,hidden,items){var cfg=[];try{cfg=JSON.parse(hidden.value||'[]');}catch(e){}var list=node('div','shop-builder-list');(cfg||[]).forEach(function(c){list.appendChild(effectRow(items,c,false));});root.appendChild(list);root.appendChild(button('＋ Add action','shop-builder-button',function(){list.appendChild(effectRow(items,{type:'give_catnip',amount:100,trigger:'both'},false));}));root.readConfig=function(){return Array.from(list.children).filter(function(x){return x.readConfig;}).map(function(x){return x.readConfig();});};}"
+        + "function buildOutcomes(root,hidden,items){var cfg=[];try{cfg=JSON.parse(hidden.value||'[]');}catch(e){}var list=node('div','shop-builder-list');function addOutcome(c){c=c||{trigger:'both',weight:100,actions:[]};var card=node('div','shop-builder-outcome');var trig=select([['bought','When bought'],['used','When used'],['both','When bought or used']],c.trigger||'both');var weight=input('number',c.weight||100,'Weight %');var effects=node('div','shop-builder-list');effectList(effects,items,c.actions||[],true);card.appendChild(field('Trigger',trig));card.appendChild(field('Chance weight (%)',weight));card.appendChild(node('h4','','Outcome effects'));card.appendChild(effects);card.appendChild(button('Remove outcome','shop-builder-remove',function(){card.remove();}));card.readConfig=function(){return {trigger:trig.value,weight:Number(weight.value),actions:Array.from(effects.children).filter(function(x){return x.readConfig;}).map(function(x){return x.readConfig();})};};list.appendChild(card);} (cfg||[]).forEach(addOutcome);root.appendChild(list);root.appendChild(button('＋ Add random outcome','shop-builder-button',function(){addOutcome({trigger:'both',weight:100,actions:[]});}));root.readConfig=function(){return Array.from(list.children).filter(function(x){return x.readConfig;}).map(function(x){return x.readConfig();});};}"
+        + "function initDialog(d){if(d.dataset.shopBuildersReady)return;d.dataset.shopBuildersReady='1';d.querySelectorAll('[data-config-builder]').forEach(function(root){var hidden=d.querySelector('[name="'+root.dataset.configBuilder+'"]');if(!hidden)return;var items=JSON.parse(root.dataset.items||'[]');if(root.classList.contains('shop-requirement-builder'))buildRequirement(root,hidden);else if(root.classList.contains('shop-action-builder'))buildActions(root,hidden,items);else if(root.classList.contains('shop-outcome-builder'))buildOutcomes(root,hidden,items);});var form=d.querySelector('form');if(form)form.addEventListener('submit',function(){d.querySelectorAll('[data-config-builder]').forEach(function(root){var hidden=d.querySelector('[name="'+root.dataset.configBuilder+'"]');if(hidden&&root.readConfig)hidden.value=JSON.stringify(root.readConfig());});});}"
+        + "document.addEventListener('click',function(e){var open=e.target.closest('[data-shop-open]');if(open){var d=document.getElementById(open.getAttribute('data-shop-open'));if(d&&d.showModal){initDialog(d);d.showModal();}}var close=e.target.closest('[data-shop-close]');if(close){var d=close.closest('dialog');if(d)d.close();}});document.addEventListener('click',function(e){if(e.target.matches('dialog.shop-item-dialog'))e.target.close();});})();</script>"
+    )
     item_options = "".join(
         f"<option value='{_esc(k)}'>{_esc(v.get('emoji','🐾'))} {_esc(v.get('name',k))} ({_esc(k)})</option>"
         for k, v in sorted(shop.items()) if isinstance(v, dict)
@@ -377,13 +466,21 @@ def _shop_items(guild, state):
         _esc(entry.get("at","")) + " · " + _esc(entry.get("actor","admin")) + " · " + _esc(entry.get("details","")) +
         "</small></div></div>" for entry in reversed(audit_rows[-30:])
     ) or "<p class='muted'>No Shop & Items changes recorded yet.</p>"
+    restore_form = _form(
+        gid, "shop_catalog_restore", "",
+        "Restore missing built-in items",
+    )
+    restore_card = (
+        "<article class='card full'><h2>Catalogue recovery</h2>"
+        "<p class='muted'>Restore missing built-in items from Cinnamon's bundled catalogue. Existing custom items and edited settings are preserved.</p>"
+        + restore_form + "</article>"
+    )
     return (
         "<h1>Shop & Items Workshop</h1><p class='muted'>Create and manage shop items, crafting recipes, Mystery Box reward pools and their relative weights without editing code.</p>"
         f"<div class='statusline' style='margin-bottom:16px'>{storage}<span class='pill'>{len(shop)} catalogue items</span><span class='pill'>{len(recipes)} active recipes</span></div>"
         "<div class='grid'><article class='card full'><h2>Dedicated change log</h2><p class='muted'>Current destination: " +
         _esc(channel.mention if channel else "Not configured") + "</p>" + channel_form + "</article>"
-        + restore_card + item_card + "<article class='card full'><h2>Existing catalogue items</h2><p class='muted'>Removing an item from the shop hides it from purchases but preserves its inventory, crafting and Mystery Box references.</p></article>"
-        + item_grid + recipe_card + "<article class='card full'><h2>Active crafting recipes</h2></article>" + recipe_grid
+        + restore_card + shop_editor_ui + recipe_card + "<article class='card full'><h2>Active crafting recipes</h2></article>" + recipe_grid
         + "".join(box_cards) + "<article class='card full'><h2>Recent Shop & Items audit history</h2><p class='muted'>Last 30 events shown; up to 500 per server are retained in the Upstash-backed snapshot.</p>" + audit_html + "</article></div>"
     )
 
@@ -3027,26 +3124,146 @@ def dashboard_action():
             try:
                 price = int(request.form.get("price", "0"))
                 limit = int(request.form.get("max_per_person", "0"))
-            except ValueError:
-                raise ValueError("Price and per-member limit must be whole numbers.")
-            if not name or len(name) > 80 or not 1 <= price <= 10000000 or not 0 <= limit <= 999999:
-                raise ValueError("Check the name, price (1–10,000,000) and limit (0–999,999).")
+                sell_raw = request.form.get("sell_price", "").strip()
+                sell_price = int(sell_raw) if sell_raw else None
+                stock_quantity = int(request.form.get("stock_quantity", "0"))
+                use_cooldown_seconds = int(request.form.get("use_cooldown_seconds", "0"))
+                purchase_requirements = json.loads(request.form.get("purchase_requirements", "{}") or "{}")
+                use_requirements = json.loads(request.form.get("use_requirements", "{}") or "{}")
+                item_actions = json.loads(request.form.get("item_actions", "[]") or "[]")
+                random_outcomes = json.loads(request.form.get("random_outcomes", "[]") or "[]")
+            except (ValueError, TypeError):
+                raise ValueError("Check numeric values and make sure the requirements/actions/outcomes fields contain valid JSON.")
+            if (not name or len(name) > 80 or not 1 <= price <= 10000000
+                    or not 0 <= limit <= 999999
+                    or (sell_price is not None and not 0 <= sell_price <= 10000000)
+                    or not 0 <= stock_quantity <= 100000000
+                    or not 0 <= use_cooldown_seconds <= 31536000):
+                raise ValueError("Check the name, prices, per-member limit, stock (0–100,000,000) and cooldown (0–31,536,000 seconds).")
+            if not isinstance(purchase_requirements, dict) or not isinstance(use_requirements, dict):
+                raise ValueError("Purchase and use requirements must each be a JSON object.")
+            if not isinstance(item_actions, list) or not isinstance(random_outcomes, list):
+                raise ValueError("Actions and random outcomes must each be JSON arrays.")
+            allowed_triggers = {"bought", "used", "both", "bought_or_used"}
+            allowed_action_types = {"give_catnip", "give_item", "send_message", "reply"}
+            for requirement in (purchase_requirements, use_requirements):
+                try:
+                    balance_min = int(requirement.get("balance_min", 0) or 0)
+                except (TypeError, ValueError):
+                    raise ValueError("Requirement balance_min must be a whole Catnip amount.")
+                if not 0 <= balance_min <= 1000000000:
+                    raise ValueError("Requirement balance_min must be between 0 and 1,000,000,000.")
+                roles_cfg = requirement.get("roles", {})
+                if roles_cfg:
+                    if not isinstance(roles_cfg, dict) or roles_cfg.get("mode", "all") not in {"all", "any", "none"}:
+                        raise ValueError("Role requirements need mode all, any or none.")
+                    role_ids = roles_cfg.get("ids", [])
+                    if not isinstance(role_ids, list) or len(role_ids) > 20:
+                        raise ValueError("Role requirements support up to 20 role IDs.")
+                    for role_id in role_ids:
+                        role = guild.get_role(int(role_id)) if str(role_id).isdigit() else None
+                        if not role or role.is_default() or role.managed:
+                            raise ValueError("A requirement role is invalid or no longer belongs to this server.")
+                items_cfg = requirement.get("items", {})
+                if items_cfg:
+                    if not isinstance(items_cfg, dict) or items_cfg.get("mode", "all") not in {"all", "any", "none"}:
+                        raise ValueError("Item requirements need mode all, any or none.")
+                    entries = items_cfg.get("entries", {})
+                    if not isinstance(entries, dict) or len(entries) > 20:
+                        raise ValueError("Item requirements support up to 20 item entries.")
+                    for required_id, required_qty in entries.items():
+                        try:
+                            required_qty = int(required_qty)
+                        except (TypeError, ValueError):
+                            raise ValueError("Required item quantities must be whole numbers.")
+                        if required_id not in items or not 1 <= required_qty <= 999:
+                            raise ValueError(f"Requirement item {required_id} must exist and use quantity 1–999.")
+            def validate_action(action_config, require_trigger=True):
+                if (not isinstance(action_config, dict)
+                        or (require_trigger and str(action_config.get("trigger", "both")).lower() not in allowed_triggers)
+                        or str(action_config.get("type", "")).lower() not in allowed_action_types):
+                    raise ValueError("Each action needs a supported type and trigger (bought, used or both).")
+                kind = str(action_config.get("type", "")).lower()
+                if kind == "give_catnip":
+                    try: amount = int(action_config.get("amount", 0))
+                    except (TypeError, ValueError): raise ValueError("Give Catnip actions need a whole-number amount.")
+                    if not 1 <= amount <= 10000000: raise ValueError("Give Catnip amount must be 1–10,000,000.")
+                elif kind == "give_item":
+                    reward_id = str(action_config.get("item_id", ""))
+                    try: amount = int(action_config.get("amount", 1))
+                    except (TypeError, ValueError): raise ValueError("Give item actions need a whole-number amount.")
+                    if reward_id not in items or not 1 <= amount <= 999:
+                        raise ValueError("Give item actions need an existing item and quantity 1–999.")
+                elif kind in {"send_message", "reply"}:
+                    message = str(action_config.get("message", "")).strip()
+                    if not message or len(message) > 1800:
+                        raise ValueError("Message actions need text between 1 and 1,800 characters.")
+            for action_config in item_actions:
+                validate_action(action_config)
+            trigger_totals = {"bought": 0.0, "used": 0.0}
+            for outcome in random_outcomes:
+                if (not isinstance(outcome, dict)
+                        or str(outcome.get("trigger", "both")).lower() not in allowed_triggers
+                        or not isinstance(outcome.get("actions", []), list)):
+                    raise ValueError("Each random outcome needs a supported trigger and an actions array.")
+                try:
+                    weight = float(outcome.get("weight", 0))
+                except (TypeError, ValueError):
+                    raise ValueError("Random outcome weights must be numeric.")
+                if not 0 < weight <= 100:
+                    raise ValueError("Each random outcome weight must be above 0 and at most 100.")
+                trigger = str(outcome.get("trigger", "both")).lower()
+                if trigger in {"bought", "both", "bought_or_used"}:
+                    trigger_totals["bought"] += weight
+                if trigger in {"used", "both", "bought_or_used"}:
+                    trigger_totals["used"] += weight
+                for action_config in outcome.get("actions", []):
+                    validate_action(action_config, require_trigger=False)
+            for trigger, total in trigger_totals.items():
+                if total and abs(total - 100.0) > 0.001:
+                    raise ValueError(f"Random outcome weights for {trigger} must total 100%.")
+            expires_at = request.form.get("expires_at", "").strip()
+            if expires_at:
+                try:
+                    parsed_expiry = dt.datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                    if parsed_expiry.tzinfo is None:
+                        parsed_expiry = parsed_expiry.replace(tzinfo=dt.timezone.utc)
+                    expires_at = parsed_expiry.astimezone(dt.timezone.utc).isoformat()
+                except ValueError:
+                    raise ValueError("Expiry must be a valid ISO date/time, for example 2026-12-31T23:59:00+00:00.")
             before = copy.deepcopy(items)
             updated = dict(items.get(item_id, {}))
             updated.update({
                 "name": name, "price": price,
+                "category": request.form.get("category", "General").strip()[:40] or "General",
+                "sell_price": sell_price,
+                "sellable": "sellable" in request.form,
                 "emoji": request.form.get("emoji", "🐾")[:8] or "🐾",
                 "description": request.form.get("description", "")[:300],
                 "max_per_person": limit,
                 "shop_enabled": "shop_enabled" in request.form,
                 "craftable": "craftable" in request.form,
+                "stock_unlimited": "stock_unlimited" in request.form,
+                "stock_quantity": stock_quantity,
+                "expires_at": expires_at,
+                "usable": "usable" in request.form,
+                "reusable": "reusable" in request.form,
+                "use_cooldown_seconds": use_cooldown_seconds,
+                "purchase_requirements": purchase_requirements,
+                "use_requirements": use_requirements,
+                "actions": item_actions,
+                "random_outcomes": random_outcomes,
             })
             items[item_id] = updated
             def rollback_shop_item():
                 items.clear(); items.update(before)
             _shop_workshop_commit(state, gid, actor, int(_tokens[sid]["user"]["id"]),
                 "Item created" if action == "shop_item_add" else "Item edited",
-                f"{item_id}: {name}; price={price} Catnip; shop_enabled={updated['shop_enabled']}; craftable={updated['craftable']}.",
+                f"{item_id}: {name}; price={price} Catnip; shop_enabled={updated['shop_enabled']}; craftable={updated['craftable']}; "
+                f"stock={'unlimited' if updated['stock_unlimited'] else updated['stock_quantity']}; expires_at={updated['expires_at'] or 'never'}; "
+                f"usable={updated['usable']}; reusable={updated['reusable']}; use_cooldown_seconds={updated['use_cooldown_seconds']}; "
+                f"purchase_requirements={len(updated['purchase_requirements'])} sections; use_requirements={len(updated['use_requirements'])} sections; "
+                f"actions={len(updated['actions'])}; random_outcomes={len(updated['random_outcomes'])}.",
                 rollback_shop_item)
             session["dashboard_notice"] = "Shop item saved."
         elif action == "shop_item_disable":
