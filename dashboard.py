@@ -1528,6 +1528,7 @@ def _tickets(guild,state):
     gid=guild.id
     root=(state.get("advanced_features_data",{}) or {}).get("cinnamon_tickets_v1",{}) or {}
     cfg=root.get(str(gid),{}) or {}
+    root[str(gid)]=cfg
     settings=cfg.get("settings",{}) or {}
     panels=cfg.get("panels",{}) or {}
     if not panels:
