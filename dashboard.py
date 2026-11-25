@@ -344,9 +344,15 @@ def _shop_items(guild, state):
         distribution_form = _form(gid, "shop_box_distribution", "".join(distribution_fields),
                                   "Save outcome weights")
         pool_forms = []
-        for kind, label, base_ids in (("items", "Items", cfg.get("items", [])), ("materials", "Materials", cfg.get("materials", []))):
-            active = [str(x) for x in base_ids if str(x) not in (disabled_items if kind=="items" else disabled_materials)]
-            active += [str(x) for x in custom.get(kind, []) if str(x) not in (disabled_items if kind=="items" else disabled_materials)]
+        pool_definitions = [("items", "Items", cfg.get("items", [])),
+                            ("materials", "Materials", cfg.get("materials", []))]
+        if tier == "common":
+            pool_definitions.append(("rare_items", "Rare items", state.get("BOX_RARE_ITEM_POOL", [])))
+        for kind, label, base_ids in pool_definitions:
+            disabled_key = f"disabled_{kind}"
+            disabled_pool = set(str(x) for x in custom.get(disabled_key, []))
+            active = [str(x) for x in base_ids if str(x) not in disabled_pool]
+            active += [str(x) for x in custom.get(kind, []) if str(x) not in disabled_pool]
             active = list(dict.fromkeys(x for x in active if x in shop))
             rows = []
             for item_id in active:
@@ -3148,7 +3154,8 @@ def dashboard_action():
             item_id = request.form.get("item_id", "").strip().lower()
             tiers = state.get("BOX_TIERS", {})
             items = state.get("ECONOMY_ITEMS", {})
-            if tier not in tiers or pool_kind not in {"items", "materials"} or item_id not in items:
+            if (tier not in tiers or pool_kind not in {"items", "materials", "rare_items"}
+                    or (pool_kind == "rare_items" and tier != "common") or item_id not in items):
                 raise ValueError("Choose a valid Mystery Box tier, reward pool and existing catalogue item.")
             advanced = state["advanced_features_data"]
             box_root = advanced.setdefault("custom_box_rewards", {})
@@ -3157,7 +3164,8 @@ def dashboard_action():
             cfg = box_root.setdefault(key, {"items": [], "materials": [], "weights": {}, "disabled_items": [], "disabled_materials": []})
             cfg.setdefault("items", []); cfg.setdefault("materials", []); cfg.setdefault("weights", {})
             cfg.setdefault("disabled_items", []); cfg.setdefault("disabled_materials", [])
-            base_ids = [str(x) for x in tiers[tier].get(pool_kind, [])]
+            base_source = state.get("BOX_RARE_ITEM_POOL", []) if pool_kind == "rare_items" else tiers[tier].get(pool_kind, [])
+            base_ids = [str(x) for x in base_source]
             custom_ids = cfg[pool_kind]
             disabled_key = f"disabled_{pool_kind}"
             if action == "shop_box_reward_add":
