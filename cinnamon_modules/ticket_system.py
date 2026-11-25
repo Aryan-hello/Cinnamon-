@@ -237,9 +237,11 @@ class TicketControls(discord.ui.View):
                 return await interaction.response.send_message("Only a configured Moderator can claim this shop ticket.", ephemeral=True)
             if not (is_staff or moderator or (gag and trusted)):
                 return await interaction.response.send_message("Only authorized ticket staff can claim tickets.", ephemeral=True)
+            if action == "claim" and ticket.get("claimed_by") == interaction.user.id:
+                return await interaction.response.send_message("You have already claimed this ticket.", ephemeral=True)
             if action == "claim" and ticket.get("claimed_by") not in (None, interaction.user.id):
                 return await interaction.response.send_message("Already claimed by another staff member.", ephemeral=True)
-            if action == "unclaim" and gag and ticket.get("service_consumed"):
+            if action == "unclaim" and str(ticket.get("routing","")).lower() in {"shop","grow_a_garden"} and ticket.get("service_consumed"):
                 return await interaction.response.send_message(
                     "A Grow a Garden service cannot be unclaimed after its voucher has been consumed. Complete the service or ask an administrator to review it.",
                     ephemeral=True)
@@ -400,6 +402,9 @@ async def _ticket_create_channel(interaction,panel,category,answers,selected_ite
     elif route=="shop":
         staff=set(map(int,settings.get("moderator_role_ids",[]))) | set(map(int,_role_setup(guild.id).get("moderator",[])))
         staff.update(map(int,category.get("staff_role_ids",[])))
+    elif route=="support":
+        staff.update(map(int,settings.get("moderator_role_ids",[])))
+        staff.update(map(int,_role_setup(guild.id).get("moderator",[])))
     overwrites={guild.default_role:discord.PermissionOverwrite(view_channel=False),member:discord.PermissionOverwrite(view_channel=True,send_messages=True,read_message_history=True,attach_files=True,embed_links=True)}
     for rid in staff:
         role=guild.get_role(rid)
@@ -422,7 +427,7 @@ async def _ticket_create_channel(interaction,panel,category,answers,selected_ite
         await channel.send(content=(member.mention+" "+pings).strip(),embed=e,view=TicketControls(tid),allowed_mentions=discord.AllowedMentions(users=[member],roles=[guild.get_role(x) for x in staff if guild.get_role(x)]))
     custom_label=str(category.get("persistent_button_label","")).strip()
     custom_reply=str(category.get("persistent_button_reply","")).strip()
-    if custom_label and custom_reply and route!="support":
+    if custom_label and custom_reply:
         await channel.send("Ticket actions:",view=TicketPersistentButtonView(tid,custom_label,custom_reply))
     saved=await bd_save_data()
     if not saved:
@@ -453,9 +458,20 @@ async def cinnamon_ticket_restore_views():
 
 def _ticket_staff(interaction):
     member=interaction.user
-    return bool(member.guild_permissions.administrator or cinnamon_role_has(member,"ticket_staff") or cinnamon_role_has(member,"ticket_admin") or any(r.id in set(map(int,_ticket_guild(interaction.guild.id).get("settings",{}).get("staff_role_ids",[]))) for r in member.roles))
+    settings=_ticket_guild(interaction.guild.id).get("settings",{})
+    allowed=set(map(int,settings.get("staff_role_ids",[]))) | set(map(int,settings.get("moderator_role_ids",[])))
+    return bool(member.guild_permissions.administrator or cinnamon_role_has(member,"ticket_staff") or cinnamon_role_has(member,"ticket_admin") or cinnamon_role_has(member,"moderator") or any(r.id in allowed for r in member.roles))
 
 ticket_group=app_commands.Group(name="ticket",description="Manage Cinnamon support tickets")
+
+@ticket_group.command(name="close",description="Close the current support ticket")
+@app_commands.guild_only()
+async def ticket_close(interaction:discord.Interaction):
+    if not _ticket_staff(interaction): return await interaction.response.send_message("Configured moderators and ticket staff only.",ephemeral=True)
+    ticket=_ticket_guild(interaction.guild.id).get("tickets",{}).get(str(interaction.channel.id))
+    if not ticket: return await interaction.response.send_message("Use this inside a ticket channel.",ephemeral=True)
+    await interaction.response.send_modal(TicketCloseModal(ticket.get("ticket_id"),interaction.user.id))
+
 
 @ticket_group.command(name="assign",description="Assign the current ticket to a staff member")
 @app_commands.guild_only()
