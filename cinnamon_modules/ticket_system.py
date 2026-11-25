@@ -237,7 +237,10 @@ class TicketControls(discord.ui.View):
         ticket=next((t for g in _ticket_root().values() for t in (g.get("tickets",{}) or {}).values() if str(t.get("ticket_id"))==self.ticket_id),None)
         if not ticket: return await interaction.response.send_message("Ticket record not found.",ephemeral=True)
         guild=interaction.guild; cfg=_ticket_guild(guild.id); staff=set(map(int,cfg.get("settings",{}).get("staff_role_ids",[])))
-        is_staff=interaction.user.guild_permissions.administrator or any(r.id in staff for r in interaction.user.roles) or cinnamon_role_has(interaction.user,"ticket_staff") or cinnamon_role_has(interaction.user,"ticket_admin")
+        role_settings=cfg.get("settings",{})
+        moderator_ids=set(map(int,role_settings.get("moderator_role_ids",[])))
+        trusted_ids=set(map(int,role_settings.get("trusted_booster_role_ids",[])))
+        is_staff=interaction.user.guild_permissions.administrator or any(r.id in staff | moderator_ids | trusted_ids for r in interaction.user.roles) or cinnamon_role_has(interaction.user,"ticket_staff") or cinnamon_role_has(interaction.user,"ticket_admin") or cinnamon_role_has(interaction.user,"moderator") or cinnamon_role_has(interaction.user,"trusted_booster")
         if action in ("claim", "unclaim"):
             if ticket.get("status")!="open":
                 return await interaction.response.send_message("Only open tickets can be claimed or unclaimed.",ephemeral=True)
@@ -494,8 +497,8 @@ async def cinnamon_ticket_restore_views():
 def _ticket_staff(interaction):
     member=interaction.user
     settings=_ticket_guild(interaction.guild.id).get("settings",{})
-    allowed=set(map(int,settings.get("staff_role_ids",[]))) | set(map(int,settings.get("moderator_role_ids",[])))
-    return bool(member.guild_permissions.administrator or cinnamon_role_has(member,"ticket_staff") or cinnamon_role_has(member,"ticket_admin") or cinnamon_role_has(member,"moderator") or any(r.id in allowed for r in member.roles))
+    allowed=set(map(int,settings.get("staff_role_ids",[]))) | set(map(int,settings.get("moderator_role_ids",[]))) | set(map(int,settings.get("trusted_booster_role_ids",[])))
+    return bool(member.guild_permissions.administrator or cinnamon_role_has(member,"ticket_staff") or cinnamon_role_has(member,"ticket_admin") or cinnamon_role_has(member,"moderator") or cinnamon_role_has(member,"trusted_booster") or any(r.id in allowed for r in member.roles))
 
 ticket_group=app_commands.Group(name="ticket",description="Manage Cinnamon support tickets")
 
