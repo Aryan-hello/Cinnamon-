@@ -1531,12 +1531,13 @@ def _tickets(guild,state):
     root[str(gid)]=cfg
     settings=cfg.get("settings",{}) or {}
     panels=cfg.get("panels",{}) or {}
-    if not panels:
-        panels={
-            "default-shop":{"id":"default-shop","name":"Shop Ticket","title":"Shop Tickets","description":"Select the shop item you purchased to open a private service ticket.","color":"#D99048","published":False,"categories":[{"id":"shop","label":"Shop Ticket","button_label":"Shop Ticket","emoji":"🛍️","routing":"shop","welcome_message":"Thanks for opening a shop ticket. A staff member will claim it shortly.","questions":[{"label":"What do you need help with?","required":True,"paragraph":True,"max_length":400}],"inventory_item_ids":[]}]},
-            "default-support":{"id":"default-support","name":"Support Ticket","title":"Support Center","description":"Open a private ticket for general help.","color":"#D99048","published":False,"categories":[{"id":"support","label":"Support Ticket","button_label":"Support Ticket","emoji":"🎫","routing":"support","welcome_message":"Please wait, a moderator will be with you soon.","questions":[{"label":"Why did you open this ticket?","required":True,"paragraph":True,"max_length":800}]}]}
-        }
-        cfg["panels"]=panels
+    default_panels={
+        "default-shop":{"id":"default-shop","name":"Shop Ticket","title":"Shop Tickets","description":"Select the shop item you purchased to open a private service ticket.","color":"#D99048","published":False,"categories":[{"id":"shop","label":"Shop Ticket","button_label":"Shop Ticket","emoji":"🛍️","routing":"shop","welcome_message":"Thanks for opening a shop ticket. A staff member will claim it shortly.","questions":[{"label":"What do you need help with?","required":True,"paragraph":True,"max_length":400}],"inventory_item_ids":[]}]},
+        "default-support":{"id":"default-support","name":"Support Ticket","title":"Support Center","description":"Open a private ticket for general help.","color":"#D99048","published":False,"categories":[{"id":"support","label":"Support Ticket","button_label":"Support Ticket","emoji":"🎫","routing":"support","welcome_message":"Please wait, a moderator will be with you soon.","questions":[{"label":"Why did you open this ticket?","required":True,"paragraph":True,"max_length":800}]}]}
+    }
+    for default_id,default_panel in default_panels.items():
+        panels.setdefault(default_id,default_panel)
+    cfg["panels"]=panels
     tickets=cfg.get("tickets",{}) or {}
     open_count=sum(1 for t in tickets.values() if t.get("status")=="open")
     closed_count=len(cfg.get("closed",{}) or {})
