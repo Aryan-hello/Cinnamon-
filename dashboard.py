@@ -374,6 +374,15 @@ def _shop_items(guild, state):
         f"<option value='{_esc(k)}'>{_esc(v.get('emoji','🐾'))} {_esc(v.get('name',k))}</option>"
         for k, v in sorted(shop.items()) if isinstance(v, dict)
     )
+    def ingredient_picker(selected=None):
+        selected={str(k):max(1,int(v)) for k,v in (selected or {}).items() if str(k) in shop}
+        rows=[]
+        for item_id,item in sorted(shop.items(),key=lambda pair:str((pair[1] or {}).get("name",pair[0])).casefold()):
+            if not isinstance(item,dict): continue
+            rid=str(item_id); checked=" checked" if rid in selected else ""
+            quantity=selected.get(rid,1)
+            rows.append(f"<label class='choice-option' data-choice-label='{_esc(str(item.get('name',rid)).lower())}'><input type='checkbox' name='ingredient_item_ids' value='{_esc(rid)}'{checked}><span>{_esc(str(item.get('emoji','🐾'))+' '+str(item.get('name',rid)))}</span><input aria-label='Quantity for {_esc(str(item.get('name',rid)))}' type='number' name='ingredient_quantity_{_esc(rid)}' min='1' max='999' value='{quantity}' style='width:84px;margin-left:auto'></label>")
+        return "<div class='choice-picker' data-choice-picker><div class='choice-toolbar'><input class='choice-search' type='search' placeholder='Search catalogue items…' aria-label='Search recipe ingredients' autocomplete='off'><span class='choice-count' aria-live='polite'></span></div><div class='choice-options'>"+("".join(rows) or "<p class='muted'>No catalogue items available.</p>")+"</div><small class='choice-help'>Select ingredients by their names and set the quantity for each.</small></div>"
     recipe_rows = []
     recipe_dialogs = []
     for recipe_id, recipe in sorted(recipes.items()):
@@ -389,7 +398,7 @@ def _shop_items(guild, state):
             f"<div class='field'><label>Recipe name</label><input name='name' maxlength='80' value='{_esc(recipe.get('name',recipe_id))}' required></div>"
             f"<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(recipe.get('emoji','🧪'))}'></div>"
             f"<div class='field'><label>Output item</label><select name='output' required>{output_options}</select></div>"
-            f"<div class='field' style='grid-column:1/-1'><label>Ingredients (one item name:quantity per line)</label><textarea name='ingredients' rows='4' required>{_esc(ingredients_text)}</textarea></div>"
+            f"<div class='field' style='grid-column:1/-1'><label>Ingredients</label>{ingredient_picker(recipe.get('ingredients',{}))}</div>"
             f"<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(recipe.get('description',''))}'></div>"
         )
         recipe_dialog_id="shop-recipe-edit-"+str(recipe_id)
@@ -402,7 +411,7 @@ def _shop_items(guild, state):
         "<div class='field'><label>Recipe name</label><input name='name' maxlength='80' required></div>"
         "<div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='🧪'></div>"
         f"<div class='field'><label>Output item</label><select name='output' required>{item_options}</select></div>"
-        "<div class='field' style='grid-column:1/-1'><label>Ingredients (one item name:quantity per line)</label><textarea name='ingredients' rows='5' placeholder='tuna:2&#10;treat:1' required></textarea></div>"
+        "<div class='field' style='grid-column:1/-1'><label>Ingredients</label>"+ingredient_picker()+"</div>"
         "<div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300'></div></div>"
     )
     recipe_card = "<article class='card full'><h2>Create or edit a crafting recipe</h2><p class='muted'>Every ingredient must already exist in the item catalogue. Recipe output items are automatically marked craftable.</p>" + _form(gid, "shop_recipe_save", recipe_add, "Save recipe") + "</article>"
@@ -3346,26 +3355,31 @@ def dashboard_action():
             if not name or len(name) > 80 or output not in items:
                 raise ValueError("Choose a valid recipe name and output item.")
             ingredients = {}
-            for line in request.form.get("ingredients", "").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split(":", 1)
-                if len(parts) != 2:
-                    raise ValueError("Ingredients must use one item_id:quantity per line.")
-                ingredient_ref=parts[0].strip().lower()
-                try:
-                    quantity=int(parts[1].strip())
-                except ValueError:
-                    raise ValueError(f"Invalid quantity for ingredient {ingredient_ref}.")
-                ingredient_id=ingredient_ref if ingredient_ref in items else ""
-                if not ingredient_id:
-                    matches=[str(k) for k,v in items.items() if isinstance(v,dict) and str(v.get("name","")).strip().casefold()==ingredient_ref.casefold()]
-                    if len(matches)==1: ingredient_id=matches[0]
-                    elif len(matches)>1: raise ValueError(f"More than one item is named {parts[0].strip()}; use its internal item key to disambiguate.")
-                if not ingredient_id or ingredient_id==output or not 1<=quantity<=999:
-                    raise ValueError(f"Ingredient {parts[0].strip()} must match an existing item, differ from the output and use quantity 1–999.")
-                ingredients[ingredient_id] = quantity
+            selected_ingredient_ids=request.form.getlist("ingredient_item_ids")
+            if selected_ingredient_ids:
+                for ingredient_id in dict.fromkeys(selected_ingredient_ids):
+                    if ingredient_id not in items or not isinstance(items.get(ingredient_id),dict):
+                        raise ValueError("One of the selected recipe ingredients no longer exists.")
+                    try: quantity=int(request.form.get("ingredient_quantity_"+ingredient_id,"1") or 1)
+                    except ValueError: raise ValueError(f"Invalid quantity for {items[ingredient_id].get('name',ingredient_id)}.")
+                    if ingredient_id==output or not 1<=quantity<=999: raise ValueError("Choose ingredients different from the output and use quantities 1–999.")
+                    ingredients[ingredient_id]=quantity
+            else:
+                # Backward compatibility for older clients posting name:quantity lines.
+                for line in request.form.get("ingredients", "").splitlines():
+                    line=line.strip()
+                    if not line: continue
+                    parts=line.split(":",1)
+                    if len(parts)!=2: raise ValueError("Choose ingredients from the item list.")
+                    ingredient_ref=parts[0].strip().lower()
+                    try: quantity=int(parts[1].strip())
+                    except ValueError: raise ValueError(f"Invalid quantity for ingredient {ingredient_ref}.")
+                    ingredient_id=ingredient_ref if ingredient_ref in items else ""
+                    if not ingredient_id:
+                        matches=[str(k) for k,v in items.items() if isinstance(v,dict) and str(v.get("name","")).strip().casefold()==ingredient_ref.casefold()]
+                        if len(matches)==1: ingredient_id=matches[0]
+                    if not ingredient_id or ingredient_id==output or not 1<=quantity<=999: raise ValueError(f"Choose a valid ingredient and quantity for {parts[0].strip()}.")
+                    ingredients[ingredient_id]=quantity
             if not ingredients or len(ingredients) > 20:
                 raise ValueError("A recipe needs 1–20 unique ingredients.")
             recipe = {"name": name, "emoji": emoji, "output": output, "ingredients": ingredients, "description": description}
