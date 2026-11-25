@@ -1577,7 +1577,10 @@ def _tickets(guild,state):
             claim_form = "<span class='muted'>Claim in Discord to apply the inventory transaction</span>"
         else:
             claim_form = "<form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_claim'><input type='hidden' name='channel_id' value='" + channel_id + "'><button class='btn secondary small'>Claim as me</button></form>"
-        unclaim_form = "<form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_unclaim'><input type='hidden' name='channel_id' value='" + channel_id + "'><button class='btn secondary small'>Unclaim</button></form>"
+        if str(t.get("routing","")).lower() in {"shop","grow_a_garden","gag","boosting"} and t.get("service_consumed"):
+            unclaim_form = "<span class='muted'>Item consumed; cannot unclaim</span>"
+        else:
+            unclaim_form = "<form method='post' action='/dashboard/action'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_unclaim'><input type='hidden' name='channel_id' value='" + channel_id + "'><button class='btn secondary small'>Unclaim</button></form>"
         close_form = "<form method='post' action='/dashboard/action' data-confirm='Close this ticket?'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_close'><input type='hidden' name='channel_id' value='" + channel_id + "'><button class='btn danger small'>Close</button></form>"
         assign_form = "<form method='post' action='/dashboard/action' class='actions'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_assign'><input type='hidden' name='channel_id' value='" + channel_id + "'><select name='member_id' aria-label='Assign ticket to member'><option value=''>Assign to member…</option>" + member_options + "</select><button class='btn secondary small'>Assign</button></form>"
         priority_form = "<form method='post' action='/dashboard/action' class='actions'>" + _csrf_input() + "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='ticket_dashboard_priority'><input type='hidden' name='channel_id' value='" + channel_id + "'><select name='priority' aria-label='Ticket priority'>" + "".join("<option value='" + p + "'" + (" selected" if str(t.get("priority", "normal")) == p else "") + ">" + p.title() + "</option>" for p in ("low", "normal", "high", "urgent")) + "</select><button class='btn secondary small'>Set priority</button></form>"
@@ -3509,6 +3512,8 @@ def dashboard_action():
                 if ticket.get("claimed_by") not in (None,actor_id): raise ValueError("This ticket is already claimed by another staff member.")
                 ticket["claimed_by"]=actor_id
             else:
+                if str(ticket.get("routing","")).lower() in {"shop","grow_a_garden","gag","boosting"} and ticket.get("service_consumed"):
+                    raise ValueError("An inventory-backed ticket cannot be unclaimed after its item has been consumed.")
                 ticket["claimed_by"]=None
             async def save_ticket_assignment():
                 if not await state["bd_save_data"]():
