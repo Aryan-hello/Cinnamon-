@@ -247,6 +247,17 @@ def _shop_items(guild, state):
         "Save log channel")
     item_rows = []
     item_dialogs = []
+    shop_builder_items = [
+        {"id": str(item_id), "name": str(item.get("name", item_id)), "emoji": str(item.get("emoji", "🐾"))}
+        for item_id, item in shop.items() if isinstance(item, dict)
+    ]
+    shop_builder_roles = [
+        {"id": str(role.id), "name": str(role.name)}
+        for role in getattr(guild, "roles", [])
+        if not role.is_default() and not role.managed
+    ]
+    shop_builder_items_json = _esc(json.dumps(shop_builder_items, ensure_ascii=False))
+    shop_builder_roles_json = _esc(json.dumps(shop_builder_roles, ensure_ascii=False))
     for item_id, item in sorted(shop.items(), key=lambda pair: str((pair[1] if isinstance(pair[1], dict) else {}).get("name", pair[0])).casefold()):
         item = item if isinstance(item, dict) else {}
         sell_value = item.get("sell_price")
@@ -271,12 +282,18 @@ def _shop_items(guild, state):
             f"<label class='toggle'><input type='checkbox' name='usable'{' checked' if item.get('usable', False) else ''}><span><b>Usable item</b><small>Members can use it with /economy use.</small></span></label>"
             f"<label class='toggle'><input type='checkbox' name='reusable'{' checked' if item.get('reusable', False) else ''}><span><b>Reusable</b><small>Using it does not consume one unit.</small></span></label>"
             f"<div class='field'><label>Use cooldown (seconds)</label><input name='use_cooldown_seconds' type='number' min='0' max='31536000' value='{max(0,int(item.get('use_cooldown_seconds',0)))}'></div></div>"
-            f"<div class='shop-editor-section'><h3>Requirements</h3><p class='muted'>Purchase and use requirements are separate. JSON format: roles={{mode: all|any|none, ids: [role IDs]}}, items={{mode: all|any|none, entries: {{item_id: quantity}}}}, balance_min=Catnip.</p>"
-            f"<div class='field'><label>Purchase requirements (JSON)</label><textarea name='purchase_requirements' rows='5'>{_esc(json.dumps(item.get('purchase_requirements',{}),ensure_ascii=False,indent=2))}</textarea></div>"
-            f"<div class='field'><label>Use requirements (JSON)</label><textarea name='use_requirements' rows='5'>{_esc(json.dumps(item.get('use_requirements',{}),ensure_ascii=False,indent=2))}</textarea></div></div>"
-            f"<div class='shop-editor-section'><h3>Actions & random outcomes</h3><p class='muted'>Action types: give_catnip, give_item, send_message, reply. Triggers: bought, used, both. Give Catnip example: {{\"type\":\"give_catnip\",\"amount\":3000,\"trigger\":\"used\"}}.</p>"
-            f"<div class='field'><label>Actions (JSON array)</label><textarea name='item_actions' rows='7'>{_esc(json.dumps(item.get('actions',[]),ensure_ascii=False,indent=2))}</textarea></div>"
-            f"<div class='field'><label>Random outcomes (JSON array; weights total 100 per trigger)</label><textarea name='random_outcomes' rows='9'>{_esc(json.dumps(item.get('random_outcomes',[]),ensure_ascii=False,indent=2))}</textarea></div></div>"
+            f"<div class='shop-editor-section'><h3>Purchase requirements</h3><p class='muted'>Set who can buy this item. These rules are separate from use requirements.</p>"
+            f"<textarea hidden name='purchase_requirements'>{_esc(json.dumps(item.get('purchase_requirements',{}),ensure_ascii=False))}</textarea>"
+            f"<div class='shop-requirement-builder' data-config-builder='purchase_requirements' data-items='{shop_builder_items_json}' data-roles='{shop_builder_roles_json}'></div></div>"
+            f"<div class='shop-editor-section'><h3>Use requirements</h3><p class='muted'>Set who can use this item. These rules are checked separately.</p>"
+            f"<textarea hidden name='use_requirements'>{_esc(json.dumps(item.get('use_requirements',{}),ensure_ascii=False))}</textarea>"
+            f"<div class='shop-requirement-builder' data-config-builder='use_requirements' data-items='{shop_builder_items_json}' data-roles='{shop_builder_roles_json}'></div></div>"
+            f"<div class='shop-editor-section'><h3>Actions</h3><p class='muted'>Choose when each effect runs: after purchase, after use, or either event.</p>"
+            f"<textarea hidden name='item_actions'>{_esc(json.dumps(item.get('actions',[]),ensure_ascii=False))}</textarea>"
+            f"<div class='shop-action-builder' data-config-builder='item_actions' data-items='{shop_builder_items_json}'></div></div>"
+            f"<div class='shop-editor-section'><h3>Random outcomes</h3><p class='muted'>Add as many outcomes as you need. Configure separate outcome chances for buying and using; weights for each trigger must total 100%.</p>"
+            f"<textarea hidden name='random_outcomes'>{_esc(json.dumps(item.get('random_outcomes',[]),ensure_ascii=False))}</textarea>"
+            f"<div class='shop-outcome-builder' data-config-builder='random_outcomes' data-items='{shop_builder_items_json}'></div></div>"
         )
         editor = _form(gid, "shop_item_save", fields, "Save changes")
         remove_form = _form(gid, "shop_item_disable", f"<input type='hidden' name='item_id' value='{_esc(item_id)}'>", "Remove from shop", danger=True)
@@ -310,12 +327,10 @@ def _shop_items(guild, state):
         "<label class='toggle'><input type='checkbox' name='usable'><span><b>Usable item</b><small>Members can use it with /economy use.</small></span></label>"
         "<label class='toggle'><input type='checkbox' name='reusable'><span><b>Reusable</b><small>Using it does not consume one unit.</small></span></label>"
         "<div class='field'><label>Use cooldown (seconds)</label><input name='use_cooldown_seconds' type='number' min='0' max='31536000' value='0'></div></div>"
-        "<div class='shop-editor-section'><h3>Requirements</h3><p class='muted'>Use JSON objects. roles: mode all/any/none and ids; items: mode all/any/none and entries; balance_min: Catnip.</p>"
-        "<div class='field'><label>Purchase requirements (JSON)</label><textarea name='purchase_requirements' rows='5'>{}</textarea></div>"
-        "<div class='field'><label>Use requirements (JSON)</label><textarea name='use_requirements' rows='5'>{}</textarea></div></div>"
-        "<div class='shop-editor-section'><h3>Actions & random outcomes</h3><p class='muted'>Action types: give_catnip, give_item, send_message, reply. Triggers: bought, used, both. Example: {{\"type\":\"give_catnip\",\"amount\":3000,\"trigger\":\"used\"}}.</p>"
-        "<div class='field'><label>Actions (JSON array)</label><textarea name='item_actions' rows='7'>[]</textarea></div>"
-        "<div class='field'><label>Random outcomes (JSON array; weights total 100 per trigger)</label><textarea name='random_outcomes' rows='9'>[]</textarea></div></div>"
+        "<div class='shop-editor-section'><h3>Purchase requirements</h3><p class='muted'>Set who can buy this item.</p><textarea hidden name='purchase_requirements'>{}</textarea><div class='shop-requirement-builder' data-config-builder='purchase_requirements' data-items='" + shop_builder_items_json + "' data-roles='" + shop_builder_roles_json + "'></div></div>"
+        "<div class='shop-editor-section'><h3>Use requirements</h3><p class='muted'>Set who can use this item.</p><textarea hidden name='use_requirements'>{}</textarea><div class='shop-requirement-builder' data-config-builder='use_requirements' data-items='" + shop_builder_items_json + "' data-roles='" + shop_builder_roles_json + "'></div></div>"
+        "<div class='shop-editor-section'><h3>Actions</h3><p class='muted'>Choose whether each effect runs when bought, used or both.</p><textarea hidden name='item_actions'>[]</textarea><div class='shop-action-builder' data-config-builder='item_actions' data-items='" + shop_builder_items_json + "'></div></div>"
+        "<div class='shop-editor-section'><h3>Random outcomes</h3><p class='muted'>Add as many outcomes as you need. Weights for each trigger must total 100%.</p><textarea hidden name='random_outcomes'>[]</textarea><div class='shop-outcome-builder' data-config-builder='random_outcomes' data-items='" + shop_builder_items_json + "'></div></div>"
     )
     create_editor = _form(gid, "shop_item_add", create_fields, "Create item")
     create_dialog = (
