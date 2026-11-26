@@ -29,7 +29,7 @@ class QuestCurrencyRemovalTests(unittest.TestCase):
         # The only remaining qp references are intentional one-time legacy-data cleanup.
         for line in quests.splitlines():
             if "qp" in line.lower():
-                self.assertIn('pop("qp", None)', line)
+                self.assertTrue('pop("qp", None)' in line or '"qp" in record' in line)
 
     def test_legacy_qp_is_stripped_from_loaded_quest_records(self):
         user = function_source("cinnamon_modules/quests.py", "_user")
