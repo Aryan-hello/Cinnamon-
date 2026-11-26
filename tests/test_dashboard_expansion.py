@@ -61,7 +61,7 @@ class DashboardExpansionTests(unittest.TestCase):
         self.assertIn('_appeal_portal_config(guild_id, token)', self.source)
 
     def test_appeal_portal_uses_shared_limits_and_private_submission_service(self):
-        self.assertIn('state.get("submit_moderation_appeal")', self.source)
+        self.assertIn('_state().get("submit_moderation_appeal")', self.source)
         self.assertIn('async def _mc_submit_appeal_web(guild, user, details):', (ROOT / "cinnamon_modules" / "moderation_controls.py").read_text(encoding="utf-8"))
         self.assertIn('appeal_public_channel_id', self.source)
         self.assertIn('appeal_channel_id', self.source)
