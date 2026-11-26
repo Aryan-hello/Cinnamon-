@@ -117,6 +117,9 @@ async def _claim_level_rewards(guild_id: int, user_id: int, new_level: int):
         if not reward_levels:
             return 0, []
         reward_total = sum(int(ECONOMY_LEVEL_REWARDS[level]) for level in reward_levels)
+        bonus_fn = globals().get("collectible_pet_catnip_bonus")
+        if callable(bonus_fn):
+            reward_total = bonus_fn(guild_id, user_id, reward_total)
         had_balance = key in economy_balances
         old_balance = economy_balances.get(key)
         had_claims = key in economy_level_rewards_claimed
