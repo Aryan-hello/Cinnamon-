@@ -200,30 +200,31 @@ async def pet_style_shop(interaction: discord.Interaction):
 @app_commands.choices(accessory=[app_commands.Choice(name=f"{v['emoji']} {v['name']} · {v['price']:,} Catnip", value=k) for k, v in _PET_ACCESSORIES.items()])
 async def pet_style_buy(interaction: discord.Interaction, accessory: app_commands.Choice[str]):
     gid, uid, item_id = interaction.guild.id, interaction.user.id, accessory.value
-    data = _collectible_pet_user(gid, uid)
-    owned = data.setdefault("accessories", [])
-    if item_id in owned:
-        return await cinnamon_send(interaction, "You already own that accessory.", ephemeral=True)
-    item = _PET_ACCESSORIES[item_id]
-    key = (gid, uid)
-    balance = economy_balance(gid, uid)
-    if balance < item["price"]:
-        return await cinnamon_send(interaction, f"You need {item['price']:,} Catnip; your balance is {balance:,}.", ephemeral=True)
-    old_balance, old_owned = economy_balances.get(key), list(owned)
-    economy_ensure_balance(gid, uid)
-    economy_balances[key] = balance - item["price"]
-    owned.append(item_id)
-    try:
-        saved = await bd_save_data()
-    except Exception:
-        saved = False
-    if not saved:
-        owned[:] = old_owned
-        if old_balance is None:
-            economy_balances.pop(key, None)
-        else:
-            economy_balances[key] = old_balance
-        return await cinnamon_send(interaction, "I couldn't save the purchase. No Catnip was kept.", ephemeral=True)
+    async with _feature_lock(gid):
+        data = _collectible_pet_user(gid, uid)
+        owned = data.setdefault("accessories", [])
+        if item_id in owned:
+            return await cinnamon_send(interaction, "You already own that accessory.", ephemeral=True)
+        item = _PET_ACCESSORIES[item_id]
+        key = (gid, uid)
+        balance = economy_balance(gid, uid)
+        if balance < item["price"]:
+            return await cinnamon_send(interaction, f"You need {item['price']:,} Catnip; your balance is {balance:,}.", ephemeral=True)
+        old_balance, old_owned = economy_balances.get(key), list(owned)
+        economy_ensure_balance(gid, uid)
+        economy_balances[key] = balance - item["price"]
+        owned.append(item_id)
+        try:
+            saved = await bd_save_data()
+        except Exception:
+            saved = False
+        if not saved:
+            owned[:] = old_owned
+            if old_balance is None:
+                economy_balances.pop(key, None)
+            else:
+                economy_balances[key] = old_balance
+            return await cinnamon_send(interaction, "I couldn't save the purchase. No Catnip was kept.", ephemeral=True)
     await economy_log(gid, title="Pet accessory purchased",
         fields=[("Member", str(uid)), ("Accessory", item["name"]), ("Price", f"{item['price']:,} Catnip")])
     await cinnamon_send(interaction, f"Purchased {item['emoji']} {item['name']}. Equip it with /pet-style equip.", ephemeral=True)
@@ -232,36 +233,38 @@ async def pet_style_buy(interaction: discord.Interaction, accessory: app_command
 @app_commands.guild_only()
 @app_commands.choices(accessory=[app_commands.Choice(name=f"{v['emoji']} {v['name']}", value=k) for k, v in _PET_ACCESSORIES.items()])
 async def pet_style_equip(interaction: discord.Interaction, accessory: app_commands.Choice[str]):
-    data = _collectible_pet_user(interaction.guild.id, interaction.user.id)
-    pet = _collectible_pet_active(data)
-    if not pet:
-        return await cinnamon_send(interaction, "Discover and equip a pet first with ?work and ?pets equip.", ephemeral=True)
-    if accessory.value not in data.get("accessories", []):
-        return await cinnamon_send(interaction, "You don't own that accessory yet. Browse /pet-style shop.", ephemeral=True)
-    old = pet.get("accessory_id")
-    pet["accessory_id"] = accessory.value
-    if not await bd_save_data():
-        if old is None:
-            pet.pop("accessory_id", None)
-        else:
-            pet["accessory_id"] = old
-        return await cinnamon_send(interaction, "I couldn't save that equipment change.", ephemeral=True)
+    async with _feature_lock(interaction.guild.id):
+        data = _collectible_pet_user(interaction.guild.id, interaction.user.id)
+        pet = _collectible_pet_active(data)
+        if not pet:
+            return await cinnamon_send(interaction, "Discover and equip a pet first with ?work and ?pets equip.", ephemeral=True)
+        if accessory.value not in data.get("accessories", []):
+            return await cinnamon_send(interaction, "You don't own that accessory yet. Browse /pet-style shop.", ephemeral=True)
+        old = pet.get("accessory_id")
+        pet["accessory_id"] = accessory.value
+        if not await bd_save_data():
+            if old is None:
+                pet.pop("accessory_id", None)
+            else:
+                pet["accessory_id"] = old
+            return await cinnamon_send(interaction, "I couldn't save that equipment change.", ephemeral=True)
     item = _PET_ACCESSORIES[accessory.value]
     await cinnamon_send(interaction, f"Equipped {item['emoji']} {item['name']} on {pet.get('nickname') or pet.get('species', 'your pet')}.", ephemeral=True)
 
 @pet_style_group.command(name="remove", description="Remove the accessory from your active pet")
 @app_commands.guild_only()
 async def pet_style_remove(interaction: discord.Interaction):
-    data = _collectible_pet_user(interaction.guild.id, interaction.user.id)
-    pet = _collectible_pet_active(data)
-    if not pet:
-        return await cinnamon_send(interaction, "You don't have an active pet.", ephemeral=True)
-    old = pet.pop("accessory_id", None)
-    if not old:
-        return await cinnamon_send(interaction, "Your active pet isn't wearing an accessory.", ephemeral=True)
-    if not await bd_save_data():
-        pet["accessory_id"] = old
-        return await cinnamon_send(interaction, "I couldn't save that equipment change.", ephemeral=True)
+    async with _feature_lock(interaction.guild.id):
+        data = _collectible_pet_user(interaction.guild.id, interaction.user.id)
+        pet = _collectible_pet_active(data)
+        if not pet:
+            return await cinnamon_send(interaction, "You don't have an active pet.", ephemeral=True)
+        old = pet.pop("accessory_id", None)
+        if not old:
+            return await cinnamon_send(interaction, "Your active pet isn't wearing an accessory.", ephemeral=True)
+        if not await bd_save_data():
+            pet["accessory_id"] = old
+            return await cinnamon_send(interaction, "I couldn't save that equipment change.", ephemeral=True)
     await cinnamon_send(interaction, "Accessory removed and kept in your collection.", ephemeral=True)
 
 bot.tree.add_command(pet_style_group)
