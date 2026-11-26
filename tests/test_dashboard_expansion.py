@@ -52,12 +52,16 @@ class DashboardExpansionTests(unittest.TestCase):
         end = self.source.index("def _community(guild,state):", start)
         self.assertNotIn("wildlands_", self.source[start:end])
 
-    def test_public_appeal_portal_requires_discord_oauth_and_server_membership(self):
+    def test_public_appeal_portal_requires_discord_oauth_but_allows_former_members(self):
         self.assertIn('def appeal_portal_login(guild_id, token):', self.source)
         self.assertIn('"scope": "identify"', self.source)
         self.assertIn('def appeal_portal_form(guild_id, token):', self.source)
-        self.assertIn('guild.fetch_member(int(user_id))', self.source)
-        self.assertIn('_check_appeal_csrf()', self.source)
+        form_start = self.source.index("def appeal_portal_form(guild_id, token):")
+        form_end = self.source.index("def _analytics(guild, state):", form_start)
+        form_source = self.source[form_start:form_end]
+        self.assertIn('discord.Object(id=int(user_id))', form_source)
+        self.assertNotIn('guild.fetch_member', form_source)
+        self.assertIn('_check_appeal_csrf()', form_source)
         self.assertIn('_appeal_portal_config(guild_id, token)', self.source)
 
     def test_appeal_portal_uses_shared_limits_and_private_submission_service(self):
