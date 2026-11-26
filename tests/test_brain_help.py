@@ -138,10 +138,11 @@ class FeatureHelpTests(unittest.TestCase):
     def test_quests_explain_real_rewards_and_configurable_reset_timezone(self):
         reply = answer_help("Cinnamon, I don't understand quests", self.catalog, timezone_label="UTC-04:00")
         self.assertIn("Five daily and five weekly", reply)
-        self.assertIn("Quest Points and XP", reply)
+        self.assertIn("XP toward levels", reply)
         self.assertIn("Monday midnight (UTC-04:00)", reply)
         self.assertIn("/quests progress", reply)
-        self.assertIn("/questshop", reply)
+        self.assertNotIn("/questshop", reply)
+        self.assertNotIn("Quest Points", reply)
 
     def test_fishing_uses_current_commands(self):
         reply = answer_help("Cinnamon, how do I fish?", self.catalog)
