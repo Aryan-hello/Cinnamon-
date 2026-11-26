@@ -76,6 +76,22 @@ def _user(g, u):
     return record
 
 
+def migrate_legacy_quest_currency():
+    """Remove obsolete QP balances from every loaded guild before the next save."""
+    removed = 0
+    for guild_state in quest_data.values():
+        if not isinstance(guild_state, dict):
+            continue
+        users = guild_state.get("users", {})
+        if not isinstance(users, dict):
+            continue
+        for record in users.values():
+            if isinstance(record, dict) and "qp" in record:
+                record.pop("qp", None)
+                removed += 1
+    return removed
+
+
 async def _grant_quest_xp(guild_id, user_id, amount):
     """Grant quest XP and immediately settle any newly eligible Catnip level rewards."""
     key = (int(guild_id), int(user_id))
