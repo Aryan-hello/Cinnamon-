@@ -172,39 +172,6 @@ async def _wlf_open_treasure_chests(guild_id, user_id, tier, quantity=1):
             return False, "Cinnamon couldn't save the chest opening; your chests and rewards were restored.", []
         return True, f"Opened {qty} {tier.title()} chest(s).", results
 
-@_wlf_group.command(name="chests", description="View treasure chests found while fishing")
-@app_commands.guild_only()
-async def fishing_chests(interaction: discord.Interaction):
-    player = _wlf_player(interaction.guild.id, interaction.user.id)
-    chests = player.get("treasure_chests", {})
-    lines = [f"{cfg['emoji']} **{cfg['label']}**: {int(chests.get(key, 0))}"
-             for key, cfg in _WLF_TREASURE_CHEST_TIERS.items()]
-    items = player.get("treasure_items", {})
-    if items:
-        lines.append("\n**Treasure collection**")
-        lines.extend(f"💎 {name} ×{int(count)}" for name, count in sorted(items.items()) if int(count) > 0)
-    await interaction.response.send_message(
-        embed=_wlf_embed("🧰 Fishing Treasure Chests", "\n".join(lines) +
-                         "\n\nCatch fish for a chance to discover bonus chests. Use /fishing open-chest to open them."),
-        ephemeral=True)
-
-@_wlf_group.command(name="open-chest", description="Open one or more fishing treasure chests")
-@app_commands.guild_only()
-@app_commands.choices(tier=[
-    app_commands.Choice(name="Common", value="common"),
-    app_commands.Choice(name="Rare", value="rare"),
-    app_commands.Choice(name="Epic", value="epic"),
-    app_commands.Choice(name="Legendary", value="legendary"),
-])
-async def fishing_open_chest(interaction: discord.Interaction, tier: str, quantity: app_commands.Range[int, 1, 10] = 1):
-    await interaction.response.defer(ephemeral=True)
-    ok, message, rewards = await _wlf_open_treasure_chests(interaction.guild.id, interaction.user.id, tier, quantity)
-    if not ok:
-        return await interaction.followup.send(message, ephemeral=True)
-    await interaction.followup.send(
-        embed=_wlf_embed("🎁 Treasure Chest Opened", message + "\n\n" + "\n".join(rewards)),
-        ephemeral=True)
-
 def _wlf_area(area_id):
     return next((a for a in _WLF_AREAS if a[0] == area_id), _WLF_AREAS[0])
 
@@ -1026,6 +993,40 @@ async def fishing_setup_roles(interaction: discord.Interaction):
 
 # Only one /fishing slash group. /adventure subgroup commands are appended to
 # the already registered /adventure group and will be synced on next startup.
+@_wlf_group.command(name="chests", description="View treasure chests found while fishing")
+@app_commands.guild_only()
+async def fishing_chests(interaction: discord.Interaction):
+    player = _wlf_player(interaction.guild.id, interaction.user.id)
+    chests = player.get("treasure_chests", {})
+    lines = [f"{cfg['emoji']} **{cfg['label']}**: {int(chests.get(key, 0))}"
+             for key, cfg in _WLF_TREASURE_CHEST_TIERS.items()]
+    items = player.get("treasure_items", {})
+    if items:
+        lines.append("\n**Treasure collection**")
+        lines.extend(f"💎 {name} ×{int(count)}" for name, count in sorted(items.items()) if int(count) > 0)
+    await interaction.response.send_message(
+        embed=_wlf_embed("🧰 Fishing Treasure Chests", "\n".join(lines) +
+                         "\n\nCatch fish for a chance to discover bonus chests. Use /fishing open-chest to open them."),
+        ephemeral=True)
+
+@_wlf_group.command(name="open-chest", description="Open one or more fishing treasure chests")
+@app_commands.guild_only()
+@app_commands.choices(tier=[
+    app_commands.Choice(name="Common", value="common"),
+    app_commands.Choice(name="Rare", value="rare"),
+    app_commands.Choice(name="Epic", value="epic"),
+    app_commands.Choice(name="Legendary", value="legendary"),
+])
+async def fishing_open_chest(interaction: discord.Interaction, tier: str, quantity: app_commands.Range[int, 1, 10] = 1):
+    await interaction.response.defer(ephemeral=True)
+    ok, message, rewards = await _wlf_open_treasure_chests(interaction.guild.id, interaction.user.id, tier, quantity)
+    if not ok:
+        return await interaction.followup.send(message, ephemeral=True)
+    await interaction.followup.send(
+        embed=_wlf_embed("🎁 Treasure Chest Opened", message + "\n\n" + "\n".join(rewards)),
+        ephemeral=True)
+
+
 bot.tree.add_command(_wlf_group)
 
 # /craft is a command group; repair_rod is its subcommand (not a separate root).
