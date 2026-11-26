@@ -277,16 +277,30 @@ def _craft_embed(guild_id, user, recipe_id, quantity=1):
 
 async def craft_item(guild_id, user, recipe_id, quantity=1):
     if recipe_id == 'repair_rod':
-        inv = economy_inventory_for(guild_id, user.id)
-        player = _wlf_player(guild_id, user.id)
-        if not player.get('rod_broken'):
-            return False, '🎣 Your fishing rod is already in working condition.'
-        if int(inv.get('fishing_line', 0)) < 1:
-            return False, '🧵 You need 1 Fishing Line. Buy it from Cinnamon’s Shop first.'
-        inv['fishing_line'] = int(inv['fishing_line']) - 1
-        if inv['fishing_line'] <= 0: inv.pop('fishing_line', None)
-        player['rod_broken'] = False
-        await bd_save_data()
+        lock = _CINNAMON_SHOP_LOCKS.setdefault((int(guild_id), int(user.id)), asyncio.Lock())
+        async with lock:
+            inv = economy_inventory_for(guild_id, user.id)
+            player = _wlf_player(guild_id, user.id)
+            if not player.get('rod_broken'):
+                return False, '🎣 Your fishing rod is already in working condition.'
+            if int(inv.get('fishing_line', 0)) < 1:
+                return False, '🧵 You need 1 Fishing Line. Buy it from Cinnamon’s Shop first.'
+            before_inventory = dict(inv)
+            before_player = dict(player)
+            inv['fishing_line'] = int(inv['fishing_line']) - 1
+            if inv['fishing_line'] <= 0:
+                inv.pop('fishing_line', None)
+            player['rod_broken'] = False
+            try:
+                saved = await bd_save_data()
+            except Exception:
+                saved = False
+            if not saved:
+                inv.clear()
+                inv.update(before_inventory)
+                player.clear()
+                player.update(before_player)
+                return False, '⚠️ Cinnamon could not save the repair. Your Fishing Line and rod state were restored.'
         return True, '🔧 Fishing rod repaired! You can cast again.'
     recipe = CRAFTING_RECIPES.get(recipe_id)
     if not recipe:
