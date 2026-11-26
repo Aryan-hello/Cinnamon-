@@ -103,5 +103,73 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(xp[(1, 7)], 5)
 
 
+    async def test_concurrent_appeal_decisions_allow_only_one_winner(self):
+        from datetime import datetime, timezone
+
+        cfg = {"appeals": {"abc12345": {"user_id": 7, "status": "pending"}}}
+
+        async def saved():
+            await asyncio.sleep(0)
+            return True
+
+        namespace = {
+            "_MC_LOCKS": {},
+            "asyncio": asyncio,
+            "_mc_root": lambda guild_id: cfg,
+            "_mc_copy": copy,
+            "_mc_time": SimpleNamespace(time=lambda: 1234),
+            "bd_save_data": saved,
+        }
+        decide = extract_function(
+            ROOT / "cinnamon_modules/moderation_controls.py",
+            "_mc_decide_appeal",
+            namespace,
+        )
+        results = await asyncio.gather(
+            decide(1, "abc12345", "approved", 10),
+            decide(1, "abc12345", "declined", 11),
+        )
+
+        self.assertEqual(sorted(result[0] for result in results), ["not_pending", "ok"])
+        self.assertIn(cfg["appeals"]["abc12345"]["status"], {"approved", "declined"})
+        self.assertIn(cfg["appeals"]["abc12345"]["reviewed_by"], {10, 11})
+
+    async def test_season_xp_is_scoped_by_month_and_bounded_to_twelve_months(self):
+        from datetime import datetime, timezone
+
+        current = [datetime(2026, 11, 26, tzinfo=timezone.utc)]
+        data = {}
+        namespace = {
+            "cinnamon_now": lambda: current[0],
+            "advanced_features_data": data,
+        }
+        record = extract_function(
+            ROOT / "cinnamon_modules/levels_games.py",
+            "_record_season_xp",
+            namespace,
+        )
+        record(1, 7, 20)
+        record(1, 7, 30)
+        self.assertEqual(data["leaderboard_seasons_v1"]["2026-11"]["1"]["7"], 50)
+
+        for month in range(1, 14):
+            current[0] = datetime(2025 + (month - 1) // 12, ((month - 1) % 12) + 1, 1, tzinfo=timezone.utc)
+            record(1, 7, 1)
+        self.assertLessEqual(len(data["leaderboard_seasons_v1"]), 12)
+
+    def test_xp_anti_abuse_filters_bots_webhooks_and_prefix_commands(self):
+        source = (ROOT / "cinnamon_modules/levels_games.py").read_text(encoding="utf-8")
+        self.assertIn("message.author.bot", source)
+        self.assertIn("message.webhook_id", source)
+        self.assertIn('content.startswith("?")', source)
+        self.assertIn("XP_COOLDOWN_SECONDS = 30", source)
+
+    def test_temporary_role_mutations_share_a_guild_lock(self):
+        source = (ROOT / "cinnamon_modules/general_moderation.py").read_text(encoding="utf-8")
+        self.assertIn("_TEMP_ROLE_LOCKS", source)
+        self.assertIn("@_temp_role_serialized", source)
+        self.assertIn("async with lock:", source)
+
+
 if __name__ == "__main__":
     unittest.main()
