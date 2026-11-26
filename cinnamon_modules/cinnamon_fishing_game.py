@@ -148,7 +148,12 @@ class _FGView(discord.ui.View):
                 return await interaction.edit_original_response(embed=self.render(), view=self)
             rod = next((r for r in _WLF_RODS if r['id'] == p['rod']), _WLF_RODS[0])
             bait = next(b for b in _WLF_BAIT if b['id'] == self.bait)
-            rarity = _wlf_roll(rod['bonus'] + bait['bonus'] + _cm_fishing_bonus(self.gid))
+            rarity_bonus = rod['bonus'] + bait['bonus'] + _cm_fishing_bonus(self.gid)
+            pet_fn = globals().get("_collectible_pet_ability")
+            pet = pet_fn(self.gid, self.uid) if callable(pet_fn) else {}
+            if pet.get("ability") == "rare_fish":
+                rarity_bonus += float(pet.get("value", 0.0)) * 100.0
+            rarity = _wlf_roll(rarity_bonus)
             delay = _wlf_random.randint(10, 20)
             now = _fg_time.time()
             self.session_id = f'{self.gid}-{self.uid}-{_fg_time.time_ns()}'
@@ -240,7 +245,12 @@ class _FGView(discord.ui.View):
                 self.clear_items()
                 if catch:
                     p = self.player()
-                    p['fish'][catch] = int(p['fish'].get(catch, 0)) + 1
+                    caught_count = 1
+                    pet_fn = globals().get("_collectible_pet_ability")
+                    pet = pet_fn(self.gid, self.uid) if callable(pet_fn) else {}
+                    if pet.get("ability") == "penguin" and _fg_random.random() < float(pet.get("value", 0.0)):
+                        caught_count = 2
+                    p['fish'][catch] = int(p['fish'].get(catch, 0)) + caught_count
                     if catch not in p['seen']:
                         p['seen'].append(catch)
             else:
