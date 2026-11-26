@@ -153,6 +153,14 @@ def collectible_pet_raccoon_steal(guild_id, user_id):
     inventory[item_id] = int(inventory.get(item_id, 0)) + 1
     return str(item.get("name", item_id))
 
+def collectible_pet_catnip_bonus(guild_id, user_id, amount):
+    """Apply the equipped Snow Leopard's universal Catnip reward bonus."""
+    amount = max(0, int(amount))
+    pet = _collectible_pet_ability(guild_id, user_id)
+    if pet.get("ability") == "all_rewards":
+        return amount + int(amount * float(pet.get("value", 0.0)))
+    return amount
+
 def _collectible_pet_perks(guild_id, user_id):
     """Compatibility adapter; only the equipped pet contributes an ability."""
     result = _collectible_pet_ability(guild_id, user_id)
