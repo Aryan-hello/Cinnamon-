@@ -1336,10 +1336,13 @@ async def economy_restore_from_snapshot(guild: discord.Guild, limit: int = 5000,
             else:
                 economy_inventory[key] = snap_inventory
             snap_quests = user.get("quests", {})
-            if isinstance(snap_quests, dict) and any(k in snap_quests for k in ("qp", "daily", "weekly")):
-                quest_users = quest_data.setdefault(guild.id, {}).setdefault("users", {})
-                if not merge_only or str(uid) not in quest_users:
-                    quest_users[str(uid)] = json.loads(json.dumps(snap_quests))
+            if isinstance(snap_quests, dict):
+                snap_quests = json.loads(json.dumps(snap_quests))
+                snap_quests.pop("qp", None)  # Ignore legacy Quest Points in old backups.
+                if any(k in snap_quests for k in ("daily", "weekly", "daily_completed_week", "week_counters", "completed_history", "poll_ids")):
+                    quest_users = quest_data.setdefault(guild.id, {}).setdefault("users", {})
+                    if not merge_only or str(uid) not in quest_users:
+                        quest_users[str(uid)] = snap_quests
             snap_levels = [int(x) for x in user.get("level_rewards_claimed", [])]
             if merge_only:
                 economy_level_rewards_claimed[key] = sorted(set(economy_level_rewards_claimed.get(key, [])) | set(snap_levels))
