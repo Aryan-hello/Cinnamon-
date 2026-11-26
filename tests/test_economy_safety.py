@@ -161,7 +161,7 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
     def test_xp_anti_abuse_filters_bots_webhooks_and_prefix_commands(self):
         source = (ROOT / "cinnamon_modules/levels_games.py").read_text(encoding="utf-8")
         self.assertIn("message.author.bot", source)
-        self.assertIn("message.webhook_id", source)
+        self.assertIn('getattr(message, "webhook_id", None)', source)
         self.assertIn('content.startswith("?")', source)
         self.assertIn("XP_COOLDOWN_SECONDS = 30", source)
 
