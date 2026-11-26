@@ -65,6 +65,14 @@ class EconomyTransferTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result[3], "save_failed")
         self.assertEqual(balances, {})
 
+    async def test_helper_rejects_negative_oversized_and_self_transfers(self):
+        transfer, balances = load_transfer_helper({(1, 10): 1000})
+        for recipient, amount in ((20, -1), (20, 10000001), (10, 100)):
+            result = await transfer(1, 10, recipient, amount)
+            self.assertFalse(result[0])
+            self.assertEqual(result[3], "invalid")
+        self.assertEqual(balances, {(1, 10): 1000})
+
 
 if __name__ == "__main__":
     unittest.main()
