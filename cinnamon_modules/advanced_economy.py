@@ -773,6 +773,10 @@ async def economy_do_work(guild_id: int, user):
     pet = pet_fn(guild_id, user.id) if callable(pet_fn) else {}
     if pet.get("ability") == "work_income":
         amount += int(amount * float(pet.get("value", 0.0)))
+    elif pet.get("ability") == "all_rewards":
+        bonus_fn = globals().get("collectible_pet_catnip_bonus")
+        if callable(bonus_fn):
+            amount = bonus_fn(guild_id, user.id, amount)
     found_ingredient = None
     if pet.get("ability") == "forage" and random.random() < float(pet.get("value", 0.0)):
         recipes = globals().get("CRAFTING_RECIPES", {})
@@ -799,4 +803,8 @@ async def economy_do_work(guild_id: int, user):
     message = random.choice(WORK_MESSAGES).format(amount=amount)
     if box:
         message += " 🎁 Cinnamon also found a Mystery Box in your paperwork."
+    if found_ingredient:
+        message += f" 🦌 Your Deer found a bonus crafting ingredient: **{ECONOMY_ITEMS.get(found_ingredient, {}).get('name', found_ingredient)}**."
+    if stolen_item:
+        message += f" 🦝 Your Raccoon snatched **{stolen_item}** from Cinnamon's shop!"
     return True, amount, message
