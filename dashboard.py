@@ -2333,7 +2333,7 @@ def appeal_portal_form(guild_id, token):
     form = (
         "<main class='main'><article class='card'><h1>Submit a moderation appeal</h1>"
         "<p>Signed in as <b>" + _esc(_tokens[sid].get("user", {}).get("global_name") or _tokens[sid].get("user", {}).get("username") or "Discord member") + "</b>."
-        " Your Discord account is verified for this appeal to " + _esc(guild.name) + " . Former members can appeal too.</p>"
+        " Your Discord account is verified for this appeal to " + _esc(guild.name) + ". Former members can appeal too.</p>"
         "<form method='post'>" + _appeal_csrf_input() +
         "<div class='field'><label for='appealDetails'>Explain your appeal</label><textarea id='appealDetails' name='details' minlength='20' maxlength='1500' rows='8' required placeholder='Explain which moderation action you are appealing and why...'></textarea><small>20–1,500 characters. Do not include passwords or private account credentials.</small></div>"
         "<button class='btn' type='submit'>Submit appeal</button></form></article></main>"
