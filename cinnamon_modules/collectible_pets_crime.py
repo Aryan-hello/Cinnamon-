@@ -28,6 +28,29 @@ _PET_BASE_SLOTS = 5
 _PET_SLOT_MEMBER_KEY = "pet_slot_member_bonus_v1"
 _PET_SLOT_ROLE_KEY = "pet_slot_role_bonus_v1"
 
+_COLLECTIBLE_ADMIN_PETS = {
+    "puffy": {"species": "Puffy", "emoji": "🐈", "method": "family payroll", "message": "Cinnamon's family business sent a paycheck"},
+    "shadow_bunny": {"species": "Shadow Bunny", "emoji": "🐇", "method": "hidden tax refunds", "message": "Shadow Bunny recovered a mysterious Catnip tax refund"},
+    "chicken_jockey": {"species": "Chicken Jockey", "emoji": "🐔", "method": "chaos compensation", "message": "Chicken Jockey caused enough chaos to earn compensation"},
+    "monkey": {"species": "Monkey", "emoji": "🐒", "method": "scavenged Catnip stashes", "message": "Monkey found a forgotten Catnip stash"},
+    "little_star": {"species": "Little Star", "emoji": "⭐", "method": "cosmic gifts", "message": "Little Star received a gift from the universe"},
+}
+
+def _collectible_admin_pet_hourly_reward(pet_key):
+    """Each admin pet has one hourly Catnip ability, expressed through its own method."""
+    if pet_key == "puffy":
+        return _cp_random.randint(1000, 5000)
+    if pet_key == "shadow_bunny":
+        return _cp_random.choice(tuple(range(1000, 5001, 250)))
+    if pet_key == "chicken_jockey":
+        return _cp_random.choice((1000, 2000, 3000, 4000, 5000))
+    if pet_key == "monkey":
+        return _cp_random.randint(1, 5) * 1000
+    if pet_key == "little_star":
+        return _cp_random.randint(100, 500) * 10
+    raise ValueError("Unknown admin pet")
+
+
 def _collectible_pet_capacity(guild_id, user_id, member=None):
     """Five base slots plus achievement, purchased, admin and role bonuses."""
     data = _collectible_pet_user(guild_id, user_id)
@@ -53,6 +76,12 @@ def _collectible_pet_ability(guild_id, user_id):
     pet = _collectible_pet_active(data) if isinstance(data, dict) else None
     if not pet:
         return {"pet": None, "species": None, "ability": None, "level": 0, "value": 0.0}
+    admin_key = str(pet.get("admin_pet_key") or "")
+    admin_def = _COLLECTIBLE_ADMIN_PETS.get(admin_key)
+    if admin_def:
+        return {"pet": pet, "species": pet.get("species"), "ability": "admin_hourly_income",
+                "level": 1, "value": 0.0, "admin_pet_key": admin_key,
+                "income_min": 1000, "income_max": 5000, "income_method": admin_def["method"]}
     catalog = next((p for p in _COLLECTIBLE_PET_CATALOG if p["species"] == pet.get("species")), {})
     level = max(1, min(_PET_ABILITY_MAX_LEVEL, int(pet.get("level", 1) or 1)))
     ability = catalog.get("ability")
@@ -70,7 +99,6 @@ def _collectible_pet_ability(guild_id, user_id):
         value = 0.0
     secondary = 0.005 * level if ability in {"fox", "penguin"} else 0.0
     return {"pet": pet, "species": pet.get("species"), "ability": ability, "level": level, "value": value, "secondary_value": secondary}
-
 
 def _collectible_pet_user(guild_id, user_id):
     root = advanced_features_data.setdefault(_COLLECTIBLE_PETS_KEY, {})
@@ -101,7 +129,7 @@ async def collectible_pet_work_drop(guild_id, user):
     before = _cp_copy.deepcopy(guild.get(user_key)) if had_user else None
     data = _collectible_pet_user(guild_id, user.id)
     active = _collectible_pet_active(data)
-    if active:
+    if active and not active.get("admin_pet_key"):
         active["xp"] = int(active.get("xp", 0)) + 10
         active["level"] = _collectible_pet_level(active["xp"])
     found = None
@@ -194,7 +222,10 @@ def _collectible_pet_embed(owner, data):
             "all_rewards":"XP + Catnip bonus", "ingredient_refund":"Crafting ingredient refund",
             "box_upgrade":"Mystery Box tier upgrade", "shop_steal":"Shop item theft"
         }
-        description += "\\nAbility: **" + ability_names.get(ability.get("ability"), "Companion ability") + "** · " + f"{ability.get('value',0)*100:.1f}% at this level"
+        if ability.get("ability") == "admin_hourly_income":
+            description += "\\nAbility: **Hourly Catnip Generator** · 1,000–5,000 Catnip per hour via " + ability.get("income_method", "a special method")
+        else:
+            description += "\\nAbility: **" + ability_names.get(ability.get("ability"), "Companion ability") + "** · " + f"{ability.get('value',0)*100:.1f}% at this level"
     accessory_catalog = globals().get("_PET_ACCESSORIES", {})
     active_accessory = accessory_catalog.get(active.get("accessory_id")) if active else None
     if active_accessory:
@@ -231,10 +262,24 @@ async def prefix_pets_equip(ctx,index:int):
     data=_collectible_pet_user(ctx.guild.id,ctx.author.id); pets=data.get("pets",[])
     if not 1<=index<=len(pets):
         return await ctx.reply(f"Choose a pet number from 1 to {len(pets)}. Use ?pets to view your collection.",mention_author=False)
-    old=data.get("active_id"); data["active_id"]=pets[index-1]["id"]
+    old=data.get("active_id")
+    selected = pets[index-1]
+    current = _collectible_pet_active(data)
+    if current and current.get("admin_pet_key"):
+        settled = await _collectible_admin_pet_claim(ctx.guild.id, ctx.author.id)
+        if settled[0] == "save_failed":
+            return await ctx.reply("I couldn't save the current pet's Catnip earnings, so the pet selection was not changed.", mention_author=False)
+    old_selected_claim = selected.get("income_last_claim")
+    if selected.get("admin_pet_key") and str(selected.get("id")) != str(old or ""):
+        selected["income_last_claim"] = int(_cp_time.time())
+    data["active_id"] = selected["id"]
     if not await bd_save_data():
-        data["active_id"]=old
-        return await ctx.reply("I couldn't save that pet selection. No changes were kept.",mention_author=False)
+        data["active_id"] = old
+        if old_selected_claim is None:
+            selected.pop("income_last_claim", None)
+        else:
+            selected["income_last_claim"] = old_selected_claim
+        return await ctx.reply("I couldn't save that pet selection. No changes were kept.", mention_author=False)
     pet=pets[index-1]
     await ctx.reply(f"⭐ {pet['emoji']} **{pet.get('nickname') or pet['species']}** is now your active pet!",mention_author=False)
 
@@ -252,6 +297,119 @@ async def prefix_pets_rename(ctx,index:int,*,name:str):
         else: pets[index-1]["nickname"]=old
         return await ctx.reply("I couldn't save that name. Please try again later.",mention_author=False)
     await ctx.reply(f"🐾 Pet #{index} is now called **{clean}**.",mention_author=False)
+
+async def _collectible_admin_pet_claim(guild_id, user_id, now=None):
+    """Claim whole hourly payouts from the currently equipped admin pet, atomically."""
+    gid, uid = int(guild_id), int(user_id)
+    lock = _CINNAMON_SHOP_LOCKS.setdefault((gid, uid), asyncio.Lock())
+    async with lock:
+        data = _collectible_pet_user(gid, uid)
+        pet = _collectible_pet_active(data)
+        if not pet or not pet.get("admin_pet_key"):
+            return ("no_admin_pet", {})
+        pet_key = str(pet.get("admin_pet_key"))
+        definition = _COLLECTIBLE_ADMIN_PETS.get(pet_key)
+        if not definition:
+            return ("invalid_pet", {})
+        current_time = int(_cp_time.time() if now is None else now)
+        last_claim = int(pet.get("income_last_claim", pet.get("granted_at", current_time)) or current_time)
+        hours = max(0, (current_time - last_claim) // 3600)
+        if hours < 1:
+            return ("not_ready", {"seconds": max(0, 3600 - (current_time - last_claim)), "pet": pet})
+        payouts = [_collectible_admin_pet_hourly_reward(pet_key) for _ in range(int(hours))]
+        amount = sum(payouts)
+        balance_key = (gid, uid)
+        had_balance = balance_key in economy_balances
+        old_balance = economy_balances.get(balance_key)
+        old_last_claim = pet.get("income_last_claim")
+        pet["income_last_claim"] = last_claim + int(hours) * 3600
+        economy_balances[balance_key] = economy_balance(gid, uid) + amount
+        try:
+            saved = await bd_save_data()
+        except Exception:
+            saved = False
+            if "log" in globals():
+                log.exception("Failed to save admin pet Catnip payout for guild %s user %s", gid, uid)
+        if not saved:
+            if had_balance:
+                economy_balances[balance_key] = old_balance
+            else:
+                economy_balances.pop(balance_key, None)
+            if old_last_claim is None:
+                pet.pop("income_last_claim", None)
+            else:
+                pet["income_last_claim"] = old_last_claim
+            return ("save_failed", {})
+        return ("paid", {"amount": amount, "hours": int(hours), "payouts": payouts,
+                         "pet": pet, "message": definition["message"],
+                         "method": definition["method"], "balance": economy_balance(gid, uid)})
+
+@prefix_pets.command(name="claim")
+@commands.guild_only()
+async def prefix_pets_claim(ctx):
+    status, result = await _collectible_admin_pet_claim(ctx.guild.id, ctx.author.id)
+    if status == "no_admin_pet":
+        return await ctx.reply("Your equipped pet doesn't generate hourly Catnip. Equip an admin pet to use this.", mention_author=False)
+    if status == "not_ready":
+        seconds = int(result.get("seconds", 0))
+        return await ctx.reply(f"⏳ Your next admin-pet Catnip payout is ready in **{seconds // 60}m {seconds % 60}s**.", mention_author=False)
+    if status != "paid":
+        return await ctx.reply("⚠️ Cinnamon couldn't save that payout. No Catnip was added; please try again.", mention_author=False)
+    await economy_log(ctx.guild.id, title="🌿 Admin pet hourly Catnip", fields=[
+        ("Member", f"{ctx.author} ({ctx.author.id})"), ("Pet", result["pet"].get("species", "Admin pet")),
+        ("Hours collected", str(result["hours"])), ("Catnip paid", f"+{result['amount']:,}"),
+        ("Method", result["method"]),
+    ])
+    await ctx.reply(
+        f"💰 **{result['pet'].get('emoji', '🐾')} {result['pet'].get('nickname') or result['pet']['species']}** — {result['message']}. "
+        f"You collected **{result['amount']:,} Catnip** for **{result['hours']} hour(s)** "
+        f"({result['method']}). Balance: **{result['balance']:,} Catnip**.",
+        mention_author=False, allowed_mentions=discord.AllowedMentions.none()
+    )
+
+@prefix_pets.command(name="grant", aliases=["admin-grant"])
+@commands.guild_only()
+@commands.has_permissions(administrator=True)
+async def prefix_pets_grant(ctx, member: discord.Member, *, pet_name: str):
+    requested = " ".join(str(pet_name).casefold().split())
+    pet_key = next((key for key, definition in _COLLECTIBLE_ADMIN_PETS.items()
+                    if requested in {key.replace("_", " "), definition["species"].casefold()}), None)
+    if not pet_key:
+        names = ", ".join(definition["species"] for definition in _COLLECTIBLE_ADMIN_PETS.values())
+        return await ctx.reply(f"Choose one of these admin pets: {names}.", mention_author=False)
+    data = _collectible_pet_user(ctx.guild.id, member.id)
+    if any(str(p.get("admin_pet_key") or "") == pet_key for p in data["pets"]):
+        return await ctx.reply(f"{member.display_name} already owns {_COLLECTIBLE_ADMIN_PETS[pet_key]['species']}.", mention_author=False)
+    capacity = _collectible_pet_capacity(ctx.guild.id, member.id, member)
+    if len(data["pets"]) >= capacity:
+        return await ctx.reply(f"{member.display_name}'s pet collection is full ({len(data['pets'])}/{capacity}). Increase their pet capacity first.", mention_author=False)
+    before = _cp_copy.deepcopy(data)
+    now = int(_cp_time.time())
+    definition = _COLLECTIBLE_ADMIN_PETS[pet_key]
+    pet = {"id": f"admin-{pet_key}-{now}-{_cp_random.randint(100, 999)}",
+           "species": definition["species"], "emoji": definition["emoji"],
+           "rarity": "Admin", "weight": 0, "ability": "admin_hourly_income",
+           "admin_pet_key": pet_key, "xp": 0, "level": 1,
+           "granted_at": now, "income_last_claim": now}
+    data["pets"].append(pet)
+    if not data.get("active_id"):
+        data["active_id"] = pet["id"]
+    try:
+        saved = await bd_save_data()
+    except Exception:
+        saved = False
+    if not saved:
+        data.clear()
+        data.update(before)
+        return await ctx.reply("⚠️ I couldn't save that admin pet grant. No pet was added.", mention_author=False)
+    await economy_log(ctx.guild.id, title="👑 Admin pet granted", fields=[
+        ("Administrator", f"{ctx.author} ({ctx.author.id})"),
+        ("Recipient", f"{member} ({member.id})"),
+        ("Pet", f"{definition['emoji']} {definition['species']}"),
+    ])
+    await ctx.reply(f"👑 Granted **{definition['emoji']} {definition['species']}** to {member.mention}. "
+                    f"It generates 1,000–5,000 Catnip per equipped hour. Use ?pets claim to collect.",
+                    mention_author=False, allowed_mentions=discord.AllowedMentions.none())
 
 @bot.command(name="crime")
 @commands.guild_only()
