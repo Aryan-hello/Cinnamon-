@@ -10,7 +10,7 @@ Applied fixes based on the supplied audit:
 6. Unified `?rank` with the canonical `level_from_xp()` formula used by `/rank`/level tracking.
 7. Added achievement/quest tracking to prefix `?buy`, `?give`, and `?feed`; `?daily` now records Catnip earnings too.
 8. Added a background quest rotation loop that touches every guild every minute so daily/weekly rotations persist and occur predictably without user activity.
-9. Added `/questshop` Discord choices to prevent invalid reward strings.
+9. Retired `/questshop` and the Quest Points currency; daily and weekly quests now award XP only.
 10. Fixed Secret S1 so only the first Cinnamon interaction after bot startup can claim it.
 11. Added explicit configurable server-time offset (`CINNAMON_TIMEZONE_OFFSET_MINUTES`, default `330` / UTC+5:30) for time-based quests and Secret S11.
 12. Poll achievements/quests now count distinct polls rather than repeated voting in the same poll.
