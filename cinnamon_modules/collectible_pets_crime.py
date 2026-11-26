@@ -271,6 +271,10 @@ async def prefix_crime(ctx):
     if _cp_random.random() < chance:
         reward_bonus = perks.get("value", 0.0) if ability in {"crime_income", "fox"} else 0.0
         reward = int(_cp_random.randint(100, 260) * (1.0 + reward_bonus))
+        if ability == "all_rewards":
+            bonus_fn = globals().get("collectible_pet_catnip_bonus")
+            if callable(bonus_fn):
+                reward = bonus_fn(gid, uid, reward)
         economy_balances[balance_key] = before + reward
         outcome = f"**Success!** Your fictional caper {caper} and you got **+{reward:,} Catnip**."
         change = reward
@@ -298,6 +302,14 @@ async def prefix_crime(ctx):
             economy_cooldowns.pop(cooldown_key, None)
         return await ctx.reply("⚠️ Cinnamon couldn't save this caper, so no Catnip or cooldown change was applied. Please try again.",
             mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+    box = False
+    if change >= 0:
+        box_fn = globals().get("advanced_maybe_award_box")
+        if callable(box_fn):
+            try:
+                box = await box_fn(gid, ctx.author, "crime")
+            except Exception:
+                log.exception("Mystery Box award failed after fictional crime game")
     await economy_log(gid, title="🎭 Fictional crime game", fields=[
         ("User", f"{ctx.author} ({uid})"), ("Scenario", caper),
         ("Outcome", "Success" if change >= 0 else "Caught"),
@@ -311,4 +323,6 @@ async def prefix_crime(ctx):
         cinnamon_field(embed, "🐾 Pet sidekick",
             f"{pet.get('emoji', '🐾')} **{pet.get('nickname') or pet.get('species')}** · Level {int(pet.get('level', 1))}", True)
     cinnamon_field(embed, "🌿 Catnip balance", f"**{economy_balance(gid, uid):,}**", True)
+    if box:
+        cinnamon_field(embed, "🎁 Mystery Box", "A Mystery Box was found during the caper!")
     await ctx.reply(embed=embed, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
