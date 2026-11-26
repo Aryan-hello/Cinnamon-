@@ -23,7 +23,7 @@ class LotteryAndPetStyleTests(unittest.TestCase):
         for command in ("start", "enter", "status", "cancel"):
             self.assertIn(f'command(name="{command}"', self.source)
         self.assertIn("Each member gets one free entry.", self.source)
-        self.assertIn('"entry cost", "Free"', self.source)
+        self.assertIn('(\"Entry cost\", \"Free\")', self.source)
 
     def test_raffle_prize_is_escrowed_and_save_failure_rolls_back(self):
         self.assertIn('economy_balances[key] = balance - int(prize_catnip)', self.source)
