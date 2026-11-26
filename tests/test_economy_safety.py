@@ -64,6 +64,31 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(inventory, {"fishing_line": 1})
         self.assertEqual(player, {"rod_broken": True})
 
+
+    async def test_generic_craft_rolls_back_when_storage_raises(self):
+        inventory = {"wood": 3, "stone": 2}
+        crafted = {}
+
+        async def broken_save():
+            raise OSError("storage unavailable")
+
+        namespace = {
+            "asyncio": asyncio,
+            "_CINNAMON_SHOP_LOCKS": {},
+            "economy_inventory_for": lambda guild_id, user_id: inventory,
+            "CRAFTING_RECIPES": {"test": {"ingredients": {"wood": 2, "stone": 1}, "output": "plank", "name": "Test Plank"}},
+            "ECONOMY_ITEMS": {"plank": {"name": "Plank", "emoji": "🪵", "max_per_person": 0}},
+            "ADVANCED_FEATURES": {"crafted_counts": crafted},
+            "_af_key": lambda guild_id, user_id: f"{guild_id}:{user_id}",
+            "bd_save_data": broken_save,
+        }
+        craft = extract_function(ROOT / "cinnamon_modules/advanced_economy.py", "craft_item", namespace)
+        ok, message = await craft(1, SimpleNamespace(id=7), "test", 1)
+        self.assertFalse(ok)
+        self.assertIn("restored", message.lower())
+        self.assertEqual(inventory, {"wood": 3, "stone": 2})
+        self.assertEqual(crafted, {})
+
     async def test_achievement_reward_rolls_back_when_snapshot_is_not_saved(self):
         state = {"stats": {}, "unlocked": [], "secret_unlocked": [], "points": 0, "showcase": []}
         expected_state = copy.deepcopy(state)
@@ -79,6 +104,8 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
 
         namespace = {
             "_ach_copy": copy,
+            "asyncio": asyncio,
+            "_CINNAMON_SHOP_LOCKS": {},
             "SECRET_ACHIEVEMENTS": {},
             "ACHIEVEMENTS": {"first": {"catnip": 100, "xp": 50, "points": 2}},
             "_state": lambda guild_id, user_id: states.setdefault((int(guild_id), int(user_id)), {}),
