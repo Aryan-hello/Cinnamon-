@@ -411,7 +411,8 @@ def _temp_role_root(guild_id):
 _TEMP_ROLE_LOCKS = {}
 
 def _temp_role_serialized(func):
-    @_temp_functools.wraps(func)
+    import functools
+    @functools.wraps(func)
     async def wrapper(interaction, *args, **kwargs):
         lock = _TEMP_ROLE_LOCKS.setdefault(int(interaction.guild.id), asyncio.Lock())
         async with lock:
