@@ -1780,7 +1780,35 @@ def _roles_setup(guild,state):
     for key,label,desc in categories:
         cards.append("<article class='card half'><h3>"+_esc(label)+"</h3><p class='muted'>"+_esc(desc)+"</p>"+_role_multi_select(guild,"role_"+key,config.get(key,[]))+"</article>")
     content="<p class='muted'>Select one or more roles per permission category. A member with any selected role receives that category's permission. Discord Administrators retain the universal override.</p>"+"".join(cards)
-    return "<h1>Roles Setup</h1><p class='muted'>Central server-side permission mapping for Cinnamon features. Saved role IDs persist in the Upstash snapshot and are logged.</p>"+_form(gid,"roles_setup_save",content,"Save all role permissions")
+    role_bonus_form = (
+        "<div class='formgrid'><div class='field'><label>Discord role</label>" + _role_select(guild,"role_id",None,False) + "</div>"
+        "<div class='field'><label>Extra Catnip income</label><input name='amount' type='number' min='0' max='1000000' value='0' required><small>0 disables recurring income for this role.</small></div>"
+        "<div class='field'><label>Income interval</label><input name='interval' type='number' min='1' max='1000' value='1' required></div>"
+        "<div class='field'><label>Interval unit</label><select name='unit'><option value='minute'>Minutes</option><option value='hour' selected>Hours</option><option value='day'>Days</option><option value='week'>Weeks</option></select></div>"
+        "<div class='field'><label>Extra pet slots</label><input name='pet_slots' type='number' min='0' max='100' value='0' required></div></div>"
+        "<p class='muted'>Members with multiple configured roles receive the combined income rules and all role slot bonuses. Existing recurring-income cooldowns remain in place.</p>"
+    )
+    bonus_root = state.get("advanced_features_data",{}).get("pet_slot_role_bonus_v1",{}) or {}
+    bonus_cfg = bonus_root.get(str(gid),{}) or {}
+    income_cfg = state.get("economy_income_roles",{}).get(gid,{}) or state.get("economy_income_roles",{}).get(str(gid),{}) or {}
+    bonus_rows=[]
+    for rid in sorted(set(map(str,bonus_cfg)) | set(map(str,income_cfg))):
+        role=guild.get_role(int(rid)) if rid.isdigit() else None
+        label=role.mention if role else "Missing role ("+rid+")"
+        slots=max(0,int(bonus_cfg.get(rid,0) or 0))
+        income=income_cfg.get(rid,{}) or income_cfg.get(int(rid),{}) or {}
+        amount=max(0,int(income.get("amount",0) or 0))
+        interval=max(1,int(income.get("interval",1) or 1)); unit=str(income.get("unit","hour"))
+        bonus_rows.append("<div class='toggle'><span><b>"+_esc(label)+"</b><small>+"+str(slots)+" pet slots · "+(str(amount)+ " Catnip every "+str(interval)+" "+_esc(unit)+"(s)" if amount else "No recurring income")+"</small></span><form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='role_bonus_remove'><input type='hidden' name='role_id' value='"+_esc(rid)+"'><button class='btn danger small' type='submit'>Remove bonuses</button></form></div>")
+    member_slot_form = "<div class='formgrid'><div class='field'><label>Member</label>"+_member_select(guild,"member_id",allow_none=False)+"</div><div class='field'><label>Additional pet slots</label><input name='pet_slots' type='number' min='0' max='100' value='1' required></div></div><p class='muted'>This is a direct member bonus, separate from role bonuses, purchased slots and achievement rewards.</p>"
+    member_slot_rows=[]
+    member_root=state.get("advanced_features_data",{}).get("pet_slot_member_bonus_v1",{}) or {}
+    for uid,slots in (member_root.get(str(gid),{}) or {}).items():
+        member=guild.get_member(int(uid)) if str(uid).isdigit() else None
+        member_slot_rows.append("<div class='toggle'><span><b>"+_esc(member.display_name if member else "Member "+str(uid))+"</b><small>"+str(max(0,int(slots or 0)))+" administrator-granted extra slots</small></span><form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='pet_member_slots_remove'><input type='hidden' name='member_id' value='"+_esc(uid)+"'><button class='btn danger small' type='submit'>Remove</button></form></div>")
+    extra = "<article class='card full'><h2>Role bonuses</h2><p class='muted'>One role can grant both recurring Catnip income and extra pet capacity. Multiple roles stack; a member receives every configured role bonus they have.</p>"+_form(gid,"role_bonus_save",role_bonus_form,"Save role bonuses")+"<div class='itemlist'>"+("".join(bonus_rows) or "<p class='empty'>No role bonuses configured.</p>")+"</div></article>"
+    extra += "<article class='card full'><h2>Member pet-slot overrides</h2>"+_form(gid,"pet_member_slots_save",member_slot_form,"Save member slots")+"<div class='itemlist'>"+("".join(member_slot_rows) or "<p class='empty'>No individual member slot bonuses.</p>")+"</div></article>"
+    return "<h1>Roles Setup</h1><p class='muted'>Central server-side permission mapping, role income and pet capacity. Saved role IDs and slot bonuses persist in Cinnamon storage.</p>"+_form(gid,"roles_setup_save",content,"Save all role permissions")+"<div class='grid'>"+extra+"</div>"
 
 
 def _category_select(guild,name,selected=None):
@@ -3783,6 +3811,60 @@ def dashboard_action():
             send_log=state.get("send_log")
             if callable(send_log): _run_bot(send_log(gid,title="🗑️ Shop item removed",category="economy",fields=[("Action","Removed"),("Admin",str(actor)),("Item ID",item_id),("Name",removed_item.get("name",item_id)),("Price",str(removed_item.get("price",1))),("Emoji",removed_item.get("emoji","🐾")),("Description",removed_item.get("description","")[:300]),("Per-person limit",str(removed_item.get("max_per_person",0))),("Catalog scope","Global shared shop")]))
             session["dashboard_notice"]="Shop item removed. Existing inventories were preserved."
+        elif action=="role_bonus_save":
+            role_id=request.form.get("role_id","").strip()
+            role=guild.get_role(int(role_id)) if role_id.isdigit() else None
+            if not role or role.is_default() or role.managed: raise ValueError("Choose a valid assignable server role.")
+            if not guild.me or role>=guild.me.top_role: raise ValueError("Move Cinnamon's highest role above this role first.")
+            amount=int(request.form.get("amount","0")); interval=int(request.form.get("interval","1"))
+            unit=request.form.get("unit","hour"); pet_slots=int(request.form.get("pet_slots","0"))
+            multipliers={"minute":60,"hour":3600,"day":86400,"week":604800}
+            if not 0<=amount<=1000000 or not 1<=interval<=1000 or unit not in multipliers or not 0<=pet_slots<=100:
+                raise ValueError("Check income (0–1,000,000), interval (1–1,000), unit and pet slots (0–100).")
+            income=state.setdefault("economy_income_roles",{}).setdefault(gid,{})
+            if amount:
+                income[role.id]={"amount":amount,"cooldown":interval*multipliers[unit],"interval":interval,"unit":unit}
+            else:
+                income.pop(role.id,None)
+            slot_root=state.setdefault("advanced_features_data",{}).setdefault("pet_slot_role_bonus_v1",{})
+            guild_slots=slot_root.setdefault(str(gid),{})
+            if pet_slots: guild_slots[str(role.id)]=pet_slots
+            else: guild_slots.pop(str(role.id),None)
+            if not guild_slots: slot_root.pop(str(gid),None)
+            _save(); _audit(gid,actor,"Dashboard: role income and pet slots updated",f"{role.name}; income={amount} Catnip/{interval} {unit}; pet slots=+{pet_slots}.")
+            session["dashboard_notice"]=f"Bonuses saved for {role.name}. Multiple role bonuses stack."
+        elif action=="role_bonus_remove":
+            role_id=request.form.get("role_id","").strip()
+            if not role_id.isdigit(): raise ValueError("Invalid role.")
+            income=state.setdefault("economy_income_roles",{}).setdefault(gid,{})
+            removed_income=income.pop(int(role_id),None) or income.pop(role_id,None)
+            slot_root=state.setdefault("advanced_features_data",{}).setdefault("pet_slot_role_bonus_v1",{})
+            guild_slots=slot_root.setdefault(str(gid),{})
+            removed_slots=guild_slots.pop(str(role_id),None)
+            if removed_income is None and removed_slots is None: raise ValueError("No bonus is configured for that role.")
+            if not guild_slots: slot_root.pop(str(gid),None)
+            _save(); _audit(gid,actor,"Dashboard: role bonuses removed",f"Role ID {role_id}; income={bool(removed_income)}; pet slots={removed_slots or 0}.")
+            session["dashboard_notice"]="Role bonuses removed. Members keep pets already collected."
+        elif action=="pet_member_slots_save":
+            member_id=request.form.get("member_id","").strip(); slots=int(request.form.get("pet_slots","0"))
+            member=guild.get_member(int(member_id)) if member_id.isdigit() else None
+            if not member or member.bot or not 0<=slots<=100: raise ValueError("Choose a server member and 0–100 extra slots.")
+            root=state.setdefault("advanced_features_data",{}).setdefault("pet_slot_member_bonus_v1",{})
+            cfg=root.setdefault(str(gid),{})
+            if slots: cfg[str(member.id)]=slots
+            else: cfg.pop(str(member.id),None)
+            if not cfg: root.pop(str(gid),None)
+            _save(); _audit(gid,actor,"Dashboard: member pet slots updated",f"{member} ({member.id}); extra slots={slots}.")
+            session["dashboard_notice"]=f"Pet-slot override saved for {member.display_name}."
+        elif action=="pet_member_slots_remove":
+            member_id=request.form.get("member_id","").strip()
+            root=state.setdefault("advanced_features_data",{}).setdefault("pet_slot_member_bonus_v1",{})
+            cfg=root.setdefault(str(gid),{})
+            removed=cfg.pop(member_id,None)
+            if removed is None: raise ValueError("No individual pet-slot bonus exists for that member.")
+            if not cfg: root.pop(str(gid),None)
+            _save(); _audit(gid,actor,"Dashboard: member pet slots removed",f"Member {member_id}; removed {removed} slots.")
+            session["dashboard_notice"]="Individual pet-slot bonus removed. Existing pets were preserved."
         elif action=="economy_income_add":
             role_id=request.form.get("role_id","").strip(); role=guild.get_role(int(role_id)) if role_id.isdigit() else None
             try: amount=int(request.form.get("amount","0")); interval=int(request.form.get("interval","0"))
