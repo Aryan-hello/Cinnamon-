@@ -1,5 +1,7 @@
 """Cinnamon feature module.
 
+import functools as _temp_functools
+
 Loaded by main.py into Cinnamon's shared runtime namespace. This is still
 one Discord bot and one process; this file is not a separate bot.
 Do not run this file directly.
@@ -406,6 +408,16 @@ def _temp_role_root(guild_id):
     root = advanced_features_data.setdefault(_TEMP_ROLE_KEY, {})
     return root.setdefault(str(int(guild_id)), {})
 
+_TEMP_ROLE_LOCKS = {}
+
+def _temp_role_serialized(func):
+    @_temp_functools.wraps(func)
+    async def wrapper(interaction, *args, **kwargs):
+        lock = _TEMP_ROLE_LOCKS.setdefault(int(interaction.guild.id), asyncio.Lock())
+        async with lock:
+            return await func(interaction, *args, **kwargs)
+    return wrapper
+
 def _temp_role_actor_can_manage(interaction, role):
     guild = interaction.guild
     actor = interaction.user
@@ -426,6 +438,7 @@ temprole_group = app_commands.Group(name="temprole", description="Grant roles th
 
 @temprole_group.command(name="grant", description="Give a member a role temporarily")
 @app_commands.guild_only()
+@_temp_role_serialized
 @app_commands.describe(member="Member receiving the role", role="Role to grant",
                        duration_minutes="How long the role lasts (1 minute to 1 year)",
                        reason="Optional moderation note")
@@ -472,6 +485,7 @@ async def temporary_role_grant(interaction: discord.Interaction, member: discord
 
 @temprole_group.command(name="revoke", description="Remove a tracked temporary role early")
 @app_commands.guild_only()
+@_temp_role_serialized
 @app_commands.describe(member="Member losing the role", role="Temporary role to remove")
 async def temporary_role_revoke(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
     allowed, error = _temp_role_actor_can_manage(interaction, role)
@@ -528,39 +542,41 @@ async def _temporary_role_expiry_loop():
         if guild is None:
             continue
         for key, record in list(records.items()):
-            if not isinstance(record, dict) or int(record.get("expires_at", 0)) > now:
-                continue
-            member_id, role_id = int(record.get("member_id", 0)), int(record.get("role_id", 0))
-            member = guild.get_member(member_id)
-            if member is None:
-                try:
-                    member = await guild.fetch_member(member_id)
-                except (discord.NotFound, discord.Forbidden):
-                    member = None
-                except discord.HTTPException:
+            lock = _TEMP_ROLE_LOCKS.setdefault(guild.id, asyncio.Lock())
+            async with lock:
+                if not isinstance(record, dict) or int(record.get("expires_at", 0)) > now:
                     continue
-            role = guild.get_role(role_id)
-            if member and role and role in member.roles:
-                try:
-                    await member.remove_roles(role, reason="Cinnamon temporary role expired")
-                except discord.HTTPException:
-                    log.exception("Could not expire temporary role %s", key)
-                    continue
-            previous = record
-            records.pop(key, None)
-            if not await bd_save_data():
-                records[key] = previous
-                log.error("Could not persist expiry for temporary role %s", key)
-                if member and role and role not in member.roles:
+                member_id, role_id = int(record.get("member_id", 0)), int(record.get("role_id", 0))
+                member = guild.get_member(member_id)
+                if member is None:
                     try:
-                        await member.add_roles(role, reason="Temporary role expiry save failed; restoring")
+                        member = await guild.fetch_member(member_id)
+                    except (discord.NotFound, discord.Forbidden):
+                        member = None
                     except discord.HTTPException:
-                        log.exception("Temporary role expiry rollback failed for %s", key)
-                continue
-            if member and role:
-                await send_log(guild.id, title="⌛ Temporary role expired",
-                    description=f"Removed {role.mention} from {member.mention}.",
-                    category="moderation", fields=[("Role ID", str(role_id)), ("Member ID", str(member_id))])
+                        continue
+                role = guild.get_role(role_id)
+                if member and role and role in member.roles:
+                    try:
+                        await member.remove_roles(role, reason="Cinnamon temporary role expired")
+                    except discord.HTTPException:
+                        log.exception("Could not expire temporary role %s", key)
+                        continue
+                previous = record
+                records.pop(key, None)
+                if not await bd_save_data():
+                    records[key] = previous
+                    log.error("Could not persist expiry for temporary role %s", key)
+                    if member and role and role not in member.roles:
+                        try:
+                            await member.add_roles(role, reason="Temporary role expiry save failed; restoring")
+                        except discord.HTTPException:
+                            log.exception("Temporary role expiry rollback failed for %s", key)
+                    continue
+                if member and role:
+                    await send_log(guild.id, title="⌛ Temporary role expired",
+                        description=f"Removed {role.mention} from {member.mention}.",
+                        category="moderation", fields=[("Role ID", str(role_id)), ("Member ID", str(member_id))])
 
 @bot.listen("on_ready")
 async def _temporary_role_start():
