@@ -329,6 +329,29 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("@_temp_role_serialized", source)
         self.assertIn("async with lock:", source)
 
+    async def test_temporary_role_save_converts_storage_exception_to_failure(self):
+        async def broken_save():
+            raise OSError("storage unavailable")
+        namespace = {"bd_save_data": broken_save, "log": SimpleNamespace(exception=lambda *a, **k: None)}
+        save = extract_function(ROOT / "cinnamon_modules/general_moderation.py", "_temp_role_save", namespace)
+        self.assertFalse(await save())
+
+    async def test_appeal_submissions_share_the_staff_decision_lock(self):
+        namespace = {"_MC_LOCKS": {}, "asyncio": asyncio}
+        decorate = extract_function(ROOT / "cinnamon_modules/moderation_controls.py", "_mc_submit_serialized", namespace)
+        active = 0
+        maximum = 0
+        async def fake_submit(interaction):
+            nonlocal active, maximum
+            active += 1
+            maximum = max(maximum, active)
+            await asyncio.sleep(0)
+            active -= 1
+        wrapped = decorate(fake_submit)
+        guild = SimpleNamespace(id=1)
+        await asyncio.gather(wrapped(SimpleNamespace(guild=guild)), wrapped(SimpleNamespace(guild=guild)))
+        self.assertEqual(maximum, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
