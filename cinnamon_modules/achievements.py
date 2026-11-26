@@ -236,9 +236,18 @@ async def _unlock(g,u,aid,secret=False,reason=""):
         a=pool[aid]
         s[key].append(aid)
         s["points"]+=int(a.get("points",0) or 0)
-        if a.get("catnip"):
-            economy_balances[balance_key]=economy_balance(g,u)+int(a["catnip"])
-        xp_data[balance_key]=int(xp_data.get(balance_key,0))+int(a.get("xp",0))
+        catnip_reward=int(a.get("catnip",0) or 0)
+        bonus_fn=globals().get("collectible_pet_catnip_bonus")
+        if callable(bonus_fn):
+            catnip_reward=bonus_fn(g,u,catnip_reward)
+        xp_reward=int(a.get("xp",0) or 0)
+        pet_fn=globals().get("_collectible_pet_ability")
+        pet=pet_fn(g,u) if callable(pet_fn) else {}
+        if pet.get("ability") in {"xp","all_rewards"}:
+            xp_reward += int(xp_reward * float(pet.get("value",0.0)))
+        if catnip_reward:
+            economy_balances[balance_key]=economy_balance(g,u)+catnip_reward
+        xp_data[balance_key]=int(xp_data.get(balance_key,0))+xp_reward
         pet_data = None
         old_pet_slots = None
         pet_slots = int((globals().get("achievement_config", {}).get(int(g), {}) or {}).get("pet_slot_rewards", {}).get(aid, a.get("pet_slots", 0)) or 0)
@@ -266,7 +275,7 @@ async def _unlock(g,u,aid,secret=False,reason=""):
         wallet_lock.release()
         wallet_locked=False
         member=bot.get_guild(g).get_member(u) if bot.get_guild(g) else None
-        if member and int(a.get("xp",0)):
+        if member and xp_reward:
             try: await sync_level_roles(member,level_from_xp(xp_data[balance_key]))
             except Exception: pass
         role_ok=await _assign_role(g,u,aid,a["role"]) if a.get("role") else None
