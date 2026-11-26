@@ -251,6 +251,9 @@ async def on_ready():
 
         # First-run-only setup for the extended features below.
         await bd_load_data()
+        migrate_qp = globals().get("migrate_legacy_quest_currency")
+        if callable(migrate_qp) and migrate_qp():
+            await bd_save_data()
         for role_id in reaction_role_ids:
             bot.add_view(ReactionRoleView(role_id))
         bot.add_view(GiveawayView())  # persistent: matched by custom_id, state looked up by message ID
