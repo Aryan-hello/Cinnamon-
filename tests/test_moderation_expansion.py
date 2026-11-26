@@ -26,6 +26,11 @@ class ModerationExpansionTests(unittest.TestCase):
         self.assertIn("appeal_channel_id", self.controls)
         self.assertIn("private so member details are not exposed", self.controls)
         self.assertIn("await bd_save_data()", self.controls)
+        self.assertIn("_mc_decide_appeal", self.controls)
+        self.assertIn("You already have a pending appeal", self.controls)
+        self.assertIn("up to two appeals per server every 24 hours", self.controls)
+        self.assertIn("Moderation appeal decision", self.controls)
+        self.assertIn("Moderation appeal submitted", self.controls)
 
     def test_verification_autorole_and_onboarding_exist(self):
         self.assertIn('name="verification"', self.controls)
