@@ -55,21 +55,18 @@ def _collectible_pet_ability(guild_id, user_id):
     catalog = next((p for p in _COLLECTIBLE_PET_CATALOG if p["species"] == pet.get("species")), {})
     level = max(1, min(_PET_ABILITY_MAX_LEVEL, int(pet.get("level", 1) or 1)))
     ability = catalog.get("ability")
-    if ability in {"work_income", "crime_income", "fine_amount", "shop_discount", "xp", "fish_sale"}:
+    if ability in {"work_income", "crime_income", "fine_amount", "shop_discount", "xp", "fish_sale", "forage"}:
         value = 0.01 * level
-    elif ability in {"fine_chance", "rare_fish", "forage"}:
+    elif ability in {"fine_chance", "rare_fish", "all_rewards"}:
         value = 0.005 * level
-    elif ability == "all_rewards":
-        value = 0.005 * level
-    elif ability in {"mystery_chance", "ingredient_refund", "box_upgrade"}:
-        value = 0.01 * level
-    elif ability == "shop_steal":
-        value = 0.01 * level
-    elif ability == "penguin":
+    elif ability == "mystery_chance":
+        value = 0.0025 * level
+    elif ability in {"ingredient_refund", "box_upgrade", "shop_steal", "penguin"}:
         value = 0.01 * level
     else:
         value = 0.0
-    return {"pet": pet, "species": pet.get("species"), "ability": ability, "level": level, "value": value}
+    secondary = 0.005 * level if ability in {"fox", "penguin"} else 0.0
+    return {"pet": pet, "species": pet.get("species"), "ability": ability, "level": level, "value": value, "secondary_value": secondary}
 
 
 def _collectible_pet_user(guild_id, user_id):
@@ -218,7 +215,10 @@ async def prefix_crime(ctx):
     had_cooldown = cooldown_key in economy_cooldowns
     previous_cooldown = economy_cooldowns.get(cooldown_key)
     perks = _collectible_pet_perks(gid, uid)
-    chance = min(0.72, 0.55 + perks["luck"])
+    ability = perks.get("ability")
+    # Duck and Fox reduce fine probability; Bunny reduces fine size.
+    fine_chance_reduction = perks.get("value", 0.0) if ability == "fine_chance" else (perks.get("secondary_value", 0.0) if ability == "fox" else 0.0)
+    chance = min(0.72, 0.55 + fine_chance_reduction)
     caper = _cp_random.choice([
         "entered Cinnamon's imaginary cookie tournament",
         "tried to borrow a cardboard crown in a pretend story",
@@ -228,12 +228,14 @@ async def prefix_crime(ctx):
     ])
     before = economy_balance(gid, uid)
     if _cp_random.random() < chance:
-        reward = int(_cp_random.randint(100, 260) * (1.0 + perks["reward"]))
+        reward_bonus = perks.get("value", 0.0) if ability in {"crime_income", "fox"} else 0.0
+        reward = int(_cp_random.randint(100, 260) * (1.0 + reward_bonus))
         economy_balances[balance_key] = before + reward
         outcome = f"**Success!** Your fictional caper {caper} and you got **+{reward:,} Catnip**."
         change = reward
     else:
-        fine = min(before, int(_cp_random.randint(40, 100) * (1.0 - perks["fine_guard"])))
+        fine_reduction = perks.get("value", 0.0) if ability == "fine_amount" else 0.0
+        fine = min(before, int(_cp_random.randint(40, 100) * (1.0 - fine_reduction)))
         economy_balances[balance_key] = before - fine
         outcome = f"**Caught!** The pretend snack inspector stopped the caper. Your cartoon fine was **-{fine:,} Catnip**."
         change = -fine
