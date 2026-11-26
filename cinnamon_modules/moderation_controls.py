@@ -6,6 +6,7 @@ import uuid as _mc_uuid
 
 _MC_KEY = "cinnamon_moderation_controls_v1"
 _MC_VIEWS_READY = False
+_MC_LOCKS = {}
 moderation_tools_group = app_commands.Group(name="moderation-tools", description="Verification, onboarding, moderator notes and appeals")
 
 def _mc_root(gid):
@@ -23,6 +24,30 @@ def _mc_root(gid):
 def _mc_is_mod(member):
     perms = getattr(member, "guild_permissions", None)
     return bool(perms and (perms.administrator or perms.manage_messages or perms.moderate_members))
+
+
+async def _mc_decide_appeal(guild_id, appeal_id, decision, moderator_id, note=None):
+    """Serialize appeal decisions and persist exactly one moderator outcome."""
+    lock = _MC_LOCKS.setdefault(int(guild_id), asyncio.Lock())
+    async with lock:
+        cfg = _mc_root(guild_id)
+        record = cfg["appeals"].get(str(appeal_id))
+        if not isinstance(record, dict) or record.get("status") != "pending":
+            return "not_pending", None
+        before = _mc_copy.deepcopy(record)
+        record["status"] = str(decision)
+        record["reviewed_by"] = int(moderator_id)
+        record["reviewed_at"] = int(_mc_time.time())
+        if note is not None:
+            record["review_note"] = str(note or "")[:500]
+        try:
+            saved = await bd_save_data()
+        except Exception:
+            saved = False
+        if not saved:
+            cfg["appeals"][str(appeal_id)] = before
+            return "save_failed", None
+        return "ok", _mc_copy.deepcopy(record)
 
 async def _mc_restore_message(guild, channel_id, message_id, embed, view):
     channel = guild.get_channel(int(channel_id))
@@ -251,15 +276,12 @@ class ModerationAppealView(discord.ui.View):
         async def callback(interaction):
             if not interaction.guild or interaction.guild.id != self.guild_id or not _mc_is_mod(interaction.user):
                 return await interaction.response.send_message("Only moderators can review appeals.", ephemeral=True)
-            cfg = _mc_root(self.guild_id)
-            record = cfg["appeals"].get(self.appeal_id)
-            if not isinstance(record, dict) or record.get("status") != "pending":
+            result, record = await _mc_decide_appeal(
+                self.guild_id, self.appeal_id, decision, interaction.user.id
+            )
+            if result == "not_pending":
                 return await interaction.response.send_message("This appeal has already been reviewed.", ephemeral=True)
-            before = _mc_copy.deepcopy(record)
-            record["status"], record["reviewed_by"] = decision, int(interaction.user.id)
-            record["reviewed_at"] = int(_mc_time.time())
-            if not await bd_save_data():
-                cfg["appeals"][self.appeal_id] = before
+            if result != "ok":
                 return await interaction.response.send_message("Couldn't save the appeal decision.", ephemeral=True)
             embed = discord.Embed(title="Moderation appeal " + decision.title(),
                 description="The appeal has been reviewed by server moderation.",
@@ -315,16 +337,12 @@ async def moderation_appeal_submit(interaction: discord.Interaction, guild_id: s
                                 app_commands.Choice(name="Declined", value="declined")])
 async def moderation_appeal_review(interaction: discord.Interaction, appeal_id: str,
                                    decision: app_commands.Choice[str], note: str = ""):
-    cfg = _mc_root(interaction.guild.id)
-    record = cfg["appeals"].get(str(appeal_id))
-    if not isinstance(record, dict) or record.get("status") != "pending":
-        return await cinnamon_send(interaction, "Pending appeal not found.", ephemeral=True)
-    before = _mc_copy.deepcopy(record)
-    record["status"], record["reviewed_by"] = decision.value, int(interaction.user.id)
-    record["review_note"] = str(note or "")[:500]
-    record["reviewed_at"] = int(_mc_time.time())
-    if not await bd_save_data():
-        cfg["appeals"][str(appeal_id)] = before
+    result, record = await _mc_decide_appeal(
+        interaction.guild.id, str(appeal_id), decision.value, interaction.user.id, note
+    )
+    if result == "not_pending":
+        return await cinnamon_send(interaction, "Pending appeal not found or already reviewed.", ephemeral=True)
+    if result != "ok":
         return await cinnamon_send(interaction, "Couldn't save the appeal decision.", ephemeral=True)
     try:
         user = await bot.fetch_user(int(record.get("user_id", 0)))
