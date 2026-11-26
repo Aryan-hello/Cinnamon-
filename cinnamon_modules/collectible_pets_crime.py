@@ -21,6 +21,12 @@ _COLLECTIBLE_PET_CATALOG = [
     {"species":"Phoenix Chick","emoji":"🐦‍🔥","rarity":"Legendary","weight":0.6,"ability":"ingredient_refund"},
     {"species":"Moon Fox","emoji":"🌙","rarity":"Legendary","weight":0.5,"ability":"box_upgrade"},
     {"species":"Raccoon","emoji":"🦝","rarity":"Mythical","weight":0.15,"ability":"shop_steal"},
+    {"species":"Griffin","emoji":"🦅","rarity":"Mythical","weight":0.08,"ability":"mission_master"},
+    {"species":"Kitsune","emoji":"🦊","rarity":"Mythical","weight":0.08,"ability":"double_illusion"},
+    {"species":"Kraken","emoji":"🐙","rarity":"Mythical","weight":0.08,"ability":"treasure_hunter"},
+    {"species":"Golem","emoji":"🗿","rarity":"Mythical","weight":0.08,"ability":"unbreakable_core"},
+    {"species":"Starling","emoji":"🌟","rarity":"Mythical","weight":0.08,"ability":"cosmic_jackpot"},
+    {"species":"Owl","emoji":"🦉","rarity":"Mythical","weight":0.08,"ability":"night_watch"},
 ]
 
 _PET_ABILITY_MAX_LEVEL = 10
@@ -95,6 +101,12 @@ def _collectible_pet_ability(guild_id, user_id):
         value = 0.005 + ((level - 1) * (0.02 / 9.0))
     elif ability in {"ingredient_refund", "box_upgrade", "shop_steal", "penguin"}:
         value = 0.01 * level
+    elif ability in {"treasure_hunter", "cosmic_jackpot"}:
+        value = 0.005 * level
+    elif ability == "unbreakable_core":
+        value = 0.015 * level
+    elif ability in {"mission_master", "night_watch"}:
+        value = 0.05 * level
     else:
         value = 0.0
     secondary = 0.005 * level if ability in {"fox", "penguin"} else 0.0
@@ -198,6 +210,8 @@ def collectible_pet_catnip_bonus(guild_id, user_id, amount):
     pet = _collectible_pet_ability(guild_id, user_id)
     if pet.get("ability") == "all_rewards":
         return amount + int(amount * float(pet.get("value", 0.0)))
+    if pet.get("ability") == "cosmic_jackpot" and _cp_random.random() < float(pet.get("value", 0.0)):
+        return amount * 2
     return amount
 
 def _collectible_pet_perks(guild_id, user_id):
@@ -220,7 +234,10 @@ def _collectible_pet_embed(owner, data):
             "fish_sale":"Fish sale bonus", "shop_discount":"Shop discount", "rare_fish":"Rare fish chance",
             "xp":"XP bonus", "forage":"Bonus ingredients", "penguin":"Double fish + fish return",
             "all_rewards":"XP + Catnip bonus", "ingredient_refund":"Crafting ingredient refund",
-            "box_upgrade":"Mystery Box tier upgrade", "shop_steal":"Shop item theft"
+            "box_upgrade":"Mystery Box tier upgrade", "shop_steal":"Shop item theft",
+            "mission_master":"Mission cooldown reduction", "double_illusion":"Double Mystery Box reward",
+            "treasure_hunter":"Fishing treasure chest discovery", "unbreakable_core":"Ingredient preservation",
+            "cosmic_jackpot":"Catnip reward doubling", "night_watch":"Bonus mission reward"
         }
         if ability.get("ability") == "admin_hourly_income":
             description += "\\nAbility: **Hourly Catnip Generator** · 1,000–5,000 Catnip per hour via " + ability.get("income_method", "a special method")
