@@ -239,9 +239,17 @@ async def advanced_maybe_award_box(guild_id: int, user, source: str, chance: flo
     """Award one tiered box using source-specific chances and rarity weights."""
     source_key = str(source).lower().split()[0]
     chance = MYSTERY_SOURCE_CHANCES.get(source_key, MYSTERY_SOURCE_CHANCES["default"]) if chance is None else max(0.0, min(1.0, float(chance)))
+    pet_fn = globals().get("_collectible_pet_ability")
+    pet = pet_fn(guild_id, user.id) if callable(pet_fn) else {}
+    if pet.get("ability") == "mystery_chance" and source_key in {"work", "crime"}:
+        chance = min(1.0, chance + float(pet.get("value", 0.0)))
     if random.random() >= chance:
         return False
     tier = _roll_box_tier()
+    if pet.get("ability") == "box_upgrade" and random.random() < float(pet.get("value", 0.0)):
+        tier_order = list(BOX_TIERS)
+        if tier in tier_order and tier_order.index(tier) < len(tier_order) - 1:
+            tier = tier_order[tier_order.index(tier) + 1]
     _set_box_count(guild_id, user.id, _box_count(guild_id, user.id, tier) + 1, tier)
     await bd_save_data()
     await economy_log(guild_id, title=f"{BOX_TIERS[tier]['emoji']} {BOX_TIERS[tier]['label']} Mystery Box earned", fields=[
@@ -761,6 +769,20 @@ async def economy_do_work(guild_id: int, user):
     if remaining:
         return False, 0, f"⏳ Cinnamon already has you on shift. Come back in **{remaining // 60}m {remaining % 60}s**."
     amount = random.randint(ECONOMY_WORK_MIN, ECONOMY_WORK_MAX)
+    pet_fn = globals().get("_collectible_pet_ability")
+    pet = pet_fn(guild_id, user.id) if callable(pet_fn) else {}
+    if pet.get("ability") == "work_income":
+        amount += int(amount * float(pet.get("value", 0.0)))
+    found_ingredient = None
+    if pet.get("ability") == "forage" and random.random() < float(pet.get("value", 0.0)):
+        recipes = globals().get("CRAFTING_RECIPES", {})
+        ingredients = sorted({item_id for recipe in recipes.values() if isinstance(recipe, dict) for item_id in (recipe.get("ingredients", {}) or {})})
+        if ingredients:
+            found_ingredient = random.choice(ingredients)
+            inv = economy_inventory_for(guild_id, user.id)
+            inv[found_ingredient] = int(inv.get(found_ingredient, 0)) + 1
+    steal_fn = globals().get("collectible_pet_raccoon_steal")
+    stolen_item = steal_fn(guild_id, user.id) if callable(steal_fn) else None
     economy_cooldowns[(guild_id, user.id, "work")] = time.time() + ECONOMY_WORK_COOLDOWN
     before = economy_balance(guild_id, user.id)
     economy_balances[(guild_id, user.id)] = before + amount
@@ -773,7 +795,7 @@ async def economy_do_work(guild_id: int, user):
         pass
     box = await advanced_maybe_award_box(guild_id, user, "work", chance=0.12)
     await bd_save_data()
-    await economy_log(guild_id, title="💼 Work completed", fields=[("User", f"{user} ({user.id})"), ("Earned", f"+{amount:,} Catnip"), ("Balance", f"{before+amount:,}"), ("Mystery Box", "Yes" if box else "No")])
+    await economy_log(guild_id, title="💼 Work completed", fields=[("User", f"{user} ({user.id})"), ("Earned", f"+{amount:,} Catnip"), ("Balance", f"{before+amount:,}"), ("Mystery Box", "Yes" if box else "No"), ("Foraged ingredient", str(found_ingredient or "None")), ("Raccoon theft", str(stolen_item or "None"))])
     message = random.choice(WORK_MESSAGES).format(amount=amount)
     if box:
         message += " 🎁 Cinnamon also found a Mystery Box in your paperwork."
