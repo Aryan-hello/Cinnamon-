@@ -232,6 +232,10 @@ class CinnamonShopView(discord.ui.LayoutView):
                 owned = int(economy_inventory_for(self.guild_id, self.user_id).get(item_id, 0))
                 limit_text = f"Limit: {limit}" if limit else "No limit"
                 price = _cm_price(self.guild_id, self.user_id, item_id, item.get("price", 0))
+                pet_fn = globals().get("_collectible_pet_ability")
+                pet = pet_fn(self.guild_id, self.user_id) if callable(pet_fn) else {}
+                if item.get("pet_abilities_enabled") and pet.get("ability") == "shop_discount":
+                    price = max(1, int(price * (1.0 - float(pet.get("value", 0.0)))))
                 name = item.get("name", item_id)
                 emoji = item.get("emoji", "🐾")
                 desc = cinnamon_ui_literal(item.get("description", "No description provided."), 210)
@@ -304,14 +308,21 @@ class CinnamonShopView(discord.ui.LayoutView):
                 inv = economy_inventory_for(guild_id, user_id)
                 current_qty = int(inv.get(item_id, 0))
                 price = _cm_price(guild_id, user_id, item_id, data.get("price", 0))
+                pet_fn = globals().get("_collectible_pet_ability")
+                pet = pet_fn(guild_id, user_id) if callable(pet_fn) else {}
+                if data.get("pet_abilities_enabled") and pet.get("ability") == "shop_discount":
+                    price = max(1, int(price * (1.0 - float(pet.get("value", 0.0)))))
                 balance = economy_balance(guild_id, user_id)
                 if balance < price:
                     return await interaction.followup.send(
                         f"Not enough Catnip. You need {price:,}, but have {balance:,}.",
                         ephemeral=True)
+                before_inventory = dict(inv)
                 old_stock = data.get("stock_quantity")
                 economy_balances[(guild_id, user_id)] = balance - price
                 inv[item_id] = current_qty + 1
+                steal_fn = globals().get("collectible_pet_raccoon_steal")
+                stolen_item = steal_fn(guild_id, user_id) if callable(steal_fn) else None
                 if not data.get("stock_unlimited", True):
                     data["stock_quantity"] = max(0, int(data.get("stock_quantity", 0)) - 1)
                 try:
@@ -320,10 +331,8 @@ class CinnamonShopView(discord.ui.LayoutView):
                         raise RuntimeError("Economy storage did not confirm the save.")
                 except Exception:
                     economy_balances[(guild_id, user_id)] = balance
-                    if current_qty:
-                        inv[item_id] = current_qty
-                    else:
-                        inv.pop(item_id, None)
+                    inv.clear()
+                    inv.update(before_inventory)
                     if old_stock is not None:
                         data["stock_quantity"] = old_stock
                     return await interaction.followup.send(
@@ -334,7 +343,8 @@ class CinnamonShopView(discord.ui.LayoutView):
             await interaction.edit_original_response(view=fresh)
             await interaction.followup.send(
                 f"Purchased **1 × {cinnamon_ui_literal(data.get('name', item_id), 90)}** "
-                f"for **{price:,} Catnip**. Remaining: **{balance - price:,}**.",
+                f"for **{price:,} Catnip**. Remaining: **{balance - price:,}**."
+                + (f" Your Raccoon also stole **{cinnamon_ui_literal(stolen_item, 90)}**!" if stolen_item else ""),
                 ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
             await _shop_item_run_actions(interaction, item_id, "bought")
             try:
