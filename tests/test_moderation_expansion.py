@@ -60,6 +60,8 @@ class ModerationExpansionTests(unittest.TestCase):
         self.assertIn("expires_at", self.general)
         self.assertIn("role >= me.top_role", self.general)
         self.assertIn("await bd_save_data()", self.general)
+        self.assertIn("@_temp_role_serialized", self.general)
+        self.assertIn("Do not discard the expiry record", self.general)
     def test_antiraid_has_defaults_and_burst_alert_cooldown(self):
         self.assertIn('DEFAULT_ANTIRAID = {"enabled": False', self.setup)
         self.assertIn("_ANTIRAID_ALERT_COOLDOWN", self.setup)
