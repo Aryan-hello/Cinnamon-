@@ -2226,7 +2226,8 @@ def _appeal_portal_config(guild_id, token):
     root = advanced.get("cinnamon_moderation_controls_v1", {}) if isinstance(advanced, dict) else {}
     cfg = root.get(str(int(guild_id)), {}) if isinstance(root, dict) else {}
     saved = str(cfg.get("appeal_portal_token", "") or "") if isinstance(cfg, dict) else ""
-    if not saved or not secrets.compare_digest(saved, str(token)):
+    if (not saved or not secrets.compare_digest(saved, str(token))
+            or not int(cfg.get("appeal_channel_id", 0) or 0)):
         return None
     return cfg
 
@@ -2851,14 +2852,19 @@ def dashboard_action():
                 raise ValueError("Choose a valid public appeal link channel.")
             if public_channel and not public_channel.permissions_for(guild.default_role).view_channel:
                 raise ValueError("The appeal link channel must be visible to server members.")
+            if public_channel and not channel:
+                raise ValueError("Configure a private moderator review channel before publishing an appeal portal.")
             async def save_appeal_channels():
                 root=state["advanced_features_data"].setdefault("cinnamon_moderation_controls_v1",{})
                 cfg=root.setdefault(str(gid),{})
                 before=copy.deepcopy(cfg)
                 cfg["appeal_channel_id"]=int(channel.id) if channel else 0
                 cfg["appeal_public_channel_id"]=int(public_channel.id) if public_channel else 0
-                if not cfg.get("appeal_portal_token"):
-                    cfg["appeal_portal_token"]=secrets.token_urlsafe(32)
+                if channel:
+                    if not cfg.get("appeal_portal_token"):
+                        cfg["appeal_portal_token"]=secrets.token_urlsafe(32)
+                else:
+                    cfg.pop("appeal_portal_token",None)
                 try:
                     saved=await state["bd_save_data"]()
                 except Exception:
@@ -2895,8 +2901,8 @@ def dashboard_action():
                 cfg=root.setdefault(str(gid),{})
                 token=str(cfg.get("appeal_portal_token","") or "")
                 channel=guild.get_channel(int(cfg.get("appeal_public_channel_id",0) or 0))
-                if not token:
-                    raise ValueError("Save appeal settings first to generate the portal link.")
+                if not token or not int(cfg.get("appeal_channel_id",0) or 0):
+                    raise ValueError("Configure the private moderator review channel first.")
                 if not isinstance(channel,discord_module.TextChannel):
                     raise ValueError("Choose a public appeal link channel first.")
                 portal=(os.getenv("RENDER_EXTERNAL_URL", "https://cinnamon-c328.onrender.com").rstrip("/") +
