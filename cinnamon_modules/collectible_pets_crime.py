@@ -105,8 +105,10 @@ def _collectible_pet_ability(guild_id, user_id):
         value = 0.005 * level
     elif ability == "unbreakable_core":
         value = 0.015 * level
-    elif ability in {"mission_master", "night_watch"}:
+    elif ability == "mission_master":
         value = 0.05 * level
+    elif ability == "night_watch":
+        value = 0.01 * level
     else:
         value = 0.0
     secondary = 0.005 * level if ability in {"fox", "penguin"} else 0.0
