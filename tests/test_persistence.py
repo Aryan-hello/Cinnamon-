@@ -100,6 +100,20 @@ class PersistenceBehaviorTests(unittest.TestCase):
         self.assertEqual(remaining(11, 42, "give:67890"), 1200)
         self.assertEqual(remaining(22, 42, "income:12345"), 1300)
 
+    def test_legacy_catalog_snapshot_migrates_new_builtins_once(self):
+        ns = persistence_runtime()
+        old_items = copy.deepcopy(ns["ECONOMY_ITEMS"])
+        old_items.pop("fishing_string", None)
+
+        ns["_bd_decode"]({"economy_items": old_items})
+        self.assertIn("fishing_string", ns["ECONOMY_ITEMS"])
+
+        # After the migration is saved with a catalog version, later admin
+        # removals must not be undone by another restart.
+        del ns["ECONOMY_ITEMS"]["fishing_string"]
+        restored = restart(ns)
+        self.assertNotIn("fishing_string", restored["ECONOMY_ITEMS"])
+
     def test_catalog_preserves_custom_items_edits_and_removals(self):
         ns = persistence_runtime()
         del ns["ECONOMY_ITEMS"]["tuna"]
