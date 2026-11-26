@@ -274,6 +274,17 @@ async def moderation_appeal_settings(interaction: discord.Interaction, channel: 
         return await cinnamon_send(interaction, "Couldn't save appeal settings.", ephemeral=True)
     await cinnamon_send(interaction, "Appeals will be sent to " + channel.mention + "." if channel else "Appeals are disabled.", ephemeral=True)
 
+class ModerationAppealPortalView(discord.ui.View):
+    """Public channel panel linking to the verified web appeal portal."""
+    def __init__(self, portal_url):
+        super().__init__(timeout=None)
+        self.add_item(discord.ui.Button(
+            label="Submit an appeal",
+            style=discord.ButtonStyle.link,
+            url=str(portal_url),
+        ))
+
+
 class ModerationAppealView(discord.ui.View):
     def __init__(self, guild_id, appeal_id, disabled=False):
         super().__init__(timeout=None)
@@ -321,42 +332,29 @@ class ModerationAppealView(discord.ui.View):
                 log.exception("Could not write appeal decision audit log")
         return callback
 
-@appeal_group.command(name="submit", description="Submit an appeal to a server from a DM with Cinnamon")
-@_mc_submit_serialized
-@app_commands.describe(guild_id="Server ID for the moderation action", details="Explain your appeal")
-async def moderation_appeal_submit(interaction: discord.Interaction, guild_id: str,
-                                   details: app_commands.Range[str, 20, 1500]):
-    if interaction.guild is not None:
-        return await cinnamon_send(interaction, "For privacy, submit appeals by messaging Cinnamon directly.", ephemeral=True)
-    if not str(guild_id).isdigit():
-        return await cinnamon_send(interaction, "That server ID is not valid.", ephemeral=True)
-    guild = bot.get_guild(int(guild_id))
-    if guild is None:
-        return await cinnamon_send(interaction, "Cinnamon isn't in that server.", ephemeral=True)
+async def _mc_create_appeal_locked(guild, user, details):
+    """Create one appeal while the caller holds the guild's appeal lock."""
     cfg = _mc_root(guild.id)
     channel = guild.get_channel(int(cfg.get("appeal_channel_id", 0) or 0))
     if not isinstance(channel, discord.TextChannel):
-        return await cinnamon_send(interaction, "That server hasn't configured a private appeal channel.", ephemeral=True)
+        return "not_configured", None
     now = int(_mc_time.time())
     user_appeals = [
         record for record in cfg["appeals"].values()
-        if isinstance(record, dict) and int(record.get("user_id", 0)) == int(interaction.user.id)
+        if isinstance(record, dict) and int(record.get("user_id", 0)) == int(user.id)
     ]
     if any(record.get("status") == "pending" for record in user_appeals):
-        return await cinnamon_send(interaction, "You already have a pending appeal for this server. Wait for the moderators to review it.", ephemeral=True)
-    recent_submissions = sum(
-        1 for record in user_appeals
-        if now - int(record.get("submitted_at", 0)) < 86400
-    )
-    if recent_submissions >= 2:
-        return await cinnamon_send(interaction, "For fairness, each member can submit up to two appeals per server every 24 hours.", ephemeral=True)
+        return "pending_exists", None
+    if sum(1 for record in user_appeals if now - int(record.get("submitted_at", 0)) < 86400) >= 2:
+        return "rate_limited", None
     appeal_id = _mc_uuid.uuid4().hex[:8]
-    record = {"user_id": int(interaction.user.id), "details": str(details).strip()[:1500],
+    clean_details = str(details).strip()[:1500]
+    record = {"user_id": int(user.id), "details": clean_details,
               "status": "pending", "submitted_at": now}
     embed = discord.Embed(title="📨 Moderation Appeal",
-        description=str(details).strip()[:1500], color=0xE8A05A)
+        description=clean_details, color=0xE8A05A)
     embed.add_field(name="Appeal ID", value=appeal_id, inline=True)
-    embed.add_field(name="Member ID", value=str(interaction.user.id), inline=True)
+    embed.add_field(name="Member ID", value=str(user.id), inline=True)
     embed.set_footer(text="Private moderation channel • Review buttons are moderator-only")
     message = await channel.send(embed=embed, view=ModerationAppealView(guild.id, appeal_id),
                                  allowed_mentions=discord.AllowedMentions.none())
@@ -369,18 +367,51 @@ async def moderation_appeal_submit(interaction: discord.Interaction, guild_id: s
         log.exception("Could not persist moderation appeal submission")
     if not saved:
         cfg["appeals"].pop(appeal_id, None)
-        try: await message.delete()
-        except discord.HTTPException: pass
-        return await cinnamon_send(interaction, "Couldn't safely save your appeal. The post was removed.", ephemeral=True)
-    await cinnamon_send(interaction, f"Your appeal was sent privately to {guild.name}. Reference: {appeal_id}.", ephemeral=True)
+        try:
+            await message.delete()
+        except discord.HTTPException:
+            pass
+        return "save_failed", None
     try:
         await send_log(guild.id, title="Moderation appeal submitted", category="moderation", fields=[
             ("Appeal ID", appeal_id),
-            ("Member ID", str(interaction.user.id)),
+            ("Member ID", str(user.id)),
             ("Submitted at", str(record["submitted_at"])),
         ])
     except Exception:
         log.exception("Could not write appeal submission audit log")
+    return "ok", appeal_id
+
+
+async def _mc_submit_appeal_web(guild, user, details):
+    """Web portal entry point; shares the exact same per-guild lock and limits."""
+    lock = _MC_LOCKS.setdefault(int(guild.id), asyncio.Lock())
+    async with lock:
+        return await _mc_create_appeal_locked(guild, user, details)
+
+
+@appeal_group.command(name="submit", description="Submit an appeal to a server from a DM with Cinnamon")
+@_mc_submit_serialized
+@app_commands.describe(guild_id="Server ID for the moderation action", details="Explain your appeal")
+async def moderation_appeal_submit(interaction: discord.Interaction, guild_id: str,
+                                   details: app_commands.Range[str, 20, 1500]):
+    if interaction.guild is not None:
+        return await cinnamon_send(interaction, "For privacy, submit appeals by messaging Cinnamon directly.", ephemeral=True)
+    if not str(guild_id).isdigit():
+        return await cinnamon_send(interaction, "That server ID is not valid.", ephemeral=True)
+    guild = bot.get_guild(int(guild_id))
+    if guild is None:
+        return await cinnamon_send(interaction, "Cinnamon isn't in that server.", ephemeral=True)
+    status, appeal_id = await _mc_create_appeal_locked(guild, interaction.user, details)
+    messages = {
+        "not_configured": "That server hasn't configured a private appeal channel.",
+        "pending_exists": "You already have a pending appeal for this server. Wait for the moderators to review it.",
+        "rate_limited": "For fairness, each member can submit up to two appeals per server every 24 hours.",
+        "save_failed": "Couldn't safely save your appeal. The post was removed.",
+    }
+    if status != "ok":
+        return await cinnamon_send(interaction, messages.get(status, "Your appeal couldn't be submitted."), ephemeral=True)
+    await cinnamon_send(interaction, f"Your appeal was sent privately to {guild.name}. Reference: {appeal_id}.", ephemeral=True)
 
 @appeal_group.command(name="review", description="Review an appeal by ID")
 @app_commands.guild_only()
