@@ -52,6 +52,28 @@ class DashboardExpansionTests(unittest.TestCase):
         end = self.source.index("def _community(guild,state):", start)
         self.assertNotIn("wildlands_", self.source[start:end])
 
+    def test_public_appeal_portal_requires_discord_oauth_and_server_membership(self):
+        self.assertIn('def appeal_portal_login(guild_id, token):', self.source)
+        self.assertIn('"scope": "identify"', self.source)
+        self.assertIn('def appeal_portal_form(guild_id, token):', self.source)
+        self.assertIn('guild.fetch_member(int(user_id))', self.source)
+        self.assertIn('_check_appeal_csrf()', self.source)
+        self.assertIn('_appeal_portal_config(guild_id, token)', self.source)
+
+    def test_appeal_portal_uses_shared_limits_and_private_submission_service(self):
+        self.assertIn('state.get("submit_moderation_appeal")', self.source)
+        self.assertIn('async def _mc_submit_appeal_web(guild, user, details):', (ROOT / "cinnamon_modules" / "moderation_controls.py").read_text(encoding="utf-8"))
+        self.assertIn('appeal_public_channel_id', self.source)
+        self.assertIn('appeal_channel_id', self.source)
+        self.assertIn('class ModerationAppealPortalView', (ROOT / "cinnamon_modules" / "moderation_controls.py").read_text(encoding="utf-8"))
+        self.assertIn('appeal_portal_publish', self.source)
+        self.assertIn('appeal_portal_rotate', self.source)
+
+    def test_portal_oauth_callback_preserves_appeal_flow(self):
+        self.assertIn('portal_flow=session.pop("appeal_oauth",None)', self.source)
+        self.assertIn('session["appeal_sid"]=sid', self.source)
+        self.assertIn('The previous public link has been revoked.', self.source)
+
 
 if __name__ == "__main__":
     unittest.main()
