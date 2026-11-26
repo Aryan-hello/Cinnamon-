@@ -2291,7 +2291,9 @@ def appeal_portal_form(guild_id, token):
             or session.get("appeal_portal_token") != token
             or sid not in _tokens):
         return redirect(url_for("cinnamon_dashboard.appeal_portal", guild_id=guild_id, token=token))
-    guild = _bot.get_guild(int(guild_id)) if _bot else None
+    if not _bot or not _bot.is_ready():
+        return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>Cinnamon is restarting or reconnecting. Please try again in a moment.</p></article></main>", "Appeal portal", status=503)
+    guild = _bot.get_guild(int(guild_id))
     if guild is None:
         return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>Cinnamon is not connected to this server right now. Please try again later.</p></article></main>", "Appeal portal", status=503)
     user_id = str(_tokens[sid].get("user", {}).get("id", ""))
