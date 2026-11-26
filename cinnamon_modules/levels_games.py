@@ -159,6 +159,10 @@ async def award_xp(message: discord.Message):
     old_xp = xp_data.get(key, 0)
     old_level = level_from_xp(old_xp)
     xp_amount, _ = xp_settings_for_guild(guild_id)
+    pet_fn = globals().get("_collectible_pet_ability")
+    pet = pet_fn(guild_id, message.author.id) if callable(pet_fn) else {}
+    if pet.get("ability") in {"xp", "all_rewards"}:
+        xp_amount += int(xp_amount * float(pet.get("value", 0.0)))
     new_xp = old_xp + xp_amount
     xp_data[key] = new_xp
     _record_season_xp(guild_id, message.author.id, xp_amount)
