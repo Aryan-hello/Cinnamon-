@@ -42,6 +42,40 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(second.locked())
         second.release()
 
+    async def test_market_transaction_rolls_back_when_storage_raises(self):
+        balances = {(1, 7): 900}
+        inventory = {7: {"tuna": 2}}
+        records = {"listing": {"status": "active"}}
+
+        async def broken_save():
+            raise OSError("storage unavailable")
+
+        namespace = {
+            "bd_save_data": broken_save,
+            "economy_balances": balances,
+            "economy_inventory_for": lambda guild_id, user_id: inventory.setdefault(int(user_id), {}),
+            "log": SimpleNamespace(exception=lambda *args, **kwargs: None),
+        }
+        persist = extract_function(
+            ROOT / "cinnamon_modules/economy_marketplace.py",
+            "_market_persist_or_rollback",
+            namespace,
+        )
+        inventory[7]["tuna"] = 0
+        balances[(1, 7)] = 100
+        records["listing"]["status"] = "sold"
+        saved = await persist(
+            1,
+            {7: (900, {"tuna": 2})},
+            records,
+            {"listing": {"status": "active"}},
+        )
+
+        self.assertFalse(saved)
+        self.assertEqual(balances[(1, 7)], 900)
+        self.assertEqual(inventory[7], {"tuna": 2})
+        self.assertEqual(records["listing"]["status"], "active")
+
     async def test_repair_rod_rolls_back_inventory_and_state_when_save_fails(self):
         inventory = {"fishing_line": 1}
         player = {"rod_broken": True}
