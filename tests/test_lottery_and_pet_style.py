@@ -36,6 +36,14 @@ class LotteryAndPetStyleTests(unittest.TestCase):
         self.assertIn('@tasks.loop(minutes=1)', self.source)
         self.assertIn('await bot.wait_until_ready()', self.source)
         self.assertIn('ends_at', self.source)
+        self.assertIn('_f_random.SystemRandom().choice(entries)', self.source)
+        self.assertIn('sorted({int(uid) for uid in raffle.get("entries", [])})', self.source)
+
+    def test_raffle_and_pet_wallet_mutations_share_economy_locks(self):
+        self.assertIn('_CINNAMON_SHOP_LOCKS.setdefault', self.source)
+        self.assertIn('_lottery_member_locks', self.source)
+        self.assertIn('_lottery_acquire', self.source)
+        self.assertIn('_lottery_release', self.source)
 
     def test_pet_accessories_are_cosmetic_and_persistent(self):
         self.assertIn('name="pet-style"', self.source)
