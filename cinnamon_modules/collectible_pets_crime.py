@@ -142,17 +142,25 @@ def collectible_pet_raccoon_steal(guild_id, user_id):
     pet = _collectible_pet_ability(guild_id, user_id)
     if pet.get("ability") != "shop_steal" or _cp_random.random() >= float(pet.get("value", 0.0)):
         return None
-    eligible = [
-        (str(item_id), item) for item_id, item in ECONOMY_ITEMS.items()
-        if isinstance(item, dict) and item.get("shop_enabled", True)
-        and item.get("pet_abilities_enabled", False)
-    ]
+    inventory = economy_inventory_for(guild_id, user_id)
+    expired_fn = globals().get("_shop_item_expired")
+    eligible = []
+    for item_id, item in ECONOMY_ITEMS.items():
+        if not isinstance(item, dict) or not item.get("shop_enabled", True) or not item.get("pet_abilities_enabled", False):
+            continue
+        if not item.get("stock_unlimited", True) and int(item.get("stock_quantity", 0) or 0) <= 0:
+            continue
+        if callable(expired_fn) and expired_fn(item):
+            continue
+        limit = max(0, int(item.get("max_per_person", 0) or 0))
+        if limit and int(inventory.get(str(item_id), 0)) >= limit:
+            continue
+        eligible.append((str(item_id), item))
     if not eligible:
         return None
     # Price-weighted odds: expensive eligible items are possible but progressively rarer.
     weights = [1.0 / max(1, int(item.get("price", 1))) for _, item in eligible]
     item_id, item = _cp_random.choices(eligible, weights=weights, k=1)[0]
-    inventory = economy_inventory_for(guild_id, user_id)
     inventory[item_id] = int(inventory.get(item_id, 0)) + 1
     return str(item.get("name", item_id))
 
