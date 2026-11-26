@@ -1327,7 +1327,7 @@ def _overview(guild, state):
     quest_rows = "".join(
         "<div class='rowitem'><span class='rowmain'><b>" + _esc(pool.get(qid, {}).get("name", qid)) + "</b>"
         "<small>" + ("Daily" if kind == "Daily" else "Weekly") + " rotation</small></span>"
-        "<span class='rowmeta'>" + f"{as_int(pool.get(qid, {}).get('qp')):,} QP</span></div>"
+        "<span class='rowmeta'>" + f"{as_int(pool.get(qid, {}).get('xp')):,} XP</span></div>"
         for ids, pool, kind in ((daily_ids, daily_defs, "Daily"), (weekly_ids, weekly_defs, "Weekly"))
         for qid in (ids or [])[:3]
     ) or "<p class='empty'>No quest rotation has been generated yet.</p>"
@@ -1608,7 +1608,7 @@ def _quests(guild,state):
         out=[]
         for qid in ids if isinstance(ids,list) else []:
             q=pool.get(qid,{})
-            out.append(f"<tr><td><b>{_esc(q.get('name',qid))}</b></td><td>{_esc(q.get('desc',q.get('description','')))}</td><td>{int(q.get('qp',0)):,} QP + {int(q.get('xp',0)):,} XP</td></tr>")
+            out.append(f"<tr><td><b>{_esc(q.get('name',qid))}</b></td><td>{_esc(q.get('desc',q.get('description','')))}</td><td>{int(q.{int(q.get('xp',0)):,} XP</td></tr>")
         return ''.join(out) or "<tr><td colspan='3'>No rotation has been generated yet.</td></tr>"
     role=qcfg.get("quest_master_role"); role_obj=guild.get_role(int(role)) if str(role).isdigit() else None
     role_form="<div class='field'><label>Quest Master role</label>"+_role_select(guild,"role_id",role)+"</div>"
