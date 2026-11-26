@@ -320,7 +320,7 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
 
     if re.search(r"\b(?:my\s+day|my\s+schedule|today(?:'s)?\s+(?:plan|overview)|personal\s+dashboard|privacy)\b", lower):
         topic = "myday"
-    elif re.search(r"\b(?:my\s+progress|progress|level|xp||achievements)\b", lower):
+    elif re.search(r"\b(?:my\s+progress|progress|level|xp|achievements)\b", lower):
         topic = "progress"
     elif re.search(r"\b(?:reminders?|remind\s+me)\b", lower):
         topic = "reminders"
