@@ -1,5 +1,7 @@
 """Cinnamon achievement system built from the user's master achievement list."""
 
+import copy as _ach_copy
+
 ACHIEVEMENTS = {
     # id: name, requirement, metric/target, rewards. Achievement Points are
     # intentionally 0 until the user finalizes their values.
@@ -211,17 +213,39 @@ async def _unlock(g,u,aid,secret=False,reason=""):
     if aid not in pool: return False
     s=_state(g,u); key="secret_unlocked" if secret else "unlocked"
     if aid in s[key] or aid in s["unlocked"] or aid in s["secret_unlocked"]: return False
-    a=pool[aid]
-    s[key].append(aid); s["points"]+=int(a.get("points",0) or 0)
     guard_key=(g,u,aid)
     if guard_key in _achievement_guard: return False
     _achievement_guard.add(guard_key)
+    state_key=_key(g,u)
+    old_state=_ach_copy.deepcopy(s)
+    balance_key=(int(g),int(u))
+    had_balance=balance_key in economy_balances
+    old_balance=economy_balances.get(balance_key)
+    had_xp=balance_key in xp_data
+    old_xp=xp_data.get(balance_key)
+    a=pool[aid]
     try:
+        s[key].append(aid)
+        s["points"]+=int(a.get("points",0) or 0)
         if a.get("catnip"):
-            economy_balances[(g,u)]=economy_balance(g,u)+int(a["catnip"])
-        await _add_xp(g,u,int(a.get("xp",0)))
+            economy_balances[balance_key]=economy_balance(g,u)+int(a["catnip"])
+        xp_data[balance_key]=int(xp_data.get(balance_key,0))+int(a.get("xp",0))
+        try:
+            saved=await bd_save_data()
+        except Exception:
+            saved=False
+        if not saved:
+            achievement_data[state_key]=old_state
+            if had_balance: economy_balances[balance_key]=old_balance
+            else: economy_balances.pop(balance_key,None)
+            if had_xp: xp_data[balance_key]=old_xp
+            else: xp_data.pop(balance_key,None)
+            return False
+        member=bot.get_guild(g).get_member(u) if bot.get_guild(g) else None
+        if member and int(a.get("xp",0)):
+            try: await sync_level_roles(member,level_from_xp(xp_data[balance_key]))
+            except Exception: pass
         role_ok=await _assign_role(g,u,aid,a["role"]) if a.get("role") else None
-        await bd_save_data()
         await achievement_log(g,"🕵️ Secret achievement discovered" if secret else "🏆 Achievement unlocked",[
             ("User",f"<@{u}> ({u})"),("Achievement",a["name"]),("Rewards",f"+{int(a.get('catnip',0)):,} Catnip · +{int(a.get('xp',0)):,} XP · +{int(a.get('points',0))} AP"),
             ("Role",a.get("role") or "None"),("Role applied",str(role_ok) if role_ok is not None else "N/A"),("Reason",reason or a.get("description",""))])
