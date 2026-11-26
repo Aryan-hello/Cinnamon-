@@ -1,6 +1,5 @@
 """Cinnamon feature module.
 
-import functools as _temp_functools
 
 Loaded by main.py into Cinnamon's shared runtime namespace. This is still
 one Discord bot and one process; this file is not a separate bot.
