@@ -74,7 +74,7 @@ def _user(g, u):
 
 
 def migrate_legacy_quest_currency():
-    """Remove obsolete QP balances from every loaded guild before the next save."""
+    """Remove obsolete quest-currency balances from every loaded guild before the next save."""
     removed = 0
     for guild_state in quest_data.values():
         if not isinstance(guild_state, dict):
