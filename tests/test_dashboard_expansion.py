@@ -59,7 +59,7 @@ class DashboardExpansionTests(unittest.TestCase):
         form_start = self.source.index("def appeal_portal_form(guild_id, token):")
         form_end = self.source.index("def _analytics(guild, state):", form_start)
         form_source = self.source[form_start:form_end]
-        self.assertIn('discord.Object(id=int(user_id))', form_source)
+        self.assertIn('__import__("discord").Object(id=int(user_id))', form_source)
         self.assertNotIn('guild.fetch_member', form_source)
         self.assertIn('_check_appeal_csrf()', form_source)
         self.assertIn('_appeal_portal_config(guild_id, token)', self.source)
