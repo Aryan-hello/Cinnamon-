@@ -77,7 +77,12 @@ async def _market_listing_autocomplete(interaction, current):
     return results[:25]
 
 async def _market_persist_or_rollback(gid, snapshots, records, old_records):
-    if await bd_save_data():
+    try:
+        saved = await bd_save_data()
+    except Exception:
+        saved = False
+        log.exception("Marketplace transaction persistence failed for guild %s", gid)
+    if saved:
         return True
     for uid, (balance, inventory) in snapshots.items():
         economy_balances[(int(gid), int(uid))] = int(balance)
