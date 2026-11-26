@@ -253,7 +253,11 @@ async def on_ready():
         await bd_load_data()
         migrate_qp = globals().get("migrate_legacy_quest_currency")
         if callable(migrate_qp) and migrate_qp():
-            await bd_save_data()
+            try:
+                if not await bd_save_data():
+                    log.warning("Legacy quest-currency cleanup is in memory but was not persisted; it will retry on the next startup.")
+            except Exception:
+                log.exception("Could not persist legacy quest-currency cleanup; it will retry on the next startup.")
         for role_id in reaction_role_ids:
             bot.add_view(ReactionRoleView(role_id))
         bot.add_view(GiveawayView())  # persistent: matched by custom_id, state looked up by message ID
