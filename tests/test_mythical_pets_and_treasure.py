@@ -161,7 +161,8 @@ class FishingTreasureTests(unittest.IsolatedAsyncioTestCase):
         adventure = FISHING.read_text(encoding="utf-8")
         timed = (ROOT / "cinnamon_modules" / "cinnamon_fishing_game.py").read_text(encoding="utf-8")
         self.assertIn("_wlf_roll_treasure_chest(self.guild_id, self.owner_id)", adventure)
-        self.assertIn("_wlf_roll_treasure_chest(self.gid, self.uid)", timed)
+        self.assertIn("chest_fn(self.gid, self.uid)", timed)
+        self.assertIn("_wlf_roll_treasure_chest", timed)
         self.assertIn('name="chests"', adventure)
         self.assertIn('name="open-chest"', adventure)
 
