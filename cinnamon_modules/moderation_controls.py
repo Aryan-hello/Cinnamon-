@@ -294,6 +294,15 @@ class ModerationAppealView(discord.ui.View):
             except discord.HTTPException:
                 pass
             await interaction.response.send_message("Appeal marked " + decision + ".", ephemeral=True)
+            try:
+                await send_log(self.guild_id, title="Moderation appeal decision", category="moderation", fields=[
+                    ("Appeal ID", self.appeal_id),
+                    ("Member ID", str(record.get("user_id", "unknown"))),
+                    ("Decision", decision),
+                    ("Moderator", f"{interaction.user} ({interaction.user.id})"),
+                ])
+            except Exception:
+                log.exception("Could not write appeal decision audit log")
         return callback
 
 @appeal_group.command(name="submit", description="Submit an appeal to a server from a DM with Cinnamon")
@@ -342,6 +351,14 @@ async def moderation_appeal_submit(interaction: discord.Interaction, guild_id: s
         except discord.HTTPException: pass
         return await cinnamon_send(interaction, "Couldn't safely save your appeal. The post was removed.", ephemeral=True)
     await cinnamon_send(interaction, f"Your appeal was sent privately to {guild.name}. Reference: {appeal_id}.", ephemeral=True)
+    try:
+        await send_log(guild.id, title="Moderation appeal submitted", category="moderation", fields=[
+            ("Appeal ID", appeal_id),
+            ("Member ID", str(interaction.user.id)),
+            ("Submitted at", str(record["submitted_at"])),
+        ])
+    except Exception:
+        log.exception("Could not write appeal submission audit log")
 
 @appeal_group.command(name="review", description="Review an appeal by ID")
 @app_commands.guild_only()
@@ -363,6 +380,16 @@ async def moderation_appeal_review(interaction: discord.Interaction, appeal_id: 
     except discord.HTTPException:
         pass
     await cinnamon_send(interaction, f"Appeal {appeal_id} marked {decision.value}.", ephemeral=True)
+    try:
+        await send_log(interaction.guild.id, title="Moderation appeal decision", category="moderation", fields=[
+            ("Appeal ID", str(appeal_id)),
+            ("Member ID", str(record.get("user_id", "unknown"))),
+            ("Decision", decision.value),
+            ("Moderator", f"{interaction.user} ({interaction.user.id})"),
+            ("Review note", str(record.get("review_note", ""))[:500] or "None"),
+        ])
+    except Exception:
+        log.exception("Could not write appeal decision audit log")
 
 
 @bot.listen("on_member_join")
