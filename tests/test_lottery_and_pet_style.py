@@ -45,6 +45,12 @@ class LotteryAndPetStyleTests(unittest.TestCase):
         self.assertIn('accessory_id', self.source)
         self.assertIn('await bd_save_data()', self.source)
 
+    def test_pet_collection_displays_owned_and_equipped_accessories(self):
+        pet_source = (ROOT / "cinnamon_modules" / "collectible_pets_crime.py").read_text(encoding="utf-8")
+        self.assertIn("Accessory collection", pet_source)
+        self.assertIn("active_accessory", pet_source)
+        self.assertIn("accessory_id", pet_source)
+
     def test_new_module_parses_as_python(self):
         ast.parse(self.source)
 
