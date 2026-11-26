@@ -132,6 +132,25 @@ async def collectible_pet_work_drop(guild_id, user):
         ])
     return found
 
+def collectible_pet_raccoon_steal(guild_id, user_id):
+    """Roll once on a completed work/shop action; only explicitly eligible items qualify."""
+    pet = _collectible_pet_ability(guild_id, user_id)
+    if pet.get("ability") != "shop_steal" or _cp_random.random() >= float(pet.get("value", 0.0)):
+        return None
+    eligible = [
+        (str(item_id), item) for item_id, item in ECONOMY_ITEMS.items()
+        if isinstance(item, dict) and item.get("shop_enabled", True)
+        and item.get("pet_abilities_enabled", False)
+    ]
+    if not eligible:
+        return None
+    # Price-weighted odds: expensive eligible items are possible but progressively rarer.
+    weights = [1.0 / max(1, int(item.get("price", 1))) for _, item in eligible]
+    item_id, item = _cp_random.choices(eligible, weights=weights, k=1)[0]
+    inventory = economy_inventory_for(guild_id, user_id)
+    inventory[item_id] = int(inventory.get(item_id, 0)) + 1
+    return str(item.get("name", item_id))
+
 def _collectible_pet_perks(guild_id, user_id):
     """Compatibility adapter; only the equipped pet contributes an ability."""
     result = _collectible_pet_ability(guild_id, user_id)
