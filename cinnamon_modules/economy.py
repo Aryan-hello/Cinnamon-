@@ -843,6 +843,12 @@ class EconomySellConfirmView(discord.ui.View):
                 for child in self.children: child.disabled = True
                 return await interaction.response.edit_message(content="❌ The item no longer has enough eligible inventory or Mystery Box provenance to sell.", embed=None, view=self)
             payout, provenance_breakdown = quote
+            pet_fn = globals().get("_collectible_pet_ability")
+            pet = pet_fn(self.guild_id, self.user_id) if callable(pet_fn) else {}
+            if pet.get("ability") == "all_rewards":
+                bonus_fn = globals().get("collectible_pet_catnip_bonus")
+                if callable(bonus_fn):
+                    payout = bonus_fn(self.guild_id, self.user_id, payout)
             before, before_inventory = economy_balance(self.guild_id, self.user_id), dict(inv)
             before_provenance = __import__("copy").deepcopy(advanced_features_data.get("mystery_reward_provenance_v1", {}))
             inv[self.item_id] = owned - self.quantity
@@ -907,6 +913,12 @@ async def economy_sell_cmd(interaction: discord.Interaction, item: str, quantity
             "❌ This item is not currently eligible for resale. Mystery Box rewards require recorded original-box provenance; delivered services have already been consumed.",
             ephemeral=True)
     payout, _provenance_breakdown = quote
+    pet_fn = globals().get("_collectible_pet_ability")
+    pet = pet_fn(guild_id, user_id) if callable(pet_fn) else {}
+    if pet.get("ability") == "all_rewards":
+        bonus_fn = globals().get("collectible_pet_catnip_bonus")
+        if callable(bonus_fn):
+            payout = bonus_fn(guild_id, user_id, payout)
     unit_value = payout // quantity
     view = EconomySellConfirmView(guild_id, user_id, item_id, quantity,
                                   unit_value, data.get("name", item_id))
