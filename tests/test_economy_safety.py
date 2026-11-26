@@ -66,6 +66,7 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_achievement_reward_rolls_back_when_snapshot_is_not_saved(self):
         state = {"stats": {}, "unlocked": [], "secret_unlocked": [], "points": 0, "showcase": []}
+        expected_state = copy.deepcopy(state)
         states = {(1, 7): state}
         balances = {(1, 7): 20}
         xp = {(1, 7): 5}
@@ -98,7 +99,7 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
         ok = await unlock(1, 7, "first")
 
         self.assertFalse(ok)
-        self.assertEqual(states[(1, 7)], state)
+        self.assertEqual(states[(1, 7)], expected_state)
         self.assertEqual(balances[(1, 7)], 20)
         self.assertEqual(xp[(1, 7)], 5)
 
