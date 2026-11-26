@@ -1512,8 +1512,36 @@ def _moderation(guild, state):
         appeal_member_name=getattr(appeal_member,"display_name","Unknown member")
         appeal_rows.append("<tr><td>" + _esc(str(appeal_id)) + "</td><td>" + _esc(appeal_member_name) + "</td><td>" + _esc(str(appeal.get("details", ""))[:180]) + "</td><td>" + _esc(decision.title()) + "</td><td>" + action_forms + "</td></tr>")
     appeal_rows_html = "".join(appeal_rows) or "<tr><td colspan='5'>No appeals have been submitted.</td></tr>"
-    appeal_form = "<div class='field'><label>Private appeal channel</label>" + _channel_select(guild, "appeal_channel_id", controls.get("appeal_channel_id")) + "</div><p class='muted'>Members submit appeals in a direct message to Cinnamon using /appeal submit. This channel must be private to moderators.</p>"
-    appeal_card = "<article class='card full'><h2>Moderation appeals</h2><p class='muted'>Current channel: " + _esc(appeal_channel.mention if appeal_channel else "Disabled") + " · Pending: " + str(sum(1 for a in appeals.values() if a.get("status") == "pending")) + "</p>" + _form(gid, "appeal_settings", appeal_form, "Save appeal channel") + "<div class='tablewrap'><table><thead><tr><th>Appeal ID</th><th>Member</th><th>Details preview</th><th>Status</th><th>Review</th></tr></thead><tbody>" + appeal_rows_html + "</tbody></table></div></article>"
+    portal_token = str(controls.get("appeal_portal_token", "") or "")
+    portal_url = url_for("cinnamon_dashboard.appeal_portal", guild_id=gid, token=portal_token, _external=True) if portal_token else ""
+    public_appeal_channel = guild.get_channel(int(controls.get("appeal_public_channel_id", 0) or 0))
+    appeal_form = (
+        "<div class='formgrid'><div class='field'><label>Private moderator review channel</label>" +
+        _channel_select(guild, "appeal_channel_id", controls.get("appeal_channel_id")) +
+        "<small>Only moderators should be able to view this channel.</small></div><div class='field'><label>Public appeal link channel</label>" +
+        _channel_select(guild, "appeal_public_channel_id", controls.get("appeal_public_channel_id")) +
+        "<small>Members can see the portal button here. Appeal details are never posted here.</small></div></div>"
+    )
+    portal_controls = ""
+    if portal_url:
+        portal_controls += "<div class='field'><label>Member appeal portal link</label><input readonly value='" + _esc(portal_url) + "' onclick='this.select()'><small>Share this link with members. Discord sign-in and server membership are required.</small></div>"
+    portal_controls += (
+        "<div class='actions'><form method='post' action='/dashboard/action'>" + _csrf_input() +
+        "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='appeal_portal_publish'>" +
+        "<button class='btn secondary' type='submit'>Publish link in Discord channel</button></form>" +
+        "<form method='post' action='/dashboard/action'>" + _csrf_input() +
+        "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='appeal_portal_rotate'>" +
+        "<button class='btn danger small' type='submit'>Regenerate / revoke old link</button></form></div>"
+    )
+    appeal_card = (
+        "<article class='card full'><h2>Moderation appeals</h2><p class='muted'>Private review channel: " +
+        _esc(appeal_channel.mention if appeal_channel else "Not configured") + " · Public link channel: " +
+        _esc(public_appeal_channel.mention if public_appeal_channel else "Not configured") + " · Pending: " +
+        str(sum(1 for a in appeals.values() if a.get("status") == "pending")) +
+        "</p>" + _form(gid, "appeal_settings", appeal_form, "Save appeal channels") +
+        portal_controls + "<div class='tablewrap'><table><thead><tr><th>Appeal ID</th><th>Member</th><th>Details preview</th><th>Status</th><th>Review</th></tr></thead><tbody>" +
+        appeal_rows_html + "</tbody></table></div></article>"
+    )
     note_rows = []
     for member_id, member_notes in notes.items():
         for note_id, note in list((member_notes or {}).items())[-10:]:
@@ -2564,7 +2592,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","shop_items_log_channel","shop_catalog_restore","shop_item_add","shop_item_save","shop_item_disable","shop_recipe_save","shop_recipe_remove","shop_box_reward_add","shop_box_reward_remove","shop_box_weight","shop_box_distribution","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","community_poll_create","community_poll_close","security_settings","moderation_controls_settings","verification_publish","appeal_settings","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","shop_items_log_channel","shop_catalog_restore","shop_item_add","shop_item_save","shop_item_disable","shop_recipe_save","shop_recipe_remove","shop_box_reward_add","shop_box_reward_remove","shop_box_weight","shop_box_distribution","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","community_poll_create","community_poll_close","security_settings","moderation_controls_settings","verification_publish","appeal_settings","appeal_portal_publish","appeal_portal_rotate","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -2676,22 +2704,80 @@ def dashboard_action():
             session["dashboard_notice"]=f"Sent {amount:,} Catnip to {recipient.display_name}."
         elif action=="appeal_settings":
             raw=request.form.get("appeal_channel_id","").strip()
+            public_raw=request.form.get("appeal_public_channel_id","").strip()
             channel=guild.get_channel(int(raw)) if raw.isdigit() else None
-            if raw and not isinstance(channel,__import__("discord").TextChannel):
-                raise ValueError("Choose a valid appeal text channel.")
+            public_channel=guild.get_channel(int(public_raw)) if public_raw.isdigit() else None
+            discord_module=__import__("discord")
+            if raw and not isinstance(channel,discord_module.TextChannel):
+                raise ValueError("Choose a valid private appeal review channel.")
             if channel and channel.permissions_for(guild.default_role).view_channel:
-                raise ValueError("Appeal channels must be private to moderators.")
-            async def save_appeal_channel():
+                raise ValueError("The moderator review channel must be private.")
+            if public_raw and not isinstance(public_channel,discord_module.TextChannel):
+                raise ValueError("Choose a valid public appeal link channel.")
+            if public_channel and not public_channel.permissions_for(guild.default_role).view_channel:
+                raise ValueError("The appeal link channel must be visible to server members.")
+            async def save_appeal_channels():
                 root=state["advanced_features_data"].setdefault("cinnamon_moderation_controls_v1",{})
                 cfg=root.setdefault(str(gid),{})
-                before=cfg.get("appeal_channel_id",0)
+                before=copy.deepcopy(cfg)
                 cfg["appeal_channel_id"]=int(channel.id) if channel else 0
-                if not await state["bd_save_data"]():
-                    cfg["appeal_channel_id"]=before
-                    raise ValueError("Couldn't durably save the appeal channel.")
-            _run_bot(save_appeal_channel())
-            _audit(gid,actor,"Dashboard: appeal channel updated",f"Appeal channel={channel.id if channel else 0}.")
-            session["dashboard_notice"]="Private appeal channel saved."
+                cfg["appeal_public_channel_id"]=int(public_channel.id) if public_channel else 0
+                if not cfg.get("appeal_portal_token"):
+                    cfg["appeal_portal_token"]=secrets.token_urlsafe(32)
+                try:
+                    saved=await state["bd_save_data"]()
+                except Exception:
+                    saved=False
+                    log.exception("Could not persist appeal portal settings")
+                if not saved:
+                    cfg.clear();cfg.update(before)
+                    raise ValueError("Couldn't durably save the appeal settings.")
+            _run_bot(save_appeal_channels())
+            _audit(gid,actor,"Dashboard: appeal portal settings updated",
+                   f"Private review channel={channel.id if channel else 0}; public link channel={public_channel.id if public_channel else 0}.")
+            session["dashboard_notice"]="Appeal channels saved. The portal link is ready below."
+        elif action=="appeal_portal_rotate":
+            async def rotate_appeal_portal():
+                root=state["advanced_features_data"].setdefault("cinnamon_moderation_controls_v1",{})
+                cfg=root.setdefault(str(gid),{})
+                previous=cfg.get("appeal_portal_token")
+                cfg["appeal_portal_token"]=secrets.token_urlsafe(32)
+                try:
+                    saved=await state["bd_save_data"]()
+                except Exception:
+                    saved=False
+                if not saved:
+                    if previous is None: cfg.pop("appeal_portal_token",None)
+                    else: cfg["appeal_portal_token"]=previous
+                    raise ValueError("Could not save the new portal link. The old link remains active.")
+            _run_bot(rotate_appeal_portal())
+            _audit(gid,actor,"Dashboard: appeal portal link rotated","The previous public link has been revoked.")
+            session["dashboard_notice"]="New appeal link generated. The old link no longer works."
+        elif action=="appeal_portal_publish":
+            async def publish_appeal_portal():
+                root=state["advanced_features_data"].setdefault("cinnamon_moderation_controls_v1",{})
+                cfg=root.setdefault(str(gid),{})
+                token=str(cfg.get("appeal_portal_token","") or "")
+                channel=guild.get_channel(int(cfg.get("appeal_public_channel_id",0) or 0))
+                if not token:
+                    raise ValueError("Save appeal settings first to generate the portal link.")
+                if not isinstance(channel,discord_module.TextChannel):
+                    raise ValueError("Choose a public appeal link channel first.")
+                portal=url_for("cinnamon_dashboard.appeal_portal",guild_id=gid,token=token,_external=True)
+                view_class=state.get("ModerationAppealPortalView")
+                if not callable(view_class):
+                    raise ValueError("The appeal portal panel is unavailable. Restart Cinnamon after updating.")
+                embed=discord_module.Embed(
+                    title="📨 Need to appeal a moderation action?",
+                    description="Use the secure appeal portal below. Sign in with Discord and verify your server membership. Your appeal is sent privately to the moderation team.",
+                    color=0xE8A05A,
+                )
+                await channel.send(embed=embed,view=view_class(portal),
+                    allowed_mentions=discord_module.AllowedMentions.none())
+                return channel.mention
+            channel_mention=_run_bot(publish_appeal_portal())
+            _audit(gid,actor,"Dashboard: appeal portal published",f"Published the member appeal link in {channel_mention}.")
+            session["dashboard_notice"]="Appeal portal link published in "+channel_mention+"."
         elif action=="dashboard_appeal_review":
             appeal_id=request.form.get("appeal_id","").strip()
             decision=request.form.get("decision","").strip()
@@ -4119,7 +4205,7 @@ def dashboard_action():
             session["dashboard_notice"]=f"{mod_action.title()} action completed for {target}."
         else:
             raise ValueError("Unknown dashboard action.")
-        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_update":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","community_features_settings":"community","community_event_create":"community","community_event_cancel":"community","security_settings":"moderation","moderation_controls_settings":"moderation","verification_publish":"moderation","appeal_settings":"moderation","dashboard_appeal_review":"moderation","ticket_dashboard_claim":"tickets","ticket_dashboard_unclaim":"tickets","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
+        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_update":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","community_features_settings":"community","community_event_create":"community","community_event_cancel":"community","security_settings":"moderation","moderation_controls_settings":"moderation","verification_publish":"moderation","appeal_settings":"moderation","appeal_portal_publish":"moderation","appeal_portal_rotate":"moderation","dashboard_appeal_review":"moderation","ticket_dashboard_claim":"tickets","ticket_dashboard_unclaim":"tickets","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice_level"]="error"
