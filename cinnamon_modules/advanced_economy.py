@@ -330,6 +330,14 @@ async def craft_item(guild_id, user, recipe_id, quantity=1):
             inv[item_id] = int(inv.get(item_id, 0)) - needed * quantity
             if inv[item_id] <= 0:
                 inv.pop(item_id, None)
+        refunded_ingredient = None
+        pet_fn = globals().get("_collectible_pet_ability")
+        pet = pet_fn(guild_id, user.id) if callable(pet_fn) else {}
+        if pet.get("ability") == "ingredient_refund" and random.random() < float(pet.get("value", 0.0)):
+            consumed = [item_id for item_id, needed in recipe["ingredients"].items() if int(needed) * quantity > 0]
+            if consumed:
+                refunded_ingredient = random.choice(consumed)
+                inv[refunded_ingredient] = int(inv.get(refunded_ingredient, 0)) + 1
         inv[recipe["output"]] = int(inv.get(recipe["output"], 0)) + quantity
         crafted_counts[key] = before_count + quantity
         try:
