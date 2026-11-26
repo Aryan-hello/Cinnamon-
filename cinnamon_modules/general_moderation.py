@@ -551,8 +551,14 @@ async def _temporary_role_expiry_loop():
                 if member is None:
                     try:
                         member = await guild.fetch_member(member_id)
-                    except (discord.NotFound, discord.Forbidden):
+                    except discord.NotFound:
+                        # The member left the server; the stale assignment can be archived.
                         member = None
+                    except discord.Forbidden:
+                        # Do not discard the expiry record if Discord temporarily
+                        # prevents Cinnamon from checking/removing the member role.
+                        log.warning("Cannot inspect member %s while expiring temporary role %s", member_id, key)
+                        continue
                     except discord.HTTPException:
                         continue
                 role = guild.get_role(role_id)
