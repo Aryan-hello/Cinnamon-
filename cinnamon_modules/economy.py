@@ -962,6 +962,17 @@ async def economy_work_cmd(interaction: discord.Interaction):
 
 async def economy_transfer_catnip(guild_id: int, sender_id: int, recipient_id: int, amount: int):
     """Transfer Catnip atomically with the same member locks used by shop/trade."""
+    if (
+        not isinstance(amount, int) or isinstance(amount, bool)
+        or not 1 <= amount <= 10000000
+        or int(sender_id) == int(recipient_id)
+    ):
+        return (
+            False,
+            economy_balance(guild_id, sender_id),
+            economy_balance(guild_id, recipient_id),
+            "invalid",
+        )
     member_ids = sorted({int(sender_id), int(recipient_id)})
     locks = [
         _CINNAMON_SHOP_LOCKS.setdefault((int(guild_id), uid), asyncio.Lock())
@@ -1005,6 +1016,7 @@ async def economy_transfer_catnip(guild_id: int, sender_id: int, recipient_id: i
 
 @economy_group.command(name="give", description="Give Catnip to another member")
 @app_commands.guild_only()
+@app_commands.checks.cooldown(1, 10.0, key=lambda i: (i.guild_id, i.user.id))
 async def economy_give_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, 10000000]):
     guild_id = interaction.guild.id
     # Defence in depth: client-side range validation is not a substitute for
