@@ -2298,10 +2298,10 @@ def appeal_portal_form(guild_id, token):
     if not user_id.isdigit():
         session.pop("appeal_sid", None)
         return redirect(url_for("cinnamon_dashboard.appeal_portal", guild_id=guild_id, token=token))
-    try:
-        member = _run_bot(guild.fetch_member(int(user_id)))
-    except Exception:
-        return _page("<main class='main'><article class='card'><h1>Server membership required</h1><p>You must be a current member of this Discord server to submit an appeal. If you recently joined, try again in a moment.</p></article></main>", "Appeal portal", status=403)
+    # Do not require current guild membership here: members who were banned or
+    # kicked must still be able to appeal. Discord OAuth authenticates the
+    # submitting account, and the signed server link scopes the destination.
+    discord_user = __import__("discord").Object(id=int(user_id))
     if request.method == "POST":
         _check_appeal_csrf()
         details = request.form.get("details", "").strip()
@@ -2311,7 +2311,7 @@ def appeal_portal_form(guild_id, token):
         if not callable(submit):
             return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>The appeal service is not ready. Please try again later.</p></article></main>", "Appeal portal", status=503)
         try:
-            status, appeal_id = _run_bot(submit(guild, member, details), timeout=35)
+            status, appeal_id = _run_bot(submit(guild, discord_user, details), timeout=35)
         except Exception:
             log.exception("Web appeal submission failed for guild %s", guild_id)
             return _page("<main class='main'><article class='card'><h1>Appeal could not be submitted</h1><p>Storage or Discord was unavailable. Please try again later.</p></article></main>", "Appeal portal", status=503)
@@ -2914,7 +2914,7 @@ def dashboard_action():
                 raise ValueError("The appeal portal panel is unavailable. Restart Cinnamon after updating.")
             embed=discord_module.Embed(
                 title="📨 Need to appeal a moderation action?",
-                description="Use the secure appeal portal below. Sign in with Discord and verify your server membership. Your appeal is sent privately to the moderation team.",
+                description="Use the secure appeal portal below. Sign in with Discord to verify your account. Your appeal is sent privately to the moderation team.",
                 color=0xE8A05A,
             )
             async def publish_appeal_portal():
