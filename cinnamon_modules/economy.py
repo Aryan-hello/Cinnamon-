@@ -662,9 +662,12 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
             await cinnamon_send(interaction, f"❌ You need **{cost:,} Catnip**, but you only have **{balance:,}**.", ephemeral=True)
             return
         inv = economy_inventory_for(guild_id, user_id)
+        before_inventory = dict(inv)
         old_stock = data.get("stock_quantity")
         economy_balances[(guild_id, user_id)] = balance - cost
         inv[item_id] = current_qty + quantity
+        steal_fn = globals().get("collectible_pet_raccoon_steal")
+        stolen_item = steal_fn(guild_id, user_id) if callable(steal_fn) else None
         if not data.get("stock_unlimited", True):
             data["stock_quantity"] = max(0, int(data.get("stock_quantity", 0)) - quantity)
         try:
@@ -673,18 +676,18 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
                 raise RuntimeError("Economy storage did not confirm the save.")
         except Exception:
             economy_balances[(guild_id, user_id)] = balance
-            if current_qty:
-                inv[item_id] = current_qty
-            else:
-                inv.pop(item_id, None)
+            inv.clear()
+            inv.update(before_inventory)
             if old_stock is not None:
                 data["stock_quantity"] = old_stock
             return await cinnamon_send(interaction, "❌ Purchase save failed. No Catnip or stock was consumed.", ephemeral=True)
-    await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity", quantity), ("Unit price", f"{unit_price:,} Catnip"), ("Deducted", f"-{cost:,} Catnip"), ("Balance before", f"{balance:,} Catnip"), ("Balance after", f"{balance-cost:,} Catnip"), ("Item quantity after", str(inv[item_id]))])
+    await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity", quantity), ("Unit price", f"{unit_price:,} Catnip"), ("Deducted", f"-{cost:,} Catnip"), ("Balance before", f"{balance:,} Catnip"), ("Balance after", f"{balance-cost:,} Catnip"), ("Item quantity after", str(inv[item_id])), ("Raccoon theft", stolen_item or "None")])
     embed = cinnamon_embed("🛒 Purchase Complete", f"You bought **{quantity:,}× {data['emoji']} {data['name']}**.", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Purchase")
     cinnamon_field(embed, "💸 Cost", f"**{cost:,} Catnip**", True)
     cinnamon_field(embed, "🌿 New balance", f"**{economy_balances[(guild_id, user_id)]:,} Catnip**", True)
     cinnamon_field(embed, "📦 You now own", f"**{inv[item_id]:,}×**", True)
+    if stolen_item:
+        cinnamon_field(embed, "🦝 Raccoon bonus", f"Your Raccoon also stole **{stolen_item}** from Cinnamon's shop!")
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
     await _shop_item_run_actions(interaction, item_id, "bought")
     await _cp_react(interaction.guild, interaction.user, interaction.channel, "big_purchase", value=cost)
@@ -1500,6 +1503,12 @@ async def economy_collect(interaction: discord.Interaction):
     if not collected:
         await cinnamon_send(interaction, "⏳ None of your income roles are ready to collect yet.", ephemeral=True)
         return
+    pet_fn = globals().get("_collectible_pet_ability")
+    pet = pet_fn(guild_id, interaction.user.id) if callable(pet_fn) else {}
+    if pet.get("ability") == "all_rewards":
+        bonus_fn = globals().get("collectible_pet_catnip_bonus")
+        if callable(bonus_fn):
+            total = bonus_fn(guild_id, interaction.user.id, total)
     balance_before = economy_balance(guild_id, interaction.user.id)
     economy_balances[(guild_id, interaction.user.id)] = balance_before + total
     await bd_save_data()
