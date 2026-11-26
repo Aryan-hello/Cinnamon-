@@ -33,6 +33,7 @@ def _collectible_pet_capacity(guild_id, user_id, member=None):
     data = _collectible_pet_user(guild_id, user_id)
     capacity = _PET_BASE_SLOTS + max(0, int(data.get("achievement_slots", 0) or 0))
     capacity += max(0, int(data.get("purchased_slots", 0) or 0))
+    capacity += max(0, int(data.get("story_slots", 0) or 0))
     member_root = advanced_features_data.get(_PET_SLOT_MEMBER_KEY, {})
     capacity += max(0, int((member_root.get(str(int(guild_id)), {}) or {}).get(str(int(user_id)), 0) or 0))
     role_root = advanced_features_data.get(_PET_SLOT_ROLE_KEY, {})
@@ -55,12 +56,14 @@ def _collectible_pet_ability(guild_id, user_id):
     catalog = next((p for p in _COLLECTIBLE_PET_CATALOG if p["species"] == pet.get("species")), {})
     level = max(1, min(_PET_ABILITY_MAX_LEVEL, int(pet.get("level", 1) or 1)))
     ability = catalog.get("ability")
-    if ability in {"work_income", "crime_income", "fine_amount", "shop_discount", "xp", "fish_sale", "forage", "fox"}:
+    if ability in {"work_income", "crime_income", "fine_amount", "xp", "fish_sale", "forage", "fox"}:
         value = 0.01 * level
+    elif ability == "shop_discount":
+        value = 0.005 * level
     elif ability in {"fine_chance", "rare_fish", "all_rewards"}:
         value = 0.005 * level
     elif ability == "mystery_chance":
-        value = 0.0025 * level
+        value = 0.005 + ((level - 1) * (0.02 / 9.0))
     elif ability in {"ingredient_refund", "box_upgrade", "shop_steal", "penguin"}:
         value = 0.01 * level
     else:
