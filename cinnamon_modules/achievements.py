@@ -239,6 +239,14 @@ async def _unlock(g,u,aid,secret=False,reason=""):
         if a.get("catnip"):
             economy_balances[balance_key]=economy_balance(g,u)+int(a["catnip"])
         xp_data[balance_key]=int(xp_data.get(balance_key,0))+int(a.get("xp",0))
+        pet_data = None
+        old_pet_slots = None
+        pet_slots = int((globals().get("achievement_config", {}).get(int(g), {}) or {}).get("pet_slot_rewards", {}).get(aid, a.get("pet_slots", 0)) or 0)
+        pet_user_fn = globals().get("_collectible_pet_user")
+        if pet_slots > 0 and callable(pet_user_fn):
+            pet_data = pet_user_fn(g, u)
+            old_pet_slots = int(pet_data.get("achievement_slots", 0) or 0)
+            pet_data["achievement_slots"] = old_pet_slots + pet_slots
         try:
             saved=await bd_save_data()
         except Exception:
@@ -249,6 +257,11 @@ async def _unlock(g,u,aid,secret=False,reason=""):
             else: economy_balances.pop(balance_key,None)
             if had_xp: xp_data[balance_key]=old_xp
             else: xp_data.pop(balance_key,None)
+            if pet_data is not None:
+                if old_pet_slots:
+                    pet_data["achievement_slots"] = old_pet_slots
+                else:
+                    pet_data.pop("achievement_slots", None)
             return False
         wallet_lock.release()
         wallet_locked=False
