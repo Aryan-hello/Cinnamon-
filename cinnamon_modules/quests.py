@@ -58,10 +58,7 @@ def _week():
 
 def _guild(g):
     d = quest_data.setdefault(int(g), {})
-    users = d.setdefault("users", {})
-    for record in users.values():
-        if isinstance(record, dict):
-            record.pop("qp", None)
+    d.setdefault("users", {})
     return d
 
 
