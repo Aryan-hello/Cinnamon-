@@ -183,7 +183,9 @@ async def market_buy(interaction: discord.Interaction, listing_id: str):
             old_records = _market_copy.deepcopy(root)
             snapshots = {buyer_id: (buyer_balance, dict(buyer_inv)), seller_id: (seller_balance, dict(seller_inv))}
             economy_balances[(gid, buyer_id)] = buyer_balance - price
-            economy_balances[(gid, seller_id)] = seller_balance + price
+            bonus_fn = globals().get("collectible_pet_catnip_bonus")
+            seller_credit = bonus_fn(gid, seller_id, price) if callable(bonus_fn) else price
+            economy_balances[(gid, seller_id)] = seller_balance + seller_credit
             buyer_inv[item_id] = int(buyer_inv.get(item_id, 0)) + quantity
             rec["status"], rec["buyer_id"] = "sold", buyer_id
             rec["sold_at"] = int(_market_time.time())
@@ -514,7 +516,11 @@ async def _auction_finalize_locked(gid, auction_id):
             bidder_balance = economy_balance(gid, bidder_id)
             snapshots[bidder_id] = (bidder_balance, dict(bidder_inv))
             bidder_inv[item_id] = int(bidder_inv.get(item_id, 0)) + qty
-            economy_balances[(gid, seller_id)] = seller_balance + int(rec.get("highest_bid", 0))
+            auction_payout = int(rec.get("highest_bid", 0))
+            bonus_fn = globals().get("collectible_pet_catnip_bonus")
+            if callable(bonus_fn):
+                auction_payout = bonus_fn(gid, seller_id, auction_payout)
+            economy_balances[(gid, seller_id)] = seller_balance + auction_payout
             rec["winner_id"] = bidder_id
             rec["status"] = "sold"
         else:
