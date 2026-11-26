@@ -20,6 +20,30 @@ def _feature_lock(guild_id):
 def _lottery_guild(guild_id):
     return advanced_features_data.setdefault(_LOTTERY_KEY, {}).setdefault(str(int(guild_id)), {})
 
+def _lottery_member_locks(guild_id, user_ids):
+    return [
+        _CINNAMON_SHOP_LOCKS.setdefault((int(guild_id), uid), _f_asyncio.Lock())
+        for uid in sorted(set(int(uid) for uid in user_ids))
+    ]
+
+async def _lottery_acquire(locks):
+    acquired = []
+    try:
+        for lock in locks:
+            await lock.acquire()
+            acquired.append(lock)
+    except BaseException:
+        for lock in reversed(acquired):
+            lock.release()
+        locks.clear()
+        raise
+    locks[:] = acquired
+
+def _lottery_release(locks):
+    for lock in reversed(locks):
+        lock.release()
+    locks.clear()
+
 async def _lottery_finish(guild_id, cancelled=False):
     async with _feature_lock(guild_id):
         state = _lottery_guild(guild_id)
@@ -35,38 +59,43 @@ async def _lottery_finish(guild_id, cancelled=False):
         winner_id = None if cancelled or not entries else _f_random.SystemRandom().choice(entries)
         sponsor_key = (int(guild_id), sponsor_id)
         winner_key = (int(guild_id), winner_id) if winner_id else None
-        old_sponsor = economy_balances.get(sponsor_key)
-        old_winner = economy_balances.get(winner_key) if winner_key else None
-        if winner_id:
-            economy_ensure_balance(guild_id, winner_id)
-            economy_balances[winner_key] = economy_balance(guild_id, winner_id) + prize
-        else:
-            economy_ensure_balance(guild_id, sponsor_id)
-            economy_balances[sponsor_key] = economy_balance(guild_id, sponsor_id) + prize
-        raffle["status"] = "cancelled" if cancelled else "completed"
-        raffle["winner_id"] = winner_id
-        raffle["completed_at"] = int(_f_time.time())
-        state["last"] = _f_copy.deepcopy(raffle)
-        state.pop("active", None)
+        locks = _lottery_member_locks(guild_id, [sponsor_id] + ([winner_id] if winner_id else []))
+        await _lottery_acquire(locks)
         try:
-            saved = await bd_save_data()
-        except Exception:
-            saved = False
-            if "log" in globals():
-                log.exception("Community raffle settlement failed for guild %s", guild_id)
-        if not saved:
-            state.clear()
-            state.update(old_state)
-            if old_sponsor is None:
-                economy_balances.pop(sponsor_key, None)
+            old_sponsor = economy_balances.get(sponsor_key)
+            old_winner = economy_balances.get(winner_key) if winner_key else None
+            if winner_id:
+                economy_ensure_balance(guild_id, winner_id)
+                economy_balances[winner_key] = economy_balance(guild_id, winner_id) + prize
             else:
-                economy_balances[sponsor_key] = old_sponsor
-            if winner_key:
-                if old_winner is None:
-                    economy_balances.pop(winner_key, None)
+                economy_ensure_balance(guild_id, sponsor_id)
+                economy_balances[sponsor_key] = economy_balance(guild_id, sponsor_id) + prize
+            raffle["status"] = "cancelled" if cancelled else "completed"
+            raffle["winner_id"] = winner_id
+            raffle["completed_at"] = int(_f_time.time())
+            state["last"] = _f_copy.deepcopy(raffle)
+            state.pop("active", None)
+            try:
+                saved = await bd_save_data()
+            except Exception:
+                saved = False
+                if "log" in globals():
+                    log.exception("Community raffle settlement failed for guild %s", guild_id)
+            if not saved:
+                state.clear()
+                state.update(old_state)
+                if old_sponsor is None:
+                    economy_balances.pop(sponsor_key, None)
                 else:
-                    economy_balances[winner_key] = old_winner
-            return False
+                    economy_balances[sponsor_key] = old_sponsor
+                if winner_key:
+                    if old_winner is None:
+                        economy_balances.pop(winner_key, None)
+                    else:
+                        economy_balances[winner_key] = old_winner
+                return False
+        finally:
+            _lottery_release(locks)
     await economy_log(guild_id, title="Community raffle settled",
         fields=[("Winner", str(winner_id) if winner_id else "No winner"),
                 ("Prize", f"{prize:,} Catnip"), ("Entries", str(len(entries)))])
@@ -103,30 +132,32 @@ async def lottery_start(interaction: discord.Interaction,
         state = _lottery_guild(gid)
         if isinstance(state.get("active"), dict):
             return await cinnamon_send(interaction, "A raffle is already running in this server.", ephemeral=True)
-        balance = economy_balance(gid, sponsor_id)
-        if balance < prize_catnip:
-            return await cinnamon_send(interaction, f"You need {prize_catnip:,} Catnip; your balance is {balance:,}.", ephemeral=True)
-        key = (gid, sponsor_id)
-        old_balance = economy_balances.get(key)
-        economy_ensure_balance(gid, sponsor_id)
-        economy_balances[key] = balance - int(prize_catnip)
-        state["active"] = {
-            "sponsor_id": sponsor_id, "prize_catnip": int(prize_catnip),
-            "created_at": int(_f_time.time()),
-            "ends_at": int(_f_time.time()) + int(duration_hours) * 3600,
-            "entries": [], "status": "active",
-        }
-        try:
-            saved = await bd_save_data()
-        except Exception:
-            saved = False
-        if not saved:
-            state.pop("active", None)
-            if old_balance is None:
-                economy_balances.pop(key, None)
-            else:
-                economy_balances[key] = old_balance
-            return await cinnamon_send(interaction, "I couldn't save the raffle. No Catnip was kept.", ephemeral=True)
+        member_lock = _CINNAMON_SHOP_LOCKS.setdefault((gid, sponsor_id), _f_asyncio.Lock())
+        async with member_lock:
+            balance = economy_balance(gid, sponsor_id)
+            if balance < prize_catnip:
+                return await cinnamon_send(interaction, f"You need {prize_catnip:,} Catnip; your balance is {balance:,}.", ephemeral=True)
+            key = (gid, sponsor_id)
+            old_balance = economy_balances.get(key)
+            economy_ensure_balance(gid, sponsor_id)
+            economy_balances[key] = balance - int(prize_catnip)
+            state["active"] = {
+                "sponsor_id": sponsor_id, "prize_catnip": int(prize_catnip),
+                "created_at": int(_f_time.time()),
+                "ends_at": int(_f_time.time()) + int(duration_hours) * 3600,
+                "entries": [], "status": "active",
+            }
+            try:
+                saved = await bd_save_data()
+            except Exception:
+                saved = False
+            if not saved:
+                state.pop("active", None)
+                if old_balance is None:
+                    economy_balances.pop(key, None)
+                else:
+                    economy_balances[key] = old_balance
+                return await cinnamon_send(interaction, "I couldn't save the raffle. No Catnip was kept.", ephemeral=True)
     await economy_log(gid, title="Community raffle started",
         fields=[("Sponsor", str(sponsor_id)), ("Prize", f"{int(prize_catnip):,} Catnip"),
                 ("Duration", f"{int(duration_hours)} hours"), ("Entry cost", "Free")])
@@ -201,30 +232,32 @@ async def pet_style_shop(interaction: discord.Interaction):
 async def pet_style_buy(interaction: discord.Interaction, accessory: app_commands.Choice[str]):
     gid, uid, item_id = interaction.guild.id, interaction.user.id, accessory.value
     async with _feature_lock(gid):
-        data = _collectible_pet_user(gid, uid)
-        owned = data.setdefault("accessories", [])
-        if item_id in owned:
-            return await cinnamon_send(interaction, "You already own that accessory.", ephemeral=True)
-        item = _PET_ACCESSORIES[item_id]
-        key = (gid, uid)
-        balance = economy_balance(gid, uid)
-        if balance < item["price"]:
-            return await cinnamon_send(interaction, f"You need {item['price']:,} Catnip; your balance is {balance:,}.", ephemeral=True)
-        old_balance, old_owned = economy_balances.get(key), list(owned)
-        economy_ensure_balance(gid, uid)
-        economy_balances[key] = balance - item["price"]
-        owned.append(item_id)
-        try:
-            saved = await bd_save_data()
-        except Exception:
-            saved = False
-        if not saved:
-            owned[:] = old_owned
-            if old_balance is None:
-                economy_balances.pop(key, None)
-            else:
-                economy_balances[key] = old_balance
-            return await cinnamon_send(interaction, "I couldn't save the purchase. No Catnip was kept.", ephemeral=True)
+        member_lock = _CINNAMON_SHOP_LOCKS.setdefault((gid, uid), _f_asyncio.Lock())
+        async with member_lock:
+            data = _collectible_pet_user(gid, uid)
+            owned = data.setdefault("accessories", [])
+            if item_id in owned:
+                return await cinnamon_send(interaction, "You already own that accessory.", ephemeral=True)
+            item = _PET_ACCESSORIES[item_id]
+            key = (gid, uid)
+            balance = economy_balance(gid, uid)
+            if balance < item["price"]:
+                return await cinnamon_send(interaction, f"You need {item['price']:,} Catnip; your balance is {balance:,}.", ephemeral=True)
+            old_balance, old_owned = economy_balances.get(key), list(owned)
+            economy_ensure_balance(gid, uid)
+            economy_balances[key] = balance - item["price"]
+            owned.append(item_id)
+            try:
+                saved = await bd_save_data()
+            except Exception:
+                saved = False
+            if not saved:
+                owned[:] = old_owned
+                if old_balance is None:
+                    economy_balances.pop(key, None)
+                else:
+                    economy_balances[key] = old_balance
+                return await cinnamon_send(interaction, "I couldn't save the purchase. No Catnip was kept.", ephemeral=True)
     await economy_log(gid, title="Pet accessory purchased",
         fields=[("Member", str(uid)), ("Accessory", item["name"]), ("Price", f"{item['price']:,} Catnip")])
     await cinnamon_send(interaction, f"Purchased {item['emoji']} {item['name']}. Equip it with /pet-style equip.", ephemeral=True)
@@ -234,20 +267,22 @@ async def pet_style_buy(interaction: discord.Interaction, accessory: app_command
 @app_commands.choices(accessory=[app_commands.Choice(name=f"{v['emoji']} {v['name']}", value=k) for k, v in _PET_ACCESSORIES.items()])
 async def pet_style_equip(interaction: discord.Interaction, accessory: app_commands.Choice[str]):
     async with _feature_lock(interaction.guild.id):
-        data = _collectible_pet_user(interaction.guild.id, interaction.user.id)
-        pet = _collectible_pet_active(data)
-        if not pet:
-            return await cinnamon_send(interaction, "Discover and equip a pet first with ?work and ?pets equip.", ephemeral=True)
-        if accessory.value not in data.get("accessories", []):
-            return await cinnamon_send(interaction, "You don't own that accessory yet. Browse /pet-style shop.", ephemeral=True)
-        old = pet.get("accessory_id")
-        pet["accessory_id"] = accessory.value
-        if not await bd_save_data():
-            if old is None:
-                pet.pop("accessory_id", None)
-            else:
-                pet["accessory_id"] = old
-            return await cinnamon_send(interaction, "I couldn't save that equipment change.", ephemeral=True)
+        member_lock = _CINNAMON_SHOP_LOCKS.setdefault((interaction.guild.id, interaction.user.id), _f_asyncio.Lock())
+        async with member_lock:
+            data = _collectible_pet_user(interaction.guild.id, interaction.user.id)
+            pet = _collectible_pet_active(data)
+            if not pet:
+                return await cinnamon_send(interaction, "Discover and equip a pet first with ?work and ?pets equip.", ephemeral=True)
+            if accessory.value not in data.get("accessories", []):
+                return await cinnamon_send(interaction, "You don't own that accessory yet. Browse /pet-style shop.", ephemeral=True)
+            old = pet.get("accessory_id")
+            pet["accessory_id"] = accessory.value
+            if not await bd_save_data():
+                if old is None:
+                    pet.pop("accessory_id", None)
+                else:
+                    pet["accessory_id"] = old
+                return await cinnamon_send(interaction, "I couldn't save that equipment change.", ephemeral=True)
     item = _PET_ACCESSORIES[accessory.value]
     await cinnamon_send(interaction, f"Equipped {item['emoji']} {item['name']} on {pet.get('nickname') or pet.get('species', 'your pet')}.", ephemeral=True)
 
@@ -255,16 +290,18 @@ async def pet_style_equip(interaction: discord.Interaction, accessory: app_comma
 @app_commands.guild_only()
 async def pet_style_remove(interaction: discord.Interaction):
     async with _feature_lock(interaction.guild.id):
-        data = _collectible_pet_user(interaction.guild.id, interaction.user.id)
-        pet = _collectible_pet_active(data)
-        if not pet:
-            return await cinnamon_send(interaction, "You don't have an active pet.", ephemeral=True)
-        old = pet.pop("accessory_id", None)
-        if not old:
-            return await cinnamon_send(interaction, "Your active pet isn't wearing an accessory.", ephemeral=True)
-        if not await bd_save_data():
-            pet["accessory_id"] = old
-            return await cinnamon_send(interaction, "I couldn't save that equipment change.", ephemeral=True)
+        member_lock = _CINNAMON_SHOP_LOCKS.setdefault((interaction.guild.id, interaction.user.id), _f_asyncio.Lock())
+        async with member_lock:
+            data = _collectible_pet_user(interaction.guild.id, interaction.user.id)
+            pet = _collectible_pet_active(data)
+            if not pet:
+                return await cinnamon_send(interaction, "You don't have an active pet.", ephemeral=True)
+            old = pet.pop("accessory_id", None)
+            if not old:
+                return await cinnamon_send(interaction, "Your active pet isn't wearing an accessory.", ephemeral=True)
+            if not await bd_save_data():
+                pet["accessory_id"] = old
+                return await cinnamon_send(interaction, "I couldn't save that equipment change.", ephemeral=True)
     await cinnamon_send(interaction, "Accessory removed and kept in your collection.", ephemeral=True)
 
 bot.tree.add_command(pet_style_group)
