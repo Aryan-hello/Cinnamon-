@@ -165,6 +165,27 @@ def _value(g,u, metric):
     if metric.startswith("compound_") or metric in {"oops_all_tuna","economy_mine","dream_archived"}: return _compound(s,metric)
     return _metric(s,metric)
 
+async def _claim_achievement_level_rewards(g, u):
+    claim_fn = globals().get("_claim_level_rewards")
+    if not callable(claim_fn):
+        return 0
+    level = level_from_xp(xp_data.get((int(g), int(u)), 0))
+    reward_total, reward_levels = await claim_fn(g, u, level)
+    if reward_total:
+        await achievement_record(g, u, "catnip_earned", reward_total)
+        await economy_log(
+            g,
+            title="🏆 Level Catnip reward",
+            fields=[
+                ("User", f"<@{u}> ({u})"),
+                ("Levels", ", ".join(map(str, reward_levels))),
+                ("Reward", f"+{reward_total:,} Catnip"),
+                ("Source", "Achievement XP"),
+            ],
+        )
+    return reward_total
+
+
 async def _add_xp(g,u,amount):
     if not amount: return
     key=(g,u); xp_data[key]=int(xp_data.get(key,0))+int(amount)
@@ -172,6 +193,7 @@ async def _add_xp(g,u,amount):
     if member:
         try: await sync_level_roles(member, level_from_xp(xp_data[key]))
         except Exception: pass
+    await _claim_achievement_level_rewards(g, u)
 
 def _role_candidates(guild, name):
     return [r for r in guild.roles if r.name == name and not r.managed]
@@ -278,6 +300,8 @@ async def _unlock(g,u,aid,secret=False,reason=""):
         if member and xp_reward:
             try: await sync_level_roles(member,level_from_xp(xp_data[balance_key]))
             except Exception: pass
+        if xp_reward:
+            await _claim_achievement_level_rewards(g, u)
         role_ok=await _assign_role(g,u,aid,a["role"]) if a.get("role") else None
         await achievement_log(g,"🕵️ Secret achievement discovered" if secret else "🏆 Achievement unlocked",[
             ("User",f"<@{u}> ({u})"),("Achievement",a["name"]),("Rewards",f"+{int(a.get('catnip',0)):,} Catnip · +{int(a.get('xp',0)):,} XP · +{int(a.get('points',0))} AP"),
@@ -732,6 +756,7 @@ async def _unlock_custom_admin(g,u):
         if member:
             try: await sync_level_roles(member,level_from_xp(xp_data[balance_key]))
             except Exception: pass
+        await _claim_achievement_level_rewards(g, u)
         role_ok=await _assign_role(g,u,"admin_favourite",a["role"])
         await achievement_log(g,"👑 Admin achievement awarded",[
             ("User",f"<@{u}> ({u})"),("Achievement",a["name"]),
