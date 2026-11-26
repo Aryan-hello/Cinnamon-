@@ -768,13 +768,23 @@ async def fishing_sell(interaction: discord.Interaction, fish: str, quantity: ap
     owned = int(p['fish'].get(key, 0))
     if owned < quantity:
         return await interaction.response.send_message(f'🐟 You have **{owned}× {_WLF_FISH[key]["name"]}**; cannot sell {quantity}.', ephemeral=True)
-    payout = quantity * _WLF_FISH[key]['value']
-    p['fish'][key] = owned - quantity
+    pet_fn = globals().get("_collectible_pet_ability")
+    pet = pet_fn(g,u) if callable(pet_fn) else {}
+    sale_quantity = quantity
+    returned = 0
+    if pet.get("ability") == "penguin":
+        # Independent return roll for every fish in the requested sale.
+        returned = sum(1 for _ in range(quantity) if random.random() < float(pet.get("secondary_value", 0.0)))
+        sale_quantity -= returned
+    payout = sale_quantity * _WLF_FISH[key]['value']
+    if pet.get("ability") == "fish_sale":
+        payout = int(payout * (1.0 + float(pet.get("value", 0.0))))
+    p['fish'][key] = owned - sale_quantity
     before = economy_balance(g,u)
     economy_balances[(g,u)] = before + payout
     await bd_save_data()
-    await economy_log(g, title='🐟 Adventure fish sold', fields=[('Member ID', u), ('Fish', _WLF_FISH[key]['name']), ('Quantity', quantity), ('Catnip earned', payout), ('Balance before', before), ('Balance after', economy_balances[(g,u)])])
-    await interaction.response.send_message(f'🌿 Sold **{quantity} × {_WLF_FISH[key]["name"]}** for **{payout:,} Catnip**. New balance: **{economy_balances[(g,u)]:,}**.', ephemeral=True)
+    await economy_log(g, title='🐟 Adventure fish sold', fields=[('Member ID', u), ('Fish', _WLF_FISH[key]['name']), ('Quantity sold', sale_quantity), ('Quantity returned', returned), ('Catnip earned', payout), ('Balance before', before), ('Balance after', economy_balances[(g,u)])])
+    await interaction.response.send_message(f'🌿 Sold **{sale_quantity} × {_WLF_FISH[key]["name"]}** for **{payout:,} Catnip**. {returned} fish returned to your inventory. New balance: **{economy_balances[(g,u)]:,}**.', ephemeral=True)
 
 
 class _WLFRarity(discord.ui.Select):
