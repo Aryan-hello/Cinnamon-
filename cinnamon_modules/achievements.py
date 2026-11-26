@@ -250,6 +250,8 @@ async def _unlock(g,u,aid,secret=False,reason=""):
             if had_xp: xp_data[balance_key]=old_xp
             else: xp_data.pop(balance_key,None)
             return False
+        wallet_lock.release()
+        wallet_locked=False
         member=bot.get_guild(g).get_member(u) if bot.get_guild(g) else None
         if member and int(a.get("xp",0)):
             try: await sync_level_roles(member,level_from_xp(xp_data[balance_key]))
