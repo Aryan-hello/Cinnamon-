@@ -26,6 +26,17 @@ def _mc_is_mod(member):
     return bool(perms and (perms.administrator or perms.manage_messages or perms.moderate_members))
 
 
+def _mc_submit_serialized(func):
+    """Serialize appeal submissions with each other and with staff decisions."""
+    import functools
+    @functools.wraps(func)
+    async def wrapper(interaction, *args, **kwargs):
+        lock = _MC_LOCKS.setdefault(int(interaction.guild.id), asyncio.Lock())
+        async with lock:
+            return await func(interaction, *args, **kwargs)
+    return wrapper
+
+
 async def _mc_decide_appeal(guild_id, appeal_id, decision, moderator_id, note=None):
     """Serialize appeal decisions and persist exactly one moderator outcome."""
     lock = _MC_LOCKS.setdefault(int(guild_id), asyncio.Lock())
@@ -306,6 +317,7 @@ class ModerationAppealView(discord.ui.View):
         return callback
 
 @appeal_group.command(name="submit", description="Submit an appeal to a server from a DM with Cinnamon")
+@_mc_submit_serialized
 @app_commands.describe(guild_id="Server ID for the moderation action", details="Explain your appeal")
 async def moderation_appeal_submit(interaction: discord.Interaction, guild_id: str,
                                    details: app_commands.Range[str, 20, 1500]):
@@ -345,7 +357,12 @@ async def moderation_appeal_submit(interaction: discord.Interaction, guild_id: s
                                  allowed_mentions=discord.AllowedMentions.none())
     record["message_id"], record["channel_id"] = int(message.id), int(channel.id)
     cfg["appeals"][appeal_id] = record
-    if not await bd_save_data():
+    try:
+        saved = await bd_save_data()
+    except Exception:
+        saved = False
+        log.exception("Could not persist moderation appeal submission")
+    if not saved:
         cfg["appeals"].pop(appeal_id, None)
         try: await message.delete()
         except discord.HTTPException: pass
