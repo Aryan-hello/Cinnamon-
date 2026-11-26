@@ -87,7 +87,30 @@ async def sync_level_roles(member: discord.Member, level: int) -> list[str]:
     return [r.name for r in to_add]
 
 
+def _record_season_xp(guild_id: int, user_id: int, amount: int):
+    """Record eligible XP in the current calendar-month season.
+
+    Season data lives in advanced_features_data so it follows Cinnamon's
+    existing validated snapshot and naturally rolls over by month.
+    """
+    season_id = cinnamon_now().strftime("%Y-%m")
+    root = advanced_features_data.setdefault("leaderboard_seasons_v1", {})
+    season = root.setdefault(season_id, {})
+    scores = season.setdefault(str(int(guild_id)), {})
+    key = str(int(user_id))
+    scores[key] = int(scores.get(key, 0)) + max(0, int(amount))
+    # Keep the most recent 12 seasons to bound snapshot growth.
+    for old_season in sorted(root)[:-12]:
+        root.pop(old_season, None)
+
+
 async def award_xp(message: discord.Message):
+    if message.guild is None or message.author.bot or getattr(message, "webhook_id", None):
+        return
+    content = str(getattr(message, "content", "") or "").strip()
+    # Prefix commands and near-empty messages should not generate leaderboard XP.
+    if content.startswith("?") or len(content) < 3:
+        return
     guild_id = message.guild.id
     if not xp_allowed_in_channel(guild_id, message.channel.id):
         return
@@ -101,6 +124,7 @@ async def award_xp(message: discord.Message):
     xp_amount, _ = xp_settings_for_guild(guild_id)
     new_xp = old_xp + xp_amount
     xp_data[key] = new_xp
+    _record_season_xp(guild_id, message.author.id, xp_amount)
     new_level = level_from_xp(new_xp)
     await achievement_record(guild_id, message.author.id, "level", new_level)
     gained = await sync_level_roles(message.author, new_level)
@@ -241,6 +265,7 @@ class LeaderboardPageView(discord.ui.View):
 @app_commands.describe(category="What you want to rank members by")
 @app_commands.choices(category=[
     app_commands.Choice(name="XP / Levels",value="xp"),
+    app_commands.Choice(name="Current Season XP",value="season"),
     app_commands.Choice(name="Catnip",value="catnip"),
     app_commands.Choice(name="Achievement Points",value="achievements"),
     app_commands.Choice(name="Messages",value="messages"),
@@ -260,6 +285,11 @@ async def leaderboard(interaction: discord.Interaction, category: app_commands.C
     if category=="xp":
         rows=[(uid,int(xp)) for (g,uid),xp in xp_data.items() if g==gid]
         title="⭐ XP / Level Leaderboard"; fmt=lambda uid,v:f"Level {level_from_xp(v)} · {v:,} XP"
+    elif category=="season":
+        season_id=cinnamon_now().strftime("%Y-%m")
+        season=globals().get("advanced_features_data",{}).get("leaderboard_seasons_v1",{}).get(season_id,{})
+        rows=[(int(uid),int(score)) for uid,score in season.get(str(gid),{}).items()]
+        title=f"🏅 {season_id} Season XP Leaderboard"; fmt=lambda uid,v:f"{v:,} season XP"
     elif category=="catnip":
         rows=[(uid,int(v)) for (g,uid),v in economy_balances.items() if g==gid]
         title="🌿 Catnip Leaderboard"; fmt=lambda uid,v:f"{v:,} Catnip"
