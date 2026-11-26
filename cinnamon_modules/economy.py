@@ -652,6 +652,10 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
             return await cinnamon_send(interaction, failure, ephemeral=True)
         current_qty = int(economy_inventory_for(guild_id, user_id).get(item_id, 0))
         unit_price = _cm_price(guild_id, user_id, item_id, data["price"])
+        pet_fn = globals().get("_collectible_pet_ability")
+        pet = pet_fn(guild_id, user_id) if callable(pet_fn) else {}
+        if data.get("pet_abilities_enabled") and pet.get("ability") == "shop_discount":
+            unit_price = max(1, int(unit_price * (1.0 - float(pet.get("value", 0.0)))))
         cost = unit_price * quantity
         balance = economy_balance(guild_id, user_id)
         if balance < cost:
