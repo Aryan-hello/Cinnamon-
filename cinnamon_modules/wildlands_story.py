@@ -570,10 +570,34 @@ class _WLSChoiceView(discord.ui.View):
                 async with lock:
                     if not rec.get('reward_paid'):
                         before=economy_balance(g,u)
+                        pet_slots = max(0, int((advanced_features_data.get("story_pet_slot_rewards_v1", {}) or {}).get(str(g), 0) or 0))
+                        pet_user_fn = globals().get("_collectible_pet_user")
+                        pet_data = pet_user_fn(g, u) if pet_slots and callable(pet_user_fn) else None
+                        old_story_slots = int(pet_data.get("story_slots", 0) or 0) if pet_data is not None else None
                         economy_balances[(g,u)]=before+_WLS_REWARD
+                        if pet_data is not None:
+                            pet_data["story_slots"] = old_story_slots + pet_slots
                         rec['reward_paid']=True
                         rec['complete']=True
-                        await bd_save_data()
+                        rec['pet_slots_paid']=True
+                        try:
+                            saved = await bd_save_data()
+                        except Exception:
+                            saved = False
+                        if not saved:
+                            economy_balances[(g,u)] = before
+                            rec['reward_paid'] = False
+                            rec['complete'] = False
+                            rec.pop('pet_slots_paid', None)
+                            if pet_data is not None:
+                                if old_story_slots:
+                                    pet_data["story_slots"] = old_story_slots
+                                else:
+                                    pet_data.pop("story_slots", None)
+                            return await interaction.followup.send(
+                                embed=_wls_embed(interaction,'🐾 Story Reward Pending',
+                                    'Cinnamon could not save the finale reward. Your progress will remain available; please try the final choice again.'),
+                                ephemeral=True)
                 try:
                     await economy_log(g,title='🏆 Cinnamon Wildlands story completed',fields=[
                         ('Member ID',u),('Reward Catnip',_WLS_REWARD),('Story','The Treasure Worth Billions')])
