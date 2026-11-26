@@ -967,9 +967,11 @@ async def economy_transfer_catnip(guild_id: int, sender_id: int, recipient_id: i
         _CINNAMON_SHOP_LOCKS.setdefault((int(guild_id), uid), asyncio.Lock())
         for uid in member_ids
     ]
-    for lock in locks:
-        await lock.acquire()
+    acquired = []
     try:
+        for lock in locks:
+            await lock.acquire()
+            acquired.append(lock)
         sender_key = (int(guild_id), int(sender_id))
         recipient_key = (int(guild_id), int(recipient_id))
         sender_before = economy_balance(guild_id, sender_id)
@@ -997,9 +999,8 @@ async def economy_transfer_catnip(guild_id: int, sender_id: int, recipient_id: i
             return False, sender_before, recipient_before, "save_failed"
         return True, sender_before, recipient_before, None
     finally:
-        for lock in reversed(locks):
-            if lock.locked():
-                lock.release()
+        for lock in reversed(acquired):
+            lock.release()
 
 
 @economy_group.command(name="give", description="Give Catnip to another member")
