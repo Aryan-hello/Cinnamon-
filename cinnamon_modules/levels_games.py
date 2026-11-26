@@ -294,7 +294,7 @@ async def rank(interaction: discord.Interaction, member: discord.Member = None):
         pending_total = sum(int(ECONOMY_LEVEL_REWARDS[reward_level]) for reward_level in pending_levels)
         embed.add_field(
             name="🌿 Pending level rewards",
-            value=f"**+{pending_total:,} Catnip**\\nLevels: {', '.join(map(str, sorted(pending_levels)))}",
+            value=f"**+{pending_total:,} Catnip**\nLevels: {', '.join(map(str, sorted(pending_levels)))}",
             inline=True,
         )
     elif level > 0:
