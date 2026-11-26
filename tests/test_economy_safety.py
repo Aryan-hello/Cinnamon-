@@ -348,8 +348,11 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
             active -= 1
         wrapped = decorate(fake_submit)
-        guild = SimpleNamespace(id=1)
-        await asyncio.gather(wrapped(SimpleNamespace(guild=guild)), wrapped(SimpleNamespace(guild=guild)))
+        dm_interaction = SimpleNamespace(guild=None)
+        await asyncio.gather(
+            wrapped(dm_interaction, "1", "appeal details"),
+            wrapped(dm_interaction, "1", "appeal details"),
+        )
         self.assertEqual(maximum, 1)
 
 
