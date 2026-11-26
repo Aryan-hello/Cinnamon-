@@ -223,6 +223,45 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(xp[(1, 7)], 5)
 
 
+    async def test_concurrent_admin_achievement_awards_pay_only_once(self):
+        state = {"stats": {}, "unlocked": [], "secret_unlocked": [], "points": 0, "showcase": []}
+        states = {(1, 7): state}
+        balances = {(1, 7): 10}
+        xp = {(1, 7): 0}
+
+        async def save():
+            await asyncio.sleep(0)
+            return True
+
+        async def noop(*args, **kwargs):
+            return None
+
+        namespace = {
+            "_ach_copy": copy,
+            "asyncio": asyncio,
+            "_CINNAMON_SHOP_LOCKS": {},
+            "_achievement_guard": set(),
+            "_state": lambda guild_id, user_id: states.setdefault((int(guild_id), int(user_id)), state),
+            "_key": lambda guild_id, user_id: (int(guild_id), int(user_id)),
+            "achievement_data": states,
+            "economy_balances": balances,
+            "economy_balance": lambda guild_id, user_id: balances.get((int(guild_id), int(user_id)), 0),
+            "xp_data": xp,
+            "ADMIN_ACHIEVEMENT": {"catnip": 100000, "xp": 50000, "role": None, "name": "Favourite"},
+            "bd_save_data": save,
+            "bot": SimpleNamespace(get_guild=lambda guild_id: None),
+            "sync_level_roles": noop,
+            "level_from_xp": lambda value: value,
+            "_assign_role": noop,
+            "achievement_log": noop,
+        }
+        award = extract_function(ROOT / "cinnamon_modules/achievements.py", "_unlock_custom_admin", namespace)
+        results = await asyncio.gather(award(1, 7), award(1, 7))
+        self.assertEqual(sum(bool(result) for result in results), 1)
+        self.assertEqual(balances[(1, 7)], 100010)
+        self.assertEqual(xp[(1, 7)], 50000)
+        self.assertEqual(state["unlocked"].count("admin_favourite"), 1)
+
     async def test_concurrent_appeal_decisions_allow_only_one_winner(self):
         from datetime import datetime, timezone
 
