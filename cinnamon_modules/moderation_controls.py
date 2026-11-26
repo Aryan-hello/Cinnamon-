@@ -311,9 +311,22 @@ async def moderation_appeal_submit(interaction: discord.Interaction, guild_id: s
     channel = guild.get_channel(int(cfg.get("appeal_channel_id", 0) or 0))
     if not isinstance(channel, discord.TextChannel):
         return await cinnamon_send(interaction, "That server hasn't configured a private appeal channel.", ephemeral=True)
+    now = int(_mc_time.time())
+    user_appeals = [
+        record for record in cfg["appeals"].values()
+        if isinstance(record, dict) and int(record.get("user_id", 0)) == int(interaction.user.id)
+    ]
+    if any(record.get("status") == "pending" for record in user_appeals):
+        return await cinnamon_send(interaction, "You already have a pending appeal for this server. Wait for the moderators to review it.", ephemeral=True)
+    recent_submissions = sum(
+        1 for record in user_appeals
+        if now - int(record.get("submitted_at", 0)) < 86400
+    )
+    if recent_submissions >= 2:
+        return await cinnamon_send(interaction, "For fairness, each member can submit up to two appeals per server every 24 hours.", ephemeral=True)
     appeal_id = _mc_uuid.uuid4().hex[:8]
     record = {"user_id": int(interaction.user.id), "details": str(details).strip()[:1500],
-              "status": "pending", "submitted_at": int(_mc_time.time())}
+              "status": "pending", "submitted_at": now}
     embed = discord.Embed(title="📨 Moderation Appeal",
         description=str(details).strip()[:1500], color=0xE8A05A)
     embed.add_field(name="Appeal ID", value=appeal_id, inline=True)
