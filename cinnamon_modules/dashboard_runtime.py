@@ -74,6 +74,8 @@ def _bd_encode() -> dict:
         "economy_level_rewards_claimed": {f"{g}:{u}": list(levels) for (g, u), levels in economy_level_rewards_claimed.items()},
         "economy_income_roles": {str(g): {str(r): cfg for r, cfg in roles.items()} for g, roles in economy_income_roles.items()},
         "economy_items": ECONOMY_ITEMS,
+        # Versioned catalogs make administrator removals durable across restarts.
+        "economy_catalog_version": 2,
         "achievement_data": {f"{g}:{u}": v for (g,u), v in achievement_data_local.items()},
         "achievement_config": {str(g): v for g,v in achievement_config_local.items()},
         "friendship_data": {f"{g}:{u}": v for (g,u),v in friendship_data.items()},
@@ -134,10 +136,10 @@ def _bd_decode(raw: dict):
         if len(parts) == 2:
             economy_level_rewards_claimed[(int(parts[0]), int(parts[1]))] = [int(x) for x in levels]
     economy_income_roles = {int(g): {int(r): cfg for r, cfg in roles.items()} for g, roles in raw.get("economy_income_roles", {}).items()}
-    # Restore saved catalogs while adding built-ins introduced after an older
-    # snapshot was created. Existing item settings and custom entries win;
-    # explicitly empty catalogs remain empty.
+    # Older snapshots predate some built-in items. Migrate those once, then
+    # treat the saved catalog as authoritative so administrator removals stay removed.
     saved_items = raw.get("economy_items")
+    catalog_version = int(raw.get("economy_catalog_version", 0) or 0)
     current_defaults = {
         key: dict(value) for key, value in ECONOMY_ITEMS.items()
         if isinstance(value, dict)
@@ -145,18 +147,17 @@ def _bd_decode(raw: dict):
     if isinstance(saved_items, dict):
         ECONOMY_ITEMS.clear()
         ECONOMY_ITEMS.update(saved_items)
-        if saved_items:
+        if saved_items and catalog_version < 2:
             for item_id, default_item in current_defaults.items():
                 if item_id not in ECONOMY_ITEMS:
                     ECONOMY_ITEMS[item_id] = dict(default_item)
-        # GAG services were added after some older snapshots. Repair only
-        # missing metadata on existing entries, preserving explicit prices,
-        # descriptions and shop_enabled choices.
+        # Saved catalogs are authoritative after the one-time built-in migration.
+        # GAG metadata is repaired without restoring removed entries in current catalogs.
         gag_defaults = globals().get("GAG_SERVICE_ITEMS", {})
         if saved_items and isinstance(gag_defaults, dict):
             for gag_id, gag_item in gag_defaults.items():
                 current = ECONOMY_ITEMS.get(gag_id)
-                if current is None:
+                if current is None and catalog_version < 2:
                     ECONOMY_ITEMS[gag_id] = dict(gag_item)
                 elif isinstance(current, dict):
                     for field, value in gag_item.items():
