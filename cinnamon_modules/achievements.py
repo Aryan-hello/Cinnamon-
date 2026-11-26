@@ -304,8 +304,8 @@ async def _unlock(g,u,aid,secret=False,reason=""):
             except Exception: pass
         if xp_reward:
             claim_rewards_fn = globals().get("_claim_achievement_level_rewards")
-    if callable(claim_rewards_fn):
-        await claim_rewards_fn(g, u)
+            if callable(claim_rewards_fn):
+                await claim_rewards_fn(g, u)
         role_ok=await _assign_role(g,u,aid,a["role"]) if a.get("role") else None
         await achievement_log(g,"🕵️ Secret achievement discovered" if secret else "🏆 Achievement unlocked",[
             ("User",f"<@{u}> ({u})"),("Achievement",a["name"]),("Rewards",f"+{int(a.get('catnip',0)):,} Catnip · +{int(a.get('xp',0)):,} XP · +{int(a.get('points',0))} AP"),
@@ -761,8 +761,8 @@ async def _unlock_custom_admin(g,u):
             try: await sync_level_roles(member,level_from_xp(xp_data[balance_key]))
             except Exception: pass
         claim_rewards_fn = globals().get("_claim_achievement_level_rewards")
-    if callable(claim_rewards_fn):
-        await claim_rewards_fn(g, u)
+        if callable(claim_rewards_fn):
+            await claim_rewards_fn(g, u)
         role_ok=await _assign_role(g,u,"admin_favourite",a["role"])
         await achievement_log(g,"👑 Admin achievement awarded",[
             ("User",f"<@{u}> ({u})"),("Achievement",a["name"]),
