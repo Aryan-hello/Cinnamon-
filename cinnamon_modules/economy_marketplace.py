@@ -20,13 +20,27 @@ def _market_member_locks(gid, users):
             for uid in sorted(set(int(x) for x in users))]
 
 async def _market_acquire(locks):
-    for lock in locks:
-        await lock.acquire()
+    """Acquire locks in order and retain only locks owned by this task.
+
+    If cancellation happens part-way through acquisition, release only the
+    locks acquired here. Callers can safely invoke _market_release in finally.
+    """
+    acquired = []
+    try:
+        for lock in locks:
+            await lock.acquire()
+            acquired.append(lock)
+    except BaseException:
+        for lock in reversed(acquired):
+            lock.release()
+        locks.clear()
+        raise
+    locks[:] = acquired
 
 def _market_release(locks):
     for lock in reversed(locks):
-        if lock.locked():
-            lock.release()
+        lock.release()
+    locks.clear()
 
 def _market_item_ok(item_id):
     item = ECONOMY_ITEMS.get(str(item_id), {})
@@ -307,6 +321,8 @@ async def trade_accept(interaction: discord.Interaction, offer_id: str):
             rec = trades.get(str(offer_id))
             if not isinstance(rec, dict) or rec.get("status") != "pending":
                 return await cinnamon_send(interaction, "That offer is no longer pending.", ephemeral=True)
+            if int(rec.get("expires_at", 0)) <= int(_market_time.time()):
+                return await cinnamon_send(interaction, "That offer has expired. Its escrow will be returned automatically.", ephemeral=True)
             sinv, rinv = economy_inventory_for(gid, sender_id), economy_inventory_for(gid, recipient_id)
             sbal, rbal = economy_balance(gid, sender_id), economy_balance(gid, recipient_id)
             req_item, req_qty = str(rec.get("request_item", "")), int(rec.get("request_quantity", 0))
@@ -361,6 +377,50 @@ async def trade_cancel(interaction: discord.Interaction, offer_id: str):
     await cinnamon_send(interaction, "Trade cancelled. Your escrow was returned.", ephemeral=True)
 
 bot.tree.add_command(trade_group)
+
+
+@tasks.loop(minutes=1)
+async def _trade_expiry_loop():
+    """Return escrow for pending offers after their persisted deadline."""
+    now = int(_market_time.time())
+    for guild_key, trades in list(advanced_features_data.get(_TRADE_KEY, {}).items()):
+        if not str(guild_key).isdigit() or not isinstance(trades, dict):
+            continue
+        gid = int(guild_key)
+        due = [
+            offer_id for offer_id, record in list(trades.items())
+            if isinstance(record, dict)
+            and record.get("status") == "pending"
+            and int(record.get("expires_at", 0)) <= now
+        ]
+        for offer_id in due:
+            async with _market_lock(gid):
+                record = _market_root(_TRADE_KEY, gid).get(str(offer_id))
+                if not isinstance(record, dict) or record.get("status") != "pending":
+                    continue
+                if int(record.get("expires_at", 0)) > int(_market_time.time()):
+                    continue
+                if await _trade_return_escrow(gid, str(offer_id), "expired"):
+                    try:
+                        await economy_log(gid, title="Trade offer expired", fields=[
+                            ("Offer ID", str(offer_id)),
+                            ("Sender ID", str(record.get("sender_id", "unknown"))),
+                            ("Recipient ID", str(record.get("recipient_id", "unknown"))),
+                        ])
+                    except Exception:
+                        log.exception("Trade expiry log failed")
+
+
+@_trade_expiry_loop.before_loop
+async def _trade_expiry_before_loop():
+    await bot.wait_until_ready()
+
+
+@bot.listen("on_ready")
+async def _trade_expiry_start():
+    if not _trade_expiry_loop.is_running():
+        _trade_expiry_loop.start()
+
 
 async def _market_catalog_autocomplete(interaction, current):
     query = str(current or "").lower()
@@ -595,6 +655,8 @@ async def auction_bid(interaction: discord.Interaction, auction_id: str,
             rec = auctions.get(str(auction_id))
             if not isinstance(rec, dict) or rec.get("status") != "active":
                 return await cinnamon_send(interaction, "That auction has already ended.", ephemeral=True)
+            if int(rec.get("ends_at", 0)) <= int(_market_time.time()):
+                return await cinnamon_send(interaction, "That auction has reached its deadline. The expiry worker will settle it.", ephemeral=True)
             previous_bidder = int(rec.get("highest_bidder_id") or 0)
             old_bid = int(rec.get("highest_bid", 0))
             balance = economy_balance(gid, bidder_id)
