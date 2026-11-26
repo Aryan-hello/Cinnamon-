@@ -135,7 +135,7 @@ class AdminPetIncomeTests(unittest.IsolatedAsyncioTestCase):
             if isinstance(node, ast.Assign)
             and any(isinstance(t, ast.Name) and t.id == "_COLLECTIBLE_PET_CATALOG" for t in node.targets)
         )
-        normal_species = {entry.value for entry in catalog.elts
+        normal_species = {entry_value.value for entry in catalog.elts
                           if isinstance(entry, ast.Dict)
                           for key, entry_value in zip(entry.keys, entry.values)
                           if isinstance(key, ast.Constant) and key.value == "species"
