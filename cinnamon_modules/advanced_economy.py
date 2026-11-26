@@ -332,7 +332,11 @@ async def craft_item(guild_id, user, recipe_id, quantity=1):
                 inv.pop(item_id, None)
         inv[recipe["output"]] = int(inv.get(recipe["output"], 0)) + quantity
         crafted_counts[key] = before_count + quantity
-        if not await bd_save_data():
+        try:
+            saved = await bd_save_data()
+        except Exception:
+            saved = False
+        if not saved:
             inv.clear()
             inv.update(before_inventory)
             if before_count:
