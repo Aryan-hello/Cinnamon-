@@ -160,10 +160,10 @@ def _feature_index(catalog: Mapping[str, CommandGuide]) -> str:
 
 def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_label: str) -> str:
     if topic == "quests":
-        body = ("Five daily and five weekly quests track your progress. Completing them earns "
-                "Quest Points and XP; redeem Quest Points in the quest shop. Daily quests "
-                "rotate at midnight and weekly quests at Monday midnight (" + timezone_label + ").")
-        paths = ("/quests daily", "/quests weekly", "/quests progress", "/questshop")
+        body = ("Five daily and five weekly quests track your progress. Completing them grants "
+                "XP toward levels; configured level milestones automatically pay Catnip. Daily "
+                "quests rotate at midnight and weekly quests at Monday midnight (" + timezone_label + ").")
+        paths = ("/quests daily", "/quests weekly", "/quests progress")
     elif topic == "fishing":
         body = ("Start fishing to receive your starter rod and 10 bait, then cast to play the "
                 "interactive fishing sequence. Your journal tracks catches; you can sell fish "
@@ -200,8 +200,9 @@ def _feature_answer(topic: str, catalog: Mapping[str, CommandGuide], timezone_la
         paths = ("/cinnamon-me today", "/cinnamon-me progress", "/cinnamon-me ask",
                  "/cinnamon-me privacy", "/cinnamon-reminder create", "/cinnamon-memory view")
     elif topic == "progress":
-        body = ("Your private progress view summarizes your existing level, XP, quests, Quest Points, "
-                "and achievements. It is read-only and never grants XP or rewards.")
+        body = ("Your private progress view summarizes your existing level, XP, quests, "
+                "and achievements. Level milestone Catnip rewards are paid automatically when eligible. "
+                "The view itself is read-only.")
         paths = ("/cinnamon-me progress", "/cinnamon-me ask", "/rank",
                  "/quests progress", "/achievement list")
     elif topic == "independence":
@@ -319,7 +320,7 @@ def answer_help(text: str, catalog: Mapping[str, CommandGuide], *, timezone_labe
 
     if re.search(r"\b(?:my\s+day|my\s+schedule|today(?:'s)?\s+(?:plan|overview)|personal\s+dashboard|privacy)\b", lower):
         topic = "myday"
-    elif re.search(r"\b(?:my\s+progress|progress|level|xp|quest points|achievements)\b", lower):
+    elif re.search(r"\b(?:my\s+progress|progress|level|xp||achievements)\b", lower):
         topic = "progress"
     elif re.search(r"\b(?:reminders?|remind\s+me)\b", lower):
         topic = "reminders"
