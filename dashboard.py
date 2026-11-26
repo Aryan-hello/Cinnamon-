@@ -1513,7 +1513,8 @@ def _moderation(guild, state):
         appeal_rows.append("<tr><td>" + _esc(str(appeal_id)) + "</td><td>" + _esc(appeal_member_name) + "</td><td>" + _esc(str(appeal.get("details", ""))[:180]) + "</td><td>" + _esc(decision.title()) + "</td><td>" + action_forms + "</td></tr>")
     appeal_rows_html = "".join(appeal_rows) or "<tr><td colspan='5'>No appeals have been submitted.</td></tr>"
     portal_token = str(controls.get("appeal_portal_token", "") or "")
-    portal_url = url_for("cinnamon_dashboard.appeal_portal", guild_id=gid, token=portal_token, _external=True) if portal_token else ""
+    portal_base = (os.getenv("RENDER_EXTERNAL_URL", "https://cinnamon-c328.onrender.com").rstrip("/"))
+    portal_url = portal_base + url_for("cinnamon_dashboard.appeal_portal", guild_id=gid, token=portal_token) if portal_token else ""
     public_appeal_channel = guild.get_channel(int(controls.get("appeal_public_channel_id", 0) or 0))
     appeal_form = (
         "<div class='formgrid'><div class='field'><label>Private moderator review channel</label>" +
@@ -2888,6 +2889,7 @@ def dashboard_action():
             _audit(gid,actor,"Dashboard: appeal portal link rotated","The previous public link has been revoked.")
             session["dashboard_notice"]="New appeal link generated. The old link no longer works."
         elif action=="appeal_portal_publish":
+            discord_module=__import__("discord")
             async def publish_appeal_portal():
                 root=state["advanced_features_data"].setdefault("cinnamon_moderation_controls_v1",{})
                 cfg=root.setdefault(str(gid),{})
@@ -2897,7 +2899,8 @@ def dashboard_action():
                     raise ValueError("Save appeal settings first to generate the portal link.")
                 if not isinstance(channel,discord_module.TextChannel):
                     raise ValueError("Choose a public appeal link channel first.")
-                portal=url_for("cinnamon_dashboard.appeal_portal",guild_id=gid,token=token,_external=True)
+                portal=(os.getenv("RENDER_EXTERNAL_URL", "https://cinnamon-c328.onrender.com").rstrip("/") +
+                    url_for("cinnamon_dashboard.appeal_portal",guild_id=gid,token=token))
                 view_class=state.get("ModerationAppealPortalView")
                 if not callable(view_class):
                     raise ValueError("The appeal portal panel is unavailable. Restart Cinnamon after updating.")
