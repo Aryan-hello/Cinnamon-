@@ -104,6 +104,10 @@ def _collectible_pet_embed(owner, data):
     description = f"**{len(pets)}/50 collected**\n"
     description += (f"Active: {active['emoji']} **{active.get('nickname') or active['species']}** · {active.get('rarity','Common')} · Level {int(active.get('level',1))}"
                     if active else "No active pet yet. Find one with ?work.")
+    accessory_catalog = globals().get("_PET_ACCESSORIES", {})
+    active_accessory = accessory_catalog.get(active.get("accessory_id")) if active else None
+    if active_accessory:
+        description += f"\nAccessory: {active_accessory.get('emoji', '✨')} **{active_accessory.get('name', 'Accessory')}**"
     embed = discord.Embed(title=f"🐾 {owner.display_name}'s Pet Collection",description=description,color=0xE89A3C)
     if not pets:
         embed.add_field(name="Empty collection",value="Use ?work for a chance to discover an animal companion.",inline=False)
@@ -113,6 +117,15 @@ def _collectible_pet_embed(owner, data):
             active_mark=" ⭐" if active and str(active.get("id"))==str(pet.get("id")) else ""
             lines.append(f"**{index}.** {pet.get('emoji','🐾')} **{pet.get('nickname') or pet.get('species','Unknown')}** · {pet.get('rarity','Common')} · Lv. {int(pet.get('level',1))}{active_mark}")
         embed.add_field(name="Collection",value="\n".join(lines),inline=False)
+    owned_accessories = data.get("accessories", [])
+    if isinstance(owned_accessories, list) and owned_accessories:
+        accessory_lines = []
+        for accessory_id in owned_accessories:
+            accessory = accessory_catalog.get(accessory_id)
+            if accessory:
+                accessory_lines.append(f"{accessory.get('emoji', '✨')} **{accessory.get('name', 'Accessory')}**")
+        if accessory_lines:
+            embed.add_field(name="Accessory collection", value="\n".join(accessory_lines[:10]), inline=False)
     return embed
 
 @bot.group(name="pets",aliases=["petcollection","collection"],invoke_without_command=True)
