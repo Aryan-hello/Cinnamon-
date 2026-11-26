@@ -275,6 +275,7 @@ def _shop_items(guild, state):
             f"<label class='toggle'><input type='checkbox' name='shop_enabled'{' checked' if item.get('shop_enabled', True) else ''}><span><b>Listed in shop</b><small>Members can see and purchase this item.</small></span></label>"
             f"<label class='toggle'><input type='checkbox' name='craftable'{' checked' if item.get('craftable', False) else ''}><span><b>Craftable output</b><small>This item can be the output of a crafting recipe.</small></span></label>"
             + f"<label class='toggle'><input type='checkbox' name='pet_abilities_enabled'{' checked' if item.get('pet_abilities_enabled', False) else ''}><span><b>Pet Abilities</b><small>Allow equipped-pet shop effects on this item, including Red Panda discounts and Raccoon theft eligibility.</small></span></label>"
+            + f"<div class='field'><label>Extra pet slots per purchase</label><input name='pet_slots_reward' type='number' min='0' max='100' value='{max(0,int(item.get('pet_slots_reward',0) or 0))}'><small>0 means this item does not grant pet capacity.</small></div>"
             f"<label class='toggle'><input type='checkbox' name='sellable'{' checked' if item.get('sellable', True) else ''}><span><b>Sell-back enabled</b><small>Members may sell eligible items using /economy sell.</small></span></label>"
             f"<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='{max(0,int(item.get('max_per_person',0)))}'><small>0 means unlimited.</small></div>"
             f"<label class='toggle'><input type='checkbox' name='stock_unlimited'{' checked' if item.get('stock_unlimited', True) else ''}><span><b>Unlimited stock</b><small>Turn off to enforce a fixed stock quantity.</small></span></label>"
@@ -321,6 +322,7 @@ def _shop_items(guild, state):
         "<label class='toggle'><input type='checkbox' name='shop_enabled' checked><span><b>Listed in shop</b><small>Members can see and purchase this item.</small></span></label>"
         "<label class='toggle'><input type='checkbox' name='craftable'><span><b>Craftable output</b><small>This item can be the output of a crafting recipe.</small></span></label>"
         "<label class='toggle'><input type='checkbox' name='pet_abilities_enabled'><span><b>Pet Abilities</b><small>Allow equipped-pet effects on this item; Raccoon may select it for theft.</small></span></label>"
+        "<div class='field'><label>Extra pet slots per purchase</label><input name='pet_slots_reward' type='number' min='0' max='100' value='0'><small>0 means this item does not grant pet capacity.</small></div>"
         "<label class='toggle'><input type='checkbox' name='sellable' checked><span><b>Sell-back enabled</b><small>Members may sell eligible items using /economy sell.</small></span></label>"
         "<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='0'><small>0 means unlimited.</small></div>"
         "<label class='toggle'><input type='checkbox' name='stock_unlimited' checked><span><b>Unlimited stock</b><small>Turn off to enforce fixed stock.</small></span></label>"
@@ -3458,6 +3460,7 @@ def dashboard_action():
                 sell_raw = request.form.get("sell_price", "").strip()
                 sell_price = int(sell_raw) if sell_raw else None
                 stock_quantity = int(request.form.get("stock_quantity", "0"))
+                pet_slots_reward = int(request.form.get("pet_slots_reward", "0"))
                 use_cooldown_seconds = int(request.form.get("use_cooldown_seconds", "0"))
                 purchase_requirements = json.loads(request.form.get("purchase_requirements", "{}") or "{}")
                 use_requirements = json.loads(request.form.get("use_requirements", "{}") or "{}")
@@ -3469,6 +3472,7 @@ def dashboard_action():
                     or not 0 <= limit <= 999999
                     or (sell_price is not None and not 0 <= sell_price <= 10000000)
                     or not 0 <= stock_quantity <= 100000000
+                    or not 0 <= pet_slots_reward <= 100
                     or not 0 <= use_cooldown_seconds <= 31536000):
                 raise ValueError("Check the name, prices, per-member limit, stock (0–100,000,000) and cooldown (0–31,536,000 seconds).")
             if not isinstance(purchase_requirements, dict) or not isinstance(use_requirements, dict):
@@ -3574,6 +3578,7 @@ def dashboard_action():
                 "max_per_person": limit,
                 "shop_enabled": "shop_enabled" in request.form,
                 "pet_abilities_enabled": "pet_abilities_enabled" in request.form,
+                "pet_slots_reward": pet_slots_reward,
                 "craftable": "craftable" in request.form,
                 "stock_unlimited": "stock_unlimited" in request.form,
                 "stock_quantity": stock_quantity,
