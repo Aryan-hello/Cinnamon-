@@ -102,7 +102,8 @@ async def collectible_pet_work_drop(guild_id, user):
         active["xp"] = int(active.get("xp", 0)) + 10
         active["level"] = _collectible_pet_level(active["xp"])
     found = None
-    capacity_fn = globals().get("_collectible_pet_capacity")\n    capacity = capacity_fn(guild_id, user.id) if callable(capacity_fn) else 5\n    if len(data["pets"]) < capacity and _cp_random.random() < 0.07:
+    capacity_fn = globals().get("_collectible_pet_capacity")
+    capacity = capacity_fn(guild_id, user.id) if callable(capacity_fn) else 5\n    if len(data["pets"]) < capacity and _cp_random.random() < 0.07:
         species = _cp_random.choices(_COLLECTIBLE_PET_CATALOG, weights=[pet["weight"] for pet in _COLLECTIBLE_PET_CATALOG], k=1)[0]
         found = dict(species)
         found.update({"id": f"{int(_cp_time.time() * 1000)}-{_cp_random.randint(100, 999)}", "xp": 0, "level": 1, "found_at": int(_cp_time.time())})
