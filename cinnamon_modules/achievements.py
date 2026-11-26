@@ -675,51 +675,69 @@ async def achievement_award_cmd(interaction, member:discord.Member, achievement:
     await cinnamon_send(interaction, "✅ Achievement awarded." if ok else "⚠️ That achievement is already unlocked.",ephemeral=True)
 
 async def _unlock_custom_admin(g,u):
-    s=_state(g,u)
-    if "admin_favourite" in s["unlocked"] or "admin_favourite" in s["secret_unlocked"]: return False
-    state_key=_key(g,u); old_state=_ach_copy.deepcopy(s)
-    balance_key=(int(g),int(u)); had_balance=balance_key in economy_balances
-    old_balance=economy_balances.get(balance_key); had_xp=balance_key in xp_data
-    old_xp=xp_data.get(balance_key); a=ADMIN_ACHIEVEMENT
-    s["unlocked"].append("admin_favourite")
-    economy_balances[balance_key]=economy_balance(g,u)+int(a["catnip"])
-    xp_data[balance_key]=int(xp_data.get(balance_key,0))+int(a["xp"])
+    guard_key=(int(g),int(u),"admin_favourite")
+    if guard_key in _achievement_guard: return False
+    _achievement_guard.add(guard_key)
+    wallet_lock=_CINNAMON_SHOP_LOCKS.setdefault((int(g),int(u)),asyncio.Lock())
+    wallet_locked=False
     try:
-        saved=await bd_save_data()
-    except Exception:
-        saved=False
-    if not saved:
-        achievement_data[state_key]=old_state
-        if had_balance: economy_balances[balance_key]=old_balance
-        else: economy_balances.pop(balance_key,None)
-        if had_xp: xp_data[balance_key]=old_xp
-        else: xp_data.pop(balance_key,None)
-        return False
-    member=bot.get_guild(g).get_member(u) if bot.get_guild(g) else None
-    if member:
-        try: await sync_level_roles(member,level_from_xp(xp_data[balance_key]))
-        except Exception: pass
-    role_ok=await _assign_role(g,u,"admin_favourite",a["role"])
-    await achievement_log(g,"👑 Admin achievement awarded",[
-        ("User",f"<@{u}> ({u})"),("Achievement",a["name"]),
-        ("Rewards",f"+{int(a['catnip']):,} Catnip · +{int(a['xp']):,} XP"),
-        ("Role applied",str(role_ok))])
-    return True
+        await wallet_lock.acquire()
+        wallet_locked=True
+        s=_state(g,u)
+        if "admin_favourite" in s["unlocked"] or "admin_favourite" in s["secret_unlocked"]:
+            return False
+        state_key=_key(g,u); old_state=_ach_copy.deepcopy(s)
+        balance_key=(int(g),int(u)); had_balance=balance_key in economy_balances
+        old_balance=economy_balances.get(balance_key); had_xp=balance_key in xp_data
+        old_xp=xp_data.get(balance_key); a=ADMIN_ACHIEVEMENT
+        s["unlocked"].append("admin_favourite")
+        economy_balances[balance_key]=economy_balance(g,u)+int(a["catnip"])
+        xp_data[balance_key]=int(xp_data.get(balance_key,0))+int(a["xp"])
+        try:
+            saved=await bd_save_data()
+        except Exception:
+            saved=False
+        if not saved:
+            achievement_data[state_key]=old_state
+            if had_balance: economy_balances[balance_key]=old_balance
+            else: economy_balances.pop(balance_key,None)
+            if had_xp: xp_data[balance_key]=old_xp
+            else: xp_data.pop(balance_key,None)
+            return False
+        wallet_lock.release()
+        wallet_locked=False
+        member=bot.get_guild(g).get_member(u) if bot.get_guild(g) else None
+        if member:
+            try: await sync_level_roles(member,level_from_xp(xp_data[balance_key]))
+            except Exception: pass
+        role_ok=await _assign_role(g,u,"admin_favourite",a["role"])
+        await achievement_log(g,"👑 Admin achievement awarded",[
+            ("User",f"<@{u}> ({u})"),("Achievement",a["name"]),
+            ("Rewards",f"+{int(a['catnip']):,} Catnip · +{int(a['xp']):,} XP"),
+            ("Role applied",str(role_ok))])
+        return True
+    finally:
+        if wallet_locked:
+            wallet_lock.release()
+        _achievement_guard.discard(guard_key)
 
 @achievement_group.command(name="revoke",description="Admin: revoke an achievement (rewards are not clawed back)")
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(administrator=True)
 async def achievement_revoke_cmd(interaction, member:discord.Member, achievement:str):
-    s=_state(interaction.guild.id,member.id); aid=next((k for k,a in {**ACHIEVEMENTS,**SECRET_ACHIEVEMENTS}.items() if k.lower()==achievement.lower() or a["name"].lower()==achievement.lower()),None)
-    if not aid: return await cinnamon_send(interaction, "❌ Achievement not found.",ephemeral=True)
-    before=_ach_copy.deepcopy(s)
-    if aid in s["unlocked"]: s["unlocked"].remove(aid)
-    if aid in s["secret_unlocked"]: s["secret_unlocked"].remove(aid)
-    try: saved=await bd_save_data()
-    except Exception: saved=False
-    if not saved:
-        achievement_data[_key(interaction.guild.id,member.id)]=before
-        return await cinnamon_send(interaction, "⚠️ Couldn't save the revocation; the achievement remains unlocked.",ephemeral=True)
+    lock=_CINNAMON_SHOP_LOCKS.setdefault((int(interaction.guild.id),int(member.id)),asyncio.Lock())
+    async with lock:
+        s=_state(interaction.guild.id,member.id)
+        aid=next((k for k,a in {**ACHIEVEMENTS,**SECRET_ACHIEVEMENTS}.items() if k.lower()==achievement.lower() or a["name"].lower()==achievement.lower()),None)
+        if not aid: return await cinnamon_send(interaction, "❌ Achievement not found.",ephemeral=True)
+        before=_ach_copy.deepcopy(s)
+        if aid in s["unlocked"]: s["unlocked"].remove(aid)
+        if aid in s["secret_unlocked"]: s["secret_unlocked"].remove(aid)
+        try: saved=await bd_save_data()
+        except Exception: saved=False
+        if not saved:
+            achievement_data[_key(interaction.guild.id,member.id)]=before
+            return await cinnamon_send(interaction, "⚠️ Couldn't save the revocation; the achievement remains unlocked.",ephemeral=True)
     await cinnamon_send(interaction, "✅ Achievement revoked. Previously paid Catnip/XP was not removed.",ephemeral=True)
 
 @achievement_group.command(name="roles",description="Admin: list configured achievement role names")
