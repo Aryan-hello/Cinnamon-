@@ -307,11 +307,11 @@ async def prefix_crime(ctx):
             mention_author=False, allowed_mentions=discord.AllowedMentions.none())
     box = False
     box_fn = globals().get("advanced_maybe_award_box")
-        if callable(box_fn):
-            try:
-                box = await box_fn(gid, ctx.author, "crime")
-            except Exception:
-                log.exception("Mystery Box award failed after fictional crime game")
+    if callable(box_fn):
+        try:
+            box = await box_fn(gid, ctx.author, "crime")
+        except Exception:
+            log.exception("Mystery Box award failed after fictional crime game")
     await economy_log(gid, title="🎭 Fictional crime game", fields=[
         ("User", f"{ctx.author} ({uid})"), ("Scenario", caper),
         ("Outcome", "Success" if change >= 0 else "Caught"),
