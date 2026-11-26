@@ -31,7 +31,12 @@ def _mc_submit_serialized(func):
     import functools
     @functools.wraps(func)
     async def wrapper(interaction, *args, **kwargs):
-        lock = _MC_LOCKS.setdefault(int(interaction.guild.id), asyncio.Lock())
+        # Appeal submission is intentionally a DM command, so its target
+        # guild comes from the guild_id argument rather than interaction.guild.
+        target_guild_id = kwargs.get("guild_id", args[0] if args else None)
+        if not str(target_guild_id or "").isdigit():
+            return await func(interaction, *args, **kwargs)
+        lock = _MC_LOCKS.setdefault(int(target_guild_id), asyncio.Lock())
         async with lock:
             return await func(interaction, *args, **kwargs)
     return wrapper
