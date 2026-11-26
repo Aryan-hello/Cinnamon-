@@ -274,6 +274,7 @@ def _shop_items(guild, state):
             f"<div class='shop-editor-section'><h3>Availability & inventory</h3>"
             f"<label class='toggle'><input type='checkbox' name='shop_enabled'{' checked' if item.get('shop_enabled', True) else ''}><span><b>Listed in shop</b><small>Members can see and purchase this item.</small></span></label>"
             f"<label class='toggle'><input type='checkbox' name='craftable'{' checked' if item.get('craftable', False) else ''}><span><b>Craftable output</b><small>This item can be the output of a crafting recipe.</small></span></label>"
+            + f"<label class='toggle'><input type='checkbox' name='pet_abilities_enabled'{' checked' if item.get('pet_abilities_enabled', False) else ''}><span><b>Pet Abilities</b><small>Allow equipped-pet shop effects on this item, including Red Panda discounts and Raccoon theft eligibility.</small></span></label>"
             f"<label class='toggle'><input type='checkbox' name='sellable'{' checked' if item.get('sellable', True) else ''}><span><b>Sell-back enabled</b><small>Members may sell eligible items using /economy sell.</small></span></label>"
             f"<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='{max(0,int(item.get('max_per_person',0)))}'><small>0 means unlimited.</small></div>"
             f"<label class='toggle'><input type='checkbox' name='stock_unlimited'{' checked' if item.get('stock_unlimited', True) else ''}><span><b>Unlimited stock</b><small>Turn off to enforce a fixed stock quantity.</small></span></label>"
@@ -3571,6 +3572,7 @@ def dashboard_action():
                 "description": request.form.get("description", "")[:300],
                 "max_per_person": limit,
                 "shop_enabled": "shop_enabled" in request.form,
+                "pet_abilities_enabled": "pet_abilities_enabled" in request.form,
                 "craftable": "craftable" in request.form,
                 "stock_unlimited": "stock_unlimited" in request.form,
                 "stock_quantity": stock_quantity,
@@ -3798,7 +3800,7 @@ def dashboard_action():
             if action=="economy_item_save" and item_id not in items: raise ValueError("That shop item no longer exists.")
             name=request.form.get("name","").strip(); price=int(request.form.get("price","0")); limit=int(request.form.get("max_per_person","0"))
             if not name or len(name)>80 or not 1<=price<=10000000 or not 0<=limit<=999999: raise ValueError("Check item name, price (1–10,000,000) and limit (0–999,999).")
-            items[item_id]={"name":name,"price":price,"emoji":request.form.get("emoji","🐾")[:8] or "🐾","description":request.form.get("description","")[:300],"max_per_person":limit,"shop_enabled":True}
+            items[item_id]={"name":name,"price":price,"emoji":request.form.get("emoji","🐾")[:8] or "🐾","description":request.form.get("description","")[:300],"max_per_person":limit,"shop_enabled":True,"pet_abilities_enabled":"pet_abilities_enabled" in request.form}
             _save(); _audit(gid,actor,"Dashboard: shop item saved",f"{item_id}: {name}, {price} Catnip")
             send_log=state.get("send_log")
             if callable(send_log): _run_bot(send_log(gid,title="🛒 Shop item added" if action=="economy_item_add" else "✏️ Shop item edited",category="economy",fields=[("Action","Added" if action=="economy_item_add" else "Edited"),("Admin",str(actor)),("Item ID",item_id),("Name",name),("Price",str(price)),("Emoji",items[item_id]["emoji"]),("Description",items[item_id]["description"]),("Per-person limit",str(limit)),("Shop enabled","true"),("Catalog scope","Global shared shop")]))
