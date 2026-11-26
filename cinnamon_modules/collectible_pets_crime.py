@@ -140,9 +140,21 @@ def _collectible_pet_perks(guild_id, user_id):
 def _collectible_pet_embed(owner, data):
     pets = data.get("pets", [])
     active = _collectible_pet_active(data)
-    description = f"**{len(pets)}/50 collected**\n"
-    description += (f"Active: {active['emoji']} **{active.get('nickname') or active['species']}** · {active.get('rarity','Common')} · Level {int(active.get('level',1))}"
+    capacity = _collectible_pet_capacity(owner.guild.id, owner.id, owner) if getattr(owner, "guild", None) else 5
+    description = f"**{len(pets)}/{capacity} collected**\n"
+    description += (f"Active: {active['emoji']} **{active.get('nickname') or active['species']}** · {active.get('rarity','Common')} · Level {min(10, int(active.get('level',1)))}"
                     if active else "No active pet yet. Find one with ?work.")
+    if active:
+        ability = _collectible_pet_ability(owner.guild.id, owner.id) if getattr(owner, "guild", None) else {}
+        ability_names = {
+            "work_income":"Work income", "crime_income":"Crime income", "fine_amount":"Fine reduction",
+            "fine_chance":"Fine chance reduction", "mystery_chance":"Mystery Box chance", "fox":"Crime income + fine chance",
+            "fish_sale":"Fish sale bonus", "shop_discount":"Shop discount", "rare_fish":"Rare fish chance",
+            "xp":"XP bonus", "forage":"Bonus ingredients", "penguin":"Double fish + fish return",
+            "all_rewards":"XP + Catnip bonus", "ingredient_refund":"Crafting ingredient refund",
+            "box_upgrade":"Mystery Box tier upgrade", "shop_steal":"Shop item theft"
+        }
+        description += "\\nAbility: **" + ability_names.get(ability.get("ability"), "Companion ability") + "** · " + f"{ability.get('value',0)*100:.1f}% at this level"
     accessory_catalog = globals().get("_PET_ACCESSORIES", {})
     active_accessory = accessory_catalog.get(active.get("accessory_id")) if active else None
     if active_accessory:
