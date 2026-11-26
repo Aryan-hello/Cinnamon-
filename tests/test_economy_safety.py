@@ -42,6 +42,64 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(second.locked())
         second.release()
 
+    async def test_level_reward_claim_rolls_back_and_can_retry_after_storage_failure(self):
+        balances = {(1, 7): 20}
+        claims = {}
+        save_state = {"ok": False}
+
+        async def save():
+            if not save_state["ok"]:
+                raise OSError("storage unavailable")
+            return True
+
+        namespace = {
+            "asyncio": asyncio,
+            "_CINNAMON_SHOP_LOCKS": {},
+            "ECONOMY_LEVEL_REWARDS": {2: 100, 5: 300},
+            "economy_level_rewards_claimed": claims,
+            "economy_balances": balances,
+            "economy_balance": lambda guild_id, user_id: balances.get((int(guild_id), int(user_id)), 1000),
+            "economy_level_reward_claimed": lambda guild_id, user_id, level: int(level) in claims.get((int(guild_id), int(user_id)), []),
+            "mark_economy_level_reward_claimed": lambda guild_id, user_id, level: claims.setdefault((int(guild_id), int(user_id)), []).append(int(level)),
+            "bd_save_data": save,
+        }
+        claim = extract_function(ROOT / "cinnamon_modules/levels_games.py", "_claim_level_rewards", namespace)
+        failed = await claim(1, 7, 5)
+        self.assertEqual(failed, (0, []))
+        self.assertEqual(balances[(1, 7)], 20)
+        self.assertEqual(claims, {})
+
+        save_state["ok"] = True
+        success = await claim(1, 7, 5)
+        self.assertEqual(success, (400, [2, 5]))
+        self.assertEqual(balances[(1, 7)], 420)
+        self.assertEqual(set(claims[(1, 7)]), {2, 5})
+
+    async def test_concurrent_level_reward_claims_pay_only_once(self):
+        balances = {(1, 7): 20}
+        claims = {}
+
+        async def save():
+            await asyncio.sleep(0)
+            return True
+
+        namespace = {
+            "asyncio": asyncio,
+            "_CINNAMON_SHOP_LOCKS": {},
+            "ECONOMY_LEVEL_REWARDS": {2: 100},
+            "economy_level_rewards_claimed": claims,
+            "economy_balances": balances,
+            "economy_balance": lambda guild_id, user_id: balances.get((int(guild_id), int(user_id)), 1000),
+            "economy_level_reward_claimed": lambda guild_id, user_id, level: int(level) in claims.get((int(guild_id), int(user_id)), []),
+            "mark_economy_level_reward_claimed": lambda guild_id, user_id, level: claims.setdefault((int(guild_id), int(user_id)), []).append(int(level)),
+            "bd_save_data": save,
+        }
+        claim = extract_function(ROOT / "cinnamon_modules/levels_games.py", "_claim_level_rewards", namespace)
+        results = await asyncio.gather(claim(1, 7, 2), claim(1, 7, 2))
+        self.assertEqual(sorted(result[0] for result in results), [0, 100])
+        self.assertEqual(balances[(1, 7)], 120)
+        self.assertEqual(claims[(1, 7)], [2])
+
     async def test_market_transaction_rolls_back_when_storage_raises(self):
         balances = {(1, 7): 900}
         inventory = {7: {"tuna": 2}}
