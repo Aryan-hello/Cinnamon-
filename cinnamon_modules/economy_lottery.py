@@ -277,7 +277,11 @@ async def pet_style_equip(interaction: discord.Interaction, accessory: app_comma
                 return await cinnamon_send(interaction, "You don't own that accessory yet. Browse /pet-style shop.", ephemeral=True)
             old = pet.get("accessory_id")
             pet["accessory_id"] = accessory.value
-            if not await bd_save_data():
+            try:
+                saved = await bd_save_data()
+            except Exception:
+                saved = False
+            if not saved:
                 if old is None:
                     pet.pop("accessory_id", None)
                 else:
@@ -299,7 +303,11 @@ async def pet_style_remove(interaction: discord.Interaction):
             old = pet.pop("accessory_id", None)
             if not old:
                 return await cinnamon_send(interaction, "Your active pet isn't wearing an accessory.", ephemeral=True)
-            if not await bd_save_data():
+            try:
+                saved = await bd_save_data()
+            except Exception:
+                saved = False
+            if not saved:
                 pet["accessory_id"] = old
                 return await cinnamon_send(interaction, "I couldn't save that equipment change.", ephemeral=True)
     await cinnamon_send(interaction, "Accessory removed and kept in your collection.", ephemeral=True)
