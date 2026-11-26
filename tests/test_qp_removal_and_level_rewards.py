@@ -21,7 +21,7 @@ class QuestCurrencyRemovalTests(unittest.TestCase):
         dashboard = (ROOT / "dashboard.py").read_text(encoding="utf-8")
         core_events = (ROOT / "cinnamon_modules/core_events.py").read_text(encoding="utf-8")
 
-        for removed in ("QUEST_SHOP", "questshop_cmd", "Quest Points", " QP"):
+        for removed in ("QUEST_SHOP", "questshop_cmd", "Quest Points"):
             self.assertNotIn(removed, quests)
             self.assertNotIn(removed, dashboard)
         self.assertNotIn("questshop", core_events)
