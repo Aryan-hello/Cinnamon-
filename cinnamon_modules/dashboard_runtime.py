@@ -295,6 +295,8 @@ def dashboard_state_provider() -> dict:
         "auction_state": advanced_features_data.get("player_auctions_v1", {}),
         "CinnamonVerificationView": globals().get("CinnamonVerificationView"),
         "ModerationAppealView": globals().get("ModerationAppealView"),
+        "ModerationAppealPortalView": globals().get("ModerationAppealPortalView"),
+        "submit_moderation_appeal": globals().get("_mc_submit_appeal_web"),
         "CommunityEventView": globals().get("CommunityEventView"),
         "brain_storage": {"ready": bd_store.ready, "durable": bd_store.durable,
                           "status": bd_store.status, "pending": bool(bd_store.pending_receipt)},
