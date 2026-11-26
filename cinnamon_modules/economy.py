@@ -319,6 +319,12 @@ class CinnamonShopView(discord.ui.LayoutView):
                         ephemeral=True)
                 before_inventory = dict(inv)
                 old_stock = data.get("stock_quantity")
+                pet_user_fn = globals().get("_collectible_pet_user")
+                pet_data = pet_user_fn(guild_id, user_id) if int(data.get("pet_slots_reward", 0) or 0) > 0 and callable(pet_user_fn) else None
+                old_purchased_slots = int(pet_data.get("purchased_slots", 0) or 0) if pet_data is not None else None
+                slot_reward = max(0, int(data.get("pet_slots_reward", 0) or 0))
+                if pet_data is not None and slot_reward:
+                    pet_data["purchased_slots"] = old_purchased_slots + slot_reward
                 economy_balances[(guild_id, user_id)] = balance - price
                 inv[item_id] = current_qty + 1
                 steal_fn = globals().get("collectible_pet_raccoon_steal")
@@ -333,6 +339,11 @@ class CinnamonShopView(discord.ui.LayoutView):
                     economy_balances[(guild_id, user_id)] = balance
                     inv.clear()
                     inv.update(before_inventory)
+                    if pet_data is not None:
+                        if old_purchased_slots:
+                            pet_data["purchased_slots"] = old_purchased_slots
+                        else:
+                            pet_data.pop("purchased_slots", None)
                     if old_stock is not None:
                         data["stock_quantity"] = old_stock
                     return await interaction.followup.send(
@@ -344,6 +355,7 @@ class CinnamonShopView(discord.ui.LayoutView):
             await interaction.followup.send(
                 f"Purchased **1 × {cinnamon_ui_literal(data.get('name', item_id), 90)}** "
                 f"for **{price:,} Catnip**. Remaining: **{balance - price:,}**."
+                + (f" Your purchase granted **+{slot_reward} pet slots**." if slot_reward else "")
                 + (f" Your Raccoon also stole **{cinnamon_ui_literal(stolen_item, 90)}**!" if stolen_item else ""),
                 ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
             await _shop_item_run_actions(interaction, item_id, "bought")
@@ -674,6 +686,12 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
         inv = economy_inventory_for(guild_id, user_id)
         before_inventory = dict(inv)
         old_stock = data.get("stock_quantity")
+        pet_user_fn = globals().get("_collectible_pet_user")
+        pet_data = pet_user_fn(guild_id, user_id) if int(data.get("pet_slots_reward", 0) or 0) > 0 and callable(pet_user_fn) else None
+        old_purchased_slots = int(pet_data.get("purchased_slots", 0) or 0) if pet_data is not None else None
+        slot_reward = max(0, int(data.get("pet_slots_reward", 0) or 0)) * quantity
+        if pet_data is not None and slot_reward:
+            pet_data["purchased_slots"] = old_purchased_slots + slot_reward
         economy_balances[(guild_id, user_id)] = balance - cost
         inv[item_id] = current_qty + quantity
         steal_fn = globals().get("collectible_pet_raccoon_steal")
@@ -688,14 +706,21 @@ async def economy_buy_cmd(interaction: discord.Interaction, item: str, quantity:
             economy_balances[(guild_id, user_id)] = balance
             inv.clear()
             inv.update(before_inventory)
+            if pet_data is not None:
+                if old_purchased_slots:
+                    pet_data["purchased_slots"] = old_purchased_slots
+                else:
+                    pet_data.pop("purchased_slots", None)
             if old_stock is not None:
                 data["stock_quantity"] = old_stock
             return await cinnamon_send(interaction, "❌ Purchase save failed. No Catnip or stock was consumed.", ephemeral=True)
-    await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity", quantity), ("Unit price", f"{unit_price:,} Catnip"), ("Deducted", f"-{cost:,} Catnip"), ("Balance before", f"{balance:,} Catnip"), ("Balance after", f"{balance-cost:,} Catnip"), ("Item quantity after", str(inv[item_id])), ("Raccoon theft", stolen_item or "None")])
+    await economy_log(guild_id, title="🛒 Economy purchase", fields=[("User", f"{interaction.user} ({user_id})"), ("Item", f"{data['name']} (`{item_id}`)"), ("Quantity", quantity), ("Unit price", f"{unit_price:,} Catnip"), ("Deducted", f"-{cost:,} Catnip"), ("Balance before", f"{balance:,} Catnip"), ("Balance after", f"{balance-cost:,} Catnip"), ("Item quantity after", str(inv[item_id])), ("Raccoon theft", stolen_item or "None"), ("Pet slots granted", str(slot_reward))])
     embed = cinnamon_embed("🛒 Purchase Complete", f"You bought **{quantity:,}× {data['emoji']} {data['name']}**.", color=CINNAMON_GREEN, user=interaction.user, footer="Cinnamon Economy • Purchase")
     cinnamon_field(embed, "💸 Cost", f"**{cost:,} Catnip**", True)
     cinnamon_field(embed, "🌿 New balance", f"**{economy_balances[(guild_id, user_id)]:,} Catnip**", True)
     cinnamon_field(embed, "📦 You now own", f"**{inv[item_id]:,}×**", True)
+    if slot_reward:
+        cinnamon_field(embed, "🐾 Pet capacity", f"Your purchase granted **+{slot_reward} pet slots**.")
     if stolen_item:
         cinnamon_field(embed, "🦝 Raccoon bonus", f"Your Raccoon also stole **{stolen_item}** from Cinnamon's shop!")
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
