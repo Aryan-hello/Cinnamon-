@@ -274,6 +274,8 @@ def _shop_items(guild, state):
             f"<div class='shop-editor-section'><h3>Availability & inventory</h3>"
             f"<label class='toggle'><input type='checkbox' name='shop_enabled'{' checked' if item.get('shop_enabled', True) else ''}><span><b>Listed in shop</b><small>Members can see and purchase this item.</small></span></label>"
             f"<label class='toggle'><input type='checkbox' name='craftable'{' checked' if item.get('craftable', False) else ''}><span><b>Craftable output</b><small>This item can be the output of a crafting recipe.</small></span></label>"
+            + f"<label class='toggle'><input type='checkbox' name='pet_abilities_enabled'{' checked' if item.get('pet_abilities_enabled', False) else ''}><span><b>Pet Abilities</b><small>Allow equipped-pet shop effects on this item, including Red Panda discounts and Raccoon theft eligibility.</small></span></label>"
+            + f"<div class='field'><label>Extra pet slots per purchase</label><input name='pet_slots_reward' type='number' min='0' max='100' value='{max(0,int(item.get('pet_slots_reward',0) or 0))}'><small>0 means this item does not grant pet capacity.</small></div>"
             f"<label class='toggle'><input type='checkbox' name='sellable'{' checked' if item.get('sellable', True) else ''}><span><b>Sell-back enabled</b><small>Members may sell eligible items using /economy sell.</small></span></label>"
             f"<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='{max(0,int(item.get('max_per_person',0)))}'><small>0 means unlimited.</small></div>"
             f"<label class='toggle'><input type='checkbox' name='stock_unlimited'{' checked' if item.get('stock_unlimited', True) else ''}><span><b>Unlimited stock</b><small>Turn off to enforce a fixed stock quantity.</small></span></label>"
@@ -319,6 +321,8 @@ def _shop_items(guild, state):
         "<div class='shop-editor-section'><h3>Availability & inventory</h3>"
         "<label class='toggle'><input type='checkbox' name='shop_enabled' checked><span><b>Listed in shop</b><small>Members can see and purchase this item.</small></span></label>"
         "<label class='toggle'><input type='checkbox' name='craftable'><span><b>Craftable output</b><small>This item can be the output of a crafting recipe.</small></span></label>"
+        "<label class='toggle'><input type='checkbox' name='pet_abilities_enabled'><span><b>Pet Abilities</b><small>Allow equipped-pet effects on this item; Raccoon may select it for theft.</small></span></label>"
+        "<div class='field'><label>Extra pet slots per purchase</label><input name='pet_slots_reward' type='number' min='0' max='100' value='0'><small>0 means this item does not grant pet capacity.</small></div>"
         "<label class='toggle'><input type='checkbox' name='sellable' checked><span><b>Sell-back enabled</b><small>Members may sell eligible items using /economy sell.</small></span></label>"
         "<div class='field'><label>Maximum quantity per member</label><input name='max_per_person' type='number' min='0' max='999999' value='0'><small>0 means unlimited.</small></div>"
         "<label class='toggle'><input type='checkbox' name='stock_unlimited' checked><span><b>Unlimited stock</b><small>Turn off to enforce fixed stock.</small></span></label>"
@@ -1244,6 +1248,8 @@ def _adventure(guild, state):
                      "</span></div><div class='toggle'><b>Closes</b><span>" + _esc(ends_text) +
                      "</span></div><div class='toggle'><b>Finder</b><span>" + _esc(finder_name) +
                      "</span></div>" + _form(gid,"merchant_access",content,"Apply merchant access") + "</article>")
+    story_slot_cfg = (state.get("advanced_features_data",{}).get("story_pet_slot_rewards_v1",{}) or {}).get(str(gid),0)
+    story_slot_form = "<div class='field'><label>Extra pet slots for completing the story</label><input name='pet_slots' type='number' min='0' max='100' value='"+str(max(0,int(story_slot_cfg or 0)))+"' required><small>Granted once per member at the final story scene.</small></div>"
     catch_count = sum(sum(int(v) for v in p.get("fish", {}).values()) for p in fish.get("members", {}).values())
     finished = sum(bool(p.get("complete", False)) for p in story.values())
     rod_rows = "".join("<tr><td>" + _esc(x.get("name")) + "</td><td>" + str(x.get("price",0)) +
@@ -1258,7 +1264,8 @@ def _adventure(guild, state):
             f" Mood influences rarity, but technique does not change the underlying fish roll.</p>"
             f"<div class='tablewrap'><table><thead><tr><th>Rod</th><th>Base Catnip</th><th>Luck bonus</th></tr></thead>"
             f"<tbody>{rod_rows}</tbody></table></div></article>"
-            f"<article class='card full'><h2>📖 Cinnamon story</h2><p class='muted'>26 choice-driven scenes across six regions."
+            f"<article class='card half'><h2>📖 Story pet-slot reward</h2><p class='muted'>Configure the one-time extra pet capacity awarded at the end of the story.</p>{_form(gid,'story_pet_slots_save',story_slot_form,'Save story reward')}</article>"
+            f"<article class='card half'><h2>📖 Cinnamon story</h2><p class='muted'>26 choice-driven scenes across six regions."
             f" Story progress is tracked per member and the 100,000 Catnip finale remains a one-time reward."
             f" Members continue their personal story with /adventure story.</p></article></div>")
 
@@ -1320,7 +1327,7 @@ def _overview(guild, state):
     quest_rows = "".join(
         "<div class='rowitem'><span class='rowmain'><b>" + _esc(pool.get(qid, {}).get("name", qid)) + "</b>"
         "<small>" + ("Daily" if kind == "Daily" else "Weekly") + " rotation</small></span>"
-        "<span class='rowmeta'>" + f"{as_int(pool.get(qid, {}).get('qp')):,} QP</span></div>"
+        "<span class='rowmeta'>" + f"{as_int(pool.get(qid, {}).get('xp')):,} XP</span></div>"
         for ids, pool, kind in ((daily_ids, daily_defs, "Daily"), (weekly_ids, weekly_defs, "Weekly"))
         for qid in (ids or [])[:3]
     ) or "<p class='empty'>No quest rotation has been generated yet.</p>"
@@ -1512,8 +1519,37 @@ def _moderation(guild, state):
         appeal_member_name=getattr(appeal_member,"display_name","Unknown member")
         appeal_rows.append("<tr><td>" + _esc(str(appeal_id)) + "</td><td>" + _esc(appeal_member_name) + "</td><td>" + _esc(str(appeal.get("details", ""))[:180]) + "</td><td>" + _esc(decision.title()) + "</td><td>" + action_forms + "</td></tr>")
     appeal_rows_html = "".join(appeal_rows) or "<tr><td colspan='5'>No appeals have been submitted.</td></tr>"
-    appeal_form = "<div class='field'><label>Private appeal channel</label>" + _channel_select(guild, "appeal_channel_id", controls.get("appeal_channel_id")) + "</div><p class='muted'>Members submit appeals in a direct message to Cinnamon using /appeal submit. This channel must be private to moderators.</p>"
-    appeal_card = "<article class='card full'><h2>Moderation appeals</h2><p class='muted'>Current channel: " + _esc(appeal_channel.mention if appeal_channel else "Disabled") + " · Pending: " + str(sum(1 for a in appeals.values() if a.get("status") == "pending")) + "</p>" + _form(gid, "appeal_settings", appeal_form, "Save appeal channel") + "<div class='tablewrap'><table><thead><tr><th>Appeal ID</th><th>Member</th><th>Details preview</th><th>Status</th><th>Review</th></tr></thead><tbody>" + appeal_rows_html + "</tbody></table></div></article>"
+    portal_token = str(controls.get("appeal_portal_token", "") or "")
+    portal_base = (os.getenv("RENDER_EXTERNAL_URL", "https://cinnamon-c328.onrender.com").rstrip("/"))
+    portal_url = portal_base + url_for("cinnamon_dashboard.appeal_portal", guild_id=gid, token=portal_token) if portal_token else ""
+    public_appeal_channel = guild.get_channel(int(controls.get("appeal_public_channel_id", 0) or 0))
+    appeal_form = (
+        "<div class='formgrid'><div class='field'><label>Private moderator review channel</label>" +
+        _channel_select(guild, "appeal_channel_id", controls.get("appeal_channel_id")) +
+        "<small>Only moderators should be able to view this channel.</small></div><div class='field'><label>Public appeal link channel</label>" +
+        _channel_select(guild, "appeal_public_channel_id", controls.get("appeal_public_channel_id")) +
+        "<small>Members can see the portal button here. Appeal details are never posted here.</small></div></div>"
+    )
+    portal_controls = ""
+    if portal_url:
+        portal_controls += "<div class='field'><label>Member appeal portal link</label><input readonly value='" + _esc(portal_url) + "' onclick='this.select()'><small>Share this link with members. Discord sign-in is required; banned former members can appeal too.</small></div>"
+    portal_controls += (
+        "<div class='actions'><form method='post' action='/dashboard/action'>" + _csrf_input() +
+        "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='appeal_portal_publish'>" +
+        "<button class='btn secondary' type='submit'>Publish link in Discord channel</button></form>" +
+        "<form method='post' action='/dashboard/action'>" + _csrf_input() +
+        "<input type='hidden' name='guild_id' value='" + str(gid) + "'><input type='hidden' name='action' value='appeal_portal_rotate'>" +
+        "<button class='btn danger small' type='submit'>Regenerate / revoke old link</button></form></div>"
+    )
+    appeal_card = (
+        "<article class='card full'><h2>Moderation appeals</h2><p class='muted'>Private review channel: " +
+        _esc(appeal_channel.mention if appeal_channel else "Not configured") + " · Public link channel: " +
+        _esc(public_appeal_channel.mention if public_appeal_channel else "Not configured") + " · Pending: " +
+        str(sum(1 for a in appeals.values() if a.get("status") == "pending")) +
+        "</p>" + _form(gid, "appeal_settings", appeal_form, "Save appeal channels") +
+        portal_controls + "<div class='tablewrap'><table><thead><tr><th>Appeal ID</th><th>Member</th><th>Details preview</th><th>Status</th><th>Review</th></tr></thead><tbody>" +
+        appeal_rows_html + "</tbody></table></div></article>"
+    )
     note_rows = []
     for member_id, member_notes in notes.items():
         for note_id, note in list((member_notes or {}).items())[-10:]:
@@ -1555,8 +1591,12 @@ def _achievements(guild,state):
     rows="".join(f"<tr><td><b>{_esc(aid)}</b><div class='muted'>{_esc(a.get('name','Unnamed'))}</div></td><td>{_esc(a.get('description',''))}</td><td>{'Secret' if aid in secret else 'Normal'}</td><td>{'Enabled' if a.get('enabled',True) else 'Disabled'}</td></tr>" for aid,a in list(normal.items())[:100]) or "<tr><td colspan='4'>No achievement definitions exposed.</td></tr>"
     secrets_count=len(secret); enabled=cfg.get("enabled",True)
     achievement_form="<div class='formgrid'><div class='field'><label>Achievement log channel</label>"+_channel_select(guild,"channel_id",log_id)+"</div></div><label class='toggle'><input type='checkbox' name='enabled' "+("checked" if enabled else "")+"><span><b>Enable achievement tracking</b><small>Disabling pauses achievement processing; existing unlock data is retained.</small></span></label>"
+    pet_slot_rewards = cfg.get("pet_slot_rewards", {}) or {}
+    pet_reward_options = "".join("<option value='"+_esc(aid)+"'>"+_esc(a.get("name",aid))+"</option>" for aid,a in {**normal,**secret}.items())
+    pet_slot_form = "<div class='formgrid'><div class='field'><label>Achievement</label><select name='achievement_id'>"+pet_reward_options+"</select></div><div class='field'><label>Extra pet slots</label><input name='pet_slots' type='number' min='0' max='100' value='1' required><small>0 removes the slot reward from this achievement.</small></div></div>"
+    pet_reward_rows = "".join("<div class='toggle'><span><b>"+_esc((normal.get(aid) or secret.get(aid) or {}).get("name",aid))+"</b><small>+"+str(max(0,int(slots or 0)))+" pet slots</small></span></div>" for aid,slots in pet_slot_rewards.items() if int(slots or 0)>0)
     role_readiness_rows = ''.join(f"<tr><td>@{_esc(n)}</td><td><span class='pill {'good' if n not in missing else 'warn'}'>{'Ready' if n not in missing else 'Missing'}</span></td></tr>" for n in role_names)
-    return f"<h1>Achievements</h1><p class='muted'>Monitor achievements and manage the server-level configuration without exposing every achievement command in the web panel.</p><div class='grid'><article class='card third'><div class='statlabel'>Normal achievements</div><div class='stat'>{len(normal):,}</div></article><article class='card third'><div class='statlabel'>Secret achievements</div><div class='stat'>{secrets_count:,}</div></article><article class='card third'><div class='statlabel'>Members tracked</div><div class='stat'>{unique_users:,}</div></article><article class='card half'><h2>Achievement system</h2><div class='toggle'><b>Status</b><span class='pill {'good' if enabled else 'warn'}'>{'Enabled' if enabled else 'Disabled'}</span></div><div class='toggle'><b>Total unlock records</b><span>{unlocked:,}</span></div><div class='toggle'><b>Achievement logs</b><span>{_esc(logch.mention if logch else 'Not configured')}</span></div><div class='toggle'><b>Reward roles missing</b><span>{len(missing):,}</span></div><p class='muted'>Use Discord's achievement commands for individual awards, revokes and definition editing. The dashboard focuses on server configuration and visibility.</p>{_form(gid,'achievement_settings',achievement_form,'Save achievement settings')}</article><article class='card half'><h2>Reward-role readiness</h2><div class='tablewrap'><table><thead><tr><th>Role</th><th>Status</th></tr></thead><tbody>{role_readiness_rows}</tbody></table></div></article><article class='card full'><h2>Achievement catalog</h2><div class='tablewrap'><table><thead><tr><th>ID / Name</th><th>Description</th><th>Type</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div></article></div>"
+    return f"<h1>Achievements</h1><p class='muted'>Monitor achievements and manage the server-level configuration without exposing every achievement command in the web panel.</p><div class='grid'><article class='card third'><div class='statlabel'>Normal achievements</div><div class='stat'>{len(normal):,}</div></article><article class='card third'><div class='statlabel'>Secret achievements</div><div class='stat'>{secrets_count:,}</div></article><article class='card third'><div class='statlabel'>Members tracked</div><div class='stat'>{unique_users:,}</div></article><article class='card half'><h2>Achievement system</h2><div class='toggle'><b>Status</b><span class='pill {'good' if enabled else 'warn'}'>{'Enabled' if enabled else 'Disabled'}</span></div><div class='toggle'><b>Total unlock records</b><span>{unlocked:,}</span></div><div class='toggle'><b>Achievement logs</b><span>{_esc(logch.mention if logch else 'Not configured')}</span></div><div class='toggle'><b>Reward roles missing</b><span>{len(missing):,}</span></div><p class='muted'>Use Discord's achievement commands for individual awards, revokes and definition editing. The dashboard focuses on server configuration and visibility.</p>{_form(gid,'achievement_settings',achievement_form,'Save achievement settings')}</article><article class='card half'><h2>Reward-role readiness</h2><div class='tablewrap'><table><thead><tr><th>Role</th><th>Status</th></tr></thead><tbody>{role_readiness_rows}</tbody></table></div></article><article class='card half'><h2>Pet-slot rewards</h2><p class='muted'>Grant permanent extra pet capacity when members unlock selected achievements.</p>{_form(gid,'achievement_pet_slots_save',pet_slot_form,'Save pet-slot reward')}<div class='itemlist'>{pet_reward_rows or '<p class=empty>No achievement slot rewards configured.</p>'}</div></article><article class='card full'><h2>Achievement catalog</h2><div class='tablewrap'><table><thead><tr><th>ID / Name</th><th>Description</th><th>Type</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div></article></div>"
 
 
 def _quests(guild,state):
@@ -1568,7 +1608,7 @@ def _quests(guild,state):
         out=[]
         for qid in ids if isinstance(ids,list) else []:
             q=pool.get(qid,{})
-            out.append(f"<tr><td><b>{_esc(q.get('name',qid))}</b></td><td>{_esc(q.get('desc',q.get('description','')))}</td><td>{int(q.get('qp',0)):,} QP + {int(q.get('xp',0)):,} XP</td></tr>")
+            out.append(f"<tr><td><b>{_esc(q.get('name',qid))}</b></td><td>{_esc(q.get('desc',q.get('description','')))}</td><td>{int(q.get('xp',0)):,} XP</td></tr>")
         return ''.join(out) or "<tr><td colspan='3'>No rotation has been generated yet.</td></tr>"
     role=qcfg.get("quest_master_role"); role_obj=guild.get_role(int(role)) if str(role).isdigit() else None
     role_form="<div class='field'><label>Quest Master role</label>"+_role_select(guild,"role_id",role)+"</div>"
@@ -1593,7 +1633,7 @@ def _economy(guild,state):
     total=sum(int(v) for (g,_),v in balances.items() if g==gid); users=_count(balances,gid)
     shop=state.get("ECONOMY_ITEMS",{}); items=[]
     for key,item in shop.items():
-        form=f"<form method='post' action='/dashboard/action' class='formgrid'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='shop_item_save'><input type='hidden' name='item_id' value='{_esc(key)}'><div class='field'><label>Name</label><input name='name' maxlength='80' value='{_esc(item.get('name',key))}' required></div><div class='field'><label>Price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='{int(item.get('price',1))}' required></div><div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(item.get('emoji','🐾'))}'></div><div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='{int(item.get('max_per_person',0))}'></div><div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(item.get('description',''))}'></div><label class='toggle'><input type='checkbox' name='shop_enabled'{' checked' if item.get('shop_enabled', False) else ''}><span><b>Show in shop</b></span></label><label class='toggle'><input type='checkbox' name='craftable'{' checked' if item.get('craftable', False) else ''}><span><b>Craftable output</b></span></label><div class='actions' style='grid-column:1/-1'><button class='btn small' type='submit'>Save item</button></div></form><form method='post' action='/dashboard/action' data-confirm='Remove this shop item? Existing inventory will be kept but the item can no longer be purchased or used.'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='shop_item_disable'><input type='hidden' name='item_id' value='{_esc(key)}'><button class='btn danger small' type='submit'>Remove item</button></form>"
+        form=f"<form method='post' action='/dashboard/action' class='formgrid'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='shop_item_save'><input type='hidden' name='item_id' value='{_esc(key)}'><div class='field'><label>Name</label><input name='name' maxlength='80' value='{_esc(item.get('name',key))}' required></div><div class='field'><label>Price (Catnip)</label><input name='price' type='number' min='1' max='10000000' value='{int(item.get('price',1))}' required></div><div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='{_esc(item.get('emoji','🐾'))}'></div><div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='{int(item.get('max_per_person',0))}'></div><div class='field' style='grid-column:1/-1'><label>Description</label><input name='description' maxlength='300' value='{_esc(item.get('description',''))}'></div><label class='toggle'><input type='checkbox' name='shop_enabled'{' checked' if item.get('shop_enabled', False) else ''}><span><b>Show in shop</b></span></label><label class='toggle'><input type='checkbox' name='craftable'{' checked' if item.get('craftable', False) else ''}><span><b>Craftable output</b></span></label><label class='toggle'><input type='checkbox' name='pet_abilities_enabled'{' checked' if item.get('pet_abilities_enabled', False) else ''}><span><b>Pet Abilities</b></span></label><div class='field'><label>Extra pet slots per purchase</label><input name='pet_slots_reward' type='number' min='0' max='100' value='{max(0,int(item.get('pet_slots_reward',0) or 0))}'></div><div class='actions' style='grid-column:1/-1'><button class='btn small' type='submit'>Save item</button></div></form><form method='post' action='/dashboard/action' data-confirm='Remove this shop item? Existing inventory will be kept but the item can no longer be purchased or used.'>{_csrf_input()}<input type='hidden' name='guild_id' value='{gid}'><input type='hidden' name='action' value='shop_item_disable'><input type='hidden' name='item_id' value='{_esc(key)}'><button class='btn danger small' type='submit'>Remove item</button></form>"
         items.append(
             "<div class='catalogitem'><div class='cataloghead'><span class='catalogname'>"
             + _esc(item.get('emoji','🐾')) + " " + _esc(item.get('name',key))
@@ -1601,7 +1641,7 @@ def _economy(guild,state):
         )
     item_rows="".join(items) or "<p class='empty'>No shop items available.</p>"
     add_form="<div class='formgrid'><div class='field'><label>Item ID (unique)</label><input name='item_id' maxlength='40' pattern='[a-zA-Z0-9_-]+' required></div><div class='field'><label>Name</label><input name='name' maxlength='80' required></div><div class='field'><label>Price</label><input name='price' type='number' min='1' max='10000000' required></div><div class='field'><label>Emoji</label><input name='emoji' maxlength='8' value='🐾'></div><div class='field'><label>Per-member limit (0 = unlimited)</label><input name='max_per_person' type='number' min='0' max='999999' value='0'></div><div class='field'><label>Description</label><input name='description' maxlength='300'></div></div>"
-    add_card="<article class='card full'><h2>Add shop item</h2>"+_form(gid,"shop_item_add",add_form + "<label class='toggle'><input type='checkbox' name='shop_enabled' checked><span><b>Show in shop</b></span></label><label class='toggle'><input type='checkbox' name='craftable'><span><b>Can be crafted</b></span></label>","Create item")+"</article>"
+    add_card="<article class='card full'><h2>Add shop item</h2>"+_form(gid,"shop_item_add",add_form + "<label class='toggle'><input type='checkbox' name='shop_enabled' checked><span><b>Show in shop</b></span></label><label class='toggle'><input type='checkbox' name='craftable'><span><b>Can be crafted</b></span></label><label class='toggle'><input type='checkbox' name='pet_abilities_enabled'><span><b>Pet Abilities</b></span></label><div class='field'><label>Extra pet slots per purchase</label><input name='pet_slots_reward' type='number' min='0' max='100' value='0'></div>","Create item")+"</article>"
     income_cfg=state.get("economy_income_roles",{}).get(gid,{}) or state.get("economy_income_roles",{}).get(str(gid),{})
     income_rows=[]
     for role_id,cfg in income_cfg.items():
@@ -1751,7 +1791,35 @@ def _roles_setup(guild,state):
     for key,label,desc in categories:
         cards.append("<article class='card half'><h3>"+_esc(label)+"</h3><p class='muted'>"+_esc(desc)+"</p>"+_role_multi_select(guild,"role_"+key,config.get(key,[]))+"</article>")
     content="<p class='muted'>Select one or more roles per permission category. A member with any selected role receives that category's permission. Discord Administrators retain the universal override.</p>"+"".join(cards)
-    return "<h1>Roles Setup</h1><p class='muted'>Central server-side permission mapping for Cinnamon features. Saved role IDs persist in the Upstash snapshot and are logged.</p>"+_form(gid,"roles_setup_save",content,"Save all role permissions")
+    role_bonus_form = (
+        "<div class='formgrid'><div class='field'><label>Discord role</label>" + _role_select(guild,"role_id",None,False) + "</div>"
+        "<div class='field'><label>Extra Catnip income</label><input name='amount' type='number' min='0' max='1000000' value='0' required><small>0 disables recurring income for this role.</small></div>"
+        "<div class='field'><label>Income interval</label><input name='interval' type='number' min='1' max='1000' value='1' required></div>"
+        "<div class='field'><label>Interval unit</label><select name='unit'><option value='minute'>Minutes</option><option value='hour' selected>Hours</option><option value='day'>Days</option><option value='week'>Weeks</option></select></div>"
+        "<div class='field'><label>Extra pet slots</label><input name='pet_slots' type='number' min='0' max='100' value='0' required></div></div>"
+        "<p class='muted'>Members with multiple configured roles receive the combined income rules and all role slot bonuses. Existing recurring-income cooldowns remain in place.</p>"
+    )
+    bonus_root = state.get("advanced_features_data",{}).get("pet_slot_role_bonus_v1",{}) or {}
+    bonus_cfg = bonus_root.get(str(gid),{}) or {}
+    income_cfg = state.get("economy_income_roles",{}).get(gid,{}) or state.get("economy_income_roles",{}).get(str(gid),{}) or {}
+    bonus_rows=[]
+    for rid in sorted(set(map(str,bonus_cfg)) | set(map(str,income_cfg))):
+        role=guild.get_role(int(rid)) if rid.isdigit() else None
+        label=role.mention if role else "Missing role ("+rid+")"
+        slots=max(0,int(bonus_cfg.get(rid,0) or 0))
+        income=income_cfg.get(rid,{}) or income_cfg.get(int(rid),{}) or {}
+        amount=max(0,int(income.get("amount",0) or 0))
+        interval=max(1,int(income.get("interval",1) or 1)); unit=str(income.get("unit","hour"))
+        bonus_rows.append("<div class='toggle'><span><b>"+_esc(label)+"</b><small>+"+str(slots)+" pet slots · "+(str(amount)+ " Catnip every "+str(interval)+" "+_esc(unit)+"(s)" if amount else "No recurring income")+"</small></span><form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='role_bonus_remove'><input type='hidden' name='role_id' value='"+_esc(rid)+"'><button class='btn danger small' type='submit'>Remove bonuses</button></form></div>")
+    member_slot_form = "<div class='formgrid'><div class='field'><label>Member</label>"+_member_select(guild,"member_id",allow_none=False)+"</div><div class='field'><label>Additional pet slots</label><input name='pet_slots' type='number' min='0' max='100' value='1' required></div></div><p class='muted'>This is a direct member bonus, separate from role bonuses, purchased slots and achievement rewards.</p>"
+    member_slot_rows=[]
+    member_root=state.get("advanced_features_data",{}).get("pet_slot_member_bonus_v1",{}) or {}
+    for uid,slots in (member_root.get(str(gid),{}) or {}).items():
+        member=guild.get_member(int(uid)) if str(uid).isdigit() else None
+        member_slot_rows.append("<div class='toggle'><span><b>"+_esc(member.display_name if member else "Member "+str(uid))+"</b><small>"+str(max(0,int(slots or 0)))+" administrator-granted extra slots</small></span><form method='post' action='/dashboard/action'>"+_csrf_input()+"<input type='hidden' name='guild_id' value='"+str(gid)+"'><input type='hidden' name='action' value='pet_member_slots_remove'><input type='hidden' name='member_id' value='"+_esc(uid)+"'><button class='btn danger small' type='submit'>Remove</button></form></div>")
+    extra = "<article class='card full'><h2>Role bonuses</h2><p class='muted'>One role can grant both recurring Catnip income and extra pet capacity. Multiple roles stack; a member receives every configured role bonus they have.</p>"+_form(gid,"role_bonus_save",role_bonus_form,"Save role bonuses")+"<div class='itemlist'>"+("".join(bonus_rows) or "<p class='empty'>No role bonuses configured.</p>")+"</div></article>"
+    extra += "<article class='card full'><h2>Member pet-slot overrides</h2>"+_form(gid,"pet_member_slots_save",member_slot_form,"Save member slots")+"<div class='itemlist'>"+("".join(member_slot_rows) or "<p class='empty'>No individual member slot bonuses.</p>")+"</div></article>"
+    return "<h1>Roles Setup</h1><p class='muted'>Central server-side permission mapping, role income and pet capacity. Saved role IDs and slot bonuses persist in Cinnamon storage.</p>"+_form(gid,"roles_setup_save",content,"Save all role permissions")+"<div class='grid'>"+extra+"</div>"
 
 
 def _category_select(guild,name,selected=None):
@@ -2154,9 +2222,23 @@ def oauth_callback():
         )
         token=_token_exchange({"grant_type":"authorization_code","code":code,"redirect_uri":redirect_uri})
         user=_request_json(f"{BASE_URL}/users/@me",headers={"Authorization":"Bearer "+token["access_token"]})
+        portal_flow=session.pop("appeal_oauth",None)
         sid=secrets.token_urlsafe(32)
         _tokens[sid]={"access_token":token["access_token"],"refresh_token":token.get("refresh_token"),"expires_at":time.time()+int(token.get("expires_in",3600)),"user":user}
-        session.clear(); session["dash_sid"]=sid; session["display_name"]=user.get("global_name") or user.get("username") or "Discord user"; _csrf()
+        session.clear()
+        if isinstance(portal_flow,dict):
+            portal_gid=int(portal_flow.get("guild_id",0) or 0)
+            portal_token=str(portal_flow.get("token","") or "")
+            if not _appeal_portal_config(portal_gid,portal_token):
+                return _page("<main class='main'><article class='card'><h1>Appeal link expired</h1><p>This server's appeal link was regenerated or disabled. Ask a moderator for the current link.</p></article></main>","Appeal portal",status=410)
+            session["appeal_sid"]=sid
+            session["appeal_guild_id"]=portal_gid
+            session["appeal_portal_token"]=portal_token
+            session["appeal_csrf"]=secrets.token_urlsafe(32)
+            return redirect(url_for("cinnamon_dashboard.appeal_portal_form",guild_id=portal_gid,token=portal_token))
+        session["dash_sid"]=sid
+        session["display_name"]=user.get("global_name") or user.get("username") or "Discord user"
+        _csrf()
         return redirect(url_for("cinnamon_dashboard.dashboard_home"))
     except urllib.error.HTTPError as exc:
         try: payload=json.loads(exc.read().decode("utf-8"))
@@ -2173,6 +2255,129 @@ def oauth_callback():
     except Exception as exc:
         log.exception("Discord OAuth callback failed (%s)",type(exc).__name__)
         return _page("<main class='main'><article class='card'><h1>Discord login failed</h1><p class='muted'>An unexpected login error occurred. Check Render logs.</p><a class='btn' href='/login'>Try again</a></article></main>",status=502)
+
+
+def _appeal_portal_config(guild_id, token):
+    """Return live appeal configuration only when the persisted public token matches."""
+    if not token:
+        return None
+    advanced = _state().get("advanced_features_data", {})
+    root = advanced.get("cinnamon_moderation_controls_v1", {}) if isinstance(advanced, dict) else {}
+    cfg = root.get(str(int(guild_id)), {}) if isinstance(root, dict) else {}
+    saved = str(cfg.get("appeal_portal_token", "") or "") if isinstance(cfg, dict) else ""
+    if (not saved or not secrets.compare_digest(saved, str(token))
+            or not int(cfg.get("appeal_channel_id", 0) or 0)):
+        return None
+    return cfg
+
+
+def _appeal_csrf_input():
+    return "<input type='hidden' name='csrf_token' value='" + _esc(session.get("appeal_csrf", "")) + "'>"
+
+
+def _check_appeal_csrf():
+    supplied = request.form.get("csrf_token", "")
+    expected = session.get("appeal_csrf", "")
+    if not supplied or not expected or not secrets.compare_digest(supplied, expected):
+        abort(400, "The appeal form expired. Reload it and try again.")
+
+
+@dashboard_bp.get("/appeal/<int:guild_id>/<token>")
+def appeal_portal(guild_id, token):
+    cfg = _appeal_portal_config(guild_id, token)
+    if not cfg:
+        abort(404)
+    guild = _bot.get_guild(int(guild_id)) if _bot else None
+    if guild is None:
+        return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>Cinnamon is not connected to this server right now. Please try again later.</p></article></main>", "Appeal portal", status=503)
+    if session.get("appeal_guild_id") == int(guild_id) and session.get("appeal_portal_token") == token and session.get("appeal_sid") in _tokens:
+        return redirect(url_for("cinnamon_dashboard.appeal_portal_form", guild_id=guild_id, token=token))
+    body = (
+        "<main class='main'><article class='card'><h1>Appeal a moderation action</h1>"
+        "<p>Submit an appeal to <b>" + _esc(guild.name) + "</b>. Sign in with Discord so Cinnamon can verify which account is submitting the appeal.</p>"
+        "<p class='muted'>Your appeal details are delivered privately to the moderation team. This link does not let anyone view other appeals.</p>"
+        "<a class='btn' href='" + _esc(url_for("cinnamon_dashboard.appeal_portal_login", guild_id=guild_id, token=token)) + "'>Continue with Discord</a></article></main>"
+    )
+    return _page(body, "Appeal portal")
+
+
+@dashboard_bp.get("/appeal/<int:guild_id>/<token>/login")
+def appeal_portal_login(guild_id, token):
+    if not _appeal_portal_config(guild_id, token):
+        abort(404)
+    if not os.getenv("DISCORD_CLIENT_ID") or not os.getenv("DISCORD_CLIENT_SECRET"):
+        return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>Discord sign-in is not configured. Please contact a server moderator.</p></article></main>", "Appeal portal", status=503)
+    state_token = secrets.token_urlsafe(32)
+    session["oauth_state"] = state_token
+    session["appeal_oauth"] = {"guild_id": int(guild_id), "token": str(token)}
+    params = {
+        "client_id": os.environ["DISCORD_CLIENT_ID"].strip(),
+        "response_type": "code",
+        "redirect_uri": _oauth_redirect_uri(),
+        "scope": "identify",
+        "state": state_token,
+    }
+    return redirect("https://discord.com/oauth2/authorize?" + urllib.parse.urlencode(params))
+
+
+@dashboard_bp.route("/appeal/<int:guild_id>/<token>/form", methods=["GET", "POST"])
+def appeal_portal_form(guild_id, token):
+    cfg = _appeal_portal_config(guild_id, token)
+    if not cfg:
+        abort(404)
+    sid = session.get("appeal_sid")
+    if (session.get("appeal_guild_id") != int(guild_id)
+            or session.get("appeal_portal_token") != token
+            or sid not in _tokens):
+        return redirect(url_for("cinnamon_dashboard.appeal_portal", guild_id=guild_id, token=token))
+    if not _bot or not _bot.is_ready():
+        return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>Cinnamon is restarting or reconnecting. Please try again in a moment.</p></article></main>", "Appeal portal", status=503)
+    guild = _bot.get_guild(int(guild_id))
+    if guild is None:
+        return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>Cinnamon is not connected to this server right now. Please try again later.</p></article></main>", "Appeal portal", status=503)
+    user_id = str(_tokens[sid].get("user", {}).get("id", ""))
+    if not user_id.isdigit():
+        session.pop("appeal_sid", None)
+        return redirect(url_for("cinnamon_dashboard.appeal_portal", guild_id=guild_id, token=token))
+    # Do not require current guild membership here: members who were banned or
+    # kicked must still be able to appeal. Discord OAuth authenticates the
+    # submitting account, and the signed server link scopes the destination.
+    discord_user = __import__("discord").Object(id=int(user_id))
+    if request.method == "POST":
+        _check_appeal_csrf()
+        details = request.form.get("details", "").strip()
+        if not 20 <= len(details) <= 1500:
+            return _page("<main class='main'><article class='card'><h1>Check your appeal</h1><p>Explain your appeal in 20–1,500 characters.</p><a class='btn' href='" + _esc(url_for("cinnamon_dashboard.appeal_portal_form", guild_id=guild_id, token=token)) + "'>Return to form</a></article></main>", "Appeal portal", status=400)
+        submit = _state().get("submit_moderation_appeal")
+        if not callable(submit):
+            return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>The appeal service is not ready. Please try again later.</p></article></main>", "Appeal portal", status=503)
+        try:
+            status, appeal_id = _run_bot(submit(guild, discord_user, details), timeout=35)
+        except Exception:
+            log.exception("Web appeal submission failed for guild %s", guild_id)
+            return _page("<main class='main'><article class='card'><h1>Appeal could not be submitted</h1><p>Storage or Discord was unavailable. Please try again later.</p></article></main>", "Appeal portal", status=503)
+        messages = {
+            "not_configured": "The server has not configured its private moderator review channel.",
+            "pending_exists": "You already have a pending appeal for this server.",
+            "rate_limited": "You can submit up to two appeals per server every 24 hours.",
+            "save_failed": "Your appeal could not be saved safely. No submission was kept.",
+        }
+        if status != "ok":
+            return _page("<main class='main'><article class='card'><h1>Appeal not submitted</h1><p>" + _esc(messages.get(status, "Please try again later.")) + "</p><a class='btn' href='" + _esc(url_for("cinnamon_dashboard.appeal_portal_form", guild_id=guild_id, token=token)) + "'>Return to form</a></article></main>", "Appeal portal", status=400)
+        session["appeal_submitted_id"] = str(appeal_id)
+        return redirect(url_for("cinnamon_dashboard.appeal_portal_form", guild_id=guild_id, token=token))
+    submitted_id = session.pop("appeal_submitted_id", None)
+    if submitted_id:
+        return _page("<main class='main'><article class='card'><h1>Appeal submitted</h1><p>Your appeal was delivered privately to the moderation team.</p><p class='muted'>Reference: " + _esc(submitted_id) + "</p></article></main>", "Appeal submitted")
+    form = (
+        "<main class='main'><article class='card'><h1>Submit a moderation appeal</h1>"
+        "<p>Signed in as <b>" + _esc(_tokens[sid].get("user", {}).get("global_name") or _tokens[sid].get("user", {}).get("username") or "Discord member") + "</b>."
+        " Your Discord account is verified for this appeal to " + _esc(guild.name) + ". Former members can appeal too.</p>"
+        "<form method='post'>" + _appeal_csrf_input() +
+        "<div class='field'><label for='appealDetails'>Explain your appeal</label><textarea id='appealDetails' name='details' minlength='20' maxlength='1500' rows='8' required placeholder='Explain which moderation action you are appealing and why...'></textarea><small>20–1,500 characters. Do not include passwords or private account credentials.</small></div>"
+        "<button class='btn' type='submit'>Submit appeal</button></form></article></main>"
+    )
+    return _page(form, "Submit appeal")
 
 
 def _analytics(guild, state):
@@ -2564,7 +2769,7 @@ def dashboard_action():
             return await _dashboard_is_admin(guild, uid)
         if not _run_bot(authorize_dashboard_edit()):
             raise PermissionError("Dashboard changes require Administrator permission.")
-        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","shop_items_log_channel","shop_catalog_restore","shop_item_add","shop_item_save","shop_item_disable","shop_recipe_save","shop_recipe_remove","shop_box_reward_add","shop_box_reward_remove","shop_box_weight","shop_box_distribution","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","community_poll_create","community_poll_close","security_settings","moderation_controls_settings","verification_publish","appeal_settings","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim"}:
+        if action in {"welcome","goodbye","ai_channel","log_channel","special_logs","automod","antiraid","levelrole_add","levelrole_remove","economy_item_add","economy_item_save","economy_item_remove","shop_items_log_channel","shop_catalog_restore","shop_item_add","shop_item_save","shop_item_disable","shop_recipe_save","shop_recipe_remove","shop_box_reward_add","shop_box_reward_remove","shop_box_weight","shop_box_distribution","economy_income_add","economy_income_remove","giveaway_create","giveaway_edit","giveaway_draft_save","giveaway_draft_update","giveaway_draft_publish","giveaway_draft_delete","giveaway_end","giveaway_cancel","giveaway_template_save","giveaway_template_delete","giveaway_repeat_create","giveaway_repeat_stop","giveaway_reroll","config_backup_restore","hangry_logs","recall","message_send","community_features_settings","community_event_create","community_event_cancel","community_poll_create","community_poll_close","security_settings","moderation_controls_settings","verification_publish","appeal_settings","appeal_portal_publish","appeal_portal_rotate","dashboard_appeal_review","ticket_dashboard_claim","ticket_dashboard_unclaim","role_bonus_save","role_bonus_remove","pet_member_slots_save","pet_member_slots_remove","achievement_pet_slots_save","story_pet_slots_save"}:
             if not _tokens[sid]["user"].get("id"): abort(401)
         if action=="brain_settings":
             _run_bot(_apply_brain_settings(
@@ -2676,22 +2881,90 @@ def dashboard_action():
             session["dashboard_notice"]=f"Sent {amount:,} Catnip to {recipient.display_name}."
         elif action=="appeal_settings":
             raw=request.form.get("appeal_channel_id","").strip()
+            public_raw=request.form.get("appeal_public_channel_id","").strip()
             channel=guild.get_channel(int(raw)) if raw.isdigit() else None
-            if raw and not isinstance(channel,__import__("discord").TextChannel):
-                raise ValueError("Choose a valid appeal text channel.")
+            public_channel=guild.get_channel(int(public_raw)) if public_raw.isdigit() else None
+            discord_module=__import__("discord")
+            if raw and not isinstance(channel,discord_module.TextChannel):
+                raise ValueError("Choose a valid private appeal review channel.")
             if channel and channel.permissions_for(guild.default_role).view_channel:
-                raise ValueError("Appeal channels must be private to moderators.")
-            async def save_appeal_channel():
+                raise ValueError("The moderator review channel must be private.")
+            if public_raw and not isinstance(public_channel,discord_module.TextChannel):
+                raise ValueError("Choose a valid public appeal link channel.")
+            if public_channel and not public_channel.permissions_for(guild.default_role).view_channel:
+                raise ValueError("The appeal link channel must be visible to server members.")
+            if public_channel and not channel:
+                raise ValueError("Configure a private moderator review channel before publishing an appeal portal.")
+            async def save_appeal_channels():
                 root=state["advanced_features_data"].setdefault("cinnamon_moderation_controls_v1",{})
                 cfg=root.setdefault(str(gid),{})
-                before=cfg.get("appeal_channel_id",0)
+                before=copy.deepcopy(cfg)
                 cfg["appeal_channel_id"]=int(channel.id) if channel else 0
-                if not await state["bd_save_data"]():
-                    cfg["appeal_channel_id"]=before
-                    raise ValueError("Couldn't durably save the appeal channel.")
-            _run_bot(save_appeal_channel())
-            _audit(gid,actor,"Dashboard: appeal channel updated",f"Appeal channel={channel.id if channel else 0}.")
-            session["dashboard_notice"]="Private appeal channel saved."
+                cfg["appeal_public_channel_id"]=int(public_channel.id) if public_channel else 0
+                if channel:
+                    if not cfg.get("appeal_portal_token"):
+                        cfg["appeal_portal_token"]=secrets.token_urlsafe(32)
+                else:
+                    cfg.pop("appeal_portal_token",None)
+                try:
+                    saved=await state["bd_save_data"]()
+                except Exception:
+                    saved=False
+                    log.exception("Could not persist appeal portal settings")
+                if not saved:
+                    cfg.clear();cfg.update(before)
+                    raise ValueError("Couldn't durably save the appeal settings.")
+            _run_bot(save_appeal_channels())
+            _audit(gid,actor,"Dashboard: appeal portal settings updated",
+                   f"Private review channel={channel.id if channel else 0}; public link channel={public_channel.id if public_channel else 0}.")
+            session["dashboard_notice"]="Appeal channels saved. The portal link is ready below."
+        elif action=="appeal_portal_rotate":
+            async def rotate_appeal_portal():
+                root=state["advanced_features_data"].setdefault("cinnamon_moderation_controls_v1",{})
+                cfg=root.setdefault(str(gid),{})
+                previous=cfg.get("appeal_portal_token")
+                cfg["appeal_portal_token"]=secrets.token_urlsafe(32)
+                try:
+                    saved=await state["bd_save_data"]()
+                except Exception:
+                    saved=False
+                if not saved:
+                    if previous is None: cfg.pop("appeal_portal_token",None)
+                    else: cfg["appeal_portal_token"]=previous
+                    raise ValueError("Could not save the new portal link. The old link remains active.")
+            _run_bot(rotate_appeal_portal())
+            _audit(gid,actor,"Dashboard: appeal portal link rotated","The previous public link has been revoked.")
+            session["dashboard_notice"]="New appeal link generated. The old link no longer works."
+        elif action=="appeal_portal_publish":
+            discord_module=__import__("discord")
+            async def prepare_appeal_portal():
+                root=state["advanced_features_data"].setdefault("cinnamon_moderation_controls_v1",{})
+                cfg=root.setdefault(str(gid),{})
+                token=str(cfg.get("appeal_portal_token","") or "")
+                channel=guild.get_channel(int(cfg.get("appeal_public_channel_id",0) or 0))
+                if not token or not int(cfg.get("appeal_channel_id",0) or 0):
+                    raise ValueError("Configure the private moderator review channel first.")
+                if not isinstance(channel,discord_module.TextChannel):
+                    raise ValueError("Choose a public appeal link channel first.")
+                return token,channel
+            token,public_channel=_run_bot(prepare_appeal_portal())
+            portal=(os.getenv("RENDER_EXTERNAL_URL", "https://cinnamon-c328.onrender.com").rstrip("/") +
+                url_for("cinnamon_dashboard.appeal_portal",guild_id=gid,token=token))
+            view_class=state.get("ModerationAppealPortalView")
+            if not callable(view_class):
+                raise ValueError("The appeal portal panel is unavailable. Restart Cinnamon after updating.")
+            embed=discord_module.Embed(
+                title="📨 Need to appeal a moderation action?",
+                description="Use the secure appeal portal below. Sign in with Discord to verify your account. Your appeal is sent privately to the moderation team.",
+                color=0xE8A05A,
+            )
+            async def publish_appeal_portal():
+                await public_channel.send(embed=embed,view=view_class(portal),
+                    allowed_mentions=discord_module.AllowedMentions.none())
+                return public_channel.mention
+            channel_mention=_run_bot(publish_appeal_portal())
+            _audit(gid,actor,"Dashboard: appeal portal published",f"Published the member appeal link in {channel_mention}.")
+            session["dashboard_notice"]="Appeal portal link published in "+channel_mention+"."
         elif action=="dashboard_appeal_review":
             appeal_id=request.form.get("appeal_id","").strip()
             decision=request.form.get("decision","").strip()
@@ -3061,6 +3334,25 @@ def dashboard_action():
             cfg.update({"enabled":"enabled" in request.form,"threshold":threshold,"window":window})
             _save(); _audit(gid,actor,"Dashboard: anti-raid updated",f"Enabled={cfg['enabled']}, threshold={threshold}, window={window}s. Alert-only.")
             session["dashboard_notice"]="Anti-raid settings saved."
+        elif action=="achievement_pet_slots_save":
+            aid=request.form.get("achievement_id","").strip()
+            slots=int(request.form.get("pet_slots","0"))
+            pool={**(state.get("ACHIEVEMENTS",{}) or {}),**(state.get("SECRET_ACHIEVEMENTS",{}) or {})}
+            if aid not in pool or not 0<=slots<=100: raise ValueError("Choose a valid achievement and 0–100 extra pet slots.")
+            cfg=state.setdefault("achievement_config",{}).setdefault(gid,{})
+            rewards=cfg.setdefault("pet_slot_rewards",{})
+            if slots: rewards[aid]=slots
+            else: rewards.pop(aid,None)
+            _save(); _audit(gid,actor,"Dashboard: achievement pet-slot reward updated",f"{aid}; extra slots={slots}.")
+            session["dashboard_notice"]="Achievement pet-slot reward saved."
+        elif action=="story_pet_slots_save":
+            slots=int(request.form.get("pet_slots","0"))
+            if not 0<=slots<=100: raise ValueError("Story completion reward must be between 0 and 100 extra pet slots.")
+            root=state.setdefault("advanced_features_data",{}).setdefault("story_pet_slot_rewards_v1",{})
+            if slots: root[str(gid)]=slots
+            else: root.pop(str(gid),None)
+            _save(); _audit(gid,actor,"Dashboard: story pet-slot reward updated",f"extra slots={slots}.")
+            session["dashboard_notice"]="Story pet-slot reward saved."
         elif action=="achievement_settings":
             enabled="enabled" in request.form; channel_id=request.form.get("channel_id","").strip()
             if channel_id and (not channel_id.isdigit() or not isinstance(guild.get_channel(int(channel_id)),__import__("discord").TextChannel)): raise ValueError("Choose a valid achievement log channel.")
@@ -3194,6 +3486,7 @@ def dashboard_action():
                 sell_raw = request.form.get("sell_price", "").strip()
                 sell_price = int(sell_raw) if sell_raw else None
                 stock_quantity = int(request.form.get("stock_quantity", "0"))
+                pet_slots_reward = int(request.form.get("pet_slots_reward", "0"))
                 use_cooldown_seconds = int(request.form.get("use_cooldown_seconds", "0"))
                 purchase_requirements = json.loads(request.form.get("purchase_requirements", "{}") or "{}")
                 use_requirements = json.loads(request.form.get("use_requirements", "{}") or "{}")
@@ -3205,6 +3498,7 @@ def dashboard_action():
                     or not 0 <= limit <= 999999
                     or (sell_price is not None and not 0 <= sell_price <= 10000000)
                     or not 0 <= stock_quantity <= 100000000
+                    or not 0 <= pet_slots_reward <= 100
                     or not 0 <= use_cooldown_seconds <= 31536000):
                 raise ValueError("Check the name, prices, per-member limit, stock (0–100,000,000) and cooldown (0–31,536,000 seconds).")
             if not isinstance(purchase_requirements, dict) or not isinstance(use_requirements, dict):
@@ -3309,6 +3603,8 @@ def dashboard_action():
                 "description": request.form.get("description", "")[:300],
                 "max_per_person": limit,
                 "shop_enabled": "shop_enabled" in request.form,
+                "pet_abilities_enabled": "pet_abilities_enabled" in request.form,
+                "pet_slots_reward": pet_slots_reward,
                 "craftable": "craftable" in request.form,
                 "stock_unlimited": "stock_unlimited" in request.form,
                 "stock_quantity": stock_quantity,
@@ -3536,7 +3832,7 @@ def dashboard_action():
             if action=="economy_item_save" and item_id not in items: raise ValueError("That shop item no longer exists.")
             name=request.form.get("name","").strip(); price=int(request.form.get("price","0")); limit=int(request.form.get("max_per_person","0"))
             if not name or len(name)>80 or not 1<=price<=10000000 or not 0<=limit<=999999: raise ValueError("Check item name, price (1–10,000,000) and limit (0–999,999).")
-            items[item_id]={"name":name,"price":price,"emoji":request.form.get("emoji","🐾")[:8] or "🐾","description":request.form.get("description","")[:300],"max_per_person":limit,"shop_enabled":True}
+            items[item_id]={"name":name,"price":price,"emoji":request.form.get("emoji","🐾")[:8] or "🐾","description":request.form.get("description","")[:300],"max_per_person":limit,"shop_enabled":True,"pet_abilities_enabled":"pet_abilities_enabled" in request.form}
             _save(); _audit(gid,actor,"Dashboard: shop item saved",f"{item_id}: {name}, {price} Catnip")
             send_log=state.get("send_log")
             if callable(send_log): _run_bot(send_log(gid,title="🛒 Shop item added" if action=="economy_item_add" else "✏️ Shop item edited",category="economy",fields=[("Action","Added" if action=="economy_item_add" else "Edited"),("Admin",str(actor)),("Item ID",item_id),("Name",name),("Price",str(price)),("Emoji",items[item_id]["emoji"]),("Description",items[item_id]["description"]),("Per-person limit",str(limit)),("Shop enabled","true"),("Catalog scope","Global shared shop")]))
@@ -3549,6 +3845,60 @@ def dashboard_action():
             send_log=state.get("send_log")
             if callable(send_log): _run_bot(send_log(gid,title="🗑️ Shop item removed",category="economy",fields=[("Action","Removed"),("Admin",str(actor)),("Item ID",item_id),("Name",removed_item.get("name",item_id)),("Price",str(removed_item.get("price",1))),("Emoji",removed_item.get("emoji","🐾")),("Description",removed_item.get("description","")[:300]),("Per-person limit",str(removed_item.get("max_per_person",0))),("Catalog scope","Global shared shop")]))
             session["dashboard_notice"]="Shop item removed. Existing inventories were preserved."
+        elif action=="role_bonus_save":
+            role_id=request.form.get("role_id","").strip()
+            role=guild.get_role(int(role_id)) if role_id.isdigit() else None
+            if not role or role.is_default() or role.managed: raise ValueError("Choose a valid assignable server role.")
+            if not guild.me or role>=guild.me.top_role: raise ValueError("Move Cinnamon's highest role above this role first.")
+            amount=int(request.form.get("amount","0")); interval=int(request.form.get("interval","1"))
+            unit=request.form.get("unit","hour"); pet_slots=int(request.form.get("pet_slots","0"))
+            multipliers={"minute":60,"hour":3600,"day":86400,"week":604800}
+            if not 0<=amount<=1000000 or not 1<=interval<=1000 or unit not in multipliers or not 0<=pet_slots<=100:
+                raise ValueError("Check income (0–1,000,000), interval (1–1,000), unit and pet slots (0–100).")
+            income=state.setdefault("economy_income_roles",{}).setdefault(gid,{})
+            if amount:
+                income[role.id]={"amount":amount,"cooldown":interval*multipliers[unit],"interval":interval,"unit":unit}
+            else:
+                income.pop(role.id,None)
+            slot_root=state.setdefault("advanced_features_data",{}).setdefault("pet_slot_role_bonus_v1",{})
+            guild_slots=slot_root.setdefault(str(gid),{})
+            if pet_slots: guild_slots[str(role.id)]=pet_slots
+            else: guild_slots.pop(str(role.id),None)
+            if not guild_slots: slot_root.pop(str(gid),None)
+            _save(); _audit(gid,actor,"Dashboard: role income and pet slots updated",f"{role.name}; income={amount} Catnip/{interval} {unit}; pet slots=+{pet_slots}.")
+            session["dashboard_notice"]=f"Bonuses saved for {role.name}. Multiple role bonuses stack."
+        elif action=="role_bonus_remove":
+            role_id=request.form.get("role_id","").strip()
+            if not role_id.isdigit(): raise ValueError("Invalid role.")
+            income=state.setdefault("economy_income_roles",{}).setdefault(gid,{})
+            removed_income=income.pop(int(role_id),None) or income.pop(role_id,None)
+            slot_root=state.setdefault("advanced_features_data",{}).setdefault("pet_slot_role_bonus_v1",{})
+            guild_slots=slot_root.setdefault(str(gid),{})
+            removed_slots=guild_slots.pop(str(role_id),None)
+            if removed_income is None and removed_slots is None: raise ValueError("No bonus is configured for that role.")
+            if not guild_slots: slot_root.pop(str(gid),None)
+            _save(); _audit(gid,actor,"Dashboard: role bonuses removed",f"Role ID {role_id}; income={bool(removed_income)}; pet slots={removed_slots or 0}.")
+            session["dashboard_notice"]="Role bonuses removed. Members keep pets already collected."
+        elif action=="pet_member_slots_save":
+            member_id=request.form.get("member_id","").strip(); slots=int(request.form.get("pet_slots","0"))
+            member=guild.get_member(int(member_id)) if member_id.isdigit() else None
+            if not member or member.bot or not 0<=slots<=100: raise ValueError("Choose a server member and 0–100 extra slots.")
+            root=state.setdefault("advanced_features_data",{}).setdefault("pet_slot_member_bonus_v1",{})
+            cfg=root.setdefault(str(gid),{})
+            if slots: cfg[str(member.id)]=slots
+            else: cfg.pop(str(member.id),None)
+            if not cfg: root.pop(str(gid),None)
+            _save(); _audit(gid,actor,"Dashboard: member pet slots updated",f"{member} ({member.id}); extra slots={slots}.")
+            session["dashboard_notice"]=f"Pet-slot override saved for {member.display_name}."
+        elif action=="pet_member_slots_remove":
+            member_id=request.form.get("member_id","").strip()
+            root=state.setdefault("advanced_features_data",{}).setdefault("pet_slot_member_bonus_v1",{})
+            cfg=root.setdefault(str(gid),{})
+            removed=cfg.pop(member_id,None)
+            if removed is None: raise ValueError("No individual pet-slot bonus exists for that member.")
+            if not cfg: root.pop(str(gid),None)
+            _save(); _audit(gid,actor,"Dashboard: member pet slots removed",f"Member {member_id}; removed {removed} slots.")
+            session["dashboard_notice"]="Individual pet-slot bonus removed. Existing pets were preserved."
         elif action=="economy_income_add":
             role_id=request.form.get("role_id","").strip(); role=guild.get_role(int(role_id)) if role_id.isdigit() else None
             try: amount=int(request.form.get("amount","0")); interval=int(request.form.get("interval","0"))
@@ -4119,7 +4469,7 @@ def dashboard_action():
             session["dashboard_notice"]=f"{mod_action.title()} action completed for {target}."
         else:
             raise ValueError("Unknown dashboard action.")
-        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_update":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","community_features_settings":"community","community_event_create":"community","community_event_cancel":"community","security_settings":"moderation","moderation_controls_settings":"moderation","verification_publish":"moderation","appeal_settings":"moderation","dashboard_appeal_review":"moderation","ticket_dashboard_claim":"tickets","ticket_dashboard_unclaim":"tickets","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
+        tab={"brain_settings":"mind","mind_settings":"mind","economy_item_add":"economy","economy_item_save":"economy","economy_item_remove":"economy","economy_income_add":"economy","economy_income_remove":"economy","giveaway_create":"giveaways","giveaway_edit":"giveaways","giveaway_draft_save":"giveaways","giveaway_draft_update":"giveaways","giveaway_draft_publish":"giveaways","giveaway_draft_delete":"giveaways","giveaway_end":"giveaways","giveaway_cancel":"giveaways","giveaway_template_save":"giveaways","giveaway_template_delete":"giveaways","giveaway_repeat_create":"giveaways","giveaway_repeat_stop":"giveaways","giveaway_reroll":"giveaways","config_backup_restore":"system","hangry_logs":"hangry","welcome":"community","goodbye":"community","community_features_settings":"community","community_event_create":"community","community_event_cancel":"community","security_settings":"moderation","moderation_controls_settings":"moderation","verification_publish":"moderation","appeal_settings":"moderation","appeal_portal_publish":"moderation","appeal_portal_rotate":"moderation","dashboard_appeal_review":"moderation","ticket_dashboard_claim":"tickets","ticket_dashboard_unclaim":"tickets","welcome_disable":"community","goodbye_disable":"community","ai_channel":"community","log_channel":"community","special_logs":"system","automod":"moderation","antiraid":"moderation","moderate":"moderation","levelrole_add":"engagement","levelrole_remove":"engagement","achievement_settings":"achievements","achievement_pet_slots_save":"achievements","story_pet_slots_save":"adventure","quest_settings":"quests","xp_settings":"engagement","xp_channel_remove":"engagement","category_log_set":"system","category_log_disable":"system","run_setup":"system","recall":"system","message_send":"message_studio"}.get(action,"overview")
         return redirect(url_for("cinnamon_dashboard.dashboard_home",guild_id=gid,tab=tab))
     except (ValueError,PermissionError) as exc:
         session["dashboard_notice_level"]="error"

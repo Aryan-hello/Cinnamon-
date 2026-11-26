@@ -87,7 +87,70 @@ async def sync_level_roles(member: discord.Member, level: int) -> list[str]:
     return [r.name for r in to_add]
 
 
+def _record_season_xp(guild_id: int, user_id: int, amount: int):
+    """Record eligible XP in the current calendar-month season.
+
+    Season data lives in advanced_features_data so it follows Cinnamon's
+    existing validated snapshot and naturally rolls over by month.
+    """
+    season_id = cinnamon_now().strftime("%Y-%m")
+    root = advanced_features_data.setdefault("leaderboard_seasons_v1", {})
+    season = root.setdefault(season_id, {})
+    scores = season.setdefault(str(int(guild_id)), {})
+    key = str(int(user_id))
+    scores[key] = int(scores.get(key, 0)) + max(0, int(amount))
+    # Keep the most recent 12 seasons to bound snapshot growth.
+    for old_season in sorted(root)[:-12]:
+        root.pop(old_season, None)
+
+
+async def _claim_level_rewards(guild_id: int, user_id: int, new_level: int):
+    """Atomically grant every unclaimed level reward up to the member's level."""
+    key = (int(guild_id), int(user_id))
+    lock = _CINNAMON_SHOP_LOCKS.setdefault(key, asyncio.Lock())
+    async with lock:
+        reward_levels = [
+            int(level) for level in ECONOMY_LEVEL_REWARDS
+            if int(level) <= int(new_level)
+            and not economy_level_reward_claimed(guild_id, user_id, int(level))
+        ]
+        if not reward_levels:
+            return 0, []
+        reward_total = sum(int(ECONOMY_LEVEL_REWARDS[level]) for level in reward_levels)
+        bonus_fn = globals().get("collectible_pet_catnip_bonus")
+        if callable(bonus_fn):
+            reward_total = bonus_fn(guild_id, user_id, reward_total)
+        had_balance = key in economy_balances
+        old_balance = economy_balances.get(key)
+        had_claims = key in economy_level_rewards_claimed
+        old_claims = list(economy_level_rewards_claimed.get(key, []))
+        economy_balances[key] = economy_balance(guild_id, user_id) + reward_total
+        for level in reward_levels:
+            mark_economy_level_reward_claimed(guild_id, user_id, level)
+        try:
+            saved = await bd_save_data()
+        except Exception:
+            saved = False
+        if not saved:
+            if had_balance:
+                economy_balances[key] = old_balance
+            else:
+                economy_balances.pop(key, None)
+            if had_claims:
+                economy_level_rewards_claimed[key] = old_claims
+            else:
+                economy_level_rewards_claimed.pop(key, None)
+            return 0, []
+        return reward_total, reward_levels
+
+
 async def award_xp(message: discord.Message):
+    if message.guild is None or message.author.bot or getattr(message, "webhook_id", None):
+        return
+    content = str(getattr(message, "content", "") or "").strip()
+    # Prefix commands and near-empty messages should not generate leaderboard XP.
+    if content.startswith("?") or len(content) < 3:
+        return
     guild_id = message.guild.id
     if not xp_allowed_in_channel(guild_id, message.channel.id):
         return
@@ -99,14 +162,18 @@ async def award_xp(message: discord.Message):
     old_xp = xp_data.get(key, 0)
     old_level = level_from_xp(old_xp)
     xp_amount, _ = xp_settings_for_guild(guild_id)
+    pet_fn = globals().get("_collectible_pet_ability")
+    pet = pet_fn(guild_id, message.author.id) if callable(pet_fn) else {}
+    if pet.get("ability") in {"xp", "all_rewards"}:
+        xp_amount += int(xp_amount * float(pet.get("value", 0.0)))
     new_xp = old_xp + xp_amount
     xp_data[key] = new_xp
+    _record_season_xp(guild_id, message.author.id, xp_amount)
     new_level = level_from_xp(new_xp)
     await achievement_record(guild_id, message.author.id, "level", new_level)
     gained = await sync_level_roles(message.author, new_level)
     # Do not spam the level log with ordinary XP awards. Only record XP when
-    # the award actually caused a level-up or granted one/more configured
-    # level roles (including roles added later to an already-high-level user).
+    # the award actually caused a level-up or granted one/more configured roles.
     if new_level > old_level or gained:
         await send_log(
             message.guild.id,
@@ -120,23 +187,37 @@ async def award_xp(message: discord.Message):
                 ("Level roles granted", ", ".join(gained) if gained else "None"),
             ],
         )
+    reward_total, reward_levels = await _claim_level_rewards(
+        message.guild.id, message.author.id, new_level
+    )
+    if reward_total:
+        await achievement_record(message.guild.id, message.author.id, "catnip_earned", reward_total)
+        await economy_log(
+            message.guild.id,
+            title="🏆 Level Catnip reward",
+            fields=[
+                ("User", f"{message.author} ({message.author.id})"),
+                ("Levels", ", ".join(map(str, reward_levels))),
+                ("Reward", f"+{reward_total:,} Catnip"),
+            ],
+        )
     if new_level > old_level:
         text = f"🐾 {message.author.mention} just leveled up to **Level {new_level}**!"
         if gained:
             text += f" New role{'s' if len(gained) > 1 else ''}: **{', '.join(gained)}**"
-        reward_levels = [lvl for lvl, amount in ECONOMY_LEVEL_REWARDS.items() if old_level < lvl <= new_level and not economy_level_reward_claimed(message.guild.id, message.author.id, lvl)]
-        reward_total = sum(ECONOMY_LEVEL_REWARDS[lvl] for lvl in reward_levels)
         if reward_total:
-            economy_balances[(message.guild.id, message.author.id)] = economy_balance(message.guild.id, message.author.id) + reward_total
-            await achievement_record(message.guild.id, message.author.id, "catnip_earned", reward_total)
-            for lvl in reward_levels:
-                mark_economy_level_reward_claimed(message.guild.id, message.author.id, lvl)
-            await economy_log(message.guild.id, title="🏆 Level Catnip reward", fields=[("User", f"{message.author} ({message.author.id})"), ("Levels", ", ".join(map(str, reward_levels))), ("Reward", f"+{reward_total:,} Catnip")])
             text += f"\n🌿 Level reward: **+{reward_total:,} Catnip**!"
-            await bd_save_data()
         try:
             await message.channel.send(
                 text,
+                allowed_mentions=discord.AllowedMentions(users=True, roles=False),
+            )
+        except discord.HTTPException:
+            pass
+    elif reward_total:
+        try:
+            await message.channel.send(
+                f"🌿 {message.author.mention}, Cinnamon has delivered **+{reward_total:,} Catnip** in previously pending level rewards.",
                 allowed_mentions=discord.AllowedMentions(users=True, roles=False),
             )
         except discord.HTTPException:
@@ -204,9 +285,20 @@ async def rank(interaction: discord.Interaction, member: discord.Member = None):
     embed.add_field(name="⭐ Level",value=f"**{level}**",inline=True)
     embed.add_field(name="✨ Total XP",value=f"**{xp:,}**",inline=True)
     embed.add_field(name="📈 Progress",value=f"{cinnamon_progress_bar(current,needed,10)}\n**{progress}**",inline=False)
-    reward = ECONOMY_LEVEL_REWARDS.get(level)
-    if reward:
-        embed.add_field(name="🌿 Level reward", value=f"**+{reward:,} Catnip**", inline=True)
+    pending_levels = [
+        int(reward_level) for reward_level in ECONOMY_LEVEL_REWARDS
+        if int(reward_level) <= level
+        and not economy_level_reward_claimed(interaction.guild.id, member.id, int(reward_level))
+    ]
+    if pending_levels:
+        pending_total = sum(int(ECONOMY_LEVEL_REWARDS[reward_level]) for reward_level in pending_levels)
+        embed.add_field(
+            name="🌿 Pending level rewards",
+            value=f"**+{pending_total:,} Catnip**\nLevels: {', '.join(map(str, sorted(pending_levels)))}",
+            inline=True,
+        )
+    elif level > 0:
+        embed.add_field(name="🌿 Level rewards", value="All earned level rewards have been claimed.", inline=True)
     try:
         card = await _make_rank_card(member, xp, level)
         await interaction.response.send_message(embed=cinnamon_polish_embed(embed), file=discord.File(card, filename="cinnamon-rank.png"), allowed_mentions=discord.AllowedMentions.none())
@@ -241,6 +333,7 @@ class LeaderboardPageView(discord.ui.View):
 @app_commands.describe(category="What you want to rank members by")
 @app_commands.choices(category=[
     app_commands.Choice(name="XP / Levels",value="xp"),
+    app_commands.Choice(name="Current Season XP",value="season"),
     app_commands.Choice(name="Catnip",value="catnip"),
     app_commands.Choice(name="Achievement Points",value="achievements"),
     app_commands.Choice(name="Messages",value="messages"),
@@ -260,6 +353,11 @@ async def leaderboard(interaction: discord.Interaction, category: app_commands.C
     if category=="xp":
         rows=[(uid,int(xp)) for (g,uid),xp in xp_data.items() if g==gid]
         title="⭐ XP / Level Leaderboard"; fmt=lambda uid,v:f"Level {level_from_xp(v)} · {v:,} XP"
+    elif category=="season":
+        season_id=cinnamon_now().strftime("%Y-%m")
+        season=globals().get("advanced_features_data",{}).get("leaderboard_seasons_v1",{}).get(season_id,{})
+        rows=[(int(uid),int(score)) for uid,score in season.get(str(gid),{}).items()]
+        title=f"🏅 {season_id} Season XP Leaderboard"; fmt=lambda uid,v:f"{v:,} season XP"
     elif category=="catnip":
         rows=[(uid,int(v)) for (g,uid),v in economy_balances.items() if g==gid]
         title="🌿 Catnip Leaderboard"; fmt=lambda uid,v:f"{v:,} Catnip"

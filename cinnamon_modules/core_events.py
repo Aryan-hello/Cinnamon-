@@ -156,7 +156,7 @@ def _command_log_category(command_name: str) -> str:
         return "levels"
     if root in {"achievement", "achievements"} or "achievement" in name:
         return "achievements"
-    if root in {"quest", "quests", "questshop"} or "quest" in name:
+    if root in {"quest", "quests"} or "quest" in name:
         return "quests"
     if root in {"giveaway", "poll"}:
         return "community"
@@ -251,6 +251,13 @@ async def on_ready():
 
         # First-run-only setup for the extended features below.
         await bd_load_data()
+        migrate_qp = globals().get("migrate_legacy_quest_currency")
+        if callable(migrate_qp) and migrate_qp():
+            try:
+                if not await bd_save_data():
+                    log.warning("Legacy quest-currency cleanup is in memory but was not persisted; it will retry on the next startup.")
+            except Exception:
+                log.exception("Could not persist legacy quest-currency cleanup; it will retry on the next startup.")
         for role_id in reaction_role_ids:
             bot.add_view(ReactionRoleView(role_id))
         bot.add_view(GiveawayView())  # persistent: matched by custom_id, state looked up by message ID
@@ -991,6 +998,26 @@ async def _change_catnip_prefix(ctx, member, amount, add):
 
 
 # ---- XP admin ---------------------------------------------------------------
+async def _claim_level_rewards_for_xp(guild_id: int, user_id: int, level: int, source: str):
+    claim_fn = globals().get("_claim_level_rewards")
+    if not callable(claim_fn):
+        return 0, []
+    reward_total, reward_levels = await claim_fn(guild_id, user_id, level)
+    if reward_total:
+        await achievement_record(guild_id, user_id, "catnip_earned", reward_total)
+        await economy_log(
+            guild_id,
+            title="🏆 Level Catnip reward",
+            fields=[
+                ("User", f"<@{user_id}> ({user_id})"),
+                ("Levels", ", ".join(map(str, reward_levels))),
+                ("Reward", f"+{reward_total:,} Catnip"),
+                ("Source", source),
+            ],
+        )
+    return reward_total, reward_levels
+
+
 async def _change_xp_prefix(ctx, member: discord.Member, amount: int, add: bool):
     if amount <= 0:
         return await ctx.reply("❌ XP amount must be greater than 0.", mention_author=False)
@@ -1001,6 +1028,9 @@ async def _change_xp_prefix(ctx, member: discord.Member, amount: int, add: bool)
     old_level = level_from_xp(before)
     new_level = level_from_xp(after)
     gained_roles = await sync_level_roles(member, new_level)
+    reward_total, _ = await _claim_level_rewards_for_xp(
+        ctx.guild.id, member.id, new_level, "Administrator XP adjustment"
+    ) if add else (0, [])
     await bd_save_data()
     await send_log(ctx.guild.id, title="📈 XP manually changed", category="levels", fields=[
         ("Moderator", f"{ctx.author} ({ctx.author.id})"),
@@ -1014,6 +1044,8 @@ async def _change_xp_prefix(ctx, member: discord.Member, amount: int, add: bool)
     text += f"XP: **{after:,}** • Level: **{new_level}**"
     if gained_roles:
         text += f"\n🎖️ New level role{'s' if len(gained_roles) != 1 else ''}: **{', '.join(gained_roles)}**"
+    if reward_total:
+        text += f"\n🌿 Level reward: **+{reward_total:,} Catnip**"
     await ctx.reply(text, mention_author=False)
 
 
@@ -1051,10 +1083,18 @@ async def add_xp_cmd(interaction: discord.Interaction, member: discord.Member, a
     xp_data[key] = before + amount
     level = level_from_xp(xp_data[key])
     gained = await sync_level_roles(member, level)
+    reward_total, _ = await _claim_level_rewards_for_xp(
+        interaction.guild.id, member.id, level, "Administrator XP grant"
+    )
     await bd_save_data()
     await send_log(interaction.guild.id, title="📈 XP manually added", category="levels", interaction=interaction,
                    fields=[("Member", f"{member} ({member.id})"), ("Amount", f"+{amount:,} XP"), ("XP after", f"{before + amount:,}"), ("Level", str(level))])
-    await cinnamon_send(interaction, f"📈 Added **{amount:,} XP** to {member.mention}. They now have **{before + amount:,} XP** (Level **{level}**)." + (f"\n🎖️ New role: **{', '.join(gained)}**" if gained else ""), allowed_mentions=discord.AllowedMentions.none())
+    reply = f"📈 Added **{amount:,} XP** to {member.mention}. They now have **{before + amount:,} XP** (Level **{level}**)."
+    if gained:
+        reply += f"\n🎖️ New role: **{', '.join(gained)}**"
+    if reward_total:
+        reply += f"\n🌿 Level reward: **+{reward_total:,} Catnip**"
+    await cinnamon_send(interaction, reply, allowed_mentions=discord.AllowedMentions.none())
 
 
 @remove_group.command(name="xp", description="Admin: remove XP from a member")

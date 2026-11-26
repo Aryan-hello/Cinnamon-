@@ -148,7 +148,12 @@ class _FGView(discord.ui.View):
                 return await interaction.edit_original_response(embed=self.render(), view=self)
             rod = next((r for r in _WLF_RODS if r['id'] == p['rod']), _WLF_RODS[0])
             bait = next(b for b in _WLF_BAIT if b['id'] == self.bait)
-            rarity = _wlf_roll(rod['bonus'] + bait['bonus'] + _cm_fishing_bonus(self.gid))
+            rarity_bonus = rod['bonus'] + bait['bonus'] + _cm_fishing_bonus(self.gid)
+            pet_fn = globals().get("_collectible_pet_ability")
+            pet = pet_fn(self.gid, self.uid) if callable(pet_fn) else {}
+            if pet.get("ability") == "rare_fish":
+                rarity_bonus += float(pet.get("value", 0.0)) * 100.0
+            rarity = _wlf_roll(rarity_bonus)
             delay = _wlf_random.randint(10, 20)
             now = _fg_time.time()
             self.session_id = f'{self.gid}-{self.uid}-{_fg_time.time_ns()}'
@@ -219,6 +224,7 @@ class _FGView(discord.ui.View):
     async def fight(self, interaction, action):
         await interaction.response.defer()
         catch = None
+        chest_tier = None
         async with self.lock():
             state = self.session()
             if not state or state['phase'] != 'fight':
@@ -240,7 +246,14 @@ class _FGView(discord.ui.View):
                 self.clear_items()
                 if catch:
                     p = self.player()
-                    p['fish'][catch] = int(p['fish'].get(catch, 0)) + 1
+                    caught_count = 1
+                    pet_fn = globals().get("_collectible_pet_ability")
+                    pet = pet_fn(self.gid, self.uid) if callable(pet_fn) else {}
+                    if pet.get("ability") == "penguin" and _fg_random.random() < float(pet.get("value", 0.0)):
+                        caught_count = 2
+                    p['fish'][catch] = int(p['fish'].get(catch, 0)) + caught_count
+                    chest_fn = globals().get('_wlf_roll_treasure_chest')
+                    chest_tier = chest_fn(self.gid, self.uid) if callable(chest_fn) else None
                     if catch not in p['seen']:
                         p['seen'].append(catch)
             else:
@@ -266,7 +279,8 @@ class _FGView(discord.ui.View):
             f"**Owned:** {p['fish'][catch]}\n"
             f"**Region:** {_wlf_area(fish['area'])[1]}\n"
             "Cinnamon yells: WE ACTUALLY DID IT!\n"
-            + ('📓 NEW SPECIES!\n' if p['fish'][catch] == 1 else '') + bonus), view=None)
+            + ('📓 NEW SPECIES!\n' if p['fish'][catch] == 1 else '')
+            + (f"🎁 **{_WLF_TREASURE_CHEST_TIERS[chest_tier]['label']} Treasure Chest discovered!** Use /fishing chests to view it.\n" if chest_tier else '') + bonus), view=None)
         if fish['rarity'] in ('Legendary', 'Mythical'):
             try:
                 await _cp_good_event(interaction.guild, interaction.user, 'Rare Adventure fish caught', points=2)

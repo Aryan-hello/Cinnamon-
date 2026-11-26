@@ -485,6 +485,7 @@ _CINNAMON_MODULES = (
     "cinnamon_moods.py",
     "companion.py",  # Member-owned Cinnamon companion.
     "collectible_pets_crime.py",  # Collectible animal pets and fictional Catnip mini-game.
+    "economy_lottery.py",  # Free-entry community raffles and cosmetic pet accessories.
     "cinnamon_personality.py",
     "cinnamon_actions.py",
     # Deterministic conversational shortcuts into existing prefix command adapters.

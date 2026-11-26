@@ -239,9 +239,17 @@ async def advanced_maybe_award_box(guild_id: int, user, source: str, chance: flo
     """Award one tiered box using source-specific chances and rarity weights."""
     source_key = str(source).lower().split()[0]
     chance = MYSTERY_SOURCE_CHANCES.get(source_key, MYSTERY_SOURCE_CHANCES["default"]) if chance is None else max(0.0, min(1.0, float(chance)))
+    pet_fn = globals().get("_collectible_pet_ability")
+    pet = pet_fn(guild_id, user.id) if callable(pet_fn) else {}
+    if pet.get("ability") == "mystery_chance" and source_key in {"work", "crime"}:
+        chance = min(1.0, chance + float(pet.get("value", 0.0)))
     if random.random() >= chance:
         return False
     tier = _roll_box_tier()
+    if pet.get("ability") == "box_upgrade" and random.random() < float(pet.get("value", 0.0)):
+        tier_order = list(BOX_TIERS)
+        if tier in tier_order and tier_order.index(tier) < len(tier_order) - 1:
+            tier = tier_order[tier_order.index(tier) + 1]
     _set_box_count(guild_id, user.id, _box_count(guild_id, user.id, tier) + 1, tier)
     await bd_save_data()
     await economy_log(guild_id, title=f"{BOX_TIERS[tier]['emoji']} {BOX_TIERS[tier]['label']} Mystery Box earned", fields=[
@@ -277,16 +285,30 @@ def _craft_embed(guild_id, user, recipe_id, quantity=1):
 
 async def craft_item(guild_id, user, recipe_id, quantity=1):
     if recipe_id == 'repair_rod':
-        inv = economy_inventory_for(guild_id, user.id)
-        player = _wlf_player(guild_id, user.id)
-        if not player.get('rod_broken'):
-            return False, '🎣 Your fishing rod is already in working condition.'
-        if int(inv.get('fishing_line', 0)) < 1:
-            return False, '🧵 You need 1 Fishing Line. Buy it from Cinnamon’s Shop first.'
-        inv['fishing_line'] = int(inv['fishing_line']) - 1
-        if inv['fishing_line'] <= 0: inv.pop('fishing_line', None)
-        player['rod_broken'] = False
-        await bd_save_data()
+        lock = _CINNAMON_SHOP_LOCKS.setdefault((int(guild_id), int(user.id)), asyncio.Lock())
+        async with lock:
+            inv = economy_inventory_for(guild_id, user.id)
+            player = _wlf_player(guild_id, user.id)
+            if not player.get('rod_broken'):
+                return False, '🎣 Your fishing rod is already in working condition.'
+            if int(inv.get('fishing_line', 0)) < 1:
+                return False, '🧵 You need 1 Fishing Line. Buy it from Cinnamon’s Shop first.'
+            before_inventory = dict(inv)
+            before_player = dict(player)
+            inv['fishing_line'] = int(inv['fishing_line']) - 1
+            if inv['fishing_line'] <= 0:
+                inv.pop('fishing_line', None)
+            player['rod_broken'] = False
+            try:
+                saved = await bd_save_data()
+            except Exception:
+                saved = False
+            if not saved:
+                inv.clear()
+                inv.update(before_inventory)
+                player.clear()
+                player.update(before_player)
+                return False, '⚠️ Cinnamon could not save the repair. Your Fishing Line and rod state were restored.'
         return True, '🔧 Fishing rod repaired! You can cast again.'
     recipe = CRAFTING_RECIPES.get(recipe_id)
     if not recipe:
@@ -312,13 +334,30 @@ async def craft_item(guild_id, user, recipe_id, quantity=1):
         crafted_counts = ADVANCED_FEATURES.setdefault("crafted_counts", {})
         key = _af_key(guild_id, user.id)
         before_count = int(crafted_counts.get(key, 0))
-        for item_id, needed in recipe["ingredients"].items():
-            inv[item_id] = int(inv.get(item_id, 0)) - needed * quantity
-            if inv[item_id] <= 0:
-                inv.pop(item_id, None)
+        pet_fn = globals().get("_collectible_pet_ability")
+        pet = pet_fn(guild_id, user.id) if callable(pet_fn) else {}
+        preserved_all = (pet.get("ability") == "unbreakable_core"
+                         and random.random() < float(pet.get("value", 0.0)))
+        if not preserved_all:
+            for item_id, needed in recipe["ingredients"].items():
+                inv[item_id] = int(inv.get(item_id, 0)) - needed * quantity
+                if inv[item_id] <= 0:
+                    inv.pop(item_id, None)
+        refunded_ingredient = None
+        pet_fn = globals().get("_collectible_pet_ability")
+        pet = pet_fn(guild_id, user.id) if callable(pet_fn) else {}
+        if pet.get("ability") == "ingredient_refund" and random.random() < float(pet.get("value", 0.0)):
+            consumed = [item_id for item_id, needed in recipe["ingredients"].items() if int(needed) * quantity > 0]
+            if consumed:
+                refunded_ingredient = random.choice(consumed)
+                inv[refunded_ingredient] = int(inv.get(refunded_ingredient, 0)) + 1
         inv[recipe["output"]] = int(inv.get(recipe["output"], 0)) + quantity
         crafted_counts[key] = before_count + quantity
-        if not await bd_save_data():
+        try:
+            saved = await bd_save_data()
+        except Exception:
+            saved = False
+        if not saved:
             inv.clear()
             inv.update(before_inventory)
             if before_count:
@@ -330,6 +369,8 @@ async def craft_item(guild_id, user, recipe_id, quantity=1):
         ("User", f"{user} ({user.id})"), ("Recipe", recipe["name"]),
         ("Quantity", str(quantity)), ("Output", f"{output['name']} ×{quantity}")
     ])
+    if preserved_all:
+        return True, f"🗿 **Golem's Unbreakable Core!** All ingredients were preserved. Crafted **{quantity:,}× {output['emoji']} {output['name']}**!"
     return True, f"✅ Crafted **{quantity:,}× {output['emoji']} {output['name']}**!"
 
 
@@ -442,7 +483,14 @@ async def _open_boxes_atomic(guild_id, user, tier, quantity):
                     ADVANCED_FEATURES.pop(name, None)
 
         try:
-            rewards = [await _open_one(guild_id, user, tier) for _ in range(quantity)]
+            rewards = []
+            pet_fn = globals().get("_collectible_pet_ability")
+            pet = pet_fn(guild_id, uid) if callable(pet_fn) else {}
+            for _ in range(quantity):
+                rewards.append(await _open_one(guild_id, user, tier))
+                # Kitsune's bonus reward is a separate roll and cannot retrigger itself.
+                if pet.get("ability") == "double_illusion" and random.random() < float(pet.get("value", 0.0)):
+                    rewards.append("🦊 **Kitsune's Double Illusion!** " + await _open_one(guild_id, user, tier))
             _set_box_count(guild_id, uid, count - quantity, tier)
             opened_key = _af_key(guild_id, uid)
             ADVANCED_FEATURES["mystery_opened"][opened_key] = int(ADVANCED_FEATURES["mystery_opened"].get(opened_key, 0)) + quantity
@@ -735,6 +783,24 @@ async def economy_do_work(guild_id: int, user):
     if remaining:
         return False, 0, f"⏳ Cinnamon already has you on shift. Come back in **{remaining // 60}m {remaining % 60}s**."
     amount = random.randint(ECONOMY_WORK_MIN, ECONOMY_WORK_MAX)
+    pet_fn = globals().get("_collectible_pet_ability")
+    pet = pet_fn(guild_id, user.id) if callable(pet_fn) else {}
+    if pet.get("ability") == "work_income":
+        amount += int(amount * float(pet.get("value", 0.0)))
+    elif pet.get("ability") == "all_rewards":
+        bonus_fn = globals().get("collectible_pet_catnip_bonus")
+        if callable(bonus_fn):
+            amount = bonus_fn(guild_id, user.id, amount)
+    found_ingredient = None
+    if pet.get("ability") == "forage" and random.random() < float(pet.get("value", 0.0)):
+        recipes = globals().get("CRAFTING_RECIPES", {})
+        ingredients = sorted({item_id for recipe in recipes.values() if isinstance(recipe, dict) for item_id in (recipe.get("ingredients", {}) or {})})
+        if ingredients:
+            found_ingredient = random.choice(ingredients)
+            inv = economy_inventory_for(guild_id, user.id)
+            inv[found_ingredient] = int(inv.get(found_ingredient, 0)) + 1
+    steal_fn = globals().get("collectible_pet_raccoon_steal")
+    stolen_item = steal_fn(guild_id, user.id) if callable(steal_fn) else None
     economy_cooldowns[(guild_id, user.id, "work")] = time.time() + ECONOMY_WORK_COOLDOWN
     before = economy_balance(guild_id, user.id)
     economy_balances[(guild_id, user.id)] = before + amount
@@ -747,8 +813,12 @@ async def economy_do_work(guild_id: int, user):
         pass
     box = await advanced_maybe_award_box(guild_id, user, "work", chance=0.12)
     await bd_save_data()
-    await economy_log(guild_id, title="💼 Work completed", fields=[("User", f"{user} ({user.id})"), ("Earned", f"+{amount:,} Catnip"), ("Balance", f"{before+amount:,}"), ("Mystery Box", "Yes" if box else "No")])
+    await economy_log(guild_id, title="💼 Work completed", fields=[("User", f"{user} ({user.id})"), ("Earned", f"+{amount:,} Catnip"), ("Balance", f"{before+amount:,}"), ("Mystery Box", "Yes" if box else "No"), ("Foraged ingredient", str(found_ingredient or "None")), ("Raccoon theft", str(stolen_item or "None"))])
     message = random.choice(WORK_MESSAGES).format(amount=amount)
     if box:
         message += " 🎁 Cinnamon also found a Mystery Box in your paperwork."
+    if found_ingredient:
+        message += f" 🦌 Your Deer found a bonus crafting ingredient: **{ECONOMY_ITEMS.get(found_ingredient, {}).get('name', found_ingredient)}**."
+    if stolen_item:
+        message += f" 🦝 Your Raccoon snatched **{stolen_item}** from Cinnamon's shop!"
     return True, amount, message

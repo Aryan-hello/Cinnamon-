@@ -33,6 +33,8 @@ class MarketplaceTests(unittest.TestCase):
         self.assertIn("trade_accept", self.source)
         self.assertIn("trade_decline", self.source)
         self.assertIn("trade_cancel", self.source)
+        self.assertIn("_trade_expiry_loop", self.source)
+        self.assertIn("await _trade_return_escrow(gid, str(offer_id), \"expired\")", self.source)
         self.assertIn("economy_balances[(gid, recipient_id)]", self.source)
 
     def test_auction_bids_are_reserved_and_expiry_is_settled(self):

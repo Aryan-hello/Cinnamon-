@@ -10,7 +10,7 @@ This build uses the user's text master list as the source of truth for the achie
 - 11 secret achievements, including S11 Midnight Snack.
 - `/achievement` command group with member views and admin controls.
 - Rotating daily and weekly quest pools; use `/quests daily` and `/quests weekly` for the canonical slash subcommands, or `/quest` for the paginated board. Five daily and five weekly selections persist when the underlying snapshot store is durable and healthy.
-- Quest Points (QP) and `/questshop` redemptions from the supplied list.
+- XP-only daily and weekly quest rewards; no separate quest currency or quest shop.
 - Achievement/quest persistence through the existing Cinnamon persistence layer.
 - Tracking hooks for messages, Cinnamon pings/interactions, economy purchases/feeding/work/give/collect, polls, giveaways, levels, and Hangry Games.
 - Default shop prices raised to 1,000+ Catnip:
