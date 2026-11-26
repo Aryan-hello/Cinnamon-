@@ -334,10 +334,15 @@ async def craft_item(guild_id, user, recipe_id, quantity=1):
         crafted_counts = ADVANCED_FEATURES.setdefault("crafted_counts", {})
         key = _af_key(guild_id, user.id)
         before_count = int(crafted_counts.get(key, 0))
-        for item_id, needed in recipe["ingredients"].items():
-            inv[item_id] = int(inv.get(item_id, 0)) - needed * quantity
-            if inv[item_id] <= 0:
-                inv.pop(item_id, None)
+        pet_fn = globals().get("_collectible_pet_ability")
+        pet = pet_fn(guild_id, user.id) if callable(pet_fn) else {}
+        preserved_all = (pet.get("ability") == "unbreakable_core"
+                         and random.random() < float(pet.get("value", 0.0)))
+        if not preserved_all:
+            for item_id, needed in recipe["ingredients"].items():
+                inv[item_id] = int(inv.get(item_id, 0)) - needed * quantity
+                if inv[item_id] <= 0:
+                    inv.pop(item_id, None)
         refunded_ingredient = None
         pet_fn = globals().get("_collectible_pet_ability")
         pet = pet_fn(guild_id, user.id) if callable(pet_fn) else {}
@@ -364,6 +369,8 @@ async def craft_item(guild_id, user, recipe_id, quantity=1):
         ("User", f"{user} ({user.id})"), ("Recipe", recipe["name"]),
         ("Quantity", str(quantity)), ("Output", f"{output['name']} ×{quantity}")
     ])
+    if preserved_all:
+        return True, f"🗿 **Golem's Unbreakable Core!** All ingredients were preserved. Crafted **{quantity:,}× {output['emoji']} {output['name']}**!"
     return True, f"✅ Crafted **{quantity:,}× {output['emoji']} {output['name']}**!"
 
 
@@ -476,7 +483,14 @@ async def _open_boxes_atomic(guild_id, user, tier, quantity):
                     ADVANCED_FEATURES.pop(name, None)
 
         try:
-            rewards = [await _open_one(guild_id, user, tier) for _ in range(quantity)]
+            rewards = []
+            pet_fn = globals().get("_collectible_pet_ability")
+            pet = pet_fn(guild_id, uid) if callable(pet_fn) else {}
+            for _ in range(quantity):
+                rewards.append(await _open_one(guild_id, user, tier))
+                # Kitsune's bonus reward is a separate roll and cannot retrigger itself.
+                if pet.get("ability") == "double_illusion" and random.random() < float(pet.get("value", 0.0)):
+                    rewards.append("🦊 **Kitsune's Double Illusion!** " + await _open_one(guild_id, user, tier))
             _set_box_count(guild_id, uid, count - quantity, tier)
             opened_key = _af_key(guild_id, uid)
             ADVANCED_FEATURES["mystery_opened"][opened_key] = int(ADVANCED_FEATURES["mystery_opened"].get(opened_key, 0)) + quantity
