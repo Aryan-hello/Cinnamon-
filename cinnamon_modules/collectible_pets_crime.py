@@ -306,8 +306,7 @@ async def prefix_crime(ctx):
         return await ctx.reply("⚠️ Cinnamon couldn't save this caper, so no Catnip or cooldown change was applied. Please try again.",
             mention_author=False, allowed_mentions=discord.AllowedMentions.none())
     box = False
-    if change >= 0:
-        box_fn = globals().get("advanced_maybe_award_box")
+    box_fn = globals().get("advanced_maybe_award_box")
         if callable(box_fn):
             try:
                 box = await box_fn(gid, ctx.author, "crime")
