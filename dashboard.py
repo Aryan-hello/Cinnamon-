@@ -2896,7 +2896,7 @@ def dashboard_action():
             session["dashboard_notice"]="New appeal link generated. The old link no longer works."
         elif action=="appeal_portal_publish":
             discord_module=__import__("discord")
-            async def publish_appeal_portal():
+            async def prepare_appeal_portal():
                 root=state["advanced_features_data"].setdefault("cinnamon_moderation_controls_v1",{})
                 cfg=root.setdefault(str(gid),{})
                 token=str(cfg.get("appeal_portal_token","") or "")
@@ -2905,19 +2905,22 @@ def dashboard_action():
                     raise ValueError("Configure the private moderator review channel first.")
                 if not isinstance(channel,discord_module.TextChannel):
                     raise ValueError("Choose a public appeal link channel first.")
-                portal=(os.getenv("RENDER_EXTERNAL_URL", "https://cinnamon-c328.onrender.com").rstrip("/") +
-                    url_for("cinnamon_dashboard.appeal_portal",guild_id=gid,token=token))
-                view_class=state.get("ModerationAppealPortalView")
-                if not callable(view_class):
-                    raise ValueError("The appeal portal panel is unavailable. Restart Cinnamon after updating.")
-                embed=discord_module.Embed(
-                    title="📨 Need to appeal a moderation action?",
-                    description="Use the secure appeal portal below. Sign in with Discord and verify your server membership. Your appeal is sent privately to the moderation team.",
-                    color=0xE8A05A,
-                )
-                await channel.send(embed=embed,view=view_class(portal),
+                return token,channel
+            token,public_channel=_run_bot(prepare_appeal_portal())
+            portal=(os.getenv("RENDER_EXTERNAL_URL", "https://cinnamon-c328.onrender.com").rstrip("/") +
+                url_for("cinnamon_dashboard.appeal_portal",guild_id=gid,token=token))
+            view_class=state.get("ModerationAppealPortalView")
+            if not callable(view_class):
+                raise ValueError("The appeal portal panel is unavailable. Restart Cinnamon after updating.")
+            embed=discord_module.Embed(
+                title="📨 Need to appeal a moderation action?",
+                description="Use the secure appeal portal below. Sign in with Discord and verify your server membership. Your appeal is sent privately to the moderation team.",
+                color=0xE8A05A,
+            )
+            async def publish_appeal_portal():
+                await public_channel.send(embed=embed,view=view_class(portal),
                     allowed_mentions=discord_module.AllowedMentions.none())
-                return channel.mention
+                return public_channel.mention
             channel_mention=_run_bot(publish_appeal_portal())
             _audit(gid,actor,"Dashboard: appeal portal published",f"Published the member appeal link in {channel_mention}.")
             session["dashboard_notice"]="Appeal portal link published in "+channel_mention+"."
