@@ -5,20 +5,72 @@ import time as _cp_time
 
 _COLLECTIBLE_PETS_KEY = "collectible_pets_v1"
 _COLLECTIBLE_PET_CATALOG = [
-    {"species":"Tabby Cat","emoji":"🐈","rarity":"Common","weight":28,"crime_luck":0.01,"crime_reward":0.03},
-    {"species":"Puppy","emoji":"🐕","rarity":"Common","weight":25,"crime_luck":0.01,"fine_guard":0.05},
-    {"species":"Bunny","emoji":"🐇","rarity":"Common","weight":20,"crime_luck":0.02},
-    {"species":"Duckling","emoji":"🦆","rarity":"Common","weight":18,"crime_luck":0.01},
-    {"species":"Hamster","emoji":"🐹","rarity":"Uncommon","weight":13,"crime_luck":0.02},
-    {"species":"Fox","emoji":"🦊","rarity":"Uncommon","weight":11,"crime_luck":0.06},
-    {"species":"Red Panda","emoji":"🦝","rarity":"Rare","weight":7,"crime_luck":0.04,"crime_reward":0.05},
-    {"species":"Otter","emoji":"🦦","rarity":"Rare","weight":6,"crime_luck":0.03,"fine_guard":0.08},
-    {"species":"Wolf Pup","emoji":"🐺","rarity":"Rare","weight":5,"crime_luck":0.04,"fine_guard":0.08},
-    {"species":"Penguin","emoji":"🐧","rarity":"Epic","weight":2.5,"crime_luck":0.05},
-    {"species":"Snow Leopard","emoji":"🐆","rarity":"Epic","weight":2,"crime_luck":0.06,"crime_reward":0.06},
-    {"species":"Phoenix Chick","emoji":"🐦‍🔥","rarity":"Legendary","weight":0.6,"crime_luck":0.08,"fine_guard":0.12},
-    {"species":"Moon Fox","emoji":"🌙","rarity":"Legendary","weight":0.5,"crime_luck":0.09,"crime_reward":0.08},
+    {"species":"Tabby Cat","emoji":"🐈","rarity":"Common","weight":28,"ability":"work_income"},
+    {"species":"Puppy","emoji":"🐕","rarity":"Common","weight":25,"ability":"crime_income"},
+    {"species":"Bunny","emoji":"🐇","rarity":"Common","weight":20,"ability":"fine_amount"},
+    {"species":"Duck","emoji":"🦆","rarity":"Common","weight":18,"ability":"fine_chance"},
+    {"species":"Hamster","emoji":"🐹","rarity":"Uncommon","weight":13,"ability":"mystery_chance"},
+    {"species":"Fox","emoji":"🦊","rarity":"Uncommon","weight":11,"ability":"fox"},
+    {"species":"Parrot","emoji":"🦜","rarity":"Uncommon","weight":10,"ability":"fish_sale"},
+    {"species":"Red Panda","emoji":"🐼","rarity":"Rare","weight":7,"ability":"shop_discount"},
+    {"species":"Otter","emoji":"🦦","rarity":"Rare","weight":6,"ability":"rare_fish"},
+    {"species":"Wolf Pup","emoji":"🐺","rarity":"Rare","weight":5,"ability":"xp"},
+    {"species":"Deer","emoji":"🦌","rarity":"Rare","weight":5,"ability":"forage"},
+    {"species":"Penguin","emoji":"🐧","rarity":"Epic","weight":2.5,"ability":"penguin"},
+    {"species":"Snow Leopard","emoji":"🐆","rarity":"Epic","weight":2,"ability":"all_rewards"},
+    {"species":"Phoenix Chick","emoji":"🐦‍🔥","rarity":"Legendary","weight":0.6,"ability":"ingredient_refund"},
+    {"species":"Moon Fox","emoji":"🌙","rarity":"Legendary","weight":0.5,"ability":"box_upgrade"},
+    {"species":"Raccoon","emoji":"🦝","rarity":"Mythical","weight":0.15,"ability":"shop_steal"},
 ]
+
+_PET_ABILITY_MAX_LEVEL = 10
+_PET_BASE_SLOTS = 5
+_PET_SLOT_MEMBER_KEY = "pet_slot_member_bonus_v1"
+_PET_SLOT_ROLE_KEY = "pet_slot_role_bonus_v1"
+
+def _collectible_pet_capacity(guild_id, user_id, member=None):
+    """Five base slots plus achievement, purchased, admin and role bonuses."""
+    data = _collectible_pet_user(guild_id, user_id)
+    capacity = _PET_BASE_SLOTS + max(0, int(data.get("achievement_slots", 0) or 0))
+    capacity += max(0, int(data.get("purchased_slots", 0) or 0))
+    member_root = advanced_features_data.get(_PET_SLOT_MEMBER_KEY, {})
+    capacity += max(0, int((member_root.get(str(int(guild_id)), {}) or {}).get(str(int(user_id)), 0) or 0))
+    role_root = advanced_features_data.get(_PET_SLOT_ROLE_KEY, {})
+    role_cfg = role_root.get(str(int(guild_id)), {}) or {}
+    if member is None:
+        guild_obj = bot.get_guild(int(guild_id)) if "bot" in globals() else None
+        member = guild_obj.get_member(int(user_id)) if guild_obj else None
+    if member:
+        for role in getattr(member, "roles", []):
+            capacity += max(0, int(role_cfg.get(str(int(role.id)), 0) or 0))
+    return max(_PET_BASE_SLOTS, min(500, capacity))
+
+def _collectible_pet_ability(guild_id, user_id):
+    root = advanced_features_data.get(_COLLECTIBLE_PETS_KEY, {})
+    guild = root.get(str(int(guild_id)), {}) if isinstance(root, dict) else {}
+    data = guild.get(str(int(user_id)), {}) if isinstance(guild, dict) else {}
+    pet = _collectible_pet_active(data) if isinstance(data, dict) else None
+    if not pet:
+        return {"pet": None, "species": None, "ability": None, "level": 0, "value": 0.0}
+    catalog = next((p for p in _COLLECTIBLE_PET_CATALOG if p["species"] == pet.get("species")), {})
+    level = max(1, min(_PET_ABILITY_MAX_LEVEL, int(pet.get("level", 1) or 1)))
+    ability = catalog.get("ability")
+    if ability in {"work_income", "crime_income", "fine_amount", "shop_discount", "xp", "fish_sale"}:
+        value = 0.01 * level
+    elif ability in {"fine_chance", "rare_fish", "forage"}:
+        value = 0.005 * level
+    elif ability == "all_rewards":
+        value = 0.005 * level
+    elif ability in {"mystery_chance", "ingredient_refund", "box_upgrade"}:
+        value = 0.01 * level
+    elif ability == "shop_steal":
+        value = 0.01 * level
+    elif ability == "penguin":
+        value = 0.01 * level
+    else:
+        value = 0.0
+    return {"pet": pet, "species": pet.get("species"), "ability": ability, "level": level, "value": value}
+
 
 def _collectible_pet_user(guild_id, user_id):
     root = advanced_features_data.setdefault(_COLLECTIBLE_PETS_KEY, {})
@@ -30,10 +82,10 @@ def _collectible_pet_user(guild_id, user_id):
 
 def _collectible_pet_level(xp):
     level, remaining = 1, max(0, int(xp or 0))
-    while level < 50 and remaining >= level * 100:
+    while level < _PET_ABILITY_MAX_LEVEL and remaining >= level * 100:
         remaining -= level * 100
         level += 1
-    return level
+    return min(_PET_ABILITY_MAX_LEVEL, level)
 
 def _collectible_pet_active(data):
     active_id = str(data.get("active_id") or "")
@@ -53,7 +105,7 @@ async def collectible_pet_work_drop(guild_id, user):
         active["xp"] = int(active.get("xp", 0)) + 10
         active["level"] = _collectible_pet_level(active["xp"])
     found = None
-    if len(data["pets"]) < 50 and _cp_random.random() < 0.07:
+    if len(data["pets"]) < _collectible_pet_capacity(guild_id, user.id) and _cp_random.random() < 0.07:
         species = _cp_random.choices(_COLLECTIBLE_PET_CATALOG, weights=[pet["weight"] for pet in _COLLECTIBLE_PET_CATALOG], k=1)[0]
         found = dict(species)
         found.update({"id": f"{int(_cp_time.time() * 1000)}-{_cp_random.randint(100, 999)}", "xp": 0, "level": 1, "found_at": int(_cp_time.time())})
@@ -84,19 +136,9 @@ async def collectible_pet_work_drop(guild_id, user):
     return found
 
 def _collectible_pet_perks(guild_id, user_id):
-    """Read equipped-pet perks without creating empty saved-state records."""
-    root = advanced_features_data.get(_COLLECTIBLE_PETS_KEY, {})
-    guild = root.get(str(int(guild_id)), {}) if isinstance(root, dict) else {}
-    data = guild.get(str(int(user_id)), {}) if isinstance(guild, dict) else {}
-    if not isinstance(data, dict):
-        data = {}
-    pet = _collectible_pet_active(data)
-    if not pet:
-        return {"luck": 0.0, "fine_guard": 0.0, "reward": 0.0, "pet": None}
-    species = next((item for item in _COLLECTIBLE_PET_CATALOG if item["species"] == pet.get("species")), {})
-    return {"luck": float(species.get("crime_luck", 0.0)),
-            "fine_guard": float(species.get("fine_guard", 0.0)),
-            "reward": float(species.get("crime_reward", 0.0)), "pet": pet}
+    """Compatibility adapter; only the equipped pet contributes an ability."""
+    result = _collectible_pet_ability(guild_id, user_id)
+    return {"luck": 0.0, "fine_guard": 0.0, "reward": 0.0, **result}
 
 def _collectible_pet_embed(owner, data):
     pets = data.get("pets", [])
