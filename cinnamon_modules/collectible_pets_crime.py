@@ -55,7 +55,7 @@ def _collectible_pet_ability(guild_id, user_id):
     catalog = next((p for p in _COLLECTIBLE_PET_CATALOG if p["species"] == pet.get("species")), {})
     level = max(1, min(_PET_ABILITY_MAX_LEVEL, int(pet.get("level", 1) or 1)))
     ability = catalog.get("ability")
-    if ability in {"work_income", "crime_income", "fine_amount", "shop_discount", "xp", "fish_sale", "forage"}:
+    if ability in {"work_income", "crime_income", "fine_amount", "shop_discount", "xp", "fish_sale", "forage", "fox"}:
         value = 0.01 * level
     elif ability in {"fine_chance", "rare_fish", "all_rewards"}:
         value = 0.005 * level
