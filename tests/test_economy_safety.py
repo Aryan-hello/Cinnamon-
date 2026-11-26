@@ -341,7 +341,7 @@ class EconomySafetyTests(unittest.IsolatedAsyncioTestCase):
         decorate = extract_function(ROOT / "cinnamon_modules/moderation_controls.py", "_mc_submit_serialized", namespace)
         active = 0
         maximum = 0
-        async def fake_submit(interaction):
+        async def fake_submit(interaction, guild_id, details):
             nonlocal active, maximum
             active += 1
             maximum = max(maximum, active)
