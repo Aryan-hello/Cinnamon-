@@ -79,10 +79,10 @@ def _collectible_pet_user(guild_id, user_id):
 
 def _collectible_pet_level(xp):
     level, remaining = 1, max(0, int(xp or 0))
-    while level < _PET_ABILITY_MAX_LEVEL and remaining >= level * 100:
+    while level < 10 and remaining >= level * 100:
         remaining -= level * 100
         level += 1
-    return min(_PET_ABILITY_MAX_LEVEL, level)
+    return min(10, level)
 
 def _collectible_pet_active(data):
     active_id = str(data.get("active_id") or "")
@@ -102,7 +102,7 @@ async def collectible_pet_work_drop(guild_id, user):
         active["xp"] = int(active.get("xp", 0)) + 10
         active["level"] = _collectible_pet_level(active["xp"])
     found = None
-    if len(data["pets"]) < _collectible_pet_capacity(guild_id, user.id) and _cp_random.random() < 0.07:
+    capacity_fn = globals().get("_collectible_pet_capacity")\n    capacity = capacity_fn(guild_id, user.id) if callable(capacity_fn) else 5\n    if len(data["pets"]) < capacity and _cp_random.random() < 0.07:
         species = _cp_random.choices(_COLLECTIBLE_PET_CATALOG, weights=[pet["weight"] for pet in _COLLECTIBLE_PET_CATALOG], k=1)[0]
         found = dict(species)
         found.update({"id": f"{int(_cp_time.time() * 1000)}-{_cp_random.randint(100, 999)}", "xp": 0, "level": 1, "found_at": int(_cp_time.time())})
