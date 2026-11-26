@@ -6,6 +6,7 @@ inside advanced_features_data by the existing bd_save_data implementation.
 """
 import random as _wlf_random
 import time as _wlf_time
+import copy as _wlf_copy
 import math as _wlf_math
 
 _WLF_AREAS = (
@@ -88,6 +89,121 @@ def _wlf_player(guild_id, user_id):
     p.setdefault('next_cast', 0)
     return p
 
+
+
+_WLF_TREASURE_CHEST_TIERS = {
+    "common": {"label": "Common", "emoji": "🟫", "weight": 72, "catnip": (100, 250), "bait": "normal"},
+    "rare": {"label": "Rare", "emoji": "🟦", "weight": 20, "catnip": (250, 600), "bait": "glow"},
+    "epic": {"label": "Epic", "emoji": "🟪", "weight": 7, "catnip": (600, 1200), "bait": "tide"},
+    "legendary": {"label": "Legendary", "emoji": "🟨", "weight": 1, "catnip": (1200, 2500), "bait": "moon"},
+}
+_WLF_TREASURE_COLLECTIBLES = {
+    "common": "Old Coin", "rare": "Pearl Fragment",
+    "epic": "Ancient Scale", "legendary": "Abyssal Pearl",
+}
+
+def _wlf_roll_treasure_chest(guild_id, user_id):
+    """Roll a bonus chest on a successful catch; Kraken adds up to five points."""
+    chance = 0.01
+    pet_fn = globals().get("_collectible_pet_ability")
+    pet = pet_fn(guild_id, user_id) if callable(pet_fn) else {}
+    if pet.get("ability") == "treasure_hunter":
+        chance += float(pet.get("value", 0.0))
+    if _wlf_random.random() >= min(0.10, max(0.0, chance)):
+        return None
+    keys = list(_WLF_TREASURE_CHEST_TIERS)
+    tier = _wlf_random.choices(keys, weights=[_WLF_TREASURE_CHEST_TIERS[k]["weight"] for k in keys], k=1)[0]
+    chests = _wlf_player(guild_id, user_id).setdefault("treasure_chests", {})
+    chests[tier] = int(chests.get(tier, 0)) + 1
+    return tier
+
+async def _wlf_open_treasure_chests(guild_id, user_id, tier, quantity=1):
+    """Open owned fishing chests with wallet and inventory rollback on save failure."""
+    if tier not in _WLF_TREASURE_CHEST_TIERS:
+        return False, "Unknown chest tier.", []
+    gid, uid = int(guild_id), int(user_id)
+    lock = _CINNAMON_SHOP_LOCKS.setdefault((gid, uid), asyncio.Lock())
+    async with lock:
+        player = _wlf_player(gid, uid)
+        chests = player.setdefault("treasure_chests", {})
+        owned = max(0, int(chests.get(tier, 0)))
+        qty = max(1, min(10, int(quantity)))
+        if owned < qty:
+            return False, f"You own {owned} {tier.title()} chests; you need {qty}.", []
+        before_player = _wlf_copy.deepcopy(player)
+        balance_key = (gid, uid)
+        had_balance = balance_key in economy_balances
+        before_balance = economy_balances.get(balance_key)
+        results, total_catnip = [], 0
+        for _ in range(qty):
+            cfg = _WLF_TREASURE_CHEST_TIERS[tier]
+            outcome = _wlf_random.choices(("catnip", "bait", "collectible"), weights=(65, 25, 10), k=1)[0]
+            if outcome == "catnip":
+                amount = _wlf_random.randint(*cfg["catnip"])
+                total_catnip += amount
+                results.append(f"🌿 +{amount:,} Catnip")
+            elif outcome == "bait":
+                amount = _wlf_random.randint(2, 4) if tier == "common" else _wlf_random.randint(1, 3)
+                bait_id = cfg["bait"]
+                player.setdefault("bait", {})[bait_id] = int(player["bait"].get(bait_id, 0)) + amount
+                bait_name = next((b["name"] for b in _WLF_BAIT if b["id"] == bait_id), bait_id.title())
+                results.append(f"🪱 {amount}× {bait_name}")
+            else:
+                collectible = _WLF_TREASURE_COLLECTIBLES[tier]
+                items = player.setdefault("treasure_items", {})
+                items[collectible] = int(items.get(collectible, 0)) + 1
+                results.append(f"💎 {collectible}")
+        chests[tier] = owned - qty
+        if chests[tier] <= 0:
+            chests.pop(tier, None)
+        if total_catnip:
+            economy_balances[balance_key] = economy_balance(gid, uid) + total_catnip
+        try:
+            saved = await bd_save_data()
+        except Exception:
+            saved = False
+        if not saved:
+            player.clear()
+            player.update(before_player)
+            if had_balance:
+                economy_balances[balance_key] = before_balance
+            else:
+                economy_balances.pop(balance_key, None)
+            return False, "Cinnamon couldn't save the chest opening; your chests and rewards were restored.", []
+        return True, f"Opened {qty} {tier.title()} chest(s).", results
+
+@_wlf_group.command(name="chests", description="View treasure chests found while fishing")
+@app_commands.guild_only()
+async def fishing_chests(interaction: discord.Interaction):
+    player = _wlf_player(interaction.guild.id, interaction.user.id)
+    chests = player.get("treasure_chests", {})
+    lines = [f"{cfg['emoji']} **{cfg['label']}**: {int(chests.get(key, 0))}"
+             for key, cfg in _WLF_TREASURE_CHEST_TIERS.items()]
+    items = player.get("treasure_items", {})
+    if items:
+        lines.append("\n**Treasure collection**")
+        lines.extend(f"💎 {name} ×{int(count)}" for name, count in sorted(items.items()) if int(count) > 0)
+    await interaction.response.send_message(
+        embed=_wlf_embed("🧰 Fishing Treasure Chests", "\n".join(lines) +
+                         "\n\nCatch fish for a chance to discover bonus chests. Use /fishing open-chest to open them."),
+        ephemeral=True)
+
+@_wlf_group.command(name="open-chest", description="Open one or more fishing treasure chests")
+@app_commands.guild_only()
+@app_commands.choices(tier=[
+    app_commands.Choice(name="Common", value="common"),
+    app_commands.Choice(name="Rare", value="rare"),
+    app_commands.Choice(name="Epic", value="epic"),
+    app_commands.Choice(name="Legendary", value="legendary"),
+])
+async def fishing_open_chest(interaction: discord.Interaction, tier: str, quantity: app_commands.Range[int, 1, 10] = 1):
+    await interaction.response.defer(ephemeral=True)
+    ok, message, rewards = await _wlf_open_treasure_chests(interaction.guild.id, interaction.user.id, tier, quantity)
+    if not ok:
+        return await interaction.followup.send(message, ephemeral=True)
+    await interaction.followup.send(
+        embed=_wlf_embed("🎁 Treasure Chest Opened", message + "\n\n" + "\n".join(rewards)),
+        ephemeral=True)
 
 def _wlf_area(area_id):
     return next((a for a in _WLF_AREAS if a[0] == area_id), _WLF_AREAS[0])
@@ -582,6 +698,7 @@ class _WLFReelView(discord.ui.View):
             fish = _WLF_FISH[fish_key]
             p["bait"][self.bait_id] -= 1
             p["fish"][fish_key] = int(p["fish"].get(fish_key, 0)) + 1
+            chest_tier = _wlf_roll_treasure_chest(self.guild_id, self.owner_id)
             new = fish_key not in p["seen"]
             if new:
                 p["seen"].append(fish_key)
@@ -598,7 +715,8 @@ class _WLFReelView(discord.ui.View):
                 f'**Region:** {_wlf_area(p["area"])[1]}\n'
                 f'**Gear:** {rod["name"]} · {bait["name"]}\n\n'
                 f'{quips.get(technique, quips["steady"])}' +
-                ('\n📖 **NEW JOURNAL ENTRY!**' if new else '') + extra)
+                ('\n📖 **NEW JOURNAL ENTRY!**' if new else '') +
+                (f"\n🎁 **{_WLF_TREASURE_CHEST_TIERS[chest_tier]['label']} Treasure Chest discovered!** Use /fishing chests to view it." if chest_tier else '') + extra)
         self.stop()
         await interaction.edit_original_response(embed=_wlf_embed("🏆 Fishing Catch!", desc, interaction=interaction), view=None)
         if fish["rarity"] in ("Legendary", "Mythical"):
