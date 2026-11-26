@@ -779,6 +779,10 @@ async def fishing_sell(interaction: discord.Interaction, fish: str, quantity: ap
     payout = sale_quantity * _WLF_FISH[key]['value']
     if pet.get("ability") == "fish_sale":
         payout = int(payout * (1.0 + float(pet.get("value", 0.0))))
+    elif pet.get("ability") == "all_rewards":
+        bonus_fn = globals().get("collectible_pet_catnip_bonus")
+        if callable(bonus_fn):
+            payout = bonus_fn(g, u, payout)
     p['fish'][key] = owned - sale_quantity
     before = economy_balance(g,u)
     economy_balances[(g,u)] = before + payout
