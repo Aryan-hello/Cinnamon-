@@ -409,6 +409,14 @@ def _temp_role_root(guild_id):
 
 _TEMP_ROLE_LOCKS = {}
 
+async def _temp_role_save():
+    """Treat raised storage errors like failed saves so Discord role changes roll back."""
+    try:
+        return bool(await bd_save_data())
+    except Exception:
+        log.exception("Temporary-role persistence failed")
+        return False
+
 def _temp_role_serialized(func):
     import functools
     @functools.wraps(func)
@@ -462,7 +470,7 @@ async def temporary_role_grant(interaction: discord.Interaction, member: discord
         records[key] = {"member_id": int(member.id), "role_id": int(role.id),
                         "expires_at": expiry, "assigned_by": int(interaction.user.id),
                         "reason": str(reason).strip()[:300], "created_at": now}
-        if not await bd_save_data():
+        if not await _temp_role_save():
             if previous is None:
                 records.pop(key, None)
             else:
@@ -500,7 +508,7 @@ async def temporary_role_revoke(interaction: discord.Interaction, member: discor
         if role in member.roles:
             await member.remove_roles(role, reason=f"Temporary role revoked by {interaction.user}")
         records.pop(key, None)
-        if not await bd_save_data():
+        if not await _temp_role_save():
             records[key] = previous
             if role not in member.roles:
                 try:
@@ -570,7 +578,7 @@ async def _temporary_role_expiry_loop():
                         continue
                 previous = record
                 records.pop(key, None)
-                if not await bd_save_data():
+                if not await _temp_role_save():
                     records[key] = previous
                     log.error("Could not persist expiry for temporary role %s", key)
                     if member and role and role not in member.roles:
