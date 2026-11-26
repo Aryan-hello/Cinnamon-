@@ -35,8 +35,12 @@ class QuestCurrencyRemovalTests(unittest.TestCase):
         guild = function_source("cinnamon_modules/quests.py", "_guild")
         user = function_source("cinnamon_modules/quests.py", "_user")
         restore = (ROOT / "cinnamon_modules/economy.py").read_text(encoding="utf-8")
+        migration = function_source("cinnamon_modules/quests.py", "migrate_legacy_quest_currency")
+        on_ready = function_source("cinnamon_modules/core_events.py", "on_ready")
         self.assertIn("pop('qp', None)", guild)
         self.assertIn("pop('qp', None)", user)
+        self.assertIn("pop('qp', None)", migration)
+        self.assertIn("migrate_legacy_quest_currency", on_ready)
         self.assertIn('snap_quests.pop("qp", None)', restore)
 
     def test_every_xp_reward_path_checks_for_level_catnip(self):
