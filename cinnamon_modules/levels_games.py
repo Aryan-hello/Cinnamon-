@@ -285,9 +285,20 @@ async def rank(interaction: discord.Interaction, member: discord.Member = None):
     embed.add_field(name="⭐ Level",value=f"**{level}**",inline=True)
     embed.add_field(name="✨ Total XP",value=f"**{xp:,}**",inline=True)
     embed.add_field(name="📈 Progress",value=f"{cinnamon_progress_bar(current,needed,10)}\n**{progress}**",inline=False)
-    reward = ECONOMY_LEVEL_REWARDS.get(level)
-    if reward:
-        embed.add_field(name="🌿 Level reward", value=f"**+{reward:,} Catnip**", inline=True)
+    pending_levels = [
+        int(reward_level) for reward_level in ECONOMY_LEVEL_REWARDS
+        if int(reward_level) <= level
+        and not economy_level_reward_claimed(interaction.guild.id, member.id, int(reward_level))
+    ]
+    if pending_levels:
+        pending_total = sum(int(ECONOMY_LEVEL_REWARDS[reward_level]) for reward_level in pending_levels)
+        embed.add_field(
+            name="🌿 Pending level rewards",
+            value=f"**+{pending_total:,} Catnip**\\nLevels: {', '.join(map(str, sorted(pending_levels)))}",
+            inline=True,
+        )
+    elif level > 0:
+        embed.add_field(name="🌿 Level rewards", value="All earned level rewards have been claimed.", inline=True)
     try:
         card = await _make_rank_card(member, xp, level)
         await interaction.response.send_message(embed=cinnamon_polish_embed(embed), file=discord.File(card, filename="cinnamon-rank.png"), allowed_mentions=discord.AllowedMentions.none())
