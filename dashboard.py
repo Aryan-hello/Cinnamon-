@@ -1608,7 +1608,7 @@ def _quests(guild,state):
         out=[]
         for qid in ids if isinstance(ids,list) else []:
             q=pool.get(qid,{})
-            out.append(f"<tr><td><b>{_esc(q.get('name',qid))}</b></td><td>{_esc(q.get('desc',q.get('description','')))}</td><td>{int(q.{int(q.get('xp',0)):,} XP</td></tr>")
+            out.append(f"<tr><td><b>{_esc(q.get('name',qid))}</b></td><td>{_esc(q.get('desc',q.get('description','')))}</td><td>{int(q.get('xp',0)):,} XP</td></tr>")
         return ''.join(out) or "<tr><td colspan='3'>No rotation has been generated yet.</td></tr>"
     role=qcfg.get("quest_master_role"); role_obj=guild.get_role(int(role)) if str(role).isdigit() else None
     role_form="<div class='field'><label>Quest Master role</label>"+_role_select(guild,"role_id",role)+"</div>"
