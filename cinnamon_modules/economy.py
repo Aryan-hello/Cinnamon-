@@ -960,6 +960,48 @@ async def economy_work_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=cinnamon_polish_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
 
+async def economy_transfer_catnip(guild_id: int, sender_id: int, recipient_id: int, amount: int):
+    """Transfer Catnip atomically with the same member locks used by shop/trade."""
+    member_ids = sorted({int(sender_id), int(recipient_id)})
+    locks = [
+        _CINNAMON_SHOP_LOCKS.setdefault((int(guild_id), uid), asyncio.Lock())
+        for uid in member_ids
+    ]
+    for lock in locks:
+        await lock.acquire()
+    try:
+        sender_key = (int(guild_id), int(sender_id))
+        recipient_key = (int(guild_id), int(recipient_id))
+        sender_before = economy_balance(guild_id, sender_id)
+        recipient_before = economy_balance(guild_id, recipient_id)
+        if sender_before < int(amount):
+            return False, sender_before, recipient_before, "insufficient"
+
+        old_sender = economy_balances.get(sender_key)
+        old_recipient = economy_balances.get(recipient_key)
+        economy_balances[sender_key] = sender_before - int(amount)
+        economy_balances[recipient_key] = recipient_before + int(amount)
+        try:
+            saved = await bd_save_data()
+            if not saved:
+                raise RuntimeError("Catnip transfer was not durably confirmed")
+        except Exception:
+            if old_sender is None:
+                economy_balances.pop(sender_key, None)
+            else:
+                economy_balances[sender_key] = old_sender
+            if old_recipient is None:
+                economy_balances.pop(recipient_key, None)
+            else:
+                economy_balances[recipient_key] = old_recipient
+            return False, sender_before, recipient_before, "save_failed"
+        return True, sender_before, recipient_before, None
+    finally:
+        for lock in reversed(locks):
+            if lock.locked():
+                lock.release()
+
+
 @economy_group.command(name="give", description="Give Catnip to another member")
 @app_commands.guild_only()
 async def economy_give_cmd(interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, 10000000]):
@@ -974,14 +1016,13 @@ async def economy_give_cmd(interaction: discord.Interaction, member: discord.Mem
     if member.id == interaction.user.id:
         await cinnamon_send(interaction, "🐾 You can't give Catnip to yourself.", ephemeral=True)
         return
-    sender_balance = economy_balance(guild_id, interaction.user.id)
-    if sender_balance < amount:
-        await cinnamon_send(interaction, f"❌ You only have **{sender_balance:,} Catnip**.", ephemeral=True)
-        return
-    recipient_before = economy_balance(guild_id, member.id)
-    economy_balances[(guild_id, interaction.user.id)] = sender_balance - amount
-    economy_balances[(guild_id, member.id)] = recipient_before + amount
-    await bd_save_data()
+    ok, sender_balance, recipient_before, error = await economy_transfer_catnip(
+        guild_id, interaction.user.id, member.id, amount
+    )
+    if not ok:
+        if error == "insufficient":
+            return await cinnamon_send(interaction, f"❌ You only have **{sender_balance:,} Catnip**.", ephemeral=True)
+        return await cinnamon_send(interaction, "❌ The transfer could not be safely saved. No Catnip was moved; please try again.", ephemeral=True)
     await economy_log(guild_id, title="🎁 Catnip transfer", fields=[("From", f"{interaction.user} ({interaction.user.id})"), ("To", f"{member} ({member.id})"), ("Amount", f"{amount:,} Catnip"), ("Sender before", f"{sender_balance:,}"), ("Sender after", f"{sender_balance-amount:,}"), ("Recipient before", f"{recipient_before:,}"), ("Recipient after", f"{recipient_before+amount:,}")])
     await cinnamon_send(interaction, f"🎁 Gave **{amount:,} Catnip** to {member.mention}.")
 
