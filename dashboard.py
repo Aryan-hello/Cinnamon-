@@ -2182,9 +2182,23 @@ def oauth_callback():
         )
         token=_token_exchange({"grant_type":"authorization_code","code":code,"redirect_uri":redirect_uri})
         user=_request_json(f"{BASE_URL}/users/@me",headers={"Authorization":"Bearer "+token["access_token"]})
+        portal_flow=session.pop("appeal_oauth",None)
         sid=secrets.token_urlsafe(32)
         _tokens[sid]={"access_token":token["access_token"],"refresh_token":token.get("refresh_token"),"expires_at":time.time()+int(token.get("expires_in",3600)),"user":user}
-        session.clear(); session["dash_sid"]=sid; session["display_name"]=user.get("global_name") or user.get("username") or "Discord user"; _csrf()
+        session.clear()
+        if isinstance(portal_flow,dict):
+            portal_gid=int(portal_flow.get("guild_id",0) or 0)
+            portal_token=str(portal_flow.get("token","") or "")
+            if not _appeal_portal_config(portal_gid,portal_token):
+                return _page("<main class='main'><article class='card'><h1>Appeal link expired</h1><p>This server's appeal link was regenerated or disabled. Ask a moderator for the current link.</p></article></main>","Appeal portal",status=410)
+            session["appeal_sid"]=sid
+            session["appeal_guild_id"]=portal_gid
+            session["appeal_portal_token"]=portal_token
+            session["appeal_csrf"]=secrets.token_urlsafe(32)
+            return redirect(url_for("cinnamon_dashboard.appeal_portal_form",guild_id=portal_gid,token=portal_token))
+        session["dash_sid"]=sid
+        session["display_name"]=user.get("global_name") or user.get("username") or "Discord user"
+        _csrf()
         return redirect(url_for("cinnamon_dashboard.dashboard_home"))
     except urllib.error.HTTPError as exc:
         try: payload=json.loads(exc.read().decode("utf-8"))
@@ -2201,6 +2215,126 @@ def oauth_callback():
     except Exception as exc:
         log.exception("Discord OAuth callback failed (%s)",type(exc).__name__)
         return _page("<main class='main'><article class='card'><h1>Discord login failed</h1><p class='muted'>An unexpected login error occurred. Check Render logs.</p><a class='btn' href='/login'>Try again</a></article></main>",status=502)
+
+
+def _appeal_portal_config(guild_id, token):
+    """Return live appeal configuration only when the persisted public token matches."""
+    if not token:
+        return None
+    advanced = _state().get("advanced_features_data", {})
+    root = advanced.get("cinnamon_moderation_controls_v1", {}) if isinstance(advanced, dict) else {}
+    cfg = root.get(str(int(guild_id)), {}) if isinstance(root, dict) else {}
+    saved = str(cfg.get("appeal_portal_token", "") or "") if isinstance(cfg, dict) else ""
+    if not saved or not secrets.compare_digest(saved, str(token)):
+        return None
+    return cfg
+
+
+def _appeal_csrf_input():
+    return "<input type='hidden' name='csrf_token' value='" + _esc(session.get("appeal_csrf", "")) + "'>"
+
+
+def _check_appeal_csrf():
+    supplied = request.form.get("csrf_token", "")
+    expected = session.get("appeal_csrf", "")
+    if not supplied or not expected or not secrets.compare_digest(supplied, expected):
+        abort(400, "The appeal form expired. Reload it and try again.")
+
+
+@dashboard_bp.get("/appeal/<int:guild_id>/<token>")
+def appeal_portal(guild_id, token):
+    cfg = _appeal_portal_config(guild_id, token)
+    if not cfg:
+        abort(404)
+    guild = _bot.get_guild(int(guild_id)) if _bot else None
+    if guild is None:
+        return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>Cinnamon is not connected to this server right now. Please try again later.</p></article></main>", "Appeal portal", status=503)
+    if session.get("appeal_guild_id") == int(guild_id) and session.get("appeal_portal_token") == token and session.get("appeal_sid") in _tokens:
+        return redirect(url_for("cinnamon_dashboard.appeal_portal_form", guild_id=guild_id, token=token))
+    body = (
+        "<main class='main'><article class='card'><h1>Appeal a moderation action</h1>"
+        "<p>Submit an appeal to <b>" + _esc(guild.name) + "</b>. Sign in with Discord so Cinnamon can verify that you are a member of this server.</p>"
+        "<p class='muted'>Your appeal details are delivered privately to the moderation team. This link does not let anyone view other appeals.</p>"
+        "<a class='btn' href='" + _esc(url_for("cinnamon_dashboard.appeal_portal_login", guild_id=guild_id, token=token)) + "'>Continue with Discord</a></article></main>"
+    )
+    return _page(body, "Appeal portal")
+
+
+@dashboard_bp.get("/appeal/<int:guild_id>/<token>/login")
+def appeal_portal_login(guild_id, token):
+    if not _appeal_portal_config(guild_id, token):
+        abort(404)
+    if not os.getenv("DISCORD_CLIENT_ID") or not os.getenv("DISCORD_CLIENT_SECRET"):
+        return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>Discord sign-in is not configured. Please contact a server moderator.</p></article></main>", "Appeal portal", status=503)
+    state_token = secrets.token_urlsafe(32)
+    session["oauth_state"] = state_token
+    session["appeal_oauth"] = {"guild_id": int(guild_id), "token": str(token)}
+    params = {
+        "client_id": os.environ["DISCORD_CLIENT_ID"].strip(),
+        "response_type": "code",
+        "redirect_uri": _oauth_redirect_uri(),
+        "scope": "identify",
+        "state": state_token,
+    }
+    return redirect("https://discord.com/oauth2/authorize?" + urllib.parse.urlencode(params))
+
+
+@dashboard_bp.route("/appeal/<int:guild_id>/<token>/form", methods=["GET", "POST"])
+def appeal_portal_form(guild_id, token):
+    cfg = _appeal_portal_config(guild_id, token)
+    if not cfg:
+        abort(404)
+    sid = session.get("appeal_sid")
+    if (session.get("appeal_guild_id") != int(guild_id)
+            or session.get("appeal_portal_token") != token
+            or sid not in _tokens):
+        return redirect(url_for("cinnamon_dashboard.appeal_portal", guild_id=guild_id, token=token))
+    guild = _bot.get_guild(int(guild_id)) if _bot else None
+    if guild is None:
+        return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>Cinnamon is not connected to this server right now. Please try again later.</p></article></main>", "Appeal portal", status=503)
+    user_id = str(_tokens[sid].get("user", {}).get("id", ""))
+    if not user_id.isdigit():
+        session.pop("appeal_sid", None)
+        return redirect(url_for("cinnamon_dashboard.appeal_portal", guild_id=guild_id, token=token))
+    try:
+        member = _run_bot(guild.fetch_member(int(user_id)))
+    except Exception:
+        return _page("<main class='main'><article class='card'><h1>Server membership required</h1><p>You must be a current member of this Discord server to submit an appeal. If you recently joined, try again in a moment.</p></article></main>", "Appeal portal", status=403)
+    if request.method == "POST":
+        _check_appeal_csrf()
+        details = request.form.get("details", "").strip()
+        if not 20 <= len(details) <= 1500:
+            return _page("<main class='main'><article class='card'><h1>Check your appeal</h1><p>Explain your appeal in 20–1,500 characters.</p><a class='btn' href='" + _esc(url_for("cinnamon_dashboard.appeal_portal_form", guild_id=guild_id, token=token)) + "'>Return to form</a></article></main>", "Appeal portal", status=400)
+        submit = _state().get("submit_moderation_appeal")
+        if not callable(submit):
+            return _page("<main class='main'><article class='card'><h1>Appeals temporarily unavailable</h1><p>The appeal service is not ready. Please try again later.</p></article></main>", "Appeal portal", status=503)
+        try:
+            status, appeal_id = _run_bot(submit(guild, member, details), timeout=35)
+        except Exception:
+            log.exception("Web appeal submission failed for guild %s", guild_id)
+            return _page("<main class='main'><article class='card'><h1>Appeal could not be submitted</h1><p>Storage or Discord was unavailable. Please try again later.</p></article></main>", "Appeal portal", status=503)
+        messages = {
+            "not_configured": "The server has not configured its private moderator review channel.",
+            "pending_exists": "You already have a pending appeal for this server.",
+            "rate_limited": "You can submit up to two appeals per server every 24 hours.",
+            "save_failed": "Your appeal could not be saved safely. No submission was kept.",
+        }
+        if status != "ok":
+            return _page("<main class='main'><article class='card'><h1>Appeal not submitted</h1><p>" + _esc(messages.get(status, "Please try again later.")) + "</p><a class='btn' href='" + _esc(url_for("cinnamon_dashboard.appeal_portal_form", guild_id=guild_id, token=token)) + "'>Return to form</a></article></main>", "Appeal portal", status=400)
+        session["appeal_submitted_id"] = str(appeal_id)
+        return redirect(url_for("cinnamon_dashboard.appeal_portal_form", guild_id=guild_id, token=token))
+    submitted_id = session.pop("appeal_submitted_id", None)
+    if submitted_id:
+        return _page("<main class='main'><article class='card'><h1>Appeal submitted</h1><p>Your appeal was delivered privately to the moderation team.</p><p class='muted'>Reference: " + _esc(submitted_id) + "</p></article></main>", "Appeal submitted")
+    form = (
+        "<main class='main'><article class='card'><h1>Submit a moderation appeal</h1>"
+        "<p>Signed in as <b>" + _esc(_tokens[sid].get("user", {}).get("global_name") or _tokens[sid].get("user", {}).get("username") or "Discord member") + "</b>."
+        " Your membership in " + _esc(guild.name) + " has been verified.</p>"
+        "<form method='post'>" + _appeal_csrf_input() +
+        "<div class='field'><label for='appealDetails'>Explain your appeal</label><textarea id='appealDetails' name='details' minlength='20' maxlength='1500' rows='8' required placeholder='Explain which moderation action you are appealing and why...'></textarea><small>20–1,500 characters. Do not include passwords or private account credentials.</small></div>"
+        "<button class='btn' type='submit'>Submit appeal</button></form></article></main>"
+    )
+    return _page(form, "Submit appeal")
 
 
 def _analytics(guild, state):
