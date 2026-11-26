@@ -213,18 +213,27 @@ async def _unlock(g,u,aid,secret=False,reason=""):
     if aid not in pool: return False
     s=_state(g,u); key="secret_unlocked" if secret else "unlocked"
     if aid in s[key] or aid in s["unlocked"] or aid in s["secret_unlocked"]: return False
-    guard_key=(g,u,aid)
+    guard_key=(int(g),int(u),aid)
     if guard_key in _achievement_guard: return False
     _achievement_guard.add(guard_key)
-    state_key=_key(g,u)
-    old_state=_ach_copy.deepcopy(s)
-    balance_key=(int(g),int(u))
-    had_balance=balance_key in economy_balances
-    old_balance=economy_balances.get(balance_key)
-    had_xp=balance_key in xp_data
-    old_xp=xp_data.get(balance_key)
-    a=pool[aid]
+    wallet_lock=_CINNAMON_SHOP_LOCKS.setdefault((int(g),int(u)),asyncio.Lock())
+    wallet_locked=False
     try:
+        await wallet_lock.acquire()
+        wallet_locked=True
+        # Re-check after acquiring the shared wallet lock: other reward paths
+        # may have completed while this task was waiting.
+        s=_state(g,u)
+        if aid in s[key] or aid in s["unlocked"] or aid in s["secret_unlocked"]:
+            return False
+        state_key=_key(g,u)
+        old_state=_ach_copy.deepcopy(s)
+        balance_key=(int(g),int(u))
+        had_balance=balance_key in economy_balances
+        old_balance=economy_balances.get(balance_key)
+        had_xp=balance_key in xp_data
+        old_xp=xp_data.get(balance_key)
+        a=pool[aid]
         s[key].append(aid)
         s["points"]+=int(a.get("points",0) or 0)
         if a.get("catnip"):
@@ -251,6 +260,8 @@ async def _unlock(g,u,aid,secret=False,reason=""):
             ("Role",a.get("role") or "None"),("Role applied",str(role_ok) if role_ok is not None else "N/A"),("Reason",reason or a.get("description",""))])
         return True
     finally:
+        if wallet_locked:
+            wallet_lock.release()
         _achievement_guard.discard(guard_key)
 
 async def achievement_check_all(g,u):
